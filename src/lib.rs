@@ -3,3 +3,4 @@
 // Date: 2026-04-05
 
 pub mod error;
+pub mod schema;

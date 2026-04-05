@@ -24,7 +24,7 @@
     {
       "id": "002",
       "title": "Domain schema types",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "Verdict, Severity, Mode, AgentName enums with encapsulated behavior. Finding and AgentOutput structs. Serialize/Deserialize/Clone/Debug/PartialEq/Eq/Hash.",
       "section_ref": "planning/sections/section-02-schema.md",

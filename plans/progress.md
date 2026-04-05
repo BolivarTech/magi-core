@@ -70,3 +70,33 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 13/13 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 002: Domain schema types (COMPLETED)
+
+**What was done:**
+- Created `src/schema.rs` with 4 enums and 2 structs:
+  - `Verdict`: Approve/Reject/Conditional — `weight()`, `effective()`, Display uppercase, serde lowercase
+  - `Severity`: Critical/Warning/Info — `icon()`, manual `Ord` (Critical > Warning > Info), serde lowercase
+  - `Mode`: CodeReview/Design/Analysis — Display kebab-case, serde kebab-case
+  - `AgentName`: Melchior/Balthasar/Caspar — `title()`, `display_name()`, manual `Ord` alphabetical, serde lowercase
+  - `Finding`: severity/title/detail — `stripped_title()` removes Unicode Cf chars via regex
+  - `AgentOutput`: agent/verdict/confidence/summary/reasoning/findings/recommendation — `is_approving()`, `is_dissenting()`, `effective_verdict()`
+- Added `regex = "1"` to Cargo.toml
+- Updated `src/lib.rs` with `pub mod schema;`
+- 39 tests covering all behaviors, serde roundtrips, ordering, deserialization rejection
+
+**Key decisions:**
+- `AgentOutput` does NOT use `#[serde(deny_unknown_fields)]` — spec requires ignoring unknown fields
+- `AgentOutput` derives `PartialEq` but not `Eq`/`Hash` because it contains `f64` (confidence)
+- `Severity::Ord` implemented manually (rank function) because derived Ord uses discriminant order which would give wrong direction
+- `AgentName::Ord` implemented via `display_name()` string comparison for guaranteed alphabetical order
+- `Finding::stripped_title()` compiles regex per call (spec says Validator in section 03 will precompile and reuse)
+
+**Files modified:**
+- src/schema.rs (created)
+- src/lib.rs (added `pub mod schema;`)
+- Cargo.toml (added `regex = "1"`)
+
+**Verification:** 52/52 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---
