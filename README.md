@@ -6,10 +6,14 @@
 [![CI](https://github.com/jbolivarg/magi-core/actions/workflows/ci.yml/badge.svg)](https://github.com/jbolivarg/magi-core/actions)
 
 LLM-agnostic multi-perspective analysis system in Rust, inspired by the MAGI
-supercomputers from Neon Genesis Evangelion.
+supercomputers from [Neon Genesis Evangelion](https://en.wikipedia.org/wiki/Neon_Genesis_Evangelion).
 
 Three independent agents analyze content from complementary perspectives, then a
 consensus engine synthesizes their verdicts into a unified report.
+
+> *"No single perspective is sufficient for good decision-making under uncertainty."*
+> See [docs/MAGI-System-Documentation.md](docs/MAGI-System-Documentation.md) for the
+> complete origin story, design philosophy, and Evangelion correspondence table.
 
 | Agent        | Codename   | Perspective                  |
 |--------------|------------|------------------------------|
@@ -20,7 +24,7 @@ consensus engine synthesizes their verdicts into a unified report.
 ## Features
 
 - **LLM-agnostic** — bring your own provider via the `LlmProvider` trait
-- **Parallel execution** — agents run concurrently with `tokio::JoinSet`
+- **Parallel execution** — agents run concurrently via `tokio::spawn` with `AbortGuard` cancellation
 - **Graceful degradation** — if one agent fails, the remaining two still produce a result
 - **Weighted consensus** — approve (+1), conditional (+0.5), reject (-1) scoring with epsilon-aware classification
 - **Finding deduplication** — merges duplicate findings across agents, promotes severity
@@ -56,7 +60,6 @@ async fn main() -> Result<(), MagiError> {
     let magi = Magi::new(provider);
     let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await?;
 
-    println!("{}", report.banner);
     println!("{}", report.report);
     Ok(())
 }
