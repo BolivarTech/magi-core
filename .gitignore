@@ -1,0 +1,31 @@
+# Rust
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Environment
+.env
+
+# Claude Code
+.claude/
+.remember/
+CLAUDE.md
+CLAUDE.local.md
+
+# SBTDD / development tooling
+planning/
+plans/
+sbtdd/
+scripts/
+run-tests.py
+prd.json
+docs/superpowers/

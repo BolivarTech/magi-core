@@ -2,10 +2,8 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use regex::Regex;
-
 use crate::error::MagiError;
-use crate::schema::{AgentOutput, Finding};
+use crate::schema::{AgentOutput, Finding, ZERO_WIDTH_PATTERN};
 
 /// Configuration thresholds for agent output validation.
 #[non_exhaustive]
@@ -40,13 +38,11 @@ impl Default for ValidationLimits {
 
 /// Validates `AgentOutput` fields against configurable limits.
 ///
-/// Holds a precompiled regex for stripping zero-width Unicode characters
-/// and configurable limits for field lengths and counts.
+/// Uses [`ZERO_WIDTH_PATTERN`] from `schema` for stripping zero-width Unicode
+/// characters, and configurable limits for field lengths and counts.
 pub struct Validator {
     /// Active validation limits.
     pub limits: ValidationLimits,
-    /// Precompiled regex for stripping Unicode Cf characters.
-    zero_width_pattern: Regex,
 }
 
 impl Default for Validator {
@@ -63,16 +59,7 @@ impl Validator {
 
     /// Creates a validator with custom limits.
     pub fn with_limits(limits: ValidationLimits) -> Self {
-        let zero_width_pattern = Regex::new(
-            "[\u{00AD}\u{0600}-\u{0605}\u{061C}\u{06DD}\u{070F}\u{08E2}\u{180E}\
-             \u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{206F}\
-             \u{FEFF}\u{FFF9}-\u{FFFB}]",
-        )
-        .expect("zero-width regex is valid");
-        Self {
-            limits,
-            zero_width_pattern,
-        }
+        Self { limits }
     }
 
     /// Validates an `AgentOutput`, returning on first failure.
@@ -145,7 +132,7 @@ impl Validator {
     }
 
     fn strip_zero_width(&self, text: &str) -> String {
-        self.zero_width_pattern.replace_all(text, "").into_owned()
+        ZERO_WIDTH_PATTERN.replace_all(text, "").into_owned()
     }
 }
 

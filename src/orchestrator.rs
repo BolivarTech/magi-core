@@ -331,15 +331,22 @@ impl Magi {
         }
 
         let mut results = Vec::new();
+        let mut unmatched_panic_index: usize = 0;
+        let all_agent_names = [AgentName::Balthasar, AgentName::Caspar, AgentName::Melchior];
         while let Some(join_result) = join_set.join_next().await {
             match join_result {
                 Ok(result) => results.push(result),
                 Err(join_err) => {
+                    // JoinSet does not identify which task panicked.
+                    // Use a rotating fallback name so no single agent is always blamed.
+                    let fallback_name =
+                        all_agent_names[unmatched_panic_index % all_agent_names.len()];
+                    unmatched_panic_index += 1;
                     results.push((
-                        AgentName::Melchior,
+                        fallback_name,
                         Err(MagiError::Provider(ProviderError::Process {
                             exit_code: None,
-                            stderr: format!("agent task failed: {join_err}"),
+                            stderr: format!("agent task panicked: {join_err}"),
                         })),
                     ));
                 }
@@ -375,7 +382,7 @@ impl Magi {
             }
         }
 
-        let min_agents = 2;
+        let min_agents = self.consensus_engine.min_agents();
         if successful.len() < min_agents {
             return Err(MagiError::InsufficientAgents {
                 succeeded: successful.len(),
@@ -400,8 +407,11 @@ fn build_prompt(mode: &Mode, content: &str) -> String {
 ///
 /// Handles common LLM output quirks:
 /// 1. Strips code fences (` ```json ` and ` ``` `).
-/// 2. Finds JSON boundaries (first `{` to last `}`).
+/// 2. Tries to parse JSON from each `{` position until one succeeds.
 /// 3. Deserializes via serde (unknown fields are ignored).
+///
+/// This approach is resilient to LLM responses that contain stray `{}`
+/// in prose before the actual JSON payload.
 ///
 /// # Errors
 /// Returns `MagiError::Deserialization` if no valid JSON object is found.
@@ -423,20 +433,21 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
         trimmed
     };
 
-    // Find JSON boundaries: first { to last }
-    let start = stripped.find('{');
-    let end = stripped.rfind('}');
+    // Try parsing from each '{' position, starting from the end of the string.
+    // LLM responses typically have the JSON payload as the last (or only) object,
+    // so searching backwards finds the correct one faster.
+    let brace_positions: Vec<usize> = stripped.rmatch_indices('{').map(|(i, _)| i).collect();
 
-    match (start, end) {
-        (Some(s), Some(e)) if s < e => {
-            let json_str = &stripped[s..=e];
-            let output: AgentOutput = serde_json::from_str(json_str)?;
-            Ok(output)
+    for start in brace_positions {
+        let candidate = &stripped[start..];
+        if let Ok(output) = serde_json::from_str::<AgentOutput>(candidate) {
+            return Ok(output);
         }
-        _ => Err(MagiError::Deserialization(
-            "no JSON object found in agent response".to_string(),
-        )),
     }
+
+    Err(MagiError::Deserialization(
+        "no valid JSON object found in agent response".to_string(),
+    ))
 }
 
 #[cfg(test)]

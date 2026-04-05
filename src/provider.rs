@@ -66,9 +66,9 @@ pub trait LlmProvider: Send + Sync {
 /// Opt-in retry wrapper for any `LlmProvider`.
 ///
 /// Wraps an inner provider and retries transient errors (timeout, network,
-/// HTTP 500/429) up to `max_retries` times with a fixed `base_delay` between
-/// attempts. Non-retryable errors (auth, process, nested session, other HTTP
-/// status codes) are returned immediately.
+/// HTTP 500/429) up to `max_retries` times with exponential backoff starting
+/// from `base_delay`. Non-retryable errors (auth, process, nested session,
+/// other HTTP status codes) are returned immediately.
 ///
 /// Implements `LlmProvider` itself, making it transparent to consumers.
 pub struct RetryProvider {
@@ -97,7 +97,7 @@ impl RetryProvider {
     /// # Parameters
     /// - `inner`: The provider to wrap with retry logic.
     /// - `max_retries`: Maximum retry attempts after the initial failure.
-    /// - `base_delay`: Fixed delay between retry attempts.
+    /// - `base_delay`: Initial delay between retries; doubles on each subsequent attempt.
     pub fn with_config(
         inner: Arc<dyn LlmProvider>,
         max_retries: u32,
@@ -140,6 +140,7 @@ impl LlmProvider for RetryProvider {
         config: &CompletionConfig,
     ) -> Result<String, ProviderError> {
         let mut last_error = None;
+        let mut delay = self.base_delay;
         for attempt in 0..=self.max_retries {
             match self
                 .inner
@@ -152,7 +153,8 @@ impl LlmProvider for RetryProvider {
                         return Err(err);
                     }
                     last_error = Some(err);
-                    tokio::time::sleep(self.base_delay).await;
+                    tokio::time::sleep(delay).await;
+                    delay = delay.saturating_mul(2);
                 }
             }
         }

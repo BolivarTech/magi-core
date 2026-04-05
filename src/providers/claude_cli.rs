@@ -181,6 +181,11 @@ impl LlmProvider for ClaudeCliProvider {
     ///
     /// The timeout is NOT applied here — the orchestrator wraps the
     /// entire agent task in `tokio::time::timeout`.
+    ///
+    /// **Note:** `config` (max_tokens, temperature) is ignored because the
+    /// `claude --print` CLI does not expose those flags. The CLI uses its
+    /// own server-side defaults. Users who need fine-grained control should
+    /// use [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) (HTTP API) instead.
     async fn complete(
         &self,
         system_prompt: &str,
@@ -243,6 +248,11 @@ impl LlmProvider for ClaudeCliProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // NOTE: These tests manipulate the CLAUDECODE environment variable, which is
+    // process-global state. They are safe under `cargo nextest` (each test runs
+    // in its own process) but would race under `cargo test` with parallel threads.
+    // If migrating away from nextest, add `serial_test` crate or a global mutex.
 
     /// Saves the current CLAUDECODE env var, clears it, runs the closure,
     /// then restores the original value. All env mutations are in unsafe blocks

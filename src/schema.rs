@@ -6,6 +6,21 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
+use std::sync::LazyLock;
+
+/// Zero-width Unicode character pattern (category Cf) shared across modules.
+///
+/// Matches soft hyphens, Arabic markers, zero-width spaces, directional marks,
+/// byte order marks, and other invisible formatting characters. Used by
+/// [`Finding::stripped_title`] and [`crate::validate::Validator`].
+pub static ZERO_WIDTH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        "[\u{00AD}\u{0600}-\u{0605}\u{061C}\u{06DD}\u{070F}\u{08E2}\u{180E}\
+         \u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{206F}\
+         \u{FEFF}\u{FFF9}-\u{FFFB}]",
+    )
+    .expect("zero-width regex is valid")
+});
 
 /// An agent's judgment on the analyzed content.
 ///
@@ -210,14 +225,9 @@ impl Finding {
     ///
     /// Strips zero-width spaces, byte order marks, and other invisible
     /// formatting characters that could interfere with deduplication.
+    /// Uses [`ZERO_WIDTH_PATTERN`], compiled once via `LazyLock`.
     pub fn stripped_title(&self) -> String {
-        let re = Regex::new(
-            "[\u{00AD}\u{0600}-\u{0605}\u{061C}\u{06DD}\u{070F}\u{08E2}\u{180E}\
-             \u{200B}-\u{200F}\u{202A}-\u{202E}\u{2060}-\u{2064}\u{2066}-\u{206F}\
-             \u{FEFF}\u{FFF9}-\u{FFFB}]",
-        )
-        .expect("zero-width regex is valid");
-        re.replace_all(&self.title, "").into_owned()
+        ZERO_WIDTH_PATTERN.replace_all(&self.title, "").into_owned()
     }
 }
 

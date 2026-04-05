@@ -100,6 +100,11 @@ pub struct ConsensusEngine {
 }
 
 impl ConsensusEngine {
+    /// Returns the minimum number of agents required by this engine's configuration.
+    pub fn min_agents(&self) -> usize {
+        self.config.min_agents
+    }
+
     /// Creates a new consensus engine with the given configuration.
     ///
     /// If `config.min_agents` is 0, it is clamped to 1.
