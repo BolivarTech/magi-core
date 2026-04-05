@@ -195,3 +195,37 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 118/118 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 006: LlmProvider trait and RetryProvider (COMPLETED)
+
+**What was done:**
+- Created `src/provider.rs` with `LlmProvider` async trait, `CompletionConfig`, and `RetryProvider`
+- `LlmProvider`: async trait (via `async-trait`) with `Send + Sync` bounds for `Arc<dyn LlmProvider>` usage with `tokio::spawn`
+  - Methods: `complete()`, `name()`, `model()`
+- `CompletionConfig`: `#[non_exhaustive]`, Debug/Clone, Default (max_tokens=4096, temperature=0.0)
+- `RetryProvider`: wraps `Arc<dyn LlmProvider>` with configurable retry logic
+  - `new()` with defaults (3 retries, 1s delay), `with_config()` for custom settings
+  - Implements `LlmProvider` itself — transparent to consumers
+  - Retries on: Timeout, Network, Http 500, Http 429
+  - Does NOT retry on: Auth, Process, NestedSession, Http 4xx (except 429)
+  - Returns last error after exhausting retries
+- Added `async-trait = "0.1"` and `tokio = { version = "1", features = ["time"] }` to Cargo.toml
+- Added `tokio` dev-dependency with `macros` + `rt-multi-thread` features for `#[tokio::test]`
+- Updated `src/lib.rs` with `pub mod provider;`
+- 15 tests: CompletionConfig defaults, RetryProvider delegation (name/model), retry on transient errors (Timeout, Http 500, Http 429, Network), no-retry on non-transient errors (Auth, Process, NestedSession, Http 4xx), exhaustion, success on first retry, default config values
+
+**Key decisions:**
+- `is_retryable()` is a private standalone function (not a method) — simple match on ProviderError variants
+- Guard condition for Http status moved to match arm body (Rust `matches!` macro has issues with guards across alternation arms)
+- `RetryProvider` loop uses `0..=max_retries` for `1 + max_retries` total attempts
+- `last_error` tracked but not used in practice since the loop always returns from within
+- `expect()` on `last_error` is unreachable dead code (loop always returns Err before exiting)
+
+**Files modified:**
+- src/provider.rs (created)
+- src/lib.rs (added `pub mod provider;`)
+- Cargo.toml (added async-trait, tokio dependencies)
+
+**Verification:** 133/133 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---

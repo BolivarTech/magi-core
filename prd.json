@@ -111,7 +111,7 @@
     {
       "id": "006",
       "title": "LlmProvider trait and RetryProvider",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "LlmProvider async trait (Send + Sync) with async-trait. CompletionConfig. RetryProvider opt-in wrapper.",
       "section_ref": "planning/sections/section-06-provider.md",
