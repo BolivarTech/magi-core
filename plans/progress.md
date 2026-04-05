@@ -163,3 +163,35 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 98/98 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 005: Reporting and MagiReport (COMPLETED)
+
+**What was done:**
+- Created `src/reporting.rs` with `ReportConfig`, `ReportFormatter`, and `MagiReport`
+- `ReportConfig`: `#[non_exhaustive]`, Debug/Clone, Default (banner_width=52, standard MAGI agent titles in BTreeMap)
+- `ReportFormatter`: holds `config` + `banner_inner` (config.banner_width - 2)
+  - `new()` / `with_config()` constructors
+  - `format_banner()` — fixed-width 52-char ASCII verdict box with agent lines and consensus label
+  - `format_init_banner()` — pre-analysis initialization box with mode/model/timeout
+  - `format_report()` — full markdown report: banner + consensus summary + optional findings/dissent/conditions + recommendations
+  - Private helpers: `format_separator()`, `format_line()` (with truncation), `agent_display()` (config lookup with fallback to AgentName methods)
+  - Section methods: `format_consensus_summary()`, `format_findings()`, `format_dissent()`, `format_conditions()`, `format_recommendations()`
+- `MagiReport`: Debug/Clone/Serialize with agents, consensus, banner, report, degraded, failed_agents
+- Updated `src/lib.rs` with `pub mod reporting;`
+- 20 tests covering: BDD-15 (banner width 52 chars), BDD-16 (all 5 markdown headers), optional section omission, banner structure, init banner, separator format, agent line format, findings/dissent/conditions/recommendations formatting, agent display fallback, MagiReport serialization, degraded flag, JSON lowercase agent names, confidence passthrough
+
+**Key decisions:**
+- Banner uses `std::fmt::Write` for string building (no allocation overhead from concatenation)
+- `format_line()` truncates content that exceeds banner_inner width (preserves 52-char invariant)
+- Optional sections (findings, dissent, conditions) are entirely omitted when data is empty
+- `agent_display()` falls back to `AgentName::display_name()` and `AgentName::title()` when not in config
+- Confidence rounding is NOT done by MagiReport — it's the consensus engine's responsibility (already handled in task 004)
+- `MagiReport` only derives `Serialize` (not `Deserialize`) — it's output-only
+
+**Files modified:**
+- src/reporting.rs (created)
+- src/lib.rs (added `pub mod reporting;`)
+
+**Verification:** 118/118 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---

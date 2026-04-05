@@ -4,5 +4,6 @@
 
 pub mod consensus;
 pub mod error;
+pub mod reporting;
 pub mod schema;
 pub mod validate;

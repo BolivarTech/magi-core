@@ -90,7 +90,7 @@
     {
       "id": "005",
       "title": "Reporting and MagiReport",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "ReportFormatter with ReportConfig. Fixed-width 52-char ASCII banner. Markdown report generation. MagiReport struct with Serialize.",
       "section_ref": "planning/sections/section-05-reporting.md",
