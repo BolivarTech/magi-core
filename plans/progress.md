@@ -130,3 +130,36 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 73/73 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 004: Consensus engine (COMPLETED)
+
+**What was done:**
+- Created `src/consensus.rs` with `ConsensusConfig`, `ConsensusEngine`, `ConsensusResult`, and supporting structs (`DedupFinding`, `Dissent`, `Condition`)
+- `ConsensusConfig`: `#[non_exhaustive]`, Debug/Clone, Default (min_agents=2, epsilon=1e-9), min_agents clamped to 1 if 0
+- `ConsensusEngine`: stateless `determine(&self, &[AgentOutput])` method implementing the full consensus algorithm:
+  1. Input validation (count, duplicates)
+  2. Normalized score computation from verdict weights
+  3. Majority verdict determination with alphabetical tiebreaking
+  4. Epsilon-aware classification into labels (STRONG GO, GO (n-m), GO WITH CAVEATS, HOLD -- TIE, HOLD (n-m), STRONG NO-GO)
+  5. Degraded mode capping (< 3 agents: STRONG GO → GO, STRONG NO-GO → HOLD)
+  6. Confidence formula: base * weight_factor, clamped [0,1], rounded 2 decimals
+  7. Finding deduplication by case-insensitive stripped title, severity promotion, detail from highest severity (or first agent by Ord on tie)
+  8. Dissent tracking, condition extraction, votes map, majority summary, recommendations map
+- 25 tests covering all BDD scenarios (1,2,3,4,5,13,33), error cases, score/confidence calculations, deduplication edge cases
+
+**Key decisions:**
+- `ConsensusEngine` implements `Default` (delegates to `new(ConsensusConfig::default())`)
+- Classification is extracted into private `classify()` helper for readability
+- Deduplication is extracted into private `deduplicate_findings()` helper
+- Agent-finding pairs are sorted by `AgentName::Ord` before grouping to ensure deterministic tiebreaking
+- Findings in result sorted by severity descending (Critical first)
+- `HashSet` used internally for duplicate detection; `BTreeMap` for all output maps
+- `majority_verdict` variable tracks the binary majority for dissent/summary filtering; `consensus_verdict` from classification may differ (e.g. HOLD -- TIE uses Reject)
+
+**Files modified:**
+- src/consensus.rs (created)
+- src/lib.rs (added `pub mod consensus;`)
+
+**Verification:** 98/98 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---

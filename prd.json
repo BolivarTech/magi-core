@@ -65,7 +65,7 @@
     {
       "id": "004",
       "title": "Consensus engine",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "ConsensusEngine with ConsensusConfig. Stateless determine() method. Score computation, epsilon-aware classification, finding deduplication, majority/dissent identification.",
       "section_ref": "planning/sections/section-04-consensus.md",
