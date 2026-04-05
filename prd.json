@@ -223,7 +223,7 @@
     {
       "id": "011",
       "title": "Prelude and crate root",
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "description": "Prelude module re-exporting common types. lib.rs with module declarations and feature-gated conditional compilation.",
       "section_ref": "planning/sections/section-11-prelude.md",

@@ -369,3 +369,31 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 180/180 tests pass (163 base + 14 ClaudeProvider + 17 ClaudeCliProvider via --features claude-cli), clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 011: Prelude and crate root (COMPLETED)
+
+**What was done:**
+- Created `src/prelude.rs` with re-exports of all common types from every module
+- Added crate-level `//!` Rustdoc to `lib.rs` with module description and usage example
+- Added module-level `//!` Rustdoc to `src/providers/mod.rs`
+- Added `pub mod prelude;` to `lib.rs`
+- Feature-gated provider re-exports: `ClaudeProvider` behind `claude-api`, `ClaudeCliProvider` behind `claude-cli`
+- 8 tests: core type re-exports (compile-time), no-features compilation, feature flag gating, claude-api feature, claude-cli feature, RetryProvider, Agent/AgentFactory, ReportConfig/ReportFormatter, ConsensusEngine, MagiBuilder
+- Verified all 4 feature flag combinations compile: no features, claude-api, claude-cli, both
+
+**Key decisions:**
+- Prelude re-exports all public types from all modules (24 types total + 2 feature-gated)
+- Tests are primarily compile-time verification (if it compiles, the re-exports work)
+- Crate-level doc example uses `no_run` since it requires a real provider
+- `providers/mod.rs` already had feature gates — just added module-level doc
+
+**Files created:**
+- src/prelude.rs
+
+**Files modified:**
+- src/lib.rs (added `pub mod prelude;`, crate-level Rustdoc)
+- src/providers/mod.rs (added module-level Rustdoc)
+
+**Verification:** 171/171 tests pass (base suite without features), clippy clean, fmt clean, release build clean, docs clean. All feature combinations compile.
+
+---
