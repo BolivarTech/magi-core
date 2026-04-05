@@ -5,6 +5,7 @@
 pub mod agent;
 pub mod consensus;
 pub mod error;
+pub mod orchestrator;
 mod prompts;
 pub mod provider;
 pub mod reporting;
