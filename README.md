@@ -2,8 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/magi-core.svg)](https://crates.io/crates/magi-core)
 [![Documentation](https://docs.rs/magi-core/badge.svg)](https://docs.rs/magi-core)
-[![License](https://img.shields.io/crates/l/magi-core.svg)](https://github.com/jbolivarg/magi-core#license)
-[![CI](https://github.com/jbolivarg/magi-core/actions/workflows/ci.yml/badge.svg)](https://github.com/jbolivarg/magi-core/actions)
+[![License](https://img.shields.io/crates/l/magi-core.svg)](https://github.com/BolivarTech/magi-core#license)
+[![CI](https://github.com/BolivarTech/magi-core/actions/workflows/ci.yml/badge.svg)](https://github.com/BolivarTech/magi-core/actions)
 
 LLM-agnostic multi-perspective analysis system in Rust, inspired by the MAGI
 supercomputers from [Neon Genesis Evangelion](https://en.wikipedia.org/wiki/Neon_Genesis_Evangelion).
@@ -214,11 +214,11 @@ no optional features enabled.
 ```bash
 # Run the included example with the CLI provider
 cargo run --example basic_analysis --features claude-cli -- \
-  --mode code-review --input "fn main() { panic!(\"oops\"); }"
+  --input "fn fibonacci(n: u32) -> u32 { match n { 0 => 0, 1 => 1, _ => fibonacci(n-1) + fibonacci(n-2) } }"
 
 # JSON output
 cargo run --example basic_analysis --features claude-cli -- \
-  --json --input "fn divide(a: f64, b: f64) -> f64 { a / b }"
+  --json --input "fn fibonacci(n: u32) -> u32 { match n { 0 => 0, 1 => 1, _ => fibonacci(n-1) + fibonacci(n-2) } }"
 ```
 
 ## Minimum Supported Rust Version
