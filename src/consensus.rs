@@ -163,32 +163,26 @@ impl ConsensusEngine {
 
         let has_conditional = agents.iter().any(|a| a.verdict == Verdict::Conditional);
 
-        let majority_verdict = if approve_count > reject_count {
-            Verdict::Approve
-        } else if reject_count > approve_count {
-            Verdict::Reject
-        } else {
-            // Tie: break by alphabetically first agent on each side
-            let first_approve = agents
-                .iter()
-                .filter(|a| a.effective_verdict() == Verdict::Approve)
-                .map(|a| a.agent)
-                .min();
-            let first_reject = agents
-                .iter()
-                .filter(|a| a.effective_verdict() == Verdict::Reject)
-                .map(|a| a.agent)
-                .min();
-            match (first_approve, first_reject) {
-                (Some(a), Some(r)) => {
-                    if a < r {
-                        Verdict::Approve
-                    } else {
-                        Verdict::Reject
-                    }
+        let majority_verdict = match approve_count.cmp(&reject_count) {
+            std::cmp::Ordering::Greater => Verdict::Approve,
+            std::cmp::Ordering::Less => Verdict::Reject,
+            std::cmp::Ordering::Equal => {
+                // Tie: break by alphabetically first agent on each side
+                let first_approve = agents
+                    .iter()
+                    .filter(|a| a.effective_verdict() == Verdict::Approve)
+                    .map(|a| a.agent)
+                    .min();
+                let first_reject = agents
+                    .iter()
+                    .filter(|a| a.effective_verdict() == Verdict::Reject)
+                    .map(|a| a.agent)
+                    .min();
+                match (first_approve, first_reject) {
+                    (Some(a), Some(r)) if a < r => Verdict::Approve,
+                    (Some(_), None) => Verdict::Approve,
+                    _ => Verdict::Reject,
                 }
-                (Some(_), None) => Verdict::Approve,
-                _ => Verdict::Reject,
             }
         };
 
