@@ -108,7 +108,7 @@ fn read_input(input_arg: Option<String>) -> Result<String, std::io::Error> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Default argument values
     let mut provider_name = "cli".to_string();
-    let mut model = "sonnet".to_string();
+    let mut model = "opus".to_string();
     let mut mode_str = "code-review".to_string();
     let mut api_key: Option<String> = None;
     let mut input: Option<String> = None;
@@ -188,7 +188,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string_pretty(&report)?;
         println!("{json}");
     } else {
-        println!("{}", report.banner);
         println!("{}", report.report);
     }
 
