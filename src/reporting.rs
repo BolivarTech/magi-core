@@ -227,7 +227,7 @@ impl ReportFormatter {
     /// Content is left-aligned. If content exceeds inner width, it is truncated.
     fn format_line(&self, content: &str) -> String {
         if content.len() > self.banner_inner {
-            let boundary = floor_char_boundary(content, self.banner_inner);
+            let boundary = content.floor_char_boundary(self.banner_inner);
             format!(
                 "|{:<width$}|",
                 &content[..boundary],
@@ -320,21 +320,6 @@ impl ReportFormatter {
         }
         out
     }
-}
-
-/// Returns the largest byte index at or before `index` that is a UTF-8 char boundary.
-///
-/// Equivalent to `str::floor_char_boundary` (unstable, rust-lang#93743).
-/// Walks backwards from `index` until a leading byte (not a continuation byte) is found.
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    if index >= s.len() {
-        return s.len();
-    }
-    let mut i = index;
-    while i > 0 && !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
 }
 
 impl Default for ReportFormatter {
