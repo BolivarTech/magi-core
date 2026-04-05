@@ -100,3 +100,33 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 52/52 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 003: Validation (COMPLETED)
+
+**What was done:**
+- Created `src/validate.rs` with `ValidationLimits` and `Validator` structs
+- `ValidationLimits`: `#[non_exhaustive]`, Debug/Clone, Default with spec values (100, 500, 10_000, 50_000, 0.0, 1.0)
+- `Validator`: holds `ValidationLimits` + precompiled `Regex` for Unicode Cf stripping
+  - `new()` / `with_limits()` constructors
+  - `validate(&self, &AgentOutput) -> Result<(), MagiError>` — fail-fast validation in order: confidence, summary, reasoning, recommendation, findings
+  - `validate_confidence` — uses `!(val >= min && val <= max)` pattern to naturally reject NaN/Infinity
+  - `validate_text_field` — generic check with field name in error message
+  - `validate_findings` — count check + per-finding validation
+  - `validate_finding` — strips zero-width chars first, then checks emptiness and length
+  - `strip_zero_width` — uses precompiled regex (not per-call like `Finding::stripped_title()`)
+- Updated `src/lib.rs` with `pub mod validate;`
+- 21 tests covering: constructors, BDD-10 (confidence range), BDD-11 (zero-width title), BDD-12 (text length), NaN/Infinity, findings count/title/detail limits, validation order, title length after strip
+
+**Key decisions:**
+- `Validator` implements `Default` (delegates to `new()`) to satisfy clippy
+- Confidence validation uses `!(a >= b && a <= c)` instead of `a < b || a > c` to catch NaN naturally (NaN comparisons always return false)
+- Title length is checked on the stripped version, not the raw string (per acceptance criteria)
+- Error messages include field names and limit values for diagnostics
+
+**Files modified:**
+- src/validate.rs (created)
+- src/lib.rs (added `pub mod validate;`)
+
+**Verification:** 73/73 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---

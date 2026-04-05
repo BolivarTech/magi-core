@@ -44,7 +44,7 @@
     {
       "id": "003",
       "title": "Validation",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "Validator struct with ValidationLimits and precompiled Regex. Validates AgentOutput fields (confidence, text lengths, findings).",
       "section_ref": "planning/sections/section-03-validation.md",
