@@ -8,6 +8,7 @@ pub mod error;
 pub mod orchestrator;
 mod prompts;
 pub mod provider;
+pub mod providers;
 pub mod reporting;
 pub mod schema;
 pub mod validate;

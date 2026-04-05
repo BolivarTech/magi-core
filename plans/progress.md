@@ -260,3 +260,74 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 148/148 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 008: Orchestrator (COMPLETED)
+
+**What was done:**
+- Created `src/orchestrator.rs` with `MagiConfig`, `MagiBuilder`, `Magi`, `build_prompt()`, and `parse_agent_response()`
+- `MagiConfig`: `#[non_exhaustive]`, Debug/Clone, Default (timeout=300s, max_input_len=1MB, completion=default)
+- `MagiBuilder`: consuming builder pattern with all configuration options (providers, prompts, timeouts, limits, configs)
+  - `build()` returns `Result<Magi, MagiError>` (can fail if `prompts_dir` is set and unreadable)
+- `Magi`: main entry point composing `AgentFactory`, `Validator`, `ConsensusEngine`, `ReportFormatter`
+  - `new()` convenience constructor using all defaults (safe unwrap — no I/O)
+  - `builder()` returns a `MagiBuilder`
+  - `analyze()` full orchestration: input validation → create agents → build prompt → launch parallel → parse → validate → consensus → report
+  - `launch_agents()` uses `tokio::task::JoinSet` for cancellation safety — dropping the JoinSet aborts all spawned tasks
+  - Each agent task wrapped in `tokio::time::timeout`
+  - `process_results()` separates successes/failures, enforces min_agents=2 threshold
+- `parse_agent_response()`: strips code fences, finds JSON boundaries (first `{` to last `}`), deserializes AgentOutput
+- `build_prompt()`: formats `"MODE: {mode}\nCONTEXT:\n{content}"`
+- Updated `src/lib.rs` with `pub mod orchestrator;`
+- Updated `Cargo.toml` tokio features: added `rt` for JoinSet
+- 15 tests: BDD-01 (unanimous approve), BDD-06 (1 timeout degraded), BDD-07 (bad JSON degraded), BDD-08 (2 fail insufficient), BDD-09 (all fail), BDD-14 (plain text as failure), BDD-28 (new with defaults), BDD-29 (builder with overrides), BDD-32 (input too large), config defaults, build_prompt format, parse code fences, parse preamble JSON, parse invalid fails, builder build ok
+
+**Key decisions:**
+- `launch_agents()` takes ownership of `Vec<Agent>` (not borrowed) so each Agent can be moved into a spawned `'static` future — Agent is `Send` because all fields are Send
+- JoinSet used instead of `join_all` for automatic cancellation safety per spec
+- MockProvider uses `Vec<Result<String, ProviderError>>` with cycling index to return different responses per agent call — enables testing mixed success/failure scenarios
+- `process_results` enforces `min_agents=2` hardcoded (matches ConsensusConfig default) — the consensus engine also validates this independently
+- JoinSet task panics are caught and mapped to `ProviderError::Process` with a fallback agent name
+
+**Files modified:**
+- src/orchestrator.rs (created)
+- src/lib.rs (added `pub mod orchestrator;`)
+- Cargo.toml (added `rt` feature to tokio)
+
+**Verification:** 163/163 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---
+
+### Task 009: ClaudeProvider HTTP API (COMPLETED)
+
+**What was done:**
+- Created `src/providers/` module with `mod.rs` and `claude.rs`
+- `ClaudeProvider`: implements `LlmProvider` via `reqwest` HTTP client to Claude Messages API
+  - `new(api_key, model)` constructor — creates `reqwest::Client` once for connection pooling
+  - `complete()` sends POST to `/v1/messages` with `x-api-key`, `anthropic-version` headers
+  - `build_request_body()` — constructs `ClaudeRequest` with model, max_tokens, temperature, system, messages
+  - `parse_response()` — extracts first text content block from Claude API response JSON
+  - `map_status_to_error()` — maps 401/403 to `ProviderError::Auth`, others to `ProviderError::Http`
+  - Custom `Debug` impl that redacts API key (`[REDACTED]`)
+- Feature-gated behind `claude-api` feature flag in Cargo.toml
+- Added `reqwest = { version = "0.12", features = ["json"], optional = true }` to dependencies
+- Updated `src/lib.rs` with `pub mod providers;`
+- 14 tests covering: construction, accessors, request body building, response parsing (valid, multiple blocks, empty, invalid JSON), error mapping (401, 403, 429, 500), client reuse, Debug redaction
+
+**Key decisions:**
+- Helper structs (`ClaudeRequest`, `ClaudeMessage`, `ClaudeResponse`, `ContentBlock`) are defined in the module — request structs are `pub` for testability, response structs are private
+- `parse_response` and `map_status_to_error` are associated functions (not methods) for easy unit testing without HTTP mocking
+- `name()` and `model()` exist as both inherent methods and trait impl methods (trait requires them)
+- `ClaudeResponse` uses `#[serde(rename = "type")]` for the `type` field in `ContentBlock` since `type` is a Rust keyword
+- No HTTP integration tests — all tests verify construction, serialization, and parsing logic only
+
+**Files created:**
+- src/providers/mod.rs
+- src/providers/claude.rs
+
+**Files modified:**
+- src/lib.rs (added `pub mod providers;`)
+- Cargo.toml (added `reqwest` optional dep, `[features]` section with `claude-api`)
+
+**Verification:** 177/177 tests pass (163 base + 14 ClaudeProvider), clippy clean, fmt clean, release build clean, docs clean
+
+---

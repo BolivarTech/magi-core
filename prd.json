@@ -152,7 +152,7 @@
     {
       "id": "008",
       "title": "Orchestrator",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "Magi struct as main entry point. MagiBuilder with consuming method chaining. MagiConfig. analyze() orchestrating full flow with JoinSet.",
       "section_ref": "planning/sections/section-08-orchestrator.md",
@@ -178,7 +178,7 @@
     {
       "id": "009",
       "title": "ClaudeProvider HTTP API",
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "description": "ClaudeProvider implementing LlmProvider via reqwest HTTP client. Claude Messages API. Feature-gated: claude-api.",
       "section_ref": "planning/sections/section-09-claude-api.md",
