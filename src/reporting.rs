@@ -12,12 +12,23 @@ use crate::schema::{AgentName, AgentOutput, Mode};
 /// Configuration for the report formatter.
 ///
 /// Controls banner width and agent display names/titles.
+///
+/// # ASCII Constraint
+///
+/// The fixed-width banner guarantee (`banner_width` bytes per line) assumes
+/// all displayed content is ASCII. Agent titles, verdict labels, and consensus
+/// strings are ASCII by default. If `agent_titles` contains multi-byte UTF-8
+/// characters, banner lines will have correct byte length but may appear
+/// visually misaligned in terminals because multi-byte characters can occupy
+/// more than one display column.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ReportConfig {
-    /// Total width of the ASCII banner including border characters (default: 52).
+    /// Total width of the ASCII banner in bytes, including border characters
+    /// (default: 52). Equals character count for ASCII content.
     pub banner_width: usize,
     /// Maps agent name to (display_name, title) for report display.
+    /// Values should be ASCII for correct banner alignment.
     pub agent_titles: BTreeMap<AgentName, (String, String)>,
 }
 
@@ -47,8 +58,9 @@ pub struct MagiReport {
     pub report: String,
     /// True if fewer than 3 agents succeeded.
     pub degraded: bool,
-    /// Names of agents that failed.
-    pub failed_agents: Vec<AgentName>,
+    /// Agents that failed, mapped to their failure reason
+    /// (e.g., `"parse: no valid JSON"`, `"validation: confidence out of range"`).
+    pub failed_agents: BTreeMap<AgentName, String>,
 }
 
 impl Default for ReportConfig {
@@ -215,7 +227,12 @@ impl ReportFormatter {
     /// Content is left-aligned. If content exceeds inner width, it is truncated.
     fn format_line(&self, content: &str) -> String {
         if content.len() > self.banner_inner {
-            format!("|{}|", &content[..self.banner_inner])
+            let boundary = content.floor_char_boundary(self.banner_inner);
+            format!(
+                "|{:<width$}|",
+                &content[..boundary],
+                width = self.banner_inner
+            )
         } else {
             format!("|{:<width$}|", content, width = self.banner_inner)
         }
@@ -889,7 +906,7 @@ mod tests {
             banner: "banner".to_string(),
             report: "report".to_string(),
             degraded: false,
-            failed_agents: vec![],
+            failed_agents: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -920,7 +937,7 @@ mod tests {
             banner: String::new(),
             report: String::new(),
             degraded: false,
-            failed_agents: vec![],
+            failed_agents: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -948,11 +965,12 @@ mod tests {
             banner: String::new(),
             report: String::new(),
             degraded: true,
-            failed_agents: vec![AgentName::Caspar],
+            failed_agents: BTreeMap::from([(AgentName::Caspar, "timeout".to_string())]),
         };
 
         assert!(report.degraded);
-        assert_eq!(report.failed_agents, vec![AgentName::Caspar]);
+        assert_eq!(report.failed_agents.len(), 1);
+        assert!(report.failed_agents.contains_key(&AgentName::Caspar));
     }
 
     /// Agent names in JSON are lowercase.
@@ -968,7 +986,7 @@ mod tests {
             banner: String::new(),
             report: String::new(),
             degraded: false,
-            failed_agents: vec![],
+            failed_agents: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -996,7 +1014,7 @@ mod tests {
             banner: String::new(),
             report: String::new(),
             degraded: false,
-            failed_agents: vec![],
+            failed_agents: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

@@ -134,7 +134,7 @@ impl Ord for Severity {
 /// Analysis mode that determines agent perspectives.
 ///
 /// Serializes as kebab-case (`"code-review"`, `"design"`, `"analysis"`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
     /// Source code review perspective.

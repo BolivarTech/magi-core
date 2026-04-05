@@ -11,11 +11,12 @@ use crate::schema::{AgentOutput, Finding, ZERO_WIDTH_PATTERN};
 pub struct ValidationLimits {
     /// Maximum number of findings per agent output.
     pub max_findings: usize,
-    /// Maximum character length for finding titles.
+    /// Maximum character count for finding titles (Unicode scalar values, not bytes).
     pub max_title_len: usize,
-    /// Maximum character length for finding details.
+    /// Maximum character count for finding details (Unicode scalar values, not bytes).
     pub max_detail_len: usize,
-    /// Maximum character length for text fields (summary, reasoning, recommendation).
+    /// Maximum character count for text fields — summary, reasoning, recommendation
+    /// (Unicode scalar values, not bytes).
     pub max_text_len: usize,
     /// Minimum valid confidence value, inclusive.
     pub confidence_min: f64,
@@ -86,7 +87,7 @@ impl Validator {
     }
 
     fn validate_text_field(&self, field_name: &str, value: &str) -> Result<(), MagiError> {
-        if value.len() > self.limits.max_text_len {
+        if value.chars().count() > self.limits.max_text_len {
             return Err(MagiError::Validation(format!(
                 "{field_name} exceeds maximum length of {} characters",
                 self.limits.max_text_len
@@ -116,13 +117,13 @@ impl Validator {
                 "finding title is empty after removing zero-width characters".to_string(),
             ));
         }
-        if stripped.len() > self.limits.max_title_len {
+        if stripped.chars().count() > self.limits.max_title_len {
             return Err(MagiError::Validation(format!(
                 "finding title exceeds maximum length of {} characters",
                 self.limits.max_title_len
             )));
         }
-        if finding.detail.len() > self.limits.max_detail_len {
+        if finding.detail.chars().count() > self.limits.max_detail_len {
             return Err(MagiError::Validation(format!(
                 "finding detail exceeds maximum length of {} characters",
                 self.limits.max_detail_len

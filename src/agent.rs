@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 use crate::prompts;
 
+/// All analysis modes in iteration order.
+const ALL_MODES: [Mode; 3] = [Mode::CodeReview, Mode::Design, Mode::Analysis];
+
 /// An autonomous MAGI agent with its own identity, system prompt, and LLM provider.
 ///
 /// Each agent combines an [`AgentName`] identity, a [`Mode`]-specific system prompt,
@@ -159,7 +162,7 @@ impl Agent {
 pub struct AgentFactory {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: BTreeMap<AgentName, Arc<dyn LlmProvider>>,
-    custom_prompts: BTreeMap<AgentName, String>,
+    custom_prompts: BTreeMap<(AgentName, Mode), String>,
 }
 
 impl AgentFactory {
@@ -185,13 +188,15 @@ impl AgentFactory {
         self
     }
 
-    /// Registers a custom prompt override for a specific agent.
+    /// Registers a custom prompt override for a specific agent across all modes.
     ///
     /// # Parameters
     /// - `name`: Which agent to override.
-    /// - `prompt`: The custom system prompt.
+    /// - `prompt`: The custom system prompt applied to every analysis mode.
     pub fn with_custom_prompt(mut self, name: AgentName, prompt: String) -> Self {
-        self.custom_prompts.insert(name, prompt);
+        for mode in ALL_MODES {
+            self.custom_prompts.insert((name, mode), prompt.clone());
+        }
         self
     }
 
@@ -222,7 +227,13 @@ impl AgentFactory {
                         "caspar" => AgentName::Caspar,
                         _ => unreachable!(),
                     };
-                    self.custom_prompts.insert(agent_name, content);
+                    let mode = match *mode_str {
+                        "code_review" => Mode::CodeReview,
+                        "design" => Mode::Design,
+                        "analysis" => Mode::Analysis,
+                        _ => unreachable!(),
+                    };
+                    self.custom_prompts.insert((agent_name, mode), content);
                 }
             }
         }
@@ -250,7 +261,7 @@ impl AgentFactory {
                     .cloned()
                     .unwrap_or_else(|| self.default_provider.clone());
 
-                if let Some(prompt) = self.custom_prompts.get(&name) {
+                if let Some(prompt) = self.custom_prompts.get(&(name, mode)) {
                     Agent::with_custom_prompt(name, mode, provider, prompt.clone())
                 } else {
                     Agent::new(name, mode, provider)

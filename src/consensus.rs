@@ -206,6 +206,12 @@ impl ConsensusEngine {
         }
 
         // 7. Compute confidence
+        // base_confidence: sum of majority-side confidences divided by TOTAL agent
+        // count (not majority count). This intentionally penalizes non-unanimous
+        // results — a dissenting agent dilutes the overall confidence even though
+        // it is not on the majority side.
+        // weight_factor: maps |score| from [0,1] to [0.5,1.0], so unanimous
+        // verdicts (|score|=1) get full weight while ties (score=0) halve it.
         let base_confidence: f64 = agents
             .iter()
             .filter(|a| a.effective_verdict() == majority_verdict)

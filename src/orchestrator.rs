@@ -14,6 +14,7 @@ use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::validate::{ValidationLimits, Validator};
+use tokio::task::AbortHandle;
 
 /// Configuration for the MAGI orchestrator.
 ///
@@ -197,6 +198,21 @@ impl MagiBuilder {
     }
 }
 
+/// RAII guard that aborts spawned tasks when dropped.
+///
+/// Ensures that if [`Magi::analyze`] is cancelled (e.g., the caller wraps it
+/// in `tokio::time::timeout`), all in-flight agent tasks are aborted instead
+/// of continuing to run in the background and consuming LLM API quota.
+struct AbortGuard(Vec<AbortHandle>);
+
+impl Drop for AbortGuard {
+    fn drop(&mut self) {
+        for handle in &self.0 {
+            handle.abort();
+        }
+    }
+}
+
 /// Main entry point for the MAGI multi-perspective analysis system.
 ///
 /// Composes agents, validation, consensus, and reporting into a single
@@ -297,59 +313,61 @@ impl Magi {
         })
     }
 
-    /// Launches all agents in parallel using `JoinSet` for cancellation safety.
+    /// Launches all agents in parallel using individual `tokio::spawn` tasks.
     ///
-    /// Each agent task is wrapped in `tokio::time::timeout`. Dropping the
-    /// `JoinSet` automatically aborts all spawned tasks, preventing wasted
-    /// LLM API quota.
+    /// Each agent task is wrapped in `tokio::time::timeout`. Agent names are
+    /// tracked alongside their `JoinHandle`s so that panicked tasks are correctly
+    /// attributed to the right agent (unlike `JoinSet`, which loses task identity
+    /// on panic).
+    ///
+    /// An [`AbortGuard`] holds abort handles for all spawned tasks. If this
+    /// future is dropped (e.g., the caller times out), the guard aborts every
+    /// running task, preventing wasted LLM API quota.
     async fn launch_agents(
         &self,
         agents: Vec<Agent>,
         prompt: &str,
     ) -> Vec<(AgentName, Result<String, MagiError>)> {
-        let mut join_set = tokio::task::JoinSet::new();
         let timeout = self.config.timeout;
         let completion = self.config.completion.clone();
+        let mut handles = Vec::new();
+        let mut abort_handles = Vec::new();
 
         for agent in agents {
+            let name = agent.name();
             let user_prompt = prompt.to_string();
             let config = completion.clone();
 
-            join_set.spawn(async move {
-                let name = agent.name();
+            let handle = tokio::spawn(async move {
                 let result =
                     tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
-                let mapped = match result {
+                match result {
                     Ok(Ok(response)) => Ok(response),
                     Ok(Err(provider_err)) => Err(MagiError::Provider(provider_err)),
                     Err(_elapsed) => Err(MagiError::Provider(ProviderError::Timeout {
                         message: format!("agent timed out after {timeout:?}"),
                     })),
-                };
-                (name, mapped)
+                }
             });
+            abort_handles.push(handle.abort_handle());
+            handles.push((name, handle));
         }
 
+        // Guard aborts all tasks if this future is cancelled before completion.
+        // Once all handles are awaited below, abort() on a finished task is a no-op.
+        let _guard = AbortGuard(abort_handles);
+
         let mut results = Vec::new();
-        let mut unmatched_panic_index: usize = 0;
-        let all_agent_names = [AgentName::Balthasar, AgentName::Caspar, AgentName::Melchior];
-        while let Some(join_result) = join_set.join_next().await {
-            match join_result {
-                Ok(result) => results.push(result),
-                Err(join_err) => {
-                    // JoinSet does not identify which task panicked.
-                    // Use a rotating fallback name so no single agent is always blamed.
-                    let fallback_name =
-                        all_agent_names[unmatched_panic_index % all_agent_names.len()];
-                    unmatched_panic_index += 1;
-                    results.push((
-                        fallback_name,
-                        Err(MagiError::Provider(ProviderError::Process {
-                            exit_code: None,
-                            stderr: format!("agent task panicked: {join_err}"),
-                        })),
-                    ));
-                }
+        for (name, handle) in handles {
+            match handle.await {
+                Ok(result) => results.push((name, result)),
+                Err(join_err) => results.push((
+                    name,
+                    Err(MagiError::Provider(ProviderError::Process {
+                        exit_code: None,
+                        stderr: format!("agent task panicked: {join_err}"),
+                    })),
+                )),
             }
         }
 
@@ -358,26 +376,31 @@ impl Magi {
 
     /// Separates successful agent outputs from failures.
     ///
-    /// Parses and validates each raw response. Returns an error if fewer
-    /// than 2 agents succeeded.
+    /// Parses and validates each raw response, preserving failure reasons
+    /// for diagnostic visibility. Returns an error if fewer than 2 agents
+    /// succeeded.
     fn process_results(
         &self,
         results: Vec<(AgentName, Result<String, MagiError>)>,
-    ) -> Result<(Vec<AgentOutput>, Vec<AgentName>), MagiError> {
+    ) -> Result<(Vec<AgentOutput>, BTreeMap<AgentName, String>), MagiError> {
         let mut successful = Vec::new();
-        let mut failed_agents = Vec::new();
+        let mut failed_agents = BTreeMap::new();
 
         for (name, result) in results {
             match result {
                 Ok(raw) => match parse_agent_response(&raw) {
                     Ok(output) => match self.validator.validate(&output) {
                         Ok(()) => successful.push(output),
-                        Err(_) => failed_agents.push(name),
+                        Err(e) => {
+                            failed_agents.insert(name, format!("validation: {e}"));
+                        }
                     },
-                    Err(_) => failed_agents.push(name),
+                    Err(e) => {
+                        failed_agents.insert(name, format!("parse: {e}"));
+                    }
                 },
-                Err(_) => {
-                    failed_agents.push(name);
+                Err(e) => {
+                    failed_agents.insert(name, e.to_string());
                 }
             }
         }
@@ -433,12 +456,17 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
         trimmed
     };
 
-    // Try parsing from each '{' position, starting from the end of the string.
-    // LLM responses typically have the JSON payload as the last (or only) object,
-    // so searching backwards finds the correct one faster.
-    let brace_positions: Vec<usize> = stripped.rmatch_indices('{').map(|(i, _)| i).collect();
+    // Fast path: try parsing the entire string as a single JSON object.
+    // This handles the common case where the LLM returns only JSON.
+    if let Ok(output) = serde_json::from_str::<AgentOutput>(stripped) {
+        return Ok(output);
+    }
 
-    for start in brace_positions {
+    // Fallback: search forward through each '{' position for the first valid
+    // AgentOutput JSON. Forward search is preferred because it finds the first
+    // complete object, avoiding false matches from trailing prose that might
+    // coincidentally contain valid JSON.
+    for (start, _) in stripped.match_indices('{') {
         let candidate = &stripped[start..];
         if let Ok(output) = serde_json::from_str::<AgentOutput>(candidate) {
             return Ok(output);
