@@ -243,7 +243,7 @@
     {
       "id": "012",
       "title": "Example binary",
-      "status": "pending",
+      "status": "completed",
       "priority": "low",
       "description": "Example binary using ClaudeCliProvider by default with CLI arg support for selecting other providers.",
       "section_ref": "planning/sections/section-12-example.md",

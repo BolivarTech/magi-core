@@ -397,3 +397,37 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 171/171 tests pass (base suite without features), clippy clean, fmt clean, release build clean, docs clean. All feature combinations compile.
 
 ---
+
+### Task 012: Example binary (COMPLETED)
+
+**What was done:**
+- Created `examples/basic_analysis.rs` demonstrating full magi-core usage
+- Hand-rolled CLI argument parser with `std::env::args()` (no external crate)
+  - Arguments: `--provider`, `--model`, `--mode`, `--api-key`, `--input`, `--timeout`, `--json`, `--help`
+- Feature-gated provider selection: `cli` (default) behind `claude-cli`, `api` behind `claude-api`
+- Uses `MagiBuilder` with configurable timeout
+- Reads input from `--input` arg or stdin
+- Outputs formatted banner+report by default, JSON with `--json` flag
+- Added `[[example]]` entry to Cargo.toml
+- All error handling uses `?` — no `unwrap()`, `expect()`, or `panic!`
+
+**Key decisions:**
+- `#[allow(unused_variables)]` on `create_provider` to suppress warnings when not all features are enabled (model/api_key unused depending on feature combination)
+- `Box<dyn std::error::Error>` as return type for simplicity (example code, not library)
+- No external arg-parsing crate (self-contained example per spec)
+- `eprintln!` for progress messages (stderr), `println!` for report output (stdout)
+
+**Files created:**
+- examples/basic_analysis.rs
+
+**Files modified:**
+- Cargo.toml (added `[[example]]` section)
+- prd.json (task 012 → completed)
+
+**Verification:** 171/171 tests pass, clippy clean, fmt clean, release build clean, docs clean. Example compiles with `--features claude-cli`, `--features claude-api`, and both features combined.
+
+---
+
+## ALL 12 TASKS COMPLETED
+
+Final state: 171 tests pass across all modules. All feature flag combinations compile cleanly. Zero clippy warnings, zero fmt issues, zero doc warnings.
