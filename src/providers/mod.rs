@@ -4,3 +4,6 @@
 
 #[cfg(feature = "claude-api")]
 pub mod claude;
+
+#[cfg(feature = "claude-cli")]
+pub mod claude_cli;

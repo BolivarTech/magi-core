@@ -331,3 +331,41 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 177/177 tests pass (163 base + 14 ClaudeProvider), clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 010: ClaudeCliProvider CLI subprocess (COMPLETED)
+
+**What was done:**
+- Created `src/providers/claude_cli.rs` with `ClaudeCliProvider` implementing `LlmProvider`
+- `ClaudeCliProvider::new(model)` — two-step validation:
+  1. Nested session detection: checks `CLAUDECODE` env var, returns `ProviderError::NestedSession` if set
+  2. Model alias resolution: "sonnet" → "claude-sonnet-4-6", "opus" → "claude-opus-4-6", "haiku" → "claude-haiku-4-5-20251001", pass-through for "claude-*", `ProviderError::Auth` for unknown
+- `complete()` — spawns `claude` subprocess via `tokio::process::Command::new("claude")` (no shell invocation):
+  - Args: `["--print", "--output-format", "json", "--model", model_id, "--system-prompt", prompt]`
+  - User prompt sent via stdin (not CLI args) for security
+  - `kill_on_drop(true)` for cancellation safety
+  - Parses double-nested JSON envelope via `parse_cli_output()`
+  - Strips code fences from result via `strip_code_fences()`
+- Private helpers: `resolve_model_alias()`, `parse_cli_output()`, `strip_code_fences()`, `CliOutput` struct
+- Feature-gated behind `claude-cli` feature flag
+- Added `process` and `io-util` features to tokio dependency
+- Updated `providers/mod.rs` with `#[cfg(feature = "claude-cli")] pub mod claude_cli;`
+- 17 tests covering: BDD-18 (CLI args), BDD-19 (double-nested JSON), BDD-20 (error detection), BDD-21 (code fence stripping), BDD-23 (nested session), model aliases (sonnet/opus/haiku/pass-through/invalid/mixed-case), accessors, stdin usage
+
+**Key decisions:**
+- Mixed case aliases ("Sonnet", "SONNET") are rejected — only lowercase exact matches accepted (per acceptance criteria)
+- `resolve_model_alias()` extracted as standalone function (not method) — cleaner SRP
+- Tests use `with_claudecode`/`without_claudecode` helpers wrapping unsafe env var manipulation (Rust 2024 edition)
+- Env var tests rely on nextest per-process isolation (cargo test threads would race on shared env state)
+- Timeout NOT applied by provider — orchestrator wraps agent tasks in `tokio::time::timeout`
+- `strip_code_fences` returns `&str` (borrows from input) — no allocation for the common no-fence case
+
+**Files created:**
+- src/providers/claude_cli.rs
+
+**Files modified:**
+- src/providers/mod.rs (added `#[cfg(feature = "claude-cli")] pub mod claude_cli;`)
+- Cargo.toml (added `claude-cli = []` feature, added `process` and `io-util` to tokio features)
+
+**Verification:** 180/180 tests pass (163 base + 14 ClaudeProvider + 17 ClaudeCliProvider via --features claude-cli), clippy clean, fmt clean, release build clean, docs clean
+
+---

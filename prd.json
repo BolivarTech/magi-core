@@ -200,7 +200,7 @@
     {
       "id": "010",
       "title": "ClaudeCliProvider CLI subprocess",
-      "status": "pending",
+      "status": "completed",
       "priority": "medium",
       "description": "ClaudeCliProvider implementing LlmProvider via tokio::process. Model alias whitelist, CLAUDECODE env check, double-nested JSON parsing. Feature-gated: claude-cli.",
       "section_ref": "planning/sections/section-10-claude-cli.md",
