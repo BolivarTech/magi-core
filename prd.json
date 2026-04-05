@@ -131,7 +131,7 @@
     {
       "id": "007",
       "title": "Agents and AgentFactory",
-      "status": "pending",
+      "status": "completed",
       "priority": "high",
       "description": "Agent struct with Arc<dyn LlmProvider>. AgentFactory with default and per-agent providers. System prompts from include_str! .md files (9 files: 3 agents x 3 modes).",
       "section_ref": "planning/sections/section-07-agents.md",

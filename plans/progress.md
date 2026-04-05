@@ -229,3 +229,34 @@ Methodology: SBTDD (Spec + Behavior + Test Driven Development)
 **Verification:** 133/133 tests pass, clippy clean, fmt clean, release build clean, docs clean
 
 ---
+
+### Task 007: Agents and AgentFactory (COMPLETED)
+
+**What was done:**
+- Created `src/agent.rs` with `Agent` and `AgentFactory` structs
+- Created `src/prompts/` module with `mod.rs`, `melchior.rs`, `balthasar.rs`, `caspar.rs`
+- Created 9 system prompt markdown files in `src/prompts_md/` (3 agents x 3 modes)
+- `Agent`: three constructors (`new`, `with_custom_prompt`, `from_file`), `execute` async method, 7 accessor methods
+- `AgentFactory`: `new`, `with_provider`, `with_custom_prompt`, `from_directory`, `create_agents`
+- `create_agents` always returns `[Melchior, Balthasar, Caspar]` in fixed order
+- Updated `src/lib.rs` with `pub mod agent;` and `mod prompts;`
+- 15 tests covering: BDD-26 (each agent uses own provider), BDD-27 (default + override), BDD-30 (distinct prompts per mode), BDD-31 (from_directory io error), from_file io error, constructors, accessors, factory creation, ordering, all modes, JSON+English constraints in prompts
+
+**Key decisions:**
+- `prompts` module is `mod prompts;` (private) — only used internally by `agent.rs`
+- `Mode` passed by value (it's `Copy`) rather than by reference as in spec — cleaner API
+- `from_directory` verifies directory existence first via `read_dir`, then scans for individual files
+- `MockProvider` uses `AtomicUsize` for thread-safe call counting in async tests
+- Prompt markdown files define: agent identity, perspective, mode-specific focus areas, constraints (English, JSON-only), exact JSON schema
+
+**Files created:**
+- src/agent.rs
+- src/prompts/mod.rs, melchior.rs, balthasar.rs, caspar.rs
+- src/prompts_md/ (9 markdown files)
+
+**Files modified:**
+- src/lib.rs (added `pub mod agent;`, `mod prompts;`)
+
+**Verification:** 148/148 tests pass, clippy clean, fmt clean, release build clean, docs clean
+
+---
