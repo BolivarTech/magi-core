@@ -321,7 +321,12 @@ impl ConsensusEngine {
         let mut order: Vec<String> = Vec::new();
 
         for (agent_name, finding) in &agent_findings {
-            let key = finding.stripped_title().to_lowercase();
+            let key = finding
+                .stripped_title()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase();
             if !groups.contains_key(&key) {
                 order.push(key.clone());
             }

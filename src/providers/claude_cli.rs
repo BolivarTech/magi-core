@@ -248,11 +248,11 @@ impl LlmProvider for ClaudeCliProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     // NOTE: These tests manipulate the CLAUDECODE environment variable, which is
-    // process-global state. They are safe under `cargo nextest` (each test runs
-    // in its own process) but would race under `cargo test` with parallel threads.
-    // If migrating away from nextest, add `serial_test` crate or a global mutex.
+    // process-global state. The #[serial] attribute ensures they never run in
+    // parallel, making them safe under both `cargo nextest` and `cargo test`.
 
     /// Saves the current CLAUDECODE env var, clears it, runs the closure,
     /// then restores the original value. All env mutations are in unsafe blocks
@@ -292,6 +292,7 @@ mod tests {
 
     /// CLAUDECODE env var present returns Err(ProviderError::NestedSession) in constructor.
     #[test]
+    #[serial]
     fn test_new_with_claudecode_env_returns_nested_session_error() {
         with_claudecode(|| {
             let result = ClaudeCliProvider::new("sonnet");
@@ -308,6 +309,7 @@ mod tests {
 
     /// new("sonnet") maps to "claude-sonnet-4-6".
     #[test]
+    #[serial]
     fn test_new_sonnet_maps_to_claude_sonnet_model() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("sonnet").unwrap();
@@ -317,6 +319,7 @@ mod tests {
 
     /// new("opus") maps to "claude-opus-4-6".
     #[test]
+    #[serial]
     fn test_new_opus_maps_to_claude_opus_model() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("opus").unwrap();
@@ -326,6 +329,7 @@ mod tests {
 
     /// new("haiku") maps to "claude-haiku-4-5-20251001".
     #[test]
+    #[serial]
     fn test_new_haiku_maps_to_claude_haiku_model() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("haiku").unwrap();
@@ -335,6 +339,7 @@ mod tests {
 
     /// new("claude-custom-model") passes through (contains "claude-").
     #[test]
+    #[serial]
     fn test_new_claude_prefix_passes_through() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("claude-custom-model").unwrap();
@@ -344,6 +349,7 @@ mod tests {
 
     /// new("invalid") returns ProviderError::Auth.
     #[test]
+    #[serial]
     fn test_new_invalid_model_returns_auth_error() {
         without_claudecode(|| {
             let result = ClaudeCliProvider::new("invalid");
@@ -358,6 +364,7 @@ mod tests {
 
     /// Mixed case aliases (Sonnet, SONNET) rejected with ProviderError::Auth.
     #[test]
+    #[serial]
     fn test_new_mixed_case_alias_returns_auth_error() {
         without_claudecode(|| {
             let result_upper = ClaudeCliProvider::new("Sonnet");
@@ -377,6 +384,7 @@ mod tests {
 
     /// provider.name() returns "claude-cli".
     #[test]
+    #[serial]
     fn test_provider_name_returns_claude_cli() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("sonnet").unwrap();
@@ -386,6 +394,7 @@ mod tests {
 
     /// provider.model() returns the resolved model_id.
     #[test]
+    #[serial]
     fn test_provider_model_returns_resolved_model_id() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("opus").unwrap();
@@ -397,6 +406,7 @@ mod tests {
 
     /// build_args includes --print, --output-format json, --model, --system-prompt.
     #[test]
+    #[serial]
     fn test_build_args_includes_required_cli_flags() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("sonnet").unwrap();
@@ -414,6 +424,7 @@ mod tests {
 
     /// User prompt is NOT in build_args (sent via stdin).
     #[test]
+    #[serial]
     fn test_user_prompt_not_in_build_args() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("sonnet").unwrap();

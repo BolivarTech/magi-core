@@ -223,7 +223,7 @@ cargo run --example basic_analysis --features claude-cli -- \
 
 ## Minimum Supported Rust Version
 
-This crate uses Rust edition 2024 and requires **Rust 1.85+**.
+This crate uses Rust edition 2024 and requires **Rust 1.91+**.
 
 ## License
 

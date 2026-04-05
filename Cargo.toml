@@ -2,6 +2,7 @@
 name = "magi-core"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.91"
 authors = ["Julian Bolivar"]
 description = "LLM-agnostic multi-perspective analysis system inspired by MAGI"
 license = "MIT OR Apache-2.0"
@@ -26,6 +27,7 @@ claude-cli = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+serial_test = "3"
 
 [[example]]
 name = "basic_analysis"
