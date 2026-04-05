@@ -5,6 +5,11 @@ edition = "2024"
 authors = ["Julian Bolivar"]
 description = "LLM-agnostic multi-perspective analysis system inspired by MAGI"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/BolivarTech/magi-core"
+homepage = "https://github.com/BolivarTech/magi-core"
+readme = "README.md"
+keywords = ["llm", "multi-agent", "consensus", "analysis", "magi"]
+categories = ["algorithms", "asynchronous"]
 
 [dependencies]
 thiserror = "2"
