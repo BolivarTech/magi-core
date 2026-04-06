@@ -783,6 +783,34 @@ mod tests {
         assert_eq!(result.findings[1].severity, Severity::Info);
     }
 
+    /// Titles differing only in whitespace (tabs, multiple spaces, NBSP) are deduplicated.
+    #[test]
+    fn test_duplicate_findings_merged_with_whitespace_normalization() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "SQL  injection".to_string(),
+            detail: "detail_m".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "SQL\tinjection".to_string(),
+            detail: "detail_b".to_string(),
+        });
+        let mut c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        c.findings.push(Finding {
+            severity: Severity::Critical,
+            title: "sql injection".to_string(),
+            detail: "detail_c".to_string(),
+        });
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(result.findings.len(), 1, "should merge all three into one");
+        assert_eq!(result.findings[0].severity, Severity::Critical);
+        assert_eq!(result.findings[0].sources.len(), 3);
+    }
+
     /// Votes map contains all agent verdicts.
     #[test]
     fn test_votes_map_contains_all_agents() {
