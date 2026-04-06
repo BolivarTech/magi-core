@@ -4,6 +4,7 @@
 [![Documentation](https://docs.rs/magi-core/badge.svg)](https://docs.rs/magi-core)
 [![License](https://img.shields.io/crates/l/magi-core.svg)](https://github.com/BolivarTech/magi-core#license)
 [![CI](https://github.com/BolivarTech/magi-core/actions/workflows/ci.yml/badge.svg)](https://github.com/BolivarTech/magi-core/actions)
+[![Release](https://github.com/BolivarTech/magi-core/actions/workflows/release.yml/badge.svg)](https://github.com/BolivarTech/magi-core/actions/workflows/release.yml)
 
 LLM-agnostic multi-perspective analysis system in Rust, inspired by the MAGI
 supercomputers from [Neon Genesis Evangelion](https://en.wikipedia.org/wiki/Neon_Genesis_Evangelion).
