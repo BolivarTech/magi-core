@@ -26,7 +26,7 @@ pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 pub use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 
 // Provider trait and config
-pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider};
+pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider, resolve_claude_alias};
 
 // Agents
 pub use crate::agent::{Agent, AgentFactory};

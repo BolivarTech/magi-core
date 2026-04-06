@@ -63,6 +63,43 @@ pub trait LlmProvider: Send + Sync {
     fn model(&self) -> &str;
 }
 
+/// Resolves a short Claude model alias to a full model identifier.
+///
+/// Used by both `ClaudeProvider` (HTTP) and `ClaudeCliProvider` (subprocess).
+/// Other providers (Gemini, OpenAI) should implement their own alias resolvers.
+///
+/// # Aliases
+///
+/// - `"sonnet"` → `"claude-sonnet-4-6"`
+/// - `"opus"` → `"claude-opus-4-6"`
+/// - `"haiku"` → `"claude-haiku-4-5-20251001"`
+/// - Any string containing `"claude-"` passes through as-is
+///
+/// # Errors
+///
+/// Returns `ProviderError::Auth` if the alias is unknown.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::provider::resolve_claude_alias;
+///
+/// assert_eq!(resolve_claude_alias("opus").unwrap(), "claude-opus-4-6");
+/// assert_eq!(resolve_claude_alias("claude-custom").unwrap(), "claude-custom");
+/// assert!(resolve_claude_alias("unknown").is_err());
+/// ```
+pub fn resolve_claude_alias(model: &str) -> Result<String, ProviderError> {
+    match model {
+        "sonnet" => Ok("claude-sonnet-4-6".to_string()),
+        "opus" => Ok("claude-opus-4-6".to_string()),
+        "haiku" => Ok("claude-haiku-4-5-20251001".to_string()),
+        m if m.contains("claude-") => Ok(m.to_string()),
+        _ => Err(ProviderError::Auth {
+            message: format!("unknown model alias: {model}"),
+        }),
+    }
+}
+
 /// Opt-in retry wrapper for any `LlmProvider`.
 ///
 /// Wraps an inner provider and retries transient errors (timeout, network,

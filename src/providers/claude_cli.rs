@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{CompletionConfig, LlmProvider, resolve_claude_alias};
 use serde::Deserialize;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
@@ -71,7 +71,7 @@ impl ClaudeCliProvider {
         }
 
         let model = model.into();
-        let model_id = resolve_model_alias(&model)?;
+        let model_id = resolve_claude_alias(&model)?;
 
         Ok(Self { model_id })
     }
@@ -144,23 +144,6 @@ fn strip_code_fences(text: &str) -> &str {
     match stripped {
         Some(inner) => inner.strip_suffix("\n```").unwrap_or(inner),
         None => text,
-    }
-}
-
-/// Resolves a model alias to a full model identifier.
-///
-/// # Errors
-///
-/// Returns `ProviderError::Auth` if the alias is unknown.
-fn resolve_model_alias(model: &str) -> Result<String, ProviderError> {
-    match model {
-        "sonnet" => Ok("claude-sonnet-4-6".to_string()),
-        "opus" => Ok("claude-opus-4-6".to_string()),
-        "haiku" => Ok("claude-haiku-4-5-20251001".to_string()),
-        m if m.contains("claude-") => Ok(m.to_string()),
-        _ => Err(ProviderError::Auth {
-            message: format!("unknown model alias: {model}"),
-        }),
     }
 }
 

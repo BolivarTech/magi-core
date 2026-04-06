@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{CompletionConfig, LlmProvider, resolve_claude_alias};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -89,18 +89,29 @@ struct ContentBlock {
 impl ClaudeProvider {
     /// Creates a new `ClaudeProvider` with the given API key and model.
     ///
+    /// Supports model aliases: `"sonnet"`, `"opus"`, `"haiku"`, or any
+    /// full model identifier containing `"claude-"`.
+    ///
     /// A `reqwest::Client` is created once and reused for all subsequent
     /// requests (connection pooling).
     ///
     /// # Parameters
     /// - `api_key`: Anthropic API key (e.g., `"sk-ant-api03-..."`).
-    /// - `model`: Model identifier (e.g., `"claude-sonnet-4-6"`).
-    pub fn new(api_key: impl Into<String>, model: impl Into<String>) -> Self {
-        Self {
+    /// - `model`: Model alias or full identifier (e.g., `"opus"` or `"claude-opus-4-6"`).
+    ///
+    /// # Errors
+    ///
+    /// Returns `ProviderError::Auth` if the model alias is unknown.
+    pub fn new(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Result<Self, ProviderError> {
+        let model_id = resolve_claude_alias(&model.into())?;
+        Ok(Self {
             client: Client::new(),
             api_key: api_key.into(),
-            model: model.into(),
-        }
+            model: model_id,
+        })
     }
 
     /// Returns the provider name.
@@ -252,7 +263,7 @@ mod tests {
     /// ClaudeProvider::new creates provider with api_key and model.
     #[test]
     fn test_claude_provider_new_creates_with_key_and_model() {
-        let provider = super::ClaudeProvider::new("sk-test-key", "claude-sonnet-4-6");
+        let provider = super::ClaudeProvider::new("sk-test-key", "claude-sonnet-4-6").unwrap();
         assert_eq!(provider.name(), "claude");
         assert_eq!(provider.model(), "claude-sonnet-4-6");
     }
@@ -260,15 +271,29 @@ mod tests {
     /// provider.name() returns "claude".
     #[test]
     fn test_claude_provider_name_returns_claude() {
-        let provider = super::ClaudeProvider::new("key", "model");
+        let provider = super::ClaudeProvider::new("key", "claude-sonnet-4-6").unwrap();
         assert_eq!(provider.name(), "claude");
     }
 
     /// provider.model() returns the configured model string.
     #[test]
     fn test_claude_provider_model_returns_configured_model() {
-        let provider = super::ClaudeProvider::new("key", "claude-opus-4-6");
+        let provider = super::ClaudeProvider::new("key", "claude-opus-4-6").unwrap();
         assert_eq!(provider.model(), "claude-opus-4-6");
+    }
+
+    /// new("opus") resolves alias to full model identifier.
+    #[test]
+    fn test_claude_provider_new_resolves_alias() {
+        let provider = super::ClaudeProvider::new("key", "opus").unwrap();
+        assert_eq!(provider.model(), "claude-opus-4-6");
+    }
+
+    /// new("unknown") returns ProviderError::Auth.
+    #[test]
+    fn test_claude_provider_new_rejects_unknown_model() {
+        let result = super::ClaudeProvider::new("key", "unknown");
+        assert!(result.is_err());
     }
 
     // -- Request building --
@@ -278,7 +303,7 @@ mod tests {
     fn test_build_request_body_contains_all_required_fields() {
         use crate::provider::CompletionConfig;
 
-        let provider = super::ClaudeProvider::new("sk-test", "claude-sonnet-4-6");
+        let provider = super::ClaudeProvider::new("sk-test", "claude-sonnet-4-6").unwrap();
         let config = CompletionConfig::default();
         let body = provider.build_request_body("You are helpful", "Hello", &config);
 
@@ -370,10 +395,10 @@ mod tests {
     /// reqwest::Client is stored in struct (structural test).
     #[test]
     fn test_client_is_stored_in_struct() {
-        let provider = super::ClaudeProvider::new("key", "model");
+        let provider = super::ClaudeProvider::new("key", "sonnet").unwrap();
         assert_eq!(provider.name(), "claude");
-        let provider2 = super::ClaudeProvider::new("key2", "model2");
-        assert_eq!(provider2.model(), "model2");
+        let provider2 = super::ClaudeProvider::new("key2", "opus").unwrap();
+        assert_eq!(provider2.model(), "claude-opus-4-6");
     }
 
     // -- Debug does not expose API key --
@@ -381,7 +406,7 @@ mod tests {
     /// Debug output does not contain the API key.
     #[test]
     fn test_debug_does_not_expose_api_key() {
-        let provider = super::ClaudeProvider::new("sk-super-secret-key-12345", "model");
+        let provider = super::ClaudeProvider::new("sk-super-secret-key-12345", "sonnet").unwrap();
         let debug_str = format!("{:?}", provider);
         assert!(
             !debug_str.contains("sk-super-secret-key-12345"),

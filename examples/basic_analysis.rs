@@ -81,7 +81,7 @@ fn create_provider(
         #[cfg(feature = "claude-api")]
         "api" => {
             let key = api_key.ok_or("--api-key is required when using --provider api")?;
-            Ok(Arc::new(ClaudeProvider::new(key, model)))
+            Ok(Arc::new(ClaudeProvider::new(key, model)?))
         }
 
         #[cfg(not(feature = "claude-api"))]
