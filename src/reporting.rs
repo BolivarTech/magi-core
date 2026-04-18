@@ -183,8 +183,8 @@ impl ReportFormatter {
 
     /// Generates the full markdown report (banner + all sections).
     ///
-    /// Concatenates sections in order: banner, consensus summary, key findings,
-    /// dissenting opinion, conditions for approval, recommended actions.
+    /// Concatenates sections in order: banner, key findings, dissenting opinion,
+    /// conditions for approval, recommended actions.
     /// Optional sections are omitted entirely when their data is absent.
     pub fn format_report(&self, agents: &[AgentOutput], consensus: &ConsensusResult) -> String {
         let mut out = String::new();
@@ -193,25 +193,22 @@ impl ReportFormatter {
         out.push_str(&self.format_banner(agents, consensus));
         out.push('\n');
 
-        // 2. Consensus Summary
-        out.push_str(&self.format_consensus_summary(consensus));
-
-        // 3. Key Findings (optional)
+        // 2. Key Findings (optional)
         if !consensus.findings.is_empty() {
             out.push_str(&self.format_findings(&consensus.findings));
         }
 
-        // 4. Dissenting Opinion (optional)
+        // 3. Dissenting Opinion (optional)
         if !consensus.dissent.is_empty() {
             out.push_str(&self.format_dissent(&consensus.dissent));
         }
 
-        // 5. Conditions for Approval (optional)
+        // 4. Conditions for Approval (optional)
         if !consensus.conditions.is_empty() {
             out.push_str(&self.format_conditions(&consensus.conditions));
         }
 
-        // 6. Recommended Actions
+        // 5. Recommended Actions
         out.push_str(&self.format_recommendations(&consensus.recommendations));
 
         out
