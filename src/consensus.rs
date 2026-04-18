@@ -861,10 +861,26 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert!(result.majority_summary.contains("Melchior summary"));
-        assert!(result.majority_summary.contains("Balthasar summary"));
+        assert!(result.majority_summary.contains("Melchior: Melchior summary"));
+        assert!(result.majority_summary.contains("Balthasar: Balthasar summary"));
         assert!(result.majority_summary.contains(" | "));
         assert!(!result.majority_summary.contains("Caspar summary"));
+    }
+
+    /// Majority summary uses agent display name capitalized (not lowercase).
+    #[test]
+    fn test_majority_summary_uses_display_name_capitalized() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Approve, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert!(result.majority_summary.contains("Melchior:"));
+        assert!(result.majority_summary.contains("Balthasar:"));
+        // Ensure NOT lowercase
+        assert!(!result.majority_summary.contains("melchior:"));
+        assert!(!result.majority_summary.contains("balthasar:"));
     }
 
     /// Conditions extracted from agents with Conditional verdict.
