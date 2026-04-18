@@ -1104,6 +1104,83 @@ mod tests {
         assert!(report.failed_agents.contains_key(&AgentName::Caspar));
     }
 
+    // -- S07: Dissent rendered as single line (summary-only) --
+
+    /// Two dissenters produce exactly two `**Name (Title)**:` header lines.
+    #[test]
+    fn test_dissent_shows_one_line_per_dissenter() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![
+            Dissent {
+                agent: AgentName::Caspar,
+                summary: "Summary for Caspar".to_string(),
+                reasoning: "Reasoning for Caspar that is long and detailed".to_string(),
+            },
+            Dissent {
+                agent: AgentName::Balthasar,
+                summary: "Summary for Balthasar".to_string(),
+                reasoning: "Reasoning for Balthasar that is very lengthy".to_string(),
+            },
+        ];
+
+        let output = formatter.format_dissent(&dissent);
+
+        // Count lines matching the "**Name (Title)**:" pattern
+        let header_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| l.starts_with("**") && l.contains(")**:"))
+            .collect();
+        assert_eq!(
+            header_lines.len(),
+            2,
+            "Expected exactly 2 dissenter header lines, got {}: {:?}",
+            header_lines.len(),
+            header_lines
+        );
+    }
+
+    /// Each dissenter line contains the summary text but NOT the reasoning text.
+    #[test]
+    fn test_dissent_line_contains_summary_not_reasoning() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Unique summary text here".to_string(),
+            reasoning: "Unique reasoning text should not appear".to_string(),
+        }];
+
+        let output = formatter.format_dissent(&dissent);
+
+        assert!(
+            output.contains("Unique summary text here"),
+            "Output must contain the summary"
+        );
+        assert!(
+            !output.contains("Unique reasoning text should not appear"),
+            "Output must NOT contain the reasoning"
+        );
+    }
+
+    /// The dissent section ends with a blank line after the last dissenter's line.
+    #[test]
+    fn test_dissent_section_has_blank_line_after() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Some summary".to_string(),
+            reasoning: "Some reasoning".to_string(),
+        }];
+
+        let output = formatter.format_dissent(&dissent);
+
+        // The output must end with "\n\n" (dissenter line + trailing blank line)
+        assert!(
+            output.ends_with("\n\n"),
+            "Dissent section must end with a blank line (\\n\\n), got: {:?}",
+            output
+        );
+    }
+
     /// Agent names in JSON are lowercase.
     #[test]
     fn test_magi_report_json_agent_names_lowercase() {
