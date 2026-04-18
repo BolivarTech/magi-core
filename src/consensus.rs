@@ -76,7 +76,7 @@ pub struct Dissent {
 pub struct Condition {
     /// The agent that set the condition.
     pub agent: AgentName,
-    /// The condition text (from the agent's recommendation).
+    /// The condition text (from the agent's summary).
     pub condition: String,
 }
 
@@ -263,7 +263,7 @@ impl ConsensusEngine {
             .filter(|a| a.verdict == Verdict::Conditional)
             .map(|a| Condition {
                 agent: a.agent,
-                condition: a.recommendation.clone(),
+                condition: a.summary.clone(),
             })
             .collect();
 
