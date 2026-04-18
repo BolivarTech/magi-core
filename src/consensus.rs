@@ -824,7 +824,7 @@ mod tests {
     /// but double-space interior is preserved — "SQL  injection" is a DISTINCT finding
     /// from "SQL injection". Aligned with Python dedup_key behavior (no split_whitespace).
     #[test]
-    fn test_duplicate_findings_merged_with_whitespace_normalization() {
+    fn test_dedup_tab_normalizes_to_space_but_double_space_is_distinct() {
         // "SQL\tinjection" → clean_title → "SQL injection" → same key as "sql injection"
         // "SQL  injection" → clean_title → "SQL  injection" → different key (double space)
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
@@ -897,7 +897,7 @@ mod tests {
     /// dedup_key applies NFKC normalization: fullwidth Latin chars collapse to ASCII.
     /// "ＡＢＣ" (fullwidth) and "abc" must produce the same key after NFKC + casefold.
     #[test]
-    fn test_dedup_key_nfkc_collapses_fullwidth_digits() {
+    fn test_dedup_key_nfkc_collapses_fullwidth_latin() {
         let key_fullwidth = dedup_key("\u{FF21}\u{FF22}\u{FF23}"); // ＡＢＣ
         let key_ascii = dedup_key("abc");
         assert_eq!(
@@ -953,11 +953,11 @@ mod tests {
     /// This test confirms default (non-locale) behavior, matching caseless crate semantics.
     #[test]
     fn test_dedup_key_casefold_turkish_dotted_i() {
-        let dotted_i_upper = dedup_key("\u{0130}"); // İ LATIN CAPITAL LETTER I WITH DOT ABOVE
-        // Unicode default casefold: U+0130 -> "i\u{0307}" (not simple "i")
-        // This is intentional: no locale-aware Turkish folding
-        let expected = caseless::default_case_fold_str(&"\u{0130}".nfkc().collect::<String>());
-        assert_eq!(dotted_i_upper, expected);
+        // U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) under default (non-locale) casefold
+        // maps to 'i' (U+0069) + combining dot above (U+0307). This matches Python's casefold
+        // behavior (default, not Turkish locale).
+        let input = "\u{0130}";
+        assert_eq!(dedup_key(input), "i\u{307}");
     }
 
     /// dedup_key preserves interior whitespace — aligning with Python clean_title + NFKC behavior.
