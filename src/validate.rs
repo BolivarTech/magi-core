@@ -487,6 +487,64 @@ mod tests {
         assert!(v.validate(&output).is_ok());
     }
 
+    // -- validate_mut tests --
+
+    fn finding_with_title(title: &str) -> Finding {
+        Finding {
+            severity: Severity::Info,
+            title: title.to_string(),
+            detail: "some detail".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_validate_mut_replaces_title_with_cleaned_form() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title(
+            "  Issue\t\u{200b}Title  ",
+        )]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "Issue Title");
+    }
+
+    #[test]
+    fn test_validate_mut_strips_zero_width_from_titles() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title("Good\u{200b}Title")]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "GoodTitle");
+    }
+
+    #[test]
+    fn test_validate_mut_collapses_control_whitespace_in_titles() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title("Bad\tTitle")]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "Bad Title");
+    }
+
+    #[test]
+    fn test_validate_mut_preserves_order_of_findings() {
+        let v = Validator::new();
+        let titles = ["Alpha\u{200b}One", "Beta\tTwo", "  Gamma Three  "];
+        let mut output =
+            output_with_findings(titles.iter().map(|t| finding_with_title(t)).collect());
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "AlphaOne");
+        assert_eq!(output.findings[1].title, "Beta Two");
+        assert_eq!(output.findings[2].title, "Gamma Three");
+    }
+
+    #[test]
+    fn test_validate_retains_original_behavior_on_immutable_slice() {
+        let v = Validator::new();
+        let output = output_with_findings(vec![finding_with_title("Normal Title")]);
+        // Immutable validate does not mutate.
+        let original_title = output.findings[0].title.clone();
+        v.validate(&output).unwrap();
+        assert_eq!(output.findings[0].title, original_title);
+    }
+
     // -- clean_title tests --
 
     #[test]
