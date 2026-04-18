@@ -32,7 +32,7 @@ pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider, resolve_
 pub use crate::agent::{Agent, AgentFactory};
 
 // Orchestrator
-pub use crate::orchestrator::{Magi, MagiBuilder, MagiConfig};
+pub use crate::orchestrator::{DEFAULT_MAX_INPUT_LEN, Magi, MagiBuilder, MagiConfig};
 
 // Feature-gated providers
 #[cfg(feature = "claude-api")]

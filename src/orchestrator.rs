@@ -16,6 +16,16 @@ use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::validate::{ValidationLimits, Validator};
 use tokio::task::AbortHandle;
 
+/// Default value for [`MagiConfig::max_input_len`] — 4 MB.
+///
+/// This is a compromise between Python's 10 MB and v0.1.2's 1 MB.
+/// A full 10 MB alignment with Python is deferred to v0.3.0 pending
+/// an allocation audit of the `analyze()` pipeline.
+///
+/// For public-facing deployments where `content` is untrusted, consider
+/// using [`MagiBuilder::with_max_input_len`] to set a lower limit.
+pub const DEFAULT_MAX_INPUT_LEN: usize = 4 * 1024 * 1024;
+
 /// Configuration for the MAGI orchestrator.
 ///
 /// Controls timeout per agent, maximum input size, and LLM completion parameters.
@@ -24,7 +34,18 @@ use tokio::task::AbortHandle;
 pub struct MagiConfig {
     /// Maximum time to wait for each agent (default: 300 seconds).
     pub timeout: Duration,
-    /// Maximum content size in bytes (default: 1_048_576 = 1MB).
+    /// Maximum accepted size of the raw `content` argument to [`Magi::analyze`], in bytes.
+    ///
+    /// Measured BEFORE sanitization — a content with heavy zero-width padding is
+    /// rejected by this limit even if its sanitized form would fit. This choice
+    /// prevents sanitization-time allocation blowup from adversarial inputs.
+    ///
+    /// Default: [`DEFAULT_MAX_INPUT_LEN`] (4 MB).
+    ///
+    /// **Note:** for public-facing deployments where `content` is untrusted, consider
+    /// lowering this to a value appropriate for your threat model. Default (4 MB) is a
+    /// compromise between Python's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with
+    /// Python is deferred to v0.3.0 pending allocation audit of the `analyze()` pipeline.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
     pub completion: CompletionConfig,
@@ -34,7 +55,7 @@ impl Default for MagiConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(300),
-            max_input_len: 4 * 1024 * 1024,
+            max_input_len: DEFAULT_MAX_INPUT_LEN,
             completion: CompletionConfig::default(),
         }
     }
