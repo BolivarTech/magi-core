@@ -800,12 +800,43 @@ mod tests {
 
     // -- MagiConfig defaults --
 
-    /// MagiConfig::default has timeout=300s, max_input_len=1MB.
+    /// MagiConfig::default has timeout=300s, max_input_len=4MB.
     #[test]
     fn test_magi_config_default_values() {
         let config = MagiConfig::default();
         assert_eq!(config.timeout, Duration::from_secs(300));
-        assert_eq!(config.max_input_len, 1_048_576);
+        assert_eq!(config.max_input_len, 4 * 1024 * 1024);
+    }
+
+    /// MagiConfig::default max_input_len is 4 MB (4 * 1024 * 1024).
+    #[test]
+    fn test_magi_config_default_max_input_len_is_4mb() {
+        assert_eq!(MagiConfig::default().max_input_len, 4 * 1024 * 1024);
+    }
+
+    /// MagiBuilder::with_max_input_len overrides the default max_input_len.
+    #[tokio::test]
+    async fn test_builder_with_max_input_len_overrides_default() {
+        let responses = vec![mock_agent_json("melchior", "approve", 0.9)];
+        let provider =
+            Arc::new(MockProvider::success("mock", "model", responses)) as Arc<dyn LlmProvider>;
+
+        let magi = MagiBuilder::new(provider.clone())
+            .with_max_input_len(512)
+            .build()
+            .expect("build should succeed");
+
+        // Content of 512 bytes should be rejected (exceeds 512? no — equals 512, allowed)
+        // Content of 513 bytes must be rejected.
+        let too_large = "x".repeat(513);
+        let result = magi.analyze(&Mode::CodeReview, &too_large).await;
+        match result {
+            Err(MagiError::InputTooLarge { size, max }) => {
+                assert_eq!(size, 513);
+                assert_eq!(max, 512);
+            }
+            other => panic!("Expected InputTooLarge, got: {other:?}"),
+        }
     }
 
     // -- build_prompt formatting --
