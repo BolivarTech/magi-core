@@ -456,7 +456,7 @@ mod tests {
 
     // -- BDD Scenario 3: approve + conditional + reject --
 
-    /// Approve + conditional + reject produces GO WITH CAVEATS.
+    /// Approve + conditional + reject produces GO WITH CAVEATS (2-1).
     #[test]
     fn test_approve_conditional_reject_produces_go_with_caveats() {
         let agents = vec![
@@ -466,10 +466,146 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert_eq!(result.consensus, "GO WITH CAVEATS");
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
         assert_eq!(result.consensus_verdict, Verdict::Approve);
         assert!(!result.conditions.is_empty());
         assert_eq!(result.conditions[0].agent, AgentName::Balthasar);
+    }
+
+    // -- S05: GO WITH CAVEATS includes split count --
+
+    /// Three conditional agents produce GO WITH CAVEATS (3-0) (unanimous go side).
+    #[test]
+    fn test_go_with_caveats_three_conditionals_unanimous() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Conditional, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (3-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Two conditionals + one approve produce GO WITH CAVEATS (3-0).
+    #[test]
+    fn test_go_with_caveats_two_conditionals_one_approve() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Approve, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (3-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Two conditionals + one reject produce GO WITH CAVEATS (2-1).
+    #[test]
+    fn test_go_with_caveats_two_conditionals_one_reject() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Two conditionals (degraded, 2 agents) produce GO WITH CAVEATS (2-0).
+    /// Degraded mode does NOT alter GO WITH CAVEATS — only caps STRONG labels.
+    #[test]
+    fn test_go_with_caveats_degraded_two_conditionals() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+        assert_eq!(result.agent_count, 2);
+    }
+
+    /// One conditional + one approve (degraded) produce GO WITH CAVEATS (2-0).
+    #[test]
+    fn test_go_with_caveats_degraded_one_conditional_one_approve() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Approve, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+        assert_eq!(result.agent_count, 2);
+    }
+
+    /// One conditional + one reject (degraded) produce HOLD (1-1).
+    /// Score = (0.5 + -1.0) / 2 = -0.25 → negative → HOLD (1-1), not a tie.
+    #[test]
+    fn test_degraded_one_conditional_one_reject_produces_hold_1_1() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Reject, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        // score = (0.5 - 1.0) / 2 = -0.25, negative, so HOLD side wins
+        // approve_count=1 (Conditional maps to Approve), reject_count=1
+        // HOLD label uses (reject_count-approve_count) = (1-1)
+        assert_eq!(result.consensus, "HOLD (1-1)");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
+    }
+
+    /// Boundary test: score just above epsilon classifies as GO WITH CAVEATS.
+    ///
+    /// Uses custom epsilon (0.2) to straddle the real score of
+    /// Approve(+1) + Conditional(+0.5) + Reject(-1) = 0.5/3 ≈ 0.1667.
+    /// With epsilon=0.1, score 0.1667 > epsilon → GO WITH CAVEATS.
+    #[test]
+    fn test_score_just_above_epsilon_classifies_as_go_with_caveats() {
+        // score = (1.0 + 0.5 - 1.0) / 3 ≈ 0.1667
+        // epsilon = 0.1 → score > epsilon → GO WITH CAVEATS (2-1)
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig {
+            epsilon: 0.1,
+            ..ConsensusConfig::default()
+        });
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Boundary test: score just below epsilon classifies as HOLD.
+    ///
+    /// Uses custom epsilon (0.2) to straddle the real score of
+    /// Approve(+1) + Conditional(+0.5) + Reject(-1) = 0.5/3 ≈ 0.1667.
+    /// With epsilon=0.2, score 0.1667 < epsilon → HOLD -- TIE.
+    #[test]
+    fn test_score_just_below_epsilon_classifies_as_hold() {
+        // score = (1.0 + 0.5 - 1.0) / 3 ≈ 0.1667
+        // epsilon = 0.2 → score.abs() < epsilon → HOLD -- TIE
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig {
+            epsilon: 0.2,
+            ..ConsensusConfig::default()
+        });
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "HOLD -- TIE");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
     }
 
     // -- BDD Scenario 4: unanimous reject --
