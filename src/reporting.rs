@@ -12,6 +12,45 @@ use crate::schema::{AgentName, AgentOutput, Mode};
 /// Left-justified width of the severity icon column (e.g., `[!!!]`, `[!!]`, `[i]`).
 const FINDING_MARKER_WIDTH: usize = 5;
 
+/// Fits `content` into exactly `width` bytes, preserving `preserve_suffix` when truncating.
+///
+/// # Preconditions (ASCII-only input)
+///
+/// - `content` and `preserve_suffix` must be ASCII.
+///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
+/// - `width > 0`.
+///   `debug_assert!(width > 0)`
+///
+/// # Post-condition
+///
+/// The byte length of the result is:
+/// - `content.len()` when `content.len() <= width` (no truncation).
+/// - Exactly `width` when `width >= 4` and truncation occurs.
+/// - May exceed `width` when `width < 4` (documented edge case: cannot fit one char + `"..."`).
+///
+/// # Algorithm
+///
+/// 1. If `content.len() <= width`, return `content` unchanged.
+/// 2. Fallback (tail-cut) applies when `preserve_suffix` is empty or
+///    `preserve_suffix.len() + 3 >= width`:
+///    `cutoff = max(1, width.saturating_sub(3))`, return `content[..cutoff] + "..."`.
+/// 3. Otherwise prefix-truncate with suffix protected:
+///    `prefix_budget = width - 3 - preserve_suffix.len()`,
+///    return `prefix_source[..prefix_budget] + "..." + preserve_suffix`.
+///
+/// # Panics
+///
+/// In release mode, if preconditions are violated and byte-slice boundaries fall
+/// inside a multi-byte codepoint, this function panics (loud failure, no UB).
+fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
+    debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
+    debug_assert!(width > 0);
+
+    // Stub — intentionally wrong for TDD-Red phase.
+    // All calls return empty string so tests fail as expected.
+    String::new()
+}
+
 /// Left-justified width of the markdown severity label column (e.g., `**[CRITICAL]**`).
 ///
 /// `**[CRITICAL]**` = 14 chars (fits exactly).
@@ -1391,6 +1430,232 @@ mod tests {
             expected_info,
             output
         );
+    }
+
+    // -- S10: fit_content helper --
+
+    /// fit_content returns input unchanged when input length <= width.
+    #[test]
+    fn test_fit_content_returns_input_when_shorter_than_width() {
+        assert_eq!(fit_content("hello", 10, ""), "hello");
+        assert_eq!(fit_content("hi", 10, "lo"), "hi");
+    }
+
+    /// fit_content returns input unchanged when input length exactly equals width.
+    #[test]
+    fn test_fit_content_returns_input_when_exactly_width() {
+        assert_eq!(fit_content("hello", 5, ""), "hello");
+        assert_eq!(fit_content("abcde", 5, "lo"), "abcde");
+    }
+
+    /// fit_content preserves the suffix and ellipsizes the prefix when prefix overflows.
+    #[test]
+    fn test_fit_content_preserves_suffix_when_prefix_overflows() {
+        // content = "abcdefghij" (10), width = 8, preserve_suffix = "hij"
+        // prefix_budget = 8 - 3 - 3 = 2
+        // prefix_source = "abcdefg" (content minus last 3 chars)
+        // prefix_source[..2] = "ab"
+        // result = "ab...hij" (8 chars)
+        assert_eq!(fit_content("abcdefghij", 8, "hij"), "ab...hij");
+    }
+
+    /// fit_content falls back to tail-cut when no suffix is given.
+    #[test]
+    fn test_fit_content_falls_back_to_tail_cut_when_no_suffix() {
+        // content = "abcdefghij" (10), width = 6, preserve_suffix = ""
+        // fallback: cutoff = max(1, 6-3) = 3, result = "abc..."
+        assert_eq!(fit_content("abcdefghij", 6, ""), "abc...");
+    }
+
+    /// fit_content falls back to tail-cut when suffix + ellipsis >= width.
+    #[test]
+    fn test_fit_content_falls_back_to_tail_cut_when_suffix_plus_ellipsis_exceeds_width() {
+        // preserve_suffix = "xy" (2), ELLIPSIS = 3 bytes, total = 5 = width
+        // condition: len(preserve_suffix) + 3 >= width  →  2 + 3 >= 5  → true → fallback
+        // cutoff = max(1, 5-3) = 2, result = "ab..."
+        assert_eq!(fit_content("abcdefghij", 5, "xy"), "ab...");
+    }
+
+    /// fit_content ellipsis is exactly three dots.
+    #[test]
+    fn test_fit_content_ellipsis_is_exactly_three_dots() {
+        let result = fit_content("abcdefghij", 6, "");
+        assert!(result.ends_with("..."), "Expected ellipsis '...', got: {:?}", result);
+        let ellipsis_start = result.len() - 3;
+        assert_eq!(&result[ellipsis_start..], "...");
+    }
+
+    /// fit_content resulting byte length equals width when truncation occurs.
+    #[test]
+    fn test_fit_content_resulting_length_equals_width_when_truncated() {
+        // All cases where content.len() > width must produce exactly width bytes
+        // (except width < 4 edge case documented below)
+        for w in 4..=20usize {
+            let content = "a".repeat(w + 5);
+            let result = fit_content(&content, w, "");
+            assert_eq!(
+                result.len(),
+                w,
+                "Expected result length {w} for width={w}, got {} from {:?}",
+                result.len(),
+                result
+            );
+        }
+        // With suffix
+        let result = fit_content("abcdefghij", 8, "hij");
+        assert_eq!(result.len(), 8, "Expected 8, got {}: {:?}", result.len(), result);
+    }
+
+    /// fit_content boundary at width=1: Python-literal fallback produces "a..." (4 bytes).
+    ///
+    /// For width < 4, the result length exceeds `width` (cannot fit ellipsis + 1 char).
+    /// This is an accepted edge case documented in the spec — a literal port of Python behavior.
+    /// Callers should ensure `width >= 4` for sensible truncation.
+    #[test]
+    fn test_fit_content_boundary_width_1() {
+        // width=1: cutoff = max(1, 1.saturating_sub(3)) = max(1, 0) = 1
+        // result = "a..." (4 bytes, exceeds width — documented edge case)
+        let result = fit_content("abc", 1, "");
+        assert_eq!(result, "a...", "Expected 'a...' for width=1, got: {:?}", result);
+    }
+
+    // -- S10: Banner column alignment --
+
+    /// All agent labels are left-aligned to the same column width (max_label_len).
+    #[test]
+    fn test_banner_labels_are_column_aligned_to_max_label_len() {
+        // Default config: Melchior (Scientist): = 22, Balthasar (Pragmatist): = 23, Caspar (Critic): = 17
+        // max_label_len = 23
+        // After alignment: all verdict suffixes start at the same column
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.85, "S", "R", "Rec");
+        let c = make_agent(AgentName::Caspar, Verdict::Approve, 0.78, "S", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        // Find the agent content lines (not separator, not header, not consensus)
+        // Each agent line starts with "|  " and contains a verdict.
+        // The verdict suffix " APPROVE (NN%)" must start at the same column in all lines.
+        let agent_lines: Vec<&str> = banner
+            .lines()
+            .filter(|l| l.starts_with('|') && l.contains("APPROVE") && !l.contains("CONSENSUS"))
+            .collect();
+
+        assert_eq!(agent_lines.len(), 3, "Expected 3 agent lines");
+
+        // Find position of " APPROVE" in each line — must be the same for all
+        let verdict_positions: Vec<usize> = agent_lines
+            .iter()
+            .map(|l| l.find(" APPROVE").expect("APPROVE not found"))
+            .collect();
+
+        let first_pos = verdict_positions[0];
+        for (i, &pos) in verdict_positions.iter().enumerate() {
+            assert_eq!(
+                pos, first_pos,
+                "Agent line {i} has APPROVE at column {pos}, expected {first_pos}\nLines: {agent_lines:?}"
+            );
+        }
+    }
+
+    /// When a label is so long that the rendered line would overflow, the label is ellipsized
+    /// but the verdict suffix is preserved intact.
+    #[test]
+    fn test_banner_verdict_preserved_when_label_exceeds_width() {
+        // Use a very long title that would push the line over banner_inner (50 chars)
+        let mut config = ReportConfig::default();
+        config.agent_titles.insert(
+            AgentName::Balthasar,
+            (
+                "Balthasar".to_string(),
+                "Very Long Pragmatist Title Indeed Here".to_string(),
+            ),
+        );
+        let formatter = ReportFormatter::with_config(config);
+
+        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.85, "S", "R", "Rec");
+        let agents = vec![b.clone()];
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.85, 1.0, &[&b]);
+
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        // All lines must still be exactly 52 chars
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
+
+        // The verdict suffix must appear intact in the banner
+        let verdict_suffix = " APPROVE (85%)";
+        assert!(
+            banner.contains(verdict_suffix),
+            "Verdict suffix {:?} must be preserved in banner:\n{}",
+            verdict_suffix,
+            banner
+        );
+    }
+
+    /// The consensus line for GO WITH CAVEATS includes the split count (e.g., "GO WITH CAVEATS (2-1)").
+    #[test]
+    fn test_banner_consensus_line_includes_split_for_go_with_caveats() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.8, "S", "R", "Rec");
+        let c = make_agent(AgentName::Caspar, Verdict::Reject, 0.75, "S", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        // The consensus label must include the split — this is produced by the consensus engine (S05)
+        let consensus = make_consensus(
+            "GO WITH CAVEATS (2-1)",
+            Verdict::Approve,
+            0.8,
+            0.33,
+            &[&m, &b, &c],
+        );
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        assert!(
+            banner.contains("GO WITH CAVEATS (2-1)"),
+            "Banner consensus line must include the split count: {banner}"
+        );
+
+        // All lines must be exactly 52 chars
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
+    }
+
+    /// All lines of format_banner output are exactly banner_width (52) bytes.
+    ///
+    /// Re-verifies the existing invariant after alignment changes.
+    #[test]
+    fn test_banner_all_lines_are_exactly_banner_width() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "Good", "R", "Rec");
+        let b = make_agent(AgentName::Balthasar, Verdict::Conditional, 0.85, "Ok", "R", "Rec");
+        let c = make_agent(AgentName::Caspar, Verdict::Reject, 0.78, "Bad", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus(
+            "GO WITH CAVEATS (2-1)",
+            Verdict::Approve,
+            0.85,
+            0.33,
+            &[&m, &b, &c],
+        );
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
     }
 
     /// Agent names in JSON are lowercase.
