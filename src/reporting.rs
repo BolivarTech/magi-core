@@ -9,6 +9,16 @@ use std::fmt::Write;
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
 use crate::schema::{AgentName, AgentOutput, Mode};
 
+/// Left-justified width of the severity icon column (e.g., `[!!!]`, `[!!]`, `[i]`).
+const FINDING_MARKER_WIDTH: usize = 5;
+
+/// Left-justified width of the markdown severity label column (e.g., `**[CRITICAL]**`).
+///
+/// `**[CRITICAL]**` = 14 chars (fits exactly).
+/// `**[WARNING]**`  = 13 chars (1 trailing space added by padding).
+/// `**[INFO]**`     = 10 chars (4 trailing spaces added by padding).
+const FINDING_SEVERITY_WIDTH: usize = 14;
+
 /// Configuration for the report formatter.
 ///
 /// Controls banner width and agent display names/titles.
@@ -248,6 +258,14 @@ impl ReportFormatter {
     }
 
     /// Formats the key findings section.
+    ///
+    /// Renders one line per finding in the Python MAGI reference layout:
+    /// ```text
+    /// {marker:<5} {severity_label:<14} {title} _(from {sources})_
+    /// ```
+    /// The `detail` field is intentionally excluded from the markdown output.
+    /// It remains accessible via the `ConsensusResult::findings[].detail` field
+    /// in the JSON-serialized `MagiReport`.
     fn format_findings(&self, findings: &[DedupFinding]) -> String {
         let mut out = String::new();
         writeln!(out, "\n## Key Findings\n").ok();
@@ -255,21 +273,23 @@ impl ReportFormatter {
             let sources = finding
                 .sources
                 .iter()
-                .map(|s| s.display_name())
+                .map(|s| self.agent_display(s).0)
                 .collect::<Vec<_>>()
                 .join(", ");
+            let severity_label = format!("**[{}]**", finding.severity);
             writeln!(
                 out,
-                "{} **[{}]** {} _(from {})_",
+                "{:<marker_w$} {:<sev_w$} {} _(from {})_",
                 finding.severity.icon(),
-                finding.severity,
+                severity_label,
                 finding.title,
-                sources
+                sources,
+                marker_w = FINDING_MARKER_WIDTH,
+                sev_w = FINDING_SEVERITY_WIDTH,
             )
             .ok();
-            writeln!(out, "   {}", finding.detail).ok();
-            writeln!(out).ok();
         }
+        writeln!(out).ok();
         out
     }
 
@@ -849,7 +869,7 @@ mod tests {
 
     // -- Report content sections --
 
-    /// Findings section shows icon + severity + title + sources + detail.
+    /// Findings section shows icon + severity + title + sources (detail is excluded from markdown).
     #[test]
     fn test_findings_section_format() {
         let m = make_agent(
@@ -877,9 +897,10 @@ mod tests {
         assert!(report.contains("SQL injection risk"), "Missing title");
         assert!(report.contains("Melchior"), "Missing source agent");
         assert!(report.contains("Caspar"), "Missing source agent");
+        // detail is preserved in JSON but not rendered in markdown
         assert!(
-            report.contains("User input not sanitized"),
-            "Missing detail"
+            !report.contains("User input not sanitized"),
+            "Detail must not appear in markdown report"
         );
     }
 
@@ -1348,12 +1369,9 @@ mod tests {
         let output = formatter.format_findings(&findings);
 
         // Exact expected lines per Python MAGI reference layout
-        let expected_critical =
-            "[!!!] **[CRITICAL]** Test title _(from Melchior, Caspar)_";
-        let expected_warning =
-            "[!!]  **[WARNING]**  Missing retry logic _(from Balthasar)_";
-        let expected_info =
-            "[i]   **[INFO]**     Consider timeout _(from Caspar)_";
+        let expected_critical = "[!!!] **[CRITICAL]** Test title _(from Melchior, Caspar)_";
+        let expected_warning = "[!!]  **[WARNING]**  Missing retry logic _(from Balthasar)_";
+        let expected_info = "[i]   **[INFO]**     Consider timeout _(from Caspar)_";
 
         assert!(
             output.contains(expected_critical),
