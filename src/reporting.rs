@@ -247,14 +247,6 @@ impl ReportFormatter {
         }
     }
 
-    /// Formats the consensus summary section.
-    fn format_consensus_summary(&self, consensus: &ConsensusResult) -> String {
-        let mut out = String::new();
-        writeln!(out, "\n## Consensus Summary\n").ok();
-        writeln!(out, "{}", consensus.majority_summary).ok();
-        out
-    }
-
     /// Formats the key findings section.
     fn format_findings(&self, findings: &[DedupFinding]) -> String {
         let mut out = String::new();
@@ -631,7 +623,9 @@ mod tests {
         let actions_pos = report
             .find("## Recommended Actions")
             .expect("Recommended Actions not found");
-        let findings_pos = report.find("## Key Findings").expect("Key Findings not found");
+        let findings_pos = report
+            .find("## Key Findings")
+            .expect("Key Findings not found");
         let dissent_pos = report
             .find("## Dissenting Opinion")
             .expect("Dissenting Opinion not found");
@@ -639,15 +633,36 @@ mod tests {
             .find("## Conditions for Approval")
             .expect("Conditions not found");
 
-        assert!(banner_pos < findings_pos, "banner must come before Key Findings");
-        assert!(banner_pos < dissent_pos, "banner must come before Dissenting Opinion");
-        assert!(banner_pos < conditions_pos, "banner must come before Conditions");
-        assert!(banner_pos < actions_pos, "banner must come before Recommended Actions");
+        assert!(
+            banner_pos < findings_pos,
+            "banner must come before Key Findings"
+        );
+        assert!(
+            banner_pos < dissent_pos,
+            "banner must come before Dissenting Opinion"
+        );
+        assert!(
+            banner_pos < conditions_pos,
+            "banner must come before Conditions"
+        );
+        assert!(
+            banner_pos < actions_pos,
+            "banner must come before Recommended Actions"
+        );
 
         // Section order: findings < dissent < conditions < actions
-        assert!(findings_pos < dissent_pos, "Key Findings must come before Dissenting Opinion");
-        assert!(dissent_pos < conditions_pos, "Dissenting Opinion must come before Conditions");
-        assert!(conditions_pos < actions_pos, "Conditions must come before Recommended Actions");
+        assert!(
+            findings_pos < dissent_pos,
+            "Key Findings must come before Dissenting Opinion"
+        );
+        assert!(
+            dissent_pos < conditions_pos,
+            "Dissenting Opinion must come before Conditions"
+        );
+        assert!(
+            conditions_pos < actions_pos,
+            "Conditions must come before Recommended Actions"
+        );
     }
 
     /// Report without dissent omits "## Dissenting Opinion".
