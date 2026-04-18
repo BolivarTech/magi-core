@@ -34,7 +34,7 @@ impl Default for MagiConfig {
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(300),
-            max_input_len: 1_048_576,
+            max_input_len: 4 * 1024 * 1024,
             completion: CompletionConfig::default(),
         }
     }
