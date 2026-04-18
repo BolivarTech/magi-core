@@ -530,4 +530,27 @@ mod tests {
         assert_eq!(retry.max_retries, 3);
         assert_eq!(retry.base_delay, Duration::from_secs(1));
     }
+
+    // -- resolve_claude_alias tests --
+
+    /// `"opus"` alias resolves to the current Claude Opus 4.7 model identifier.
+    #[test]
+    fn test_resolve_claude_alias_opus_returns_claude_opus_4_7() {
+        let result = resolve_claude_alias("opus").unwrap();
+        assert_eq!(result, "claude-opus-4-7");
+    }
+
+    /// `"sonnet"` alias resolves to the current Claude Sonnet 4.6 model identifier.
+    #[test]
+    fn test_resolve_claude_alias_sonnet_returns_claude_sonnet_4_6() {
+        let result = resolve_claude_alias("sonnet").unwrap();
+        assert_eq!(result, "claude-sonnet-4-6");
+    }
+
+    /// `"haiku"` alias resolves to the current Claude Haiku 4.5 model identifier.
+    #[test]
+    fn test_resolve_claude_alias_haiku_returns_claude_haiku_4_5_20251001() {
+        let result = resolve_claude_alias("haiku").unwrap();
+        assert_eq!(result, "claude-haiku-4-5-20251001");
+    }
 }
