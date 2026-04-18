@@ -1184,6 +1184,197 @@ mod tests {
         );
     }
 
+    // -- S08: Finding line layout (single line, fixed-width columns, no detail) --
+
+    /// Finding detail text must not appear in the rendered findings section.
+    ///
+    /// The detail field is preserved in the JSON output (`DedupFinding::detail`)
+    /// but is intentionally excluded from the markdown report.
+    #[test]
+    fn test_findings_line_does_not_contain_detail_text() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![DedupFinding {
+            severity: Severity::Critical,
+            title: "SQL injection in query builder".to_string(),
+            detail: "UNIQUE_DETAIL_SENTINEL_XYZ".to_string(),
+            sources: vec![AgentName::Melchior],
+        }];
+
+        let output = formatter.format_findings(&findings);
+
+        assert!(
+            !output.contains("UNIQUE_DETAIL_SENTINEL_XYZ"),
+            "Detail text must not appear in the markdown findings output"
+        );
+    }
+
+    /// Marker column is exactly 5 characters, left-justified.
+    ///
+    /// The first token before the separator space must be exactly 5 bytes
+    /// (the icon padded to `FINDING_MARKER_WIDTH`).
+    #[test]
+    fn test_findings_line_marker_column_is_5_chars_left_justified() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "Critical finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Melchior],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "Warning finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "Info finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        for line in output.lines() {
+            if line.starts_with('[') {
+                // The marker column occupies positions 0..5 (5 chars), then a space at index 5.
+                let marker_col = &line[..5];
+                assert_eq!(
+                    marker_col.len(),
+                    5,
+                    "Marker column must be 5 chars; got {:?} in line {:?}",
+                    marker_col,
+                    line
+                );
+                assert_eq!(
+                    line.chars().nth(5),
+                    Some(' '),
+                    "Column 5 must be a space separator; got {:?} in line {:?}",
+                    line.chars().nth(5),
+                    line
+                );
+            }
+        }
+    }
+
+    /// Severity label column is exactly 14 characters wide (padded with trailing spaces).
+    ///
+    /// The severity label token (chars 6..20) must be exactly 14 bytes,
+    /// with the markdown-decorated label left-justified inside that width.
+    #[test]
+    fn test_findings_line_severity_label_column_is_14_chars_left_justified() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "A".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Melchior],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "B".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "C".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        for line in output.lines() {
+            if line.starts_with('[') {
+                // Layout: [marker:5] [space] [severity_label:14] [space] ...
+                // Positions: 0-4 = marker (5 chars), 5 = space, 6-19 = severity (14 chars), 20 = space
+                assert!(
+                    line.len() >= 21,
+                    "Line too short to contain marker+severity columns: {:?}",
+                    line
+                );
+                let severity_col = &line[6..20];
+                assert_eq!(
+                    severity_col.len(),
+                    14,
+                    "Severity label column must be 14 chars; got {:?} in line {:?}",
+                    severity_col,
+                    line
+                );
+                assert_eq!(
+                    line.chars().nth(20),
+                    Some(' '),
+                    "Column 20 must be a space separator after severity; got {:?} in line {:?}",
+                    line.chars().nth(20),
+                    line
+                );
+            }
+        }
+    }
+
+    /// Full finding line matches the Python MAGI reference layout byte-for-byte.
+    ///
+    /// Format: `{marker:<5} {severity_label:<14} {title} _(from {sources})_`
+    #[test]
+    fn test_findings_line_matches_python_layout_exactly() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "Test title".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Melchior, AgentName::Caspar],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "Missing retry logic".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "Consider timeout".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        // Exact expected lines per Python MAGI reference layout
+        let expected_critical =
+            "[!!!] **[CRITICAL]** Test title _(from Melchior, Caspar)_";
+        let expected_warning =
+            "[!!]  **[WARNING]**  Missing retry logic _(from Balthasar)_";
+        let expected_info =
+            "[i]   **[INFO]**     Consider timeout _(from Caspar)_";
+
+        assert!(
+            output.contains(expected_critical),
+            "Critical line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_critical,
+            output
+        );
+        assert!(
+            output.contains(expected_warning),
+            "Warning line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_warning,
+            output
+        );
+        assert!(
+            output.contains(expected_info),
+            "Info line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_info,
+            output
+        );
+    }
+
     /// Agent names in JSON are lowercase.
     #[test]
     fn test_magi_report_json_agent_names_lowercase() {
