@@ -43,6 +43,16 @@ impl fmt::Display for ReportError {
     }
 }
 
+/// Default total width of the ASCII banner in bytes, including the two border `|` characters.
+///
+/// Equals [`BANNER_INNER`] + 2. Assumes ASCII content for correct visual alignment.
+pub const BANNER_WIDTH: usize = 52;
+
+/// Default inner width of the ASCII banner in bytes (between the two border `|` characters).
+///
+/// Equals [`BANNER_WIDTH`] - 2. All content lines are padded or truncated to exactly this width.
+pub const BANNER_INNER: usize = BANNER_WIDTH - 2;
+
 /// Left-justified width of the severity icon column (e.g., `[!!!]`, `[!!]`, `[i]`).
 const FINDING_MARKER_WIDTH: usize = 5;
 

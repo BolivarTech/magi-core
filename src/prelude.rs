@@ -23,7 +23,9 @@ pub use crate::validate::{ValidationLimits, Validator, clean_title};
 pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 
 // Reporting
-pub use crate::reporting::{MagiReport, ReportConfig, ReportError, ReportFormatter};
+pub use crate::reporting::{
+    BANNER_INNER, BANNER_WIDTH, MagiReport, ReportConfig, ReportError, ReportFormatter,
+};
 
 // Provider trait and config
 pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider, resolve_claude_alias};
