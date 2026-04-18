@@ -36,16 +36,13 @@ pub struct MagiConfig {
     pub timeout: Duration,
     /// Maximum accepted size of the raw `content` argument to [`Magi::analyze`], in bytes.
     ///
-    /// Measured BEFORE sanitization — a content with heavy zero-width padding is
-    /// rejected by this limit even if its sanitized form would fit. This choice
-    /// prevents sanitization-time allocation blowup from adversarial inputs.
-    ///
     /// Default: [`DEFAULT_MAX_INPUT_LEN`] (4 MB).
     ///
-    /// **Note:** for public-facing deployments where `content` is untrusted, consider
-    /// lowering this to a value appropriate for your threat model. Default (4 MB) is a
-    /// compromise between Python's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with
-    /// Python is deferred to v0.3.0 pending allocation audit of the `analyze()` pipeline.
+    /// Note: for public-facing deployments where `content` is untrusted,
+    /// consider lowering this via [`MagiBuilder::with_max_input_len`] to a value
+    /// appropriate for your threat model. Default (4 MB) is a compromise between
+    /// Python MAGI's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with Python
+    /// is deferred to v0.3.0 pending allocation audit of the analyze() pipeline.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
     pub completion: CompletionConfig,
@@ -829,12 +826,6 @@ mod tests {
         assert_eq!(config.max_input_len, 4 * 1024 * 1024);
     }
 
-    /// MagiConfig::default max_input_len is 4 MB (4 * 1024 * 1024).
-    #[test]
-    fn test_magi_config_default_max_input_len_is_4mb() {
-        assert_eq!(MagiConfig::default().max_input_len, 4 * 1024 * 1024);
-    }
-
     /// MagiBuilder::with_max_input_len overrides the default max_input_len.
     #[tokio::test]
     async fn test_builder_with_max_input_len_overrides_default() {
@@ -847,8 +838,6 @@ mod tests {
             .build()
             .expect("build should succeed");
 
-        // Content of 512 bytes should be rejected (exceeds 512? no — equals 512, allowed)
-        // Content of 513 bytes must be rejected.
         let too_large = "x".repeat(513);
         let result = magi.analyze(&Mode::CodeReview, &too_large).await;
         match result {
