@@ -274,16 +274,18 @@ impl ReportFormatter {
     }
 
     /// Formats the dissenting opinion section.
+    ///
+    /// Emits one line per dissenter: `**Name (Title)**: <summary>`.
+    /// The `reasoning` field is intentionally excluded — it is preserved
+    /// in the JSON output (`Dissent` struct) but not rendered in the report.
     fn format_dissent(&self, dissent: &[Dissent]) -> String {
         let mut out = String::new();
         writeln!(out, "\n## Dissenting Opinion\n").ok();
         for d in dissent {
-            let (display_name, title) = self.agent_display(&d.agent);
-            writeln!(out, "**{} ({})**: {}", display_name, title, d.summary).ok();
-            writeln!(out).ok();
-            writeln!(out, "{}", d.reasoning).ok();
-            writeln!(out).ok();
+            let (name, title) = self.agent_display(&d.agent);
+            writeln!(out, "**{} ({})**: {}", name, title, d.summary).ok();
         }
+        writeln!(out).ok();
         out
     }
 
@@ -881,7 +883,7 @@ mod tests {
         );
     }
 
-    /// Dissent section shows agent name, summary, full reasoning.
+    /// Dissent section shows agent name and summary; reasoning is not rendered.
     #[test]
     fn test_dissent_section_format() {
         let m = make_agent(
@@ -917,9 +919,10 @@ mod tests {
             report.contains("Too many issues"),
             "Missing dissent summary"
         );
+        // Reasoning is preserved in the Dissent struct (JSON) but not rendered in the report.
         assert!(
-            report.contains("The code has critical flaws"),
-            "Missing dissent reasoning"
+            !report.contains("The code has critical flaws"),
+            "Dissent reasoning must not appear in the rendered report"
         );
     }
 
