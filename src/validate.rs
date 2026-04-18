@@ -122,6 +122,37 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates `output` in place, replacing each finding's title with its
+    /// cleaned form (see [`clean_title`]) before length validation.
+    ///
+    /// This is the preferred entry point for pipelines that parse LLM responses,
+    /// because it ensures downstream code sees titles in the canonical cleaned
+    /// form used by the consensus engine.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MagiError::Validation`] on the first field that fails validation.
+    /// Validation order: confidence → summary → reasoning → recommendation →
+    /// findings (count, then each title/detail after cleaning).
+    pub fn validate_mut(&self, output: &mut AgentOutput) -> Result<(), MagiError> {
+        self.validate_confidence(output.confidence)?;
+        self.validate_text_field("summary", &output.summary)?;
+        self.validate_text_field("reasoning", &output.reasoning)?;
+        self.validate_text_field("recommendation", &output.recommendation)?;
+        if output.findings.len() > self.limits.max_findings {
+            return Err(MagiError::Validation(format!(
+                "findings count {} exceeds maximum of {}",
+                output.findings.len(),
+                self.limits.max_findings
+            )));
+        }
+        for finding in &mut output.findings {
+            finding.title = clean_title(&finding.title);
+            self.validate_finding_cleaned(finding)?;
+        }
+        Ok(())
+    }
+
     fn validate_confidence(&self, confidence: f64) -> Result<(), MagiError> {
         if !(confidence >= self.limits.confidence_min && confidence <= self.limits.confidence_max) {
             return Err(MagiError::Validation(format!(
@@ -152,6 +183,28 @@ impl Validator {
         }
         for finding in findings {
             self.validate_finding(finding)?;
+        }
+        Ok(())
+    }
+
+    /// Validates a finding whose title has already been cleaned (no stripping needed).
+    fn validate_finding_cleaned(&self, finding: &Finding) -> Result<(), MagiError> {
+        if finding.title.is_empty() {
+            return Err(MagiError::Validation(
+                "finding title is empty after removing zero-width characters".to_string(),
+            ));
+        }
+        if finding.title.chars().count() > self.limits.max_title_len {
+            return Err(MagiError::Validation(format!(
+                "finding title exceeds maximum length of {} characters",
+                self.limits.max_title_len
+            )));
+        }
+        if finding.detail.chars().count() > self.limits.max_detail_len {
+            return Err(MagiError::Validation(format!(
+                "finding detail exceeds maximum length of {} characters",
+                self.limits.max_detail_len
+            )));
         }
         Ok(())
     }
@@ -500,9 +553,7 @@ mod tests {
     #[test]
     fn test_validate_mut_replaces_title_with_cleaned_form() {
         let v = Validator::new();
-        let mut output = output_with_findings(vec![finding_with_title(
-            "  Issue\t\u{200b}Title  ",
-        )]);
+        let mut output = output_with_findings(vec![finding_with_title("  Issue\t\u{200b}Title  ")]);
         v.validate_mut(&mut output).unwrap();
         assert_eq!(output.findings[0].title, "Issue Title");
     }
