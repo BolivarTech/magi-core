@@ -20,6 +20,8 @@ regex = "1"
 async-trait = "0.1"
 tokio = { version = "1", features = ["time", "rt", "process", "io-util"] }
 reqwest = { version = "0.12", features = ["json"], optional = true }
+unicode-normalization = "~0.1.24"
+caseless = "~0.2.2"
 
 [features]
 claude-api = ["dep:reqwest"]

@@ -841,4 +841,207 @@ mod tests {
         let result = engine.determine(&agents).unwrap();
         assert_eq!(result.agent_count, 3);
     }
+
+    // -- S03: dedup_key NFKC + casefold tests --
+
+    /// dedup_key applies NFKC normalization: fullwidth Latin chars collapse to ASCII.
+    /// "ＡＢＣ" (fullwidth) and "abc" must produce the same key after NFKC + casefold.
+    #[test]
+    fn test_dedup_key_nfkc_collapses_fullwidth_digits() {
+        let key_fullwidth = dedup_key("\u{FF21}\u{FF22}\u{FF23}"); // ＡＢＣ
+        let key_ascii = dedup_key("abc");
+        assert_eq!(
+            key_fullwidth, key_ascii,
+            "NFKC must collapse fullwidth ＡＢＣ to abc"
+        );
+    }
+
+    /// dedup_key applies NFKC: precomposed and combining forms of the same character
+    /// produce the same key ("café" U+00E9 == "cafe\u{301}").
+    #[test]
+    fn test_dedup_key_nfkc_collapses_combining_accents() {
+        let precomposed = dedup_key("caf\u{E9}");     // é precomposed
+        let combining = dedup_key("cafe\u{301}");      // e + combining acute
+        assert_eq!(
+            precomposed, combining,
+            "NFKC must collapse combining accents to precomposed form"
+        );
+    }
+
+    /// dedup_key uses full Unicode casefold: sharp-S ß must fold to "ss" (not "ß").
+    /// Python str.casefold() and caseless crate both produce "ss". No #[ignore] needed.
+    #[test]
+    fn test_dedup_key_casefold_sharp_s_equals_double_s() {
+        let sharp_s = dedup_key("\u{DF}");  // ß
+        let double_s = dedup_key("ss");
+        assert_eq!(
+            sharp_s, double_s,
+            "casefold must fold ß to ss (full Unicode fold, not to_lowercase)"
+        );
+    }
+
+    /// dedup_key casefolding: all Greek sigma variants (Σ, σ, ς) fold to the same key.
+    ///
+    /// Empirically verified (S03 Step 1):
+    ///   Python: "ς".casefold() == "σ" (U+03C3)
+    ///   caseless::default_case_fold_str("ς") == "σ" (U+03C3)
+    /// Both agree, so all three variants are included in this test.
+    #[test]
+    fn test_dedup_key_casefold_greek_sigma_variants() {
+        let capital = dedup_key("\u{03A3}"); // Σ GREEK CAPITAL LETTER SIGMA
+        let small = dedup_key("\u{03C3}");   // σ GREEK SMALL LETTER SIGMA
+        let final_s = dedup_key("\u{03C2}"); // ς GREEK SMALL LETTER FINAL SIGMA
+        assert_eq!(capital, small, "Σ and σ must fold to the same key");
+        assert_eq!(
+            small, final_s,
+            "σ and ς must fold to the same key (both caseless and Python agree)"
+        );
+    }
+
+    /// dedup_key does NOT apply locale-aware Turkish dotted-I folding.
+    /// Unicode default casefold: "İ" (U+0130) folds to "i\u{307}" (i + combining dot above).
+    /// This test confirms default (non-locale) behavior, matching caseless crate semantics.
+    #[test]
+    fn test_dedup_key_casefold_turkish_dotted_i() {
+        use unicode_normalization::UnicodeNormalization;
+        let dotted_i_upper = dedup_key("\u{0130}"); // İ LATIN CAPITAL LETTER I WITH DOT ABOVE
+        // Unicode default casefold: U+0130 -> "i\u{0307}" (not simple "i")
+        // This is intentional: no locale-aware Turkish folding
+        let expected = caseless::default_case_fold_str(
+            &"\u{0130}".nfkc().collect::<String>()
+        );
+        assert_eq!(dotted_i_upper, expected);
+    }
+
+    /// dedup_key preserves interior whitespace — aligning with Python clean_title + NFKC behavior.
+    /// "foo  bar" (double space) and "foo bar" (single space) produce DIFFERENT keys.
+    /// This is the correct Python-aligned behavior: no split_whitespace collapsing.
+    #[test]
+    fn test_dedup_key_preserves_interior_whitespace() {
+        let double_space = dedup_key("foo  bar");
+        let single_space = dedup_key("foo bar");
+        assert_ne!(
+            double_space, single_space,
+            "dedup_key must NOT collapse interior whitespace (aligned with Python)"
+        );
+    }
+
+    /// Findings with fullwidth ASCII titles (e.g., "ＳＱＬ injection") and ASCII titles
+    /// ("SQL injection") are merged into a single deduplicated finding via NFKC.
+    #[test]
+    fn test_dedup_merges_fullwidth_and_ascii_titles() {
+        // ＳＱＬ = U+FF33 U+FF31 U+FF2C (fullwidth)
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "\u{FF33}\u{FF31}\u{FF2C} injection".to_string(), // ＳＱＬ injection
+            detail: "detail_fullwidth".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Critical,
+            title: "sql injection".to_string(),
+            detail: "detail_ascii".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(
+            result.findings.len(),
+            1,
+            "fullwidth and ASCII titles must merge to one finding via NFKC"
+        );
+        assert_eq!(result.findings[0].severity, Severity::Critical);
+    }
+
+    // -- S03: ordering regression tests --
+
+    /// When Melchior reports first in the agent slice, the deduplicated finding's
+    /// title comes from Melchior's form and sources list is [Melchior, Balthasar].
+    #[test]
+    fn test_dedup_first_seen_order_preserved_when_melchior_reports_first() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Issue A".to_string(),
+            detail: "detail_m".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "issue a".to_string(),
+            detail: "detail_b".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Melchior is first in slice
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(
+            result.findings[0].title, "Issue A",
+            "title must come from Melchior (first seen)"
+        );
+        assert_eq!(result.findings[0].sources.len(), 2);
+        // First source should be Melchior (first-seen insertion order)
+        assert_eq!(result.findings[0].sources[0], AgentName::Melchior);
+        assert_eq!(result.findings[0].sources[1], AgentName::Balthasar);
+    }
+
+    /// When Balthasar reports first in the agent slice, the deduplicated finding's
+    /// title comes from Balthasar's form and sources list is [Balthasar, Melchior].
+    #[test]
+    fn test_dedup_first_seen_order_preserved_when_balthasar_reports_first() {
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "issue a".to_string(),
+            detail: "detail_b".to_string(),
+        });
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Issue A".to_string(),
+            detail: "detail_m".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Balthasar is first in slice
+        let result = engine.determine(&[b, m, c]).unwrap();
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(
+            result.findings[0].title, "issue a",
+            "title must come from Balthasar (first seen)"
+        );
+        assert_eq!(result.findings[0].sources.len(), 2);
+        assert_eq!(result.findings[0].sources[0], AgentName::Balthasar);
+        assert_eq!(result.findings[0].sources[1], AgentName::Melchior);
+    }
+
+    /// When two distinct findings have equal severity, the finding seen first in the
+    /// agent slice appears first in the output (stable ordering).
+    #[test]
+    fn test_dedup_ordering_stable_across_equal_severity() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Alpha Issue".to_string(),
+            detail: "detail_alpha".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Beta Issue".to_string(),
+            detail: "detail_beta".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Melchior is first, so "Alpha Issue" should appear first when severity ties
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(result.findings.len(), 2);
+        assert_eq!(
+            result.findings[0].title, "Alpha Issue",
+            "first-seen finding must appear first when severity is equal"
+        );
+        assert_eq!(result.findings[1].title, "Beta Issue");
+    }
 }
