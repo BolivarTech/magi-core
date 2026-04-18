@@ -4,10 +4,44 @@
 
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
 use crate::schema::{AgentName, AgentOutput, Mode};
+
+/// Error returned by `ReportConfig::new_checked` when validation fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportError {
+    /// An `agent_titles` value contains non-ASCII characters.
+    ///
+    /// The field name is either `"display_name"` or `"title"`,
+    /// and `agent` identifies which agent's entry failed validation.
+    NonAsciiTitle {
+        /// The agent whose title failed validation.
+        agent: AgentName,
+        /// Which field: `"display_name"` or `"title"`.
+        field: &'static str,
+        /// The invalid value.
+        value: String,
+    },
+}
+
+impl fmt::Display for ReportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReportError::NonAsciiTitle {
+                agent,
+                field,
+                value,
+            } => write!(
+                f,
+                "agent_titles[{:?}].{} contains non-ASCII characters: {:?}",
+                agent, field, value
+            ),
+        }
+    }
+}
 
 /// Left-justified width of the severity icon column (e.g., `[!!!]`, `[!!]`, `[i]`).
 const FINDING_MARKER_WIDTH: usize = 5;
@@ -27,6 +61,7 @@ const FINDING_MARKER_WIDTH: usize = 5;
 /// - `content.len()` when `content.len() <= width` (no truncation).
 /// - Exactly `width` when `width >= 4` and truncation occurs.
 /// - May exceed `width` when `width < 4` (documented edge case: cannot fit one char + `"..."`).
+///   Callers should ensure `width >= 4` for sensible truncation.
 ///
 /// # Algorithm
 ///
@@ -46,9 +81,29 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
     debug_assert!(width > 0);
 
-    // Stub — intentionally wrong for TDD-Red phase.
-    // All calls return empty string so tests fail as expected.
-    String::new()
+    const ELLIPSIS: &str = "...";
+
+    // Step 1: no truncation needed
+    if content.len() <= width {
+        return content.to_string();
+    }
+
+    // Step 2: fallback tail-cut when no suffix or suffix + ellipsis fills width
+    if preserve_suffix.is_empty() || preserve_suffix.len() + ELLIPSIS.len() >= width {
+        let cutoff = (width.saturating_sub(ELLIPSIS.len())).max(1);
+        return format!("{}{}", &content[..cutoff], ELLIPSIS);
+    }
+
+    // Step 3: prefix-truncate with suffix protected
+    let prefix_budget = width - ELLIPSIS.len() - preserve_suffix.len();
+    // prefix_source is content with the suffix tail removed
+    let prefix_source = &content[..content.len() - preserve_suffix.len()];
+    format!(
+        "{}{}{}",
+        &prefix_source[..prefix_budget],
+        ELLIPSIS,
+        preserve_suffix
+    )
 }
 
 /// Left-justified width of the markdown severity label column (e.g., `**[CRITICAL]**`).
@@ -112,6 +167,49 @@ pub struct MagiReport {
     pub failed_agents: BTreeMap<AgentName, String>,
 }
 
+impl ReportConfig {
+    /// Creates a `ReportConfig` with validated ASCII `agent_titles`.
+    ///
+    /// Returns `Err(ReportError::NonAsciiTitle)` if any display name or title in
+    /// `agent_titles` contains non-ASCII characters. The `banner_width` is set to
+    /// the provided value without validation (caller's responsibility).
+    ///
+    /// This allows `fit_content` to assume ASCII without run-time panic.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut titles = BTreeMap::new();
+    /// titles.insert(AgentName::Melchior, ("Melchior".to_string(), "Scientist".to_string()));
+    /// let config = ReportConfig::new_checked(52, titles)?;
+    /// ```
+    pub fn new_checked(
+        banner_width: usize,
+        agent_titles: BTreeMap<AgentName, (String, String)>,
+    ) -> Result<Self, ReportError> {
+        for (agent, (display_name, title)) in &agent_titles {
+            if !display_name.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "display_name",
+                    value: display_name.clone(),
+                });
+            }
+            if !title.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "title",
+                    value: title.clone(),
+                });
+            }
+        }
+        Ok(Self {
+            banner_width,
+            agent_titles,
+        })
+    }
+}
+
 impl Default for ReportConfig {
     fn default() -> Self {
         let mut agent_titles = BTreeMap::new();
@@ -149,21 +247,38 @@ impl ReportFormatter {
         }
     }
 
-    /// Generates the fixed-width ASCII verdict banner.
+    /// Generates the fixed-width ASCII verdict banner with column-aligned agent labels.
     ///
-    /// Every line is exactly `banner_width` (52) characters. Structure:
+    /// Every line is exactly `banner_width` (52) characters. Agent labels are
+    /// left-justified to the same width (`max_label_len`), so verdict suffixes
+    /// start at the same column for all agents. When content overflows the inner
+    /// width, the label is ellipsized while the verdict suffix is preserved intact.
+    ///
+    /// Structure:
     /// ```text
     /// +==================================================+
     /// |          MAGI SYSTEM -- VERDICT                  |
     /// +==================================================+
     /// |  Melchior (Scientist):  APPROVE (90%)            |
+    /// |  Balthasar (Pragmatist): APPROVE (85%)           |
+    /// |  Caspar (Critic):        APPROVE (78%)           |
     /// +==================================================+
-    /// |  CONSENSUS: GO WITH CAVEATS                      |
+    /// |  CONSENSUS: GO WITH CAVEATS (2-1)                |
     /// +==================================================+
     /// ```
     pub fn format_banner(&self, agents: &[AgentOutput], consensus: &ConsensusResult) -> String {
         let mut out = String::new();
         let sep = self.format_separator();
+
+        // Step 1: compute per-agent labels and max label length
+        let labels: Vec<String> = agents
+            .iter()
+            .map(|a| {
+                let (display_name, title) = self.agent_display(&a.agent);
+                format!("{} ({}):", display_name, title)
+            })
+            .collect();
+        let max_label_len = labels.iter().map(|l| l.len()).max().unwrap_or(0);
 
         writeln!(out, "{}", sep).ok();
         writeln!(
@@ -174,19 +289,26 @@ impl ReportFormatter {
         .ok();
         writeln!(out, "{}", sep).ok();
 
-        for agent in agents {
-            let (display_name, title) = self.agent_display(&agent.agent);
+        // Step 2: render each agent line with aligned label
+        for (agent, label) in agents.iter().zip(labels.iter()) {
             let pct = (agent.confidence * 100.0).round() as u32;
-            let content = format!(
-                "  {} ({}):  {} ({}%)",
-                display_name, title, agent.verdict, pct
-            );
-            writeln!(out, "{}", self.format_line(&content)).ok();
+            let verdict_suffix = format!(" {} ({}%)", agent.verdict, pct);
+            let content = format!("  {:<max_label_len$}{}", label, verdict_suffix);
+            let fitted = fit_content(&content, self.banner_inner, &verdict_suffix);
+            writeln!(out, "|{:<width$}|", fitted, width = self.banner_inner).ok();
         }
 
+        // Step 3: consensus line (no suffix protection)
         writeln!(out, "{}", sep).ok();
-        let consensus_line = format!("  CONSENSUS: {}", consensus.consensus);
-        writeln!(out, "{}", self.format_line(&consensus_line)).ok();
+        let consensus_content = format!("  CONSENSUS: {}", consensus.consensus);
+        let fitted_consensus = fit_content(&consensus_content, self.banner_inner, "");
+        writeln!(
+            out,
+            "|{:<width$}|",
+            fitted_consensus,
+            width = self.banner_inner
+        )
+        .ok();
         write!(out, "{}", sep).ok();
 
         out
@@ -883,7 +1005,16 @@ mod tests {
         assert_eq!(sep.len(), 52);
     }
 
-    /// Agent line shows "Name (Title):  VERDICT (NN%)" format.
+    /// Agent line shows "Name (Title):" aligned to max label width, then " VERDICT (NN%)".
+    ///
+    /// With default config:
+    /// - "Melchior (Scientist):"   = 21 chars → padded to 23 → 2 trailing spaces before verdict
+    /// - "Balthasar (Pragmatist):" = 23 chars → max, no padding
+    /// - "Caspar (Critic):"        = 17 chars → padded to 23 → 6 trailing spaces before verdict
+    ///
+    /// Content = "  {label:<23}{verdict_suffix}" where verdict_suffix starts with one space:
+    /// - Melchior: "  Melchior (Scientist):   APPROVE (90%)"  (2+21+2 padding+1 from suffix)
+    /// - Caspar:   "  Caspar (Critic):         APPROVE (78%)" (2+17+6 padding+1 from suffix)
     #[test]
     fn test_agent_line_format() {
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
@@ -902,8 +1033,12 @@ mod tests {
         let formatter = ReportFormatter::new();
         let banner = formatter.format_banner(&agents, &consensus);
 
-        assert!(banner.contains("Melchior (Scientist):  APPROVE (90%)"));
-        assert!(banner.contains("Caspar (Critic):  APPROVE (78%)"));
+        // "Melchior (Scientist):" = 21 chars, padded to 23 (max): 2 extra spaces.
+        // verdict_suffix starts with 1 space → total 3 spaces between colon and APPROVE.
+        assert!(banner.contains("Melchior (Scientist):   APPROVE (90%)"));
+        // "Caspar (Critic):" = 17 chars, padded to 23: 6 extra spaces.
+        // verdict_suffix starts with 1 space → total 7 spaces between colon and APPROVE.
+        assert!(banner.contains("Caspar (Critic):        APPROVE (78%)"));
     }
 
     // -- Report content sections --
@@ -1480,7 +1615,11 @@ mod tests {
     #[test]
     fn test_fit_content_ellipsis_is_exactly_three_dots() {
         let result = fit_content("abcdefghij", 6, "");
-        assert!(result.ends_with("..."), "Expected ellipsis '...', got: {:?}", result);
+        assert!(
+            result.ends_with("..."),
+            "Expected ellipsis '...', got: {:?}",
+            result
+        );
         let ellipsis_start = result.len() - 3;
         assert_eq!(&result[ellipsis_start..], "...");
     }
@@ -1503,7 +1642,13 @@ mod tests {
         }
         // With suffix
         let result = fit_content("abcdefghij", 8, "hij");
-        assert_eq!(result.len(), 8, "Expected 8, got {}: {:?}", result.len(), result);
+        assert_eq!(
+            result.len(),
+            8,
+            "Expected 8, got {}: {:?}",
+            result.len(),
+            result
+        );
     }
 
     /// fit_content boundary at width=1: Python-literal fallback produces "a..." (4 bytes).
@@ -1516,7 +1661,11 @@ mod tests {
         // width=1: cutoff = max(1, 1.saturating_sub(3)) = max(1, 0) = 1
         // result = "a..." (4 bytes, exceeds width — documented edge case)
         let result = fit_content("abc", 1, "");
-        assert_eq!(result, "a...", "Expected 'a...' for width=1, got: {:?}", result);
+        assert_eq!(
+            result, "a...",
+            "Expected 'a...' for width=1, got: {:?}",
+            result
+        );
     }
 
     // -- S10: Banner column alignment --
@@ -1524,11 +1673,18 @@ mod tests {
     /// All agent labels are left-aligned to the same column width (max_label_len).
     #[test]
     fn test_banner_labels_are_column_aligned_to_max_label_len() {
-        // Default config: Melchior (Scientist): = 22, Balthasar (Pragmatist): = 23, Caspar (Critic): = 17
+        // Default config: Melchior (Scientist): = 21, Balthasar (Pragmatist): = 23, Caspar (Critic): = 17
         // max_label_len = 23
         // After alignment: all verdict suffixes start at the same column
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
-        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.85, "S", "R", "Rec");
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "S",
+            "R",
+            "Rec",
+        );
         let c = make_agent(AgentName::Caspar, Verdict::Approve, 0.78, "S", "R", "Rec");
         let agents = vec![m.clone(), b.clone(), c.clone()];
         let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
@@ -1576,7 +1732,14 @@ mod tests {
         );
         let formatter = ReportFormatter::with_config(config);
 
-        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.85, "S", "R", "Rec");
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "S",
+            "R",
+            "Rec",
+        );
         let agents = vec![b.clone()];
         let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.85, 1.0, &[&b]);
 
@@ -1636,8 +1799,22 @@ mod tests {
     /// Re-verifies the existing invariant after alignment changes.
     #[test]
     fn test_banner_all_lines_are_exactly_banner_width() {
-        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "Good", "R", "Rec");
-        let b = make_agent(AgentName::Balthasar, Verdict::Conditional, 0.85, "Ok", "R", "Rec");
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good",
+            "R",
+            "Rec",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Conditional,
+            0.85,
+            "Ok",
+            "R",
+            "Rec",
+        );
         let c = make_agent(AgentName::Caspar, Verdict::Reject, 0.78, "Bad", "R", "Rec");
         let agents = vec![m.clone(), b.clone(), c.clone()];
         let consensus = make_consensus(
