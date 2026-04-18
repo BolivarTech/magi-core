@@ -1897,4 +1897,71 @@ mod tests {
             "Confidence should be serialized as-is (rounding is consensus engine's job)"
         );
     }
+
+    // -- ReportConfig::new_checked tests --
+
+    /// ReportConfig::new_checked accepts all ASCII titles.
+    #[test]
+    fn test_new_checked_accepts_all_ascii_titles() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Melchior,
+            ("Melchior".to_string(), "Scientist".to_string()),
+        );
+        agent_titles.insert(
+            AgentName::Balthasar,
+            ("Balthasar".to_string(), "Pragmatist".to_string()),
+        );
+        agent_titles.insert(
+            AgentName::Caspar,
+            ("Caspar".to_string(), "Critic".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_ok(), "Should accept all ASCII titles");
+        let config = result.unwrap();
+        assert_eq!(config.banner_width, 52);
+    }
+
+    /// ReportConfig::new_checked rejects non-ASCII display_name.
+    #[test]
+    fn test_new_checked_rejects_non_ascii_display_name() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Melchior,
+            ("Mélchior".to_string(), "Scientist".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_err(), "Should reject non-ASCII display_name");
+        let ReportError::NonAsciiTitle {
+            agent,
+            field,
+            value,
+        } = result.unwrap_err();
+        assert_eq!(agent, AgentName::Melchior);
+        assert_eq!(field, "display_name");
+        assert_eq!(value, "Mélchior");
+    }
+
+    /// ReportConfig::new_checked rejects non-ASCII title field.
+    #[test]
+    fn test_new_checked_rejects_non_ascii_title_field() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Balthasar,
+            ("Balthasar".to_string(), "Pragmátist".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_err(), "Should reject non-ASCII title");
+        let ReportError::NonAsciiTitle {
+            agent,
+            field,
+            value,
+        } = result.unwrap_err();
+        assert_eq!(agent, AgentName::Balthasar);
+        assert_eq!(field, "title");
+        assert_eq!(value, "Pragmátist");
+    }
 }
