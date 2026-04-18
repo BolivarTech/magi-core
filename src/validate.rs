@@ -134,6 +134,10 @@ impl Validator {
     /// Returns [`MagiError::Validation`] on the first field that fails validation.
     /// Validation order: confidence → summary → reasoning → recommendation →
     /// findings (count, then each title/detail after cleaning).
+    ///
+    /// On error, findings before the failing one may have already had their titles
+    /// cleaned in place — the mutation is NOT rolled back. Callers that need
+    /// all-or-nothing semantics should clone `output` before calling this method.
     pub fn validate_mut(&self, output: &mut AgentOutput) -> Result<(), MagiError> {
         self.validate_confidence(output.confidence)?;
         self.validate_text_field("summary", &output.summary)?;
@@ -187,20 +191,23 @@ impl Validator {
         Ok(())
     }
 
-    /// Validates a finding whose title has already been cleaned (no stripping needed).
-    fn validate_finding_cleaned(&self, finding: &Finding) -> Result<(), MagiError> {
-        if finding.title.is_empty() {
+    /// Validates title and detail length invariants.
+    ///
+    /// `title` must already be in its final form (raw or pre-cleaned — the
+    /// caller decides). No stripping is performed here.
+    fn validate_finding_fields(&self, title: &str, detail: &str) -> Result<(), MagiError> {
+        if title.is_empty() {
             return Err(MagiError::Validation(
                 "finding title is empty after removing zero-width characters".to_string(),
             ));
         }
-        if finding.title.chars().count() > self.limits.max_title_len {
+        if title.chars().count() > self.limits.max_title_len {
             return Err(MagiError::Validation(format!(
                 "finding title exceeds maximum length of {} characters",
                 self.limits.max_title_len
             )));
         }
-        if finding.detail.chars().count() > self.limits.max_detail_len {
+        if detail.chars().count() > self.limits.max_detail_len {
             return Err(MagiError::Validation(format!(
                 "finding detail exceeds maximum length of {} characters",
                 self.limits.max_detail_len
@@ -209,26 +216,14 @@ impl Validator {
         Ok(())
     }
 
+    /// Validates a finding whose title has already been cleaned (no stripping needed).
+    fn validate_finding_cleaned(&self, finding: &Finding) -> Result<(), MagiError> {
+        self.validate_finding_fields(&finding.title, &finding.detail)
+    }
+
     fn validate_finding(&self, finding: &Finding) -> Result<(), MagiError> {
         let stripped = self.strip_zero_width(&finding.title);
-        if stripped.is_empty() {
-            return Err(MagiError::Validation(
-                "finding title is empty after removing zero-width characters".to_string(),
-            ));
-        }
-        if stripped.chars().count() > self.limits.max_title_len {
-            return Err(MagiError::Validation(format!(
-                "finding title exceeds maximum length of {} characters",
-                self.limits.max_title_len
-            )));
-        }
-        if finding.detail.chars().count() > self.limits.max_detail_len {
-            return Err(MagiError::Validation(format!(
-                "finding detail exceeds maximum length of {} characters",
-                self.limits.max_detail_len
-            )));
-        }
-        Ok(())
+        self.validate_finding_fields(&stripped, &finding.detail)
     }
 
     fn strip_zero_width(&self, text: &str) -> String {
