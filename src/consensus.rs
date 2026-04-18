@@ -275,7 +275,7 @@ impl ConsensusEngine {
         let majority_summary = agents
             .iter()
             .filter(|a| a.effective_verdict() == majority_verdict)
-            .map(|a| a.summary.as_str())
+            .map(|a| format!("{}: {}", a.agent.display_name(), a.summary))
             .collect::<Vec<_>>()
             .join(" | ");
 
@@ -861,8 +861,16 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert!(result.majority_summary.contains("Melchior: Melchior summary"));
-        assert!(result.majority_summary.contains("Balthasar: Balthasar summary"));
+        assert!(
+            result
+                .majority_summary
+                .contains("Melchior: Melchior summary")
+        );
+        assert!(
+            result
+                .majority_summary
+                .contains("Balthasar: Balthasar summary")
+        );
         assert!(result.majority_summary.contains(" | "));
         assert!(!result.majority_summary.contains("Caspar summary"));
     }
