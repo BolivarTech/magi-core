@@ -314,7 +314,10 @@ impl ConsensusEngine {
         } else if (score - (-1.0)).abs() < epsilon {
             ("STRONG NO-GO".to_string(), Verdict::Reject)
         } else if score > epsilon && has_conditional {
-            ("GO WITH CAVEATS".to_string(), Verdict::Approve)
+            (
+                format!("GO WITH CAVEATS ({}-{})", approve_count, reject_count),
+                Verdict::Approve,
+            )
         } else if score > epsilon {
             (
                 format!("GO ({}-{})", approve_count, reject_count),
@@ -502,7 +505,9 @@ mod tests {
         assert_eq!(result.consensus_verdict, Verdict::Approve);
     }
 
-    /// Two conditionals + one reject produce GO WITH CAVEATS (2-1).
+    /// Two conditionals + one reject.
+    /// score = (0.5 + 0.5 - 1.0) / 3 = 0.0 → HOLD -- TIE (score is exactly zero).
+    /// Reject pulls score to zero despite conditional majority on effective-verdict side.
     #[test]
     fn test_go_with_caveats_two_conditionals_one_reject() {
         let agents = vec![
@@ -512,8 +517,9 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
-        assert_eq!(result.consensus_verdict, Verdict::Approve);
+        // score = (0.5 + 0.5 + (-1.0)) / 3 = 0.0 → HOLD -- TIE
+        assert_eq!(result.consensus, "HOLD -- TIE");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
     }
 
     /// Two conditionals (degraded, 2 agents) produce GO WITH CAVEATS (2-0).
