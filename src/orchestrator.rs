@@ -407,7 +407,7 @@ impl Magi {
         for (name, result) in results {
             match result {
                 Ok(raw) => match parse_agent_response(&raw) {
-                    Ok(output) => match self.validator.validate(&output) {
+                    Ok(mut output) => match self.validator.validate_mut(&mut output) {
                         Ok(()) => successful.push(output),
                         Err(e) => {
                             failed_agents.insert(name, format!("validation: {e}"));
