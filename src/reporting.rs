@@ -460,7 +460,7 @@ mod tests {
 
     // -- BDD Scenario 16: report sections --
 
-    /// Report with mixed consensus contains all 5 markdown headers.
+    /// Report with mixed consensus contains 4 markdown headers (no Consensus Summary).
     #[test]
     fn test_report_with_mixed_consensus_contains_all_headers() {
         let m = make_agent(
@@ -516,8 +516,8 @@ mod tests {
         let report = formatter.format_report(&agents, &consensus);
 
         assert!(
-            report.contains("## Consensus Summary"),
-            "Missing Consensus Summary"
+            !report.contains("## Consensus Summary"),
+            "Consensus Summary must not appear"
         );
         assert!(report.contains("## Key Findings"), "Missing Key Findings");
         assert!(
@@ -532,6 +532,125 @@ mod tests {
             report.contains("## Recommended Actions"),
             "Missing Recommended Actions"
         );
+    }
+
+    /// Report does not contain the "## Consensus Summary" heading.
+    #[test]
+    fn test_report_does_not_contain_consensus_summary_heading() {
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let c = make_agent(
+            AgentName::Caspar,
+            Verdict::Approve,
+            0.95,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
+
+        let formatter = ReportFormatter::new();
+        let report = formatter.format_report(&agents, &consensus);
+
+        assert!(!report.contains("## Consensus Summary"));
+    }
+
+    /// Report section order: banner ("+====") before any optional sections,
+    /// with no "## Consensus Summary" between them.
+    #[test]
+    fn test_report_section_order_banner_then_findings_or_dissent_or_conditions_or_actions() {
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good code",
+            "Solid",
+            "Merge",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Conditional,
+            0.85,
+            "Needs work",
+            "Issues",
+            "Fix first",
+        );
+        let c = make_agent(
+            AgentName::Caspar,
+            Verdict::Reject,
+            0.78,
+            "Problems",
+            "Risky",
+            "Reject",
+        );
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+
+        let mut consensus = make_consensus(
+            "GO WITH CAVEATS",
+            Verdict::Approve,
+            0.85,
+            0.33,
+            &[&m, &b, &c],
+        );
+        consensus.findings = vec![DedupFinding {
+            severity: Severity::Warning,
+            title: "Test finding".to_string(),
+            detail: "Detail here".to_string(),
+            sources: vec![AgentName::Melchior],
+        }];
+        consensus.dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Problems found".to_string(),
+            reasoning: "Risk is too high".to_string(),
+        }];
+        consensus.conditions = vec![Condition {
+            agent: AgentName::Balthasar,
+            condition: "Fix first".to_string(),
+        }];
+
+        let formatter = ReportFormatter::new();
+        let report = formatter.format_report(&agents, &consensus);
+
+        // No Consensus Summary anywhere
+        assert!(!report.contains("## Consensus Summary"));
+
+        // Banner border must appear before all section headings
+        let banner_pos = report.find("+====").expect("banner border not found");
+        let actions_pos = report
+            .find("## Recommended Actions")
+            .expect("Recommended Actions not found");
+        let findings_pos = report.find("## Key Findings").expect("Key Findings not found");
+        let dissent_pos = report
+            .find("## Dissenting Opinion")
+            .expect("Dissenting Opinion not found");
+        let conditions_pos = report
+            .find("## Conditions for Approval")
+            .expect("Conditions not found");
+
+        assert!(banner_pos < findings_pos, "banner must come before Key Findings");
+        assert!(banner_pos < dissent_pos, "banner must come before Dissenting Opinion");
+        assert!(banner_pos < conditions_pos, "banner must come before Conditions");
+        assert!(banner_pos < actions_pos, "banner must come before Recommended Actions");
+
+        // Section order: findings < dissent < conditions < actions
+        assert!(findings_pos < dissent_pos, "Key Findings must come before Dissenting Opinion");
+        assert!(dissent_pos < conditions_pos, "Dissenting Opinion must come before Conditions");
+        assert!(conditions_pos < actions_pos, "Conditions must come before Recommended Actions");
     }
 
     /// Report without dissent omits "## Dissenting Opinion".
