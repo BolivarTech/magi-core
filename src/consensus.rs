@@ -304,6 +304,8 @@ impl ConsensusEngine {
     }
 
     /// Deduplicates findings across agents by case-insensitive stripped title.
+    // TODO(S03): remove #[allow(deprecated)] once S03 replaces dedup logic with dedup_key
+    #[allow(deprecated)]
     fn deduplicate_findings(&self, agents: &[AgentOutput]) -> Vec<DedupFinding> {
         // Collect (agent_name, finding) pairs sorted by agent name for determinism
         let mut agent_findings: Vec<(AgentName, &Finding)> = Vec::new();
