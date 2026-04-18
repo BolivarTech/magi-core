@@ -737,7 +737,46 @@ mod tests {
         let result = engine.determine(&agents).unwrap();
         assert_eq!(result.conditions.len(), 1);
         assert_eq!(result.conditions[0].agent, AgentName::Balthasar);
-        assert_eq!(result.conditions[0].condition, "Balthasar recommendation");
+        assert_eq!(result.conditions[0].condition, "Balthasar summary");
+    }
+
+    /// Conditions use summary field, not recommendation field.
+    #[test]
+    fn test_conditions_use_summary_field_not_recommendation_field() {
+        let mut agent = make_output(AgentName::Melchior, Verdict::Conditional, 0.9);
+        agent.summary = "Melchior condition summary".to_string();
+        agent.recommendation = "Melchior detailed recommendation".to_string();
+        let support = make_output(AgentName::Balthasar, Verdict::Approve, 0.8);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[agent, support]).unwrap();
+        assert_eq!(result.conditions.len(), 1);
+        assert_eq!(result.conditions[0].condition, "Melchior condition summary");
+        assert_ne!(result.conditions[0].condition, "Melchior detailed recommendation");
+    }
+
+    /// Conditions are distinct from recommendations section.
+    #[test]
+    fn test_conditions_are_distinct_from_recommendations_section() {
+        let mut agent = make_output(AgentName::Balthasar, Verdict::Conditional, 0.85);
+        agent.summary = "Short condition summary".to_string();
+        agent.recommendation = "Long detailed recommendation text".to_string();
+        let support = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[agent, support]).unwrap();
+        // Conditions should be sourced from summary
+        assert_eq!(result.conditions.len(), 1);
+        assert_eq!(result.conditions[0].condition, "Short condition summary");
+        // Recommendations should contain the recommendation field
+        assert!(result.recommendations.contains_key(&AgentName::Balthasar));
+        assert_eq!(
+            result.recommendations[&AgentName::Balthasar],
+            "Long detailed recommendation text"
+        );
+        // They must be distinct
+        assert_ne!(
+            result.conditions[0].condition,
+            result.recommendations[&AgentName::Balthasar]
+        );
     }
 
     /// Recommendations map includes all agents.
