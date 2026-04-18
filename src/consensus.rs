@@ -751,7 +751,10 @@ mod tests {
         let result = engine.determine(&[agent, support]).unwrap();
         assert_eq!(result.conditions.len(), 1);
         assert_eq!(result.conditions[0].condition, "Melchior condition summary");
-        assert_ne!(result.conditions[0].condition, "Melchior detailed recommendation");
+        assert_ne!(
+            result.conditions[0].condition,
+            "Melchior detailed recommendation"
+        );
     }
 
     /// Conditions are distinct from recommendations section.
