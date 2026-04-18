@@ -850,7 +850,11 @@ mod tests {
         // "SQL\tinjection" and "sql injection" share the same key → merge into 1
         // "SQL  injection" has a distinct key → separate finding
         // Total: 2 findings
-        assert_eq!(result.findings.len(), 2, "tab-normalized title merges with single-space; double-space is distinct");
+        assert_eq!(
+            result.findings.len(),
+            2,
+            "tab-normalized title merges with single-space; double-space is distinct"
+        );
         // Critical finding (merged tab+space group) sorts first
         assert_eq!(result.findings[0].severity, Severity::Critical);
         assert_eq!(result.findings[0].sources.len(), 2);
@@ -906,8 +910,8 @@ mod tests {
     /// produce the same key ("café" U+00E9 == "cafe\u{301}").
     #[test]
     fn test_dedup_key_nfkc_collapses_combining_accents() {
-        let precomposed = dedup_key("caf\u{E9}");     // é precomposed
-        let combining = dedup_key("cafe\u{301}");      // e + combining acute
+        let precomposed = dedup_key("caf\u{E9}"); // é precomposed
+        let combining = dedup_key("cafe\u{301}"); // e + combining acute
         assert_eq!(
             precomposed, combining,
             "NFKC must collapse combining accents to precomposed form"
@@ -918,7 +922,7 @@ mod tests {
     /// Python str.casefold() and caseless crate both produce "ss". No #[ignore] needed.
     #[test]
     fn test_dedup_key_casefold_sharp_s_equals_double_s() {
-        let sharp_s = dedup_key("\u{DF}");  // ß
+        let sharp_s = dedup_key("\u{DF}"); // ß
         let double_s = dedup_key("ss");
         assert_eq!(
             sharp_s, double_s,
@@ -935,7 +939,7 @@ mod tests {
     #[test]
     fn test_dedup_key_casefold_greek_sigma_variants() {
         let capital = dedup_key("\u{03A3}"); // Σ GREEK CAPITAL LETTER SIGMA
-        let small = dedup_key("\u{03C3}");   // σ GREEK SMALL LETTER SIGMA
+        let small = dedup_key("\u{03C3}"); // σ GREEK SMALL LETTER SIGMA
         let final_s = dedup_key("\u{03C2}"); // ς GREEK SMALL LETTER FINAL SIGMA
         assert_eq!(capital, small, "Σ and σ must fold to the same key");
         assert_eq!(
@@ -949,13 +953,10 @@ mod tests {
     /// This test confirms default (non-locale) behavior, matching caseless crate semantics.
     #[test]
     fn test_dedup_key_casefold_turkish_dotted_i() {
-        use unicode_normalization::UnicodeNormalization;
         let dotted_i_upper = dedup_key("\u{0130}"); // İ LATIN CAPITAL LETTER I WITH DOT ABOVE
         // Unicode default casefold: U+0130 -> "i\u{0307}" (not simple "i")
         // This is intentional: no locale-aware Turkish folding
-        let expected = caseless::default_case_fold_str(
-            &"\u{0130}".nfkc().collect::<String>()
-        );
+        let expected = caseless::default_case_fold_str(&"\u{0130}".nfkc().collect::<String>());
         assert_eq!(dotted_i_upper, expected);
     }
 
