@@ -2,8 +2,54 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::error::MagiError;
 use crate::schema::{AgentOutput, Finding, ZERO_WIDTH_PATTERN};
+
+/// Matches control whitespace characters that should be replaced with a space:
+/// horizontal tab, newline, vertical tab, form feed, carriage return, and NEL (U+0085).
+static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\t\n\x0B\x0C\r\x{85}]").expect("valid CONTROL_WHITESPACE_RE regex")
+});
+
+/// Matches invisible characters and Unicode separators that should be removed:
+/// zero-width spaces, bidi marks, line/paragraph separators (U+2028..U+202F range),
+/// extended formatting controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}\u{00ad}]")
+        .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
+});
+
+/// Cleans a title by normalizing control whitespace, stripping invisible
+/// characters and separators, and trimming edges.
+///
+/// # Pipeline
+///
+/// 1. Replace control whitespace (`\t`, `\n`, `\x0B`, `\x0C`, `\r`, U+0085) with ASCII space.
+/// 2. Remove invisible characters and selected Unicode separators
+///    (zero-width, bidi marks, line/paragraph separators in the U+2028..U+202F range,
+///    word joiner and related U+2060..U+206F controls, BOM, soft hyphen).
+/// 3. Trim leading/trailing whitespace.
+///
+/// Note: interior whitespace is NOT collapsed — an input `"foo\t\tbar"` becomes
+/// `"foo  bar"` (two spaces). This matches the Python reference implementation.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::validate::clean_title;
+///
+/// assert_eq!(clean_title("  hello\nworld  "), "hello world");
+/// assert_eq!(clean_title("text\u{200b}with\u{feff}invisibles"), "textwithinvisibles");
+/// ```
+pub fn clean_title(input: &str) -> String {
+    let step1 = CONTROL_WHITESPACE_RE.replace_all(input, " ");
+    let step2 = INVISIBLE_AND_SEPARATOR_RE.replace_all(&step1, "");
+    step2.trim().to_string()
+}
 
 /// Configuration thresholds for agent output validation.
 #[non_exhaustive]

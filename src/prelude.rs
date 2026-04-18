@@ -17,7 +17,7 @@ pub use crate::error::{MagiError, ProviderError};
 pub use crate::schema::{AgentName, AgentOutput, Finding, Mode, Severity, Verdict};
 
 // Validation
-pub use crate::validate::{ValidationLimits, Validator};
+pub use crate::validate::{ValidationLimits, Validator, clean_title};
 
 // Consensus
 pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
