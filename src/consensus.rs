@@ -4,9 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::error::MagiError;
-use crate::schema::{AgentName, AgentOutput, Finding, Severity, Verdict};
+use crate::schema::{AgentName, AgentOutput, Severity, Verdict};
+use crate::validate::clean_title;
 
 /// Configuration for the consensus engine.
 #[non_exhaustive]
@@ -97,6 +99,31 @@ impl Default for ConsensusConfig {
 /// is independent and the engine is safe to share across threads.
 pub struct ConsensusEngine {
     config: ConsensusConfig,
+}
+
+/// Computes the deduplication key for a finding title.
+///
+/// Applies a three-step transformation, matching Python's `_dedup_key` behavior:
+///
+/// 1. [`clean_title`] — strips zero-width Unicode characters, normalizes line
+///    endings and control characters to a single space, trims leading/trailing
+///    whitespace.  Interior runs of multiple spaces are **not** collapsed (aligned
+///    with Python: `clean_title` does not coalesce interior whitespace).
+/// 2. NFKC normalization — collapses compatibility variants (e.g., fullwidth Latin
+///    `ＡＢＣ` → `ABC`, ligatures, circled letters).
+/// 3. Unicode default casefold via `caseless::default_case_fold_str` — handles
+///    characters that `to_lowercase` misses, e.g., `ß` → `"ss"`, `Σ`/`σ`/`ς` → same
+///    folded form.  This is **not** locale-aware (Turkish dotted-I folds per Unicode
+///    default tables, not Turkish locale rules).
+///
+/// ### Divergence from v0.1.x
+///
+/// v0.1.x applied `split_whitespace().join(" ")` before lowercasing, so
+/// `"foo  bar"` and `"foo bar"` were treated as the same finding. This function
+/// does **not** collapse interior whitespace — `"foo  bar"` and `"foo bar"`
+/// produce distinct keys, matching Python behavior.
+fn dedup_key(title: &str) -> String {
+    caseless::default_case_fold_str(&clean_title(title).nfkc().collect::<String>())
 }
 
 impl ConsensusEngine {
@@ -303,58 +330,66 @@ impl ConsensusEngine {
         }
     }
 
-    /// Deduplicates findings across agents by case-insensitive stripped title.
-    // TODO(S03): remove #[allow(deprecated)] once S03 replaces dedup logic with dedup_key
-    #[allow(deprecated)]
+    /// Deduplicates findings across agents using NFKC + Unicode casefold keying.
+    ///
+    /// Ordering contract: findings appear in first-seen order (by agent slice position),
+    /// then sorted by severity DESC (Critical → Info). Within equal severity, first-seen
+    /// order is preserved (stable sort).
     fn deduplicate_findings(&self, agents: &[AgentOutput]) -> Vec<DedupFinding> {
-        // Collect (agent_name, finding) pairs sorted by agent name for determinism
-        let mut agent_findings: Vec<(AgentName, &Finding)> = Vec::new();
+        /// Accumulates state for a group of findings that share the same dedup key.
+        struct GroupState {
+            /// Severity promoted to the highest seen across all matching findings.
+            severity: Severity,
+            /// Title from the first-seen finding (insertion order preserved).
+            title: String,
+            /// Detail from the highest-severity finding.
+            detail: String,
+            /// Agents that contributed a matching finding, in first-seen order.
+            sources: Vec<AgentName>,
+        }
+
+        // Intentional O(m²) — preserves insertion order without adding indexmap.
+        // For m ≤ 300 (capped by ValidationLimits::max_findings × 3 agents), cost
+        // is ~90k string comparisons on short strings, <1ms in practice. Switch to
+        // `indexmap` if max_findings raises above 500.
+        let mut groups: Vec<(String, GroupState)> = Vec::new();
+
         for agent in agents {
             for finding in &agent.findings {
-                agent_findings.push((agent.agent, finding));
+                let key = dedup_key(&finding.title);
+                if let Some((_, state)) = groups.iter_mut().find(|(k, _)| k == &key) {
+                    // Promote severity and update detail if this finding is higher
+                    if finding.severity > state.severity {
+                        state.severity = finding.severity;
+                        state.detail = finding.detail.clone();
+                    }
+                    state.sources.push(agent.agent);
+                } else {
+                    groups.push((
+                        key,
+                        GroupState {
+                            severity: finding.severity,
+                            title: finding.title.clone(),
+                            detail: finding.detail.clone(),
+                            sources: vec![agent.agent],
+                        },
+                    ));
+                }
             }
         }
-        // Sort by agent name for deterministic tiebreaking
-        agent_findings.sort_by(|a, b| a.0.cmp(&b.0));
 
-        // Group by case-insensitive stripped title
-        let mut groups: std::collections::HashMap<String, Vec<(AgentName, &Finding)>> =
-            std::collections::HashMap::new();
-        let mut order: Vec<String> = Vec::new();
+        let mut result: Vec<DedupFinding> = groups
+            .into_iter()
+            .map(|(_, state)| DedupFinding {
+                severity: state.severity,
+                title: state.title,
+                detail: state.detail,
+                sources: state.sources,
+            })
+            .collect();
 
-        for (agent_name, finding) in &agent_findings {
-            let key = finding
-                .stripped_title()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase();
-            if !groups.contains_key(&key) {
-                order.push(key.clone());
-            }
-            groups.entry(key).or_default().push((*agent_name, finding));
-        }
-
-        let mut result: Vec<DedupFinding> = Vec::new();
-        for key in &order {
-            let entries = &groups[key];
-            // Find highest severity
-            let max_severity = entries.iter().map(|(_, f)| f.severity).max().unwrap();
-            // Find the first entry with that severity (already sorted by agent name)
-            let best = entries
-                .iter()
-                .find(|(_, f)| f.severity == max_severity)
-                .unwrap();
-            let sources: Vec<AgentName> = entries.iter().map(|(name, _)| *name).collect();
-            result.push(DedupFinding {
-                severity: max_severity,
-                title: best.1.title.clone(),
-                detail: best.1.detail.clone(),
-                sources,
-            });
-        }
-
-        // Sort by severity (Critical first = descending)
+        // Sort by severity descending (Critical first); stable to preserve first-seen
+        // order within equal severity groups.
         result.sort_by(|a, b| b.severity.cmp(&a.severity));
         result
     }
@@ -537,7 +572,7 @@ mod tests {
         assert_eq!(result.findings[0].detail, "detail_critical");
     }
 
-    /// On same severity, detail comes from first agent by AgentName ordering.
+    /// On same severity, detail comes from the first-seen agent (slice order).
     #[test]
     fn test_merged_finding_detail_from_first_agent_on_same_severity() {
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
@@ -555,7 +590,7 @@ mod tests {
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[b, m, c]).unwrap();
-        // Balthasar < Melchior alphabetically, same severity → Balthasar's detail
+        // Balthasar is first in the slice → first seen → Balthasar's detail preserved
         assert_eq!(result.findings[0].detail, "detail_b");
     }
 
@@ -785,19 +820,23 @@ mod tests {
         assert_eq!(result.findings[1].severity, Severity::Info);
     }
 
-    /// Titles differing only in whitespace (tabs, multiple spaces, NBSP) are deduplicated.
+    /// Tab-separated and space-separated titles merge (clean_title replaces tab with space);
+    /// but double-space interior is preserved — "SQL  injection" is a DISTINCT finding
+    /// from "SQL injection". Aligned with Python dedup_key behavior (no split_whitespace).
     #[test]
     fn test_duplicate_findings_merged_with_whitespace_normalization() {
+        // "SQL\tinjection" → clean_title → "SQL injection" → same key as "sql injection"
+        // "SQL  injection" → clean_title → "SQL  injection" → different key (double space)
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
         m.findings.push(Finding {
             severity: Severity::Warning,
-            title: "SQL  injection".to_string(),
+            title: "SQL  injection".to_string(), // double space — distinct key
             detail: "detail_m".to_string(),
         });
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
         b.findings.push(Finding {
             severity: Severity::Warning,
-            title: "SQL\tinjection".to_string(),
+            title: "SQL\tinjection".to_string(), // tab → space → merges with "sql injection"
             detail: "detail_b".to_string(),
         });
         let mut c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
@@ -808,9 +847,16 @@ mod tests {
         });
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
-        assert_eq!(result.findings.len(), 1, "should merge all three into one");
+        // "SQL\tinjection" and "sql injection" share the same key → merge into 1
+        // "SQL  injection" has a distinct key → separate finding
+        // Total: 2 findings
+        assert_eq!(result.findings.len(), 2, "tab-normalized title merges with single-space; double-space is distinct");
+        // Critical finding (merged tab+space group) sorts first
         assert_eq!(result.findings[0].severity, Severity::Critical);
-        assert_eq!(result.findings[0].sources.len(), 3);
+        assert_eq!(result.findings[0].sources.len(), 2);
+        // Warning finding (double-space group) is separate
+        assert_eq!(result.findings[1].severity, Severity::Warning);
+        assert_eq!(result.findings[1].sources.len(), 1);
     }
 
     /// Votes map contains all agent verdicts.
