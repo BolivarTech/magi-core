@@ -71,7 +71,7 @@ pub trait LlmProvider: Send + Sync {
 /// # Aliases
 ///
 /// - `"sonnet"` → `"claude-sonnet-4-6"`
-/// - `"opus"` → `"claude-opus-4-6"`
+/// - `"opus"` → `"claude-opus-4-7"`
 /// - `"haiku"` → `"claude-haiku-4-5-20251001"`
 /// - Any string containing `"claude-"` passes through as-is
 ///
@@ -84,14 +84,14 @@ pub trait LlmProvider: Send + Sync {
 /// ```
 /// use magi_core::provider::resolve_claude_alias;
 ///
-/// assert_eq!(resolve_claude_alias("opus").unwrap(), "claude-opus-4-6");
+/// assert_eq!(resolve_claude_alias("opus").unwrap(), "claude-opus-4-7");
 /// assert_eq!(resolve_claude_alias("claude-custom").unwrap(), "claude-custom");
 /// assert!(resolve_claude_alias("unknown").is_err());
 /// ```
 pub fn resolve_claude_alias(model: &str) -> Result<String, ProviderError> {
     match model {
         "sonnet" => Ok("claude-sonnet-4-6".to_string()),
-        "opus" => Ok("claude-opus-4-6".to_string()),
+        "opus" => Ok("claude-opus-4-7".to_string()),
         "haiku" => Ok("claude-haiku-4-5-20251001".to_string()),
         m if m.contains("claude-") => Ok(m.to_string()),
         _ => Err(ProviderError::Auth {
