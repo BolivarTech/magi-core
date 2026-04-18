@@ -440,4 +440,142 @@ mod tests {
         }]);
         assert!(v.validate(&output).is_ok());
     }
+
+    // -- clean_title tests --
+
+    #[test]
+    fn test_clean_title_replaces_tab_with_space() {
+        assert_eq!(clean_title("foo\tbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_newline_with_space() {
+        assert_eq!(clean_title("foo\nbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_vertical_tab_with_space() {
+        assert_eq!(clean_title("foo\x0Bbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_carriage_return_with_space() {
+        assert_eq!(clean_title("foo\rbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_nel_u0085_with_space() {
+        assert_eq!(clean_title("foo\u{85}bar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zero_width_space_u200b() {
+        assert_eq!(clean_title("a\u{200b}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zwnj_u200c() {
+        assert_eq!(clean_title("a\u{200c}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zwj_u200d() {
+        assert_eq!(clean_title("a\u{200d}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_lrm_rlm_u200e_u200f() {
+        assert_eq!(clean_title("a\u{200e}b\u{200f}c"), "abc");
+    }
+
+    #[test]
+    fn test_clean_title_strips_line_separator_u2028() {
+        assert_eq!(clean_title("a\u{2028}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_paragraph_separator_u2029() {
+        assert_eq!(clean_title("a\u{2029}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_narrow_nbsp_u202f() {
+        assert_eq!(clean_title("a\u{202f}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_bidi_override_u202a_through_u202e() {
+        for cp in ['\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}'] {
+            let input = format!("a{cp}b");
+            assert_eq!(clean_title(&input), "ab", "failed for U+{:04X}", cp as u32);
+        }
+    }
+
+    #[test]
+    fn test_clean_title_strips_word_joiner_u2060() {
+        assert_eq!(clean_title("a\u{2060}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_bom_ufeff() {
+        assert_eq!(clean_title("\u{feff}hello"), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_strips_soft_hyphen_u00ad() {
+        assert_eq!(clean_title("soft\u{00ad}hyphen"), "softhyphen");
+    }
+
+    #[test]
+    fn test_clean_title_trims_leading_trailing_spaces() {
+        assert_eq!(clean_title("  hello  "), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_trims_leading_trailing_tabs_after_replacement() {
+        // Leading/trailing \t are replaced to spaces in step 1, then trimmed in step 3
+        assert_eq!(clean_title("\thello\t"), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_preserves_interior_single_spaces() {
+        assert_eq!(clean_title("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_clean_title_does_not_collapse_double_spaces_interior() {
+        // Interior whitespace is NOT collapsed — this is intentional Python parity
+        assert_eq!(clean_title("foo  bar"), "foo  bar");
+    }
+
+    #[test]
+    fn test_clean_title_preserves_unicode_letters() {
+        assert_eq!(clean_title("café"), "café");
+    }
+
+    #[test]
+    fn test_clean_title_empty_string_returns_empty() {
+        assert_eq!(clean_title(""), "");
+    }
+
+    #[test]
+    fn test_clean_title_all_whitespace_returns_empty() {
+        assert_eq!(clean_title("   \t\n  "), "");
+    }
+
+    #[test]
+    fn test_clean_title_is_idempotent() {
+        let inputs = [
+            "hello\nworld",
+            "  \u{200b}spaces\u{feff}  ",
+            "café\u{2060}",
+            "normal text",
+            "",
+        ];
+        for input in inputs {
+            let once = clean_title(input);
+            let twice = clean_title(&once);
+            assert_eq!(once, twice, "not idempotent for input: {input:?}");
+        }
+    }
 }
