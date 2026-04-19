@@ -1404,10 +1404,11 @@ mod tests {
             .duration_since(std::time::SystemTime::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let tmp = TmpDir(
-            std::env::temp_dir()
-                .join(format!("magi_v03_test_{}_{}", std::process::id(), uniq)),
-        );
+        let tmp = TmpDir(std::env::temp_dir().join(format!(
+            "magi_v03_test_{}_{}",
+            std::process::id(),
+            uniq
+        )));
         std::fs::create_dir_all(&tmp.0).unwrap();
 
         // Create a temp dir with a custom melchior prompt file.
