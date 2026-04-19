@@ -4,6 +4,82 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-18
+
+### Changed (breaking)
+
+- **Prompt architecture** consolidated from 9 mode-specific files to 3
+  mode-agnostic prompts (one per agent). The `Mode` is now injected via
+  the `user_prompt`, not the `system_prompt`. See
+  `docs/migration-v0.3.md` and `sbtdd/spec-behavior.md` for the full
+  change.
+- **`MagiBuilder::with_custom_prompt(agent, mode, prompt)`** deprecated
+  in favor of `with_custom_prompt_for_mode(agent, mode, prompt)`. A shim
+  remains in place through v0.3.x; it will be removed in v0.4.0.
+- **`Agent::new`** no longer takes a `Mode` parameter. The orchestrator
+  resolves the system prompt via `lookup_prompt` and passes it to
+  `Agent::execute` directly.
+- **`user_prompt` format** changed. The payload sent to the LLM now
+  follows the defense-in-depth pipeline from
+  `docs/adr/001-prompt-injection-threat-model.md`:
+  ```
+  MODE: <mode>
+  ---BEGIN USER CONTEXT <32-hex-nonce>---
+  <sanitized content>
+  ---END USER CONTEXT <32-hex-nonce>---
+  ```
+  Sanitization pipeline: `normalize_newlines` → `strip_invisibles` →
+  `neutralize_headers` (3-layer defense-in-depth, order fixed).
+  Consumers that inspect `user_prompt` via mocks must adjust their
+  assertions.
+
+### Added
+
+- **`MagiBuilder::with_custom_prompt_for_mode`** — per-mode custom prompt
+  override.
+- **`MagiBuilder::with_custom_prompt_all_modes`** — mode-agnostic override
+  (lookup order: per-mode → all-modes → embedded default).
+- **`docs/adr/001-prompt-injection-threat-model.md`** — threat model and
+  defense rationale for the prompt-injection hardening.
+- **`MagiError::InvalidInput { reason }`** — returned from
+  `build_user_prompt` when sanitized content contains the generated
+  nonce (fail-closed; probability ~2^-128).
+- **~70 new tests** (pipeline + adversarial + lookup + integration +
+  SHA-256 parity). Total test count: 323.
+
+### Security considerations (MAGI R3 W8)
+
+The following limitations are **known and accepted** per the threat model
+in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
+
+- **Case-sensitive header matching.** `mode:`, `Mode:`, `MoDe:` are NOT
+  neutralized by `neutralize_headers`. Only exact uppercase `MODE:`,
+  `CONTEXT:`, `---BEGIN`, `---END` are matched. This preserves
+  Python-MAGI parity. Consumers with stricter threat models must
+  pre-filter input.
+- **Non-ASCII whitespace.** U+00A0 (NBSP), U+3000 (Ideographic Space),
+  and other non-ASCII whitespace characters before a header token are NOT
+  absorbed by the regex — they may enable a bypass. Documented as an
+  accepted gap in ADR 001; `INVISIBLE_AND_SEPARATOR_RE` omits them.
+  Consumers must pre-filter if needed.
+- **Nonce entropy ~64 bits.** `fastrand` has an effective state size of
+  ~64 bits (not 128). The effective nonce collision probability is
+  ~2^-64 per call rather than the theoretical 2^-128. This is acceptable
+  per the threat model. A `pub(crate) with_rng_source` escape hatch is
+  available for test injection.
+
+### Dependencies
+
+- New: `fastrand = "~2"` (non-cryptographic RNG for per-request nonce).
+- New dev-dep: `sha2 = "0.10"` (fixture SHA-256 verification).
+
+### Not included (deferred beyond v0.3.0)
+
+- Verbose-markdown opt-in mode (restoring detail/reasoning paragraphs
+  in rendered markdown). Deferred to v0.4+.
+- Public `pub trait RngLike` — currently `pub(crate)`. Promote
+  additively if a consumer requests it.
+
 ## [0.2.0] - 2026-04-18
 
 ### Changed (breaking)
