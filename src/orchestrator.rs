@@ -394,7 +394,10 @@ impl Magi {
         // 3. Build user prompt with sanitization and nonce injection.
         //    Lock is released immediately after prompt construction.
         let prompt = {
-            let mut rng = self.rng_source.lock().expect("rng_source mutex poisoned");
+            let mut rng = self
+                .rng_source
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             build_user_prompt(*mode, content, &mut **rng)?
         };
 
