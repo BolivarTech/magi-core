@@ -1406,8 +1406,7 @@ mod tests {
     #[tokio::test]
     async fn test_analyze_respects_prompts_dir_loaded_files() {
         // Create a temp dir with a custom melchior prompt file.
-        let tmp = std::env::temp_dir()
-            .join(format!("magi_v03_test_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("magi_v03_test_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(
             tmp.join("melchior_code_review.md"),
