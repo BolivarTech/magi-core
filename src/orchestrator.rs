@@ -539,34 +539,6 @@ impl Magi {
     }
 }
 
-/// Resolves the system prompt for an agent given a mode and the overrides map.
-///
-/// Priority order:
-/// 1. Mode-specific override: `(agent, Some(mode))`
-/// 2. Mode-agnostic override: `(agent, None)`
-/// 3. Compiled-in embedded default for the agent
-///
-/// # Parameters
-/// - `agent`: Which MAGI agent (Melchior, Balthasar, Caspar).
-/// - `mode`: The current analysis mode.
-/// - `overrides`: Map of custom prompt overrides keyed by `(AgentName, Option<Mode>)`.
-///
-/// # Returns
-/// A string slice of the resolved prompt (borrowed from the map or `'static` from embedded).
-pub(crate) fn lookup_prompt(
-    agent: AgentName,
-    mode: Mode,
-    overrides: &BTreeMap<(AgentName, Option<Mode>), String>,
-) -> &str {
-    if let Some(s) = overrides.get(&(agent, Some(mode))) {
-        return s.as_str();
-    }
-    if let Some(s) = overrides.get(&(agent, None)) {
-        return s.as_str();
-    }
-    crate::prompts::embedded_prompt_for(agent)
-}
-
 /// Extracts an [`AgentOutput`] from raw LLM response text.
 ///
 /// Handles common LLM output quirks:
@@ -622,6 +594,7 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prompts::lookup_prompt;
     use crate::schema::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

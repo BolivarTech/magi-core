@@ -249,7 +249,7 @@ impl AgentFactory {
                     .get(&name)
                     .cloned()
                     .unwrap_or_else(|| self.default_provider.clone());
-                let prompt = crate::orchestrator::lookup_prompt(name, mode, overrides).to_string();
+                let prompt = crate::prompts::lookup_prompt(name, mode, overrides).to_string();
                 Agent::with_custom_prompt(name, provider, prompt)
             })
             .collect()

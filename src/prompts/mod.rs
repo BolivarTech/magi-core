@@ -2,7 +2,9 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use crate::schema::AgentName;
+use std::collections::BTreeMap;
+
+use crate::schema::{AgentName, Mode};
 
 // ── Mode-agnostic accessors (v0.3.0) ─────────────────────────────────────────
 
@@ -50,7 +52,7 @@ pub fn caspar_prompt() -> &'static str {
 
 /// Returns the compiled-in system prompt for the given agent name.
 ///
-/// Shared by [`crate::agent::Agent::new`] and [`crate::orchestrator::lookup_prompt`]
+/// Shared by [`crate::agent::Agent::new`] and [`lookup_prompt`]
 /// to avoid duplicate `match` arms. Any change to the embedded prompt mapping
 /// must be made here only.
 ///
@@ -62,6 +64,36 @@ pub(crate) fn embedded_prompt_for(name: AgentName) -> &'static str {
         AgentName::Balthasar => balthasar_prompt(),
         AgentName::Caspar => caspar_prompt(),
     }
+}
+
+// ── Prompt resolution ─────────────────────────────────────────────────────────
+
+/// Resolves the system prompt for an agent given a mode and the overrides map.
+///
+/// Priority order:
+/// 1. Mode-specific override: `(agent, Some(mode))`
+/// 2. Mode-agnostic override: `(agent, None)`
+/// 3. Compiled-in embedded default for the agent
+///
+/// # Parameters
+/// - `agent`: Which MAGI agent (Melchior, Balthasar, Caspar).
+/// - `mode`: The current analysis mode.
+/// - `overrides`: Map of custom prompt overrides keyed by `(AgentName, Option<Mode>)`.
+///
+/// # Returns
+/// A string slice of the resolved prompt (borrowed from the map or `'static` from embedded).
+pub(crate) fn lookup_prompt(
+    agent: AgentName,
+    mode: Mode,
+    overrides: &BTreeMap<(AgentName, Option<Mode>), String>,
+) -> &str {
+    if let Some(s) = overrides.get(&(agent, Some(mode))) {
+        return s.as_str();
+    }
+    if let Some(s) = overrides.get(&(agent, None)) {
+        return s.as_str();
+    }
+    embedded_prompt_for(agent)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
