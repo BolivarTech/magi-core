@@ -4,6 +4,24 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-04-19
+
+### Fixed
+
+- Align `opus` alias assertions in `ClaudeProvider` and `ClaudeCliProvider`
+  test suites with the resolved model id `claude-opus-4-7`. The alias
+  resolution itself was already correct in v0.3.0, but four test
+  assertions and their accompanying docstrings still referenced the
+  previous `claude-opus-4-6` value, causing the test suite to fail under
+  `cargo nextest run --all-features`.
+
+### Yanked
+
+- **v0.3.0 is yanked.** It compiles and the runtime behavior matches
+  v0.3.1, but its bundled test suite fails on `cargo test`. Consumers
+  running the crate's tests (e.g., during dependency audits) see four
+  unrelated failures. Upgrade to v0.3.1.
+
 ## [0.3.0] - 2026-04-18
 
 ### Changed (breaking)
