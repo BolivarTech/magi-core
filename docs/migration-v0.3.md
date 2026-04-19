@@ -59,6 +59,8 @@ must update paths:
 | `src/prompts_md/caspar_design.md` | `src/prompts_md/caspar.md` |
 | `src/prompts_md/caspar_analysis.md` | `src/prompts_md/caspar.md` |
 
+**Note on `with_prompts_dir`:** the filesystem loader at `MagiBuilder::with_prompts_dir(dir)` still reads per-mode files with the v0.2 naming convention (`melchior_code_review.md`, `melchior_design.md`, `melchior_analysis.md`, similarly for balthasar and caspar). In v0.3.0 these entries are automatically merged into the internal overrides map with keys `(agent, Some(mode))`, so they behave identically to calling `with_custom_prompt_for_mode`. Consumers who used `with_prompts_dir` in v0.2.x continue to work without changes. Builder-level overrides (`with_custom_prompt_for_mode`) win over filesystem entries for the same (agent, mode) pair.
+
 ## 4. `user_prompt` format changed (affects mock-based tests)
 
 If your tests use a mock `LlmProvider` that captures the `user_prompt`
