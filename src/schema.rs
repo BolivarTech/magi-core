@@ -13,6 +13,18 @@ use std::sync::LazyLock;
 /// Matches soft hyphens, Arabic markers, zero-width spaces, directional marks,
 /// byte order marks, and other invisible formatting characters. Used by
 /// [`crate::validate::Validator`]. Prefer [`crate::validate::clean_title`] for title cleanup.
+///
+/// # Deprecation
+///
+/// This constant is retained for external consumers that depend on it. Internal
+/// code uses [`crate::validate::clean_title`] which applies a different (updated)
+/// character set aligned with Python MAGI 2.1.3.
+#[deprecated(
+    since = "0.2.0",
+    note = "use `magi_core::validate::clean_title` for current behavior; \
+            `ZERO_WIDTH_PATTERN` covers a different character set and is retained \
+            for legacy callers only"
+)]
 pub static ZERO_WIDTH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         "[\u{00AD}\u{0600}-\u{0605}\u{061C}\u{06DD}\u{070F}\u{08E2}\u{180E}\

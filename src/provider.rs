@@ -548,4 +548,16 @@ mod tests {
         let result = resolve_claude_alias("haiku").unwrap();
         assert_eq!(result, "claude-haiku-4-5-20251001");
     }
+
+    /// Consumers who pinned "claude-opus-4-6" from v0.1.x get the string passed through
+    /// unchanged — backward compatibility for callers that already resolved the alias.
+    #[test]
+    fn test_resolve_claude_alias_accepts_literal_claude_opus_4_6_passthrough() {
+        // Consumers may have pinned the string "claude-opus-4-6" from v0.1.x;
+        // the resolver must pass any string containing "claude-" through unchanged.
+        assert_eq!(
+            resolve_claude_alias("claude-opus-4-6").unwrap(),
+            "claude-opus-4-6"
+        );
+    }
 }

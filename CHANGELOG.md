@@ -41,6 +41,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so verdicts start at the same column. Labels that exceed the inner width (50)
   are truncated with `"..."` while preserving the verdict suffix.
 
+### Security considerations
+
+- **`max_input_len` default raised from 1 MB to 4 MB.** Consumers that expose
+  `analyze()` to untrusted input should explicitly lower this via
+  `MagiBuilder::with_max_input_len(1_048_576)` or similar. See `docs/migration-v0.2.md`
+  for the allocation-envelope analysis (peak ≈ 5× content size during the 3-agent
+  parallel dispatch; 4 MB default produces ~20 MB peak).
+- **`Validator::validate_mut` silently rewrites `Finding.title` in place.** The
+  orchestrator pipeline now uses `validate_mut`, so `MagiReport.agents[i].findings[j].title`
+  reflects the *cleaned* form (NFKC-ready, invisible-char-stripped) rather than
+  the raw LLM output. Consumers that need the raw form must preserve it before
+  passing to `Magi::analyze`.
+
 ### Added
 
 - **`clean_title`** public function in `validate` module: strips invisible

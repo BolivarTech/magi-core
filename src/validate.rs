@@ -129,18 +129,19 @@ impl Validator {
     /// because it ensures downstream code sees titles in the canonical cleaned
     /// form used by the consensus engine.
     ///
-    /// # Side effects on error
+    /// # Atomicity
     ///
-    /// This method mutates `output.findings[*].title` in place by applying
-    /// [`clean_title`]. On error, findings processed before the failing one may
-    /// have already been cleaned; the mutation is NOT rolled back. Callers
-    /// requiring all-or-nothing semantics should clone `output` before calling.
+    /// This method is atomic on error: it cleans and validates all finding titles
+    /// into a temporary buffer before committing any mutation to `output`. If any
+    /// validation check fails, `output` is left completely unchanged — no partial
+    /// title cleaning occurs.
     ///
     /// # Errors
     ///
     /// Returns [`MagiError::Validation`] on the first field that fails validation.
     /// Validation order: confidence → summary → reasoning → recommendation →
-    /// findings (count, then each title/detail after cleaning).
+    /// findings (count, then each cleaned title/detail).
+    /// On error, `output` is not modified.
     pub fn validate_mut(&self, output: &mut AgentOutput) -> Result<(), MagiError> {
         self.validate_confidence(output.confidence)?;
         self.validate_text_field("summary", &output.summary)?;
@@ -153,9 +154,18 @@ impl Validator {
                 self.limits.max_findings
             )));
         }
-        for finding in &mut output.findings {
-            finding.title = clean_title(&finding.title);
-            self.validate_finding_cleaned(finding)?;
+        // Collect cleaned titles and validate each before any mutation.
+        let cleaned_titles: Vec<String> = output
+            .findings
+            .iter()
+            .map(|f| clean_title(&f.title))
+            .collect();
+        for (cleaned, finding) in cleaned_titles.iter().zip(output.findings.iter()) {
+            self.validate_finding_fields(cleaned, &finding.detail)?;
+        }
+        // All valid — now commit mutations.
+        for (cleaned, finding) in cleaned_titles.into_iter().zip(output.findings.iter_mut()) {
+            finding.title = cleaned;
         }
         Ok(())
     }
@@ -217,11 +227,6 @@ impl Validator {
             )));
         }
         Ok(())
-    }
-
-    /// Validates a finding whose title has already been cleaned (no stripping needed).
-    fn validate_finding_cleaned(&self, finding: &Finding) -> Result<(), MagiError> {
-        self.validate_finding_fields(&finding.title, &finding.detail)
     }
 
     fn validate_finding(&self, finding: &Finding) -> Result<(), MagiError> {
@@ -733,5 +738,60 @@ mod tests {
             let twice = clean_title(&once);
             assert_eq!(once, twice, "not idempotent for input: {input:?}");
         }
+    }
+
+    /// validate_mut is atomic: if any finding fails validation, no titles are mutated.
+    #[test]
+    fn test_validate_mut_atomic_no_partial_mutation_on_error() {
+        let limits = ValidationLimits {
+            max_title_len: 5,
+            ..ValidationLimits::default()
+        };
+        let v = Validator::with_limits(limits);
+
+        // Finding 0: valid clean title with zero-width chars (will be cleaned to "AB")
+        // Finding 1: valid clean title with zero-width chars (will be cleaned to "CD")
+        // Finding 2: title that exceeds max_title_len=5 after cleaning → triggers error
+        let long_title_after_clean = "toolong"; // 7 chars after clean, exceeds max 5
+        let mut output = output_with_findings(vec![
+            Finding {
+                severity: Severity::Info,
+                title: "A\u{200b}B".to_string(), // contains zero-width char
+                detail: "detail".to_string(),
+            },
+            Finding {
+                severity: Severity::Info,
+                title: "C\u{200b}D".to_string(), // contains zero-width char
+                detail: "detail".to_string(),
+            },
+            Finding {
+                severity: Severity::Info,
+                title: long_title_after_clean.to_string(),
+                detail: "detail".to_string(),
+            },
+        ]);
+
+        // Capture original titles before calling validate_mut
+        let orig0 = output.findings[0].title.clone();
+        let orig1 = output.findings[1].title.clone();
+        let orig2 = output.findings[2].title.clone();
+
+        // validate_mut must fail due to finding 2 exceeding max_title_len
+        let result = v.validate_mut(&mut output);
+        assert!(result.is_err(), "should fail on over-length title");
+
+        // Atomicity: no titles must have been modified
+        assert_eq!(
+            output.findings[0].title, orig0,
+            "finding 0 title must not be mutated on error"
+        );
+        assert_eq!(
+            output.findings[1].title, orig1,
+            "finding 1 title must not be mutated on error"
+        );
+        assert_eq!(
+            output.findings[2].title, orig2,
+            "finding 2 title must not be mutated on error"
+        );
     }
 }

@@ -12,11 +12,13 @@ use crate::schema::{AgentName, AgentOutput, Mode};
 
 /// Error returned by `ReportConfig::new_checked` when validation fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReportError {
     /// An `agent_titles` value contains non-ASCII characters.
     ///
     /// The field name is either `"display_name"` or `"title"`,
     /// and `agent` identifies which agent's entry failed validation.
+    #[non_exhaustive]
     NonAsciiTitle {
         /// The agent whose title failed validation.
         agent: AgentName,
@@ -28,6 +30,7 @@ pub enum ReportError {
     /// `banner_width` is below the minimum required for meaningful rendering.
     ///
     /// The minimum is 8: one `|` border + 6 content bytes + one `|` border.
+    #[non_exhaustive]
     BannerTooSmall {
         /// The requested (invalid) width.
         requested: usize,
@@ -113,6 +116,11 @@ const FINDING_MARKER_WIDTH: usize = 5;
 fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
     debug_assert!(width > 0);
+    debug_assert!(
+        width >= 4,
+        "fit_content requires width >= 4 for sensible truncation; got {}",
+        width
+    );
 
     const ELLIPSIS: &str = "...";
 
@@ -283,17 +291,60 @@ impl Default for ReportConfig {
 
 impl ReportFormatter {
     /// Creates a new formatter with default configuration.
+    ///
+    /// Always succeeds because [`ReportConfig::default`] produces a valid config.
     pub fn new() -> Self {
-        Self::with_config(ReportConfig::default())
+        // SAFETY: default config is always valid; unwrap is infallible.
+        Self::with_config(ReportConfig::default()).expect("default config is always valid")
     }
 
-    /// Creates a new formatter with custom configuration.
-    pub fn with_config(config: ReportConfig) -> Self {
+    /// Creates a new formatter with a validated custom configuration.
+    ///
+    /// Re-runs the same ASCII and minimum-width checks as
+    /// [`ReportConfig::new_checked`], so callers who mutate a `ReportConfig`
+    /// after construction (e.g., via `default()` + field assignment) cannot
+    /// bypass validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReportError::BannerTooSmall`] if `config.banner_width < 8`.
+    /// Returns [`ReportError::NonAsciiTitle`] if any agent title contains
+    /// non-ASCII characters.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let cfg = ReportConfig::default();
+    /// let fmt = ReportFormatter::with_config(cfg).expect("default config is valid");
+    /// ```
+    pub fn with_config(config: ReportConfig) -> Result<Self, ReportError> {
+        if config.banner_width < ReportConfig::MIN_BANNER_WIDTH {
+            return Err(ReportError::BannerTooSmall {
+                requested: config.banner_width,
+                minimum: ReportConfig::MIN_BANNER_WIDTH,
+            });
+        }
+        for (agent, (display_name, title)) in &config.agent_titles {
+            if !display_name.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "display_name",
+                    value: display_name.clone(),
+                });
+            }
+            if !title.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "title",
+                    value: title.clone(),
+                });
+            }
+        }
         let banner_inner = config.banner_width - 2;
-        Self {
+        Ok(Self {
             config,
             banner_inner,
-        }
+        })
     }
 
     /// Generates the fixed-width ASCII verdict banner with column-aligned agent labels.
@@ -1249,7 +1300,7 @@ mod tests {
             banner_width: 52,
             agent_titles: BTreeMap::new(),
         };
-        let formatter = ReportFormatter::with_config(config);
+        let formatter = ReportFormatter::with_config(config).unwrap();
 
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
         let agents = vec![m.clone()];
@@ -1705,7 +1756,12 @@ mod tests {
     /// For width < 4, the result length exceeds `width` (cannot fit ellipsis + 1 char).
     /// This is an accepted edge case documented in the spec — a literal port of Python behavior.
     /// Callers should ensure `width >= 4` for sensible truncation.
+    ///
+    /// This test is skipped in debug builds because `fit_content` fires a `debug_assert!(width >= 4)`
+    /// to catch unintended callers in dev/test environments. The width=1 path is only reachable in
+    /// release mode where the assert is compiled out.
     #[test]
+    #[cfg(not(debug_assertions))]
     fn test_fit_content_boundary_width_1() {
         // width=1: cutoff = max(1, 1.saturating_sub(3)) = max(1, 0) = 1
         // result = "a..." (4 bytes, exceeds width — documented edge case)
@@ -1779,7 +1835,7 @@ mod tests {
                 "Very Long Pragmatist Title Indeed Here".to_string(),
             ),
         );
-        let formatter = ReportFormatter::with_config(config);
+        let formatter = ReportFormatter::with_config(config).unwrap();
 
         let b = make_agent(
             AgentName::Balthasar,
@@ -1978,6 +2034,7 @@ mod tests {
             agent,
             field,
             value,
+            ..
         } = err
         else {
             panic!("expected NonAsciiTitle, got {err:?}");
@@ -2003,6 +2060,7 @@ mod tests {
             agent,
             field,
             value,
+            ..
         } = err
         else {
             panic!("expected NonAsciiTitle, got {err:?}");
@@ -2038,5 +2096,48 @@ mod tests {
             ReportConfig::new_checked(ReportConfig::MIN_BANNER_WIDTH, titles).is_ok(),
             "banner_width == MIN_BANNER_WIDTH should be accepted"
         );
+    }
+
+    // -- ReportFormatter::with_config re-validation tests (Fix 1) --
+
+    /// with_config rejects banner_width below minimum even when set via field mutation.
+    #[test]
+    fn test_with_config_rejects_banner_width_too_small() {
+        // Construct directly to bypass new_checked validation and test that with_config
+        // catches the invalid value at formatter construction time.
+        let cfg = ReportConfig {
+            banner_width: 1,
+            ..ReportConfig::default()
+        };
+        match ReportFormatter::with_config(cfg) {
+            Err(ReportError::BannerTooSmall { requested, minimum }) => {
+                assert_eq!(requested, 1);
+                assert_eq!(minimum, ReportConfig::MIN_BANNER_WIDTH);
+            }
+            Err(other) => panic!("expected BannerTooSmall, got {other:?}"),
+            Ok(_) => panic!("with_config must re-validate banner_width"),
+        }
+    }
+
+    /// with_config rejects non-ASCII agent title set after default construction.
+    #[test]
+    fn test_with_config_rejects_non_ascii_agent_title() {
+        let mut titles = BTreeMap::new();
+        titles.insert(
+            AgentName::Melchior,
+            ("Ménagère".to_string(), "Scientist".to_string()),
+        );
+        let cfg = ReportConfig {
+            banner_width: 52,
+            agent_titles: titles,
+        };
+        match ReportFormatter::with_config(cfg) {
+            Err(ReportError::NonAsciiTitle { agent, field, .. }) => {
+                assert_eq!(agent, AgentName::Melchior);
+                assert_eq!(field, "display_name");
+            }
+            Err(other) => panic!("expected NonAsciiTitle, got {other:?}"),
+            Ok(_) => panic!("with_config must reject non-ASCII titles"),
+        }
     }
 }

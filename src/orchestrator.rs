@@ -222,7 +222,8 @@ impl MagiBuilder {
             agent_factory: factory,
             validator: Validator::with_limits(self.validation_limits),
             consensus_engine: ConsensusEngine::new(self.consensus_config),
-            formatter: ReportFormatter::with_config(self.report_config),
+            formatter: ReportFormatter::with_config(self.report_config)
+                .map_err(|e| MagiError::Validation(e.to_string()))?,
         })
     }
 }
