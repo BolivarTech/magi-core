@@ -13,6 +13,18 @@
 //! algorithmic specification.
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+/// Compiled regex matching all Unicode line separators except `\n`.
+///
+/// `\r\n` is listed before `\r` so the CRLF pair is consumed as a unit
+/// (leftmost-first alternation in the regex engine).
+static NEWLINE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new("\r\n|\r|\u{000B}|\u{000C}|\u{0085}|\u{2028}|\u{2029}")
+        .expect("NEWLINE_RE is a valid regex")
+});
 
 /// Converts all Unicode line separators to `\n`.
 ///
@@ -28,8 +40,8 @@ use std::borrow::Cow;
 ///
 /// `Cow<'_, str>` — borrowed if unchanged, owned if any separator was replaced.
 #[allow(dead_code)]
-fn normalize_newlines(_s: &str) -> Cow<'_, str> {
-    unreachable!("normalize_newlines not yet implemented")
+fn normalize_newlines(s: &str) -> Cow<'_, str> {
+    NEWLINE_RE.replace_all(s, "\n")
 }
 
 /// Abstraction over a `u128` random-number source.
