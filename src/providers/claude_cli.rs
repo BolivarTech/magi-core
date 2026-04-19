@@ -56,7 +56,7 @@ impl ClaudeCliProvider {
     /// # Model Aliases
     ///
     /// - `"sonnet"` maps to `"claude-sonnet-4-6"`
-    /// - `"opus"` maps to `"claude-opus-4-6"`
+    /// - `"opus"` maps to `"claude-opus-4-7"`
     /// - `"haiku"` maps to `"claude-haiku-4-5-20251001"`
     /// - Any string containing `"claude-"` is passed through as-is
     /// - Anything else returns `ProviderError::Auth`
@@ -300,13 +300,13 @@ mod tests {
         });
     }
 
-    /// new("opus") maps to "claude-opus-4-6".
+    /// new("opus") maps to "claude-opus-4-7".
     #[test]
     #[serial]
     fn test_new_opus_maps_to_claude_opus_model() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("opus").unwrap();
-            assert_eq!(provider.model(), "claude-opus-4-6");
+            assert_eq!(provider.model(), "claude-opus-4-7");
         });
     }
 
@@ -381,7 +381,7 @@ mod tests {
     fn test_provider_model_returns_resolved_model_id() {
         without_claudecode(|| {
             let provider = ClaudeCliProvider::new("opus").unwrap();
-            assert_eq!(provider.model(), "claude-opus-4-6");
+            assert_eq!(provider.model(), "claude-opus-4-7");
         });
     }
 

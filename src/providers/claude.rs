@@ -97,7 +97,7 @@ impl ClaudeProvider {
     ///
     /// # Parameters
     /// - `api_key`: Anthropic API key (e.g., `"sk-ant-api03-..."`).
-    /// - `model`: Model alias or full identifier (e.g., `"opus"` or `"claude-opus-4-6"`).
+    /// - `model`: Model alias or full identifier (e.g., `"opus"` or `"claude-opus-4-7"`).
     ///
     /// # Errors
     ///
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn test_claude_provider_new_resolves_alias() {
         let provider = super::ClaudeProvider::new("key", "opus").unwrap();
-        assert_eq!(provider.model(), "claude-opus-4-6");
+        assert_eq!(provider.model(), "claude-opus-4-7");
     }
 
     /// new("unknown") returns ProviderError::Auth.
@@ -398,7 +398,7 @@ mod tests {
         let provider = super::ClaudeProvider::new("key", "sonnet").unwrap();
         assert_eq!(provider.name(), "claude");
         let provider2 = super::ClaudeProvider::new("key2", "opus").unwrap();
-        assert_eq!(provider2.model(), "claude-opus-4-6");
+        assert_eq!(provider2.model(), "claude-opus-4-7");
     }
 
     // -- Debug does not expose API key --
