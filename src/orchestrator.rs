@@ -521,6 +521,7 @@ impl Magi {
     }
 }
 
+
 /// Formats the user prompt sent to each agent.
 ///
 /// # Parameters
@@ -1095,6 +1096,61 @@ mod tests {
             magi.overrides()
                 .get(&(AgentName::Caspar, Some(Mode::Design))),
             Some(&"Z".to_string())
+        );
+    }
+
+    // -- T12: lookup_prompt resolution --
+
+    /// lookup_prompt prefers mode-specific override when both mode-specific and
+    /// mode-agnostic overrides exist for the same agent.
+    #[test]
+    fn test_lookup_prompt_prefers_mode_specific_override() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert(
+            (AgentName::Melchior, Some(Mode::CodeReview)),
+            "SPECIFIC".to_string(),
+        );
+        overrides.insert((AgentName::Melchior, None), "GENERIC".to_string());
+        assert_eq!(
+            lookup_prompt(AgentName::Melchior, Mode::CodeReview, &overrides),
+            "SPECIFIC"
+        );
+    }
+
+    /// lookup_prompt falls back to mode-agnostic override when only (agent, None) is present.
+    #[test]
+    fn test_lookup_prompt_falls_back_to_mode_agnostic_when_mode_specific_missing() {
+        let mut overrides = BTreeMap::new();
+        overrides.insert((AgentName::Melchior, None), "GENERIC".to_string());
+        assert_eq!(
+            lookup_prompt(AgentName::Melchior, Mode::CodeReview, &overrides),
+            "GENERIC"
+        );
+    }
+
+    /// lookup_prompt falls back to embedded default when overrides map is empty.
+    #[test]
+    fn test_lookup_prompt_falls_back_to_embedded_default_when_no_override() {
+        let overrides: BTreeMap<(AgentName, Option<Mode>), String> = BTreeMap::new();
+        let result = lookup_prompt(AgentName::Caspar, Mode::Analysis, &overrides);
+        assert_eq!(result, crate::prompts::caspar_prompt());
+    }
+
+    /// lookup_prompt returns the correct embedded default for each agent.
+    #[test]
+    fn test_lookup_prompt_returns_correct_embedded_default_per_agent() {
+        let overrides: BTreeMap<(AgentName, Option<Mode>), String> = BTreeMap::new();
+        assert_eq!(
+            lookup_prompt(AgentName::Melchior, Mode::CodeReview, &overrides),
+            crate::prompts::melchior_prompt()
+        );
+        assert_eq!(
+            lookup_prompt(AgentName::Balthasar, Mode::Design, &overrides),
+            crate::prompts::balthasar_prompt()
+        );
+        assert_eq!(
+            lookup_prompt(AgentName::Caspar, Mode::Analysis, &overrides),
+            crate::prompts::caspar_prompt()
         );
     }
 
