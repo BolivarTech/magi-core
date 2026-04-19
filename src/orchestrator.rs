@@ -43,6 +43,17 @@ pub struct MagiConfig {
     /// appropriate for your threat model. Default (4 MB) is a compromise between
     /// Python MAGI's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with Python
     /// is deferred to v0.3.0 pending allocation audit of the analyze() pipeline.
+    ///
+    /// # Allocation audit (2026-04-18)
+    ///
+    /// An allocation audit of the `analyze()` pipeline for `magi-core v0.2.0` found
+    /// 5 copy points on the content's path from `analyze()` entry to wire serialization:
+    /// (1) user-prompt construction via `format!`, (2–4) per-agent `String::clone` to
+    /// satisfy `tokio::spawn`'s `'static` bound (3 agents), and (5) HTTP/stdin
+    /// serialization by the provider. Peak memory per analysis is approximately
+    /// `content.len() × 5` plus fixed overhead. For the 4 MB default, peak ≈ 20 MB.
+    /// A full 10 MB alignment with Python is deferred to v0.3.0, pending an
+    /// `Arc<str>` refactor of the orchestrator-to-provider path to reduce copies.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
     pub completion: CompletionConfig,

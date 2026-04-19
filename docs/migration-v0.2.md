@@ -14,6 +14,27 @@ pinned with tilde constraints:
 
 No action required from consumers — they are transitive through `magi-core`.
 
+## Markdown output: detail fields moved to JSON only (UX regression)
+
+**This is a visible UX regression for consumers who parse or render the
+markdown `report` string.** If your tooling consumes `MagiReport::report`
+as markdown, the following fields are **no longer rendered in markdown**
+but remain available in the JSON representation:
+
+| Field | Previously in markdown | Now |
+|-------|------------------------|-----|
+| Dissenter's `reasoning` (full paragraph) | Shown after each dissenter's summary line | JSON only (`consensus.dissent[i].reasoning`) |
+| Finding `detail` (indented paragraph) | Shown below each finding's marker line | JSON only (`consensus.findings[i].detail`) |
+| `Consensus Summary` section | `## Consensus Summary` heading + body | JSON only (`consensus.majority_summary`) |
+
+**Action:** If you rendered any of these fields downstream (dashboards, emails,
+issue trackers), switch your parsing path to the JSON representation via
+`MagiReport::consensus` instead of grepping the rendered markdown.
+
+The motivation is Python MAGI 2.1.3 byte-equivalence — the rendered markdown
+is now optimized for at-a-glance terminal display; JSON is the structured
+data contract.
+
 ## Opus model alias
 
 The `opus` short name now resolves to `claude-opus-4-7` (was `claude-opus-4-6`).
@@ -28,10 +49,23 @@ The method is now deprecated. Callers should switch to the free function
 cleaning pipeline (control-whitespace normalization, invisible-character
 removal, trim).
 
-**Note:** `clean_title` is a strict superset of the old `stripped_title`
-behavior for zero-width stripping, plus it also collapses control whitespace
-to spaces and trims edges. If your code relied on the partial behavior,
-review carefully.
+**Note:** `clean_title` is not a strict superset of `stripped_title`. The two
+methods cover **different** invisible-character sets:
+
+- `clean_title` (new, v0.2.0) matches the Python MAGI 2.1.3 `_ZERO_WIDTH_RE` set
+  exactly: U+200B-U+200F, U+2028-U+202F, U+2060-U+206F, U+FEFF, U+00AD. It also
+  collapses control whitespace (tabs, newlines, vertical tab, form feed, CR, NEL)
+  to a single space, and trims edges.
+- `stripped_title` (legacy, deprecated) covers a different set that includes
+  Arabic format marks (U+0600-U+0605, U+061C, U+06DD), Syriac (U+070F),
+  Mongolian (U+180E), and U+FFF9-U+FFFB, but excludes U+2028, U+2029, U+202F,
+  and U+2065. It does not touch control whitespace or edge whitespace.
+
+If your titles contain Arabic, Syriac, or Mongolian format marks that
+`stripped_title` previously removed, they will now pass through `clean_title`
+unchanged. The consensus engine's `dedup_key` applies NFKC + full Unicode
+casefold downstream, which normalizes many of these characters before
+comparison but does not universally strip them.
 
 The deprecated method will be removed in v0.3.0.
 

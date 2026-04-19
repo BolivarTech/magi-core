@@ -64,6 +64,14 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
 /// - `width > 0`.
 ///   `debug_assert!(width > 0)`
+/// - When `preserve_suffix` is non-empty **and** truncation occurs and the suffix is not
+///   consumed by the fallback path, `content.ends_with(preserve_suffix)` must hold.
+///   Step 3 (suffix-preserving truncation) slices `content` by
+///   `content.len() - preserve_suffix.len()` assuming the tail matches. If violated,
+///   the function still produces a String but the returned prefix is arbitrary (not a
+///   meaningful truncation). This precondition is not checked when `content.len() <= width`
+///   (no truncation) or when the fallback path fires.
+///   `debug_assert!(content.ends_with(preserve_suffix))` — checked at Step 3 entry.
 ///
 /// # Post-condition
 ///
@@ -104,7 +112,9 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
         return format!("{}{}", &content[..cutoff], ELLIPSIS);
     }
 
-    // Step 3: prefix-truncate with suffix protected
+    // Step 3: prefix-truncate with suffix protected.
+    // Precondition: content must end with preserve_suffix so the tail-slice is meaningful.
+    debug_assert!(content.ends_with(preserve_suffix));
     let prefix_budget = width - ELLIPSIS.len() - preserve_suffix.len();
     // prefix_source is content with the suffix tail removed
     let prefix_source = &content[..content.len() - preserve_suffix.len()];
