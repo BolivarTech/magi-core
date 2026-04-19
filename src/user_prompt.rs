@@ -130,7 +130,8 @@ fn neutralize_headers(s: &str) -> Cow<'_, str> {
 /// # Errors
 ///
 /// Returns [`MagiError::InvalidInput`] if the sanitized content contains
-/// the generated nonce (collision probability ~2^-128).
+/// the generated nonce (collision probability ~2^-64 per call (fastrand
+/// effective state ~64 bits; see ADR 001 §Decision: Nonce RNG choice)).
 pub(crate) fn build_user_prompt(
     mode: Mode,
     content: &str,
@@ -148,7 +149,8 @@ pub(crate) fn build_user_prompt(
     let nonce = format!("{nonce_val:032x}");
 
     // Step 5: fail closed if sanitized content contains the nonce literally.
-    // Probability of collision is ~2^-128.
+    // Probability of collision is ~2^-64 per call (fastrand effective state
+    // ~64 bits; see ADR 001 §Decision: Nonce RNG choice).
     if sanitized.contains(nonce.as_str()) {
         return Err(MagiError::InvalidInput {
             reason: "content contains generated nonce; refuse and retry".to_string(),

@@ -363,7 +363,8 @@ impl Magi {
     /// # Errors
     /// - [`MagiError::InputTooLarge`] if `content.len()` exceeds `max_input_len`.
     /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
-    /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-128).
+    /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-64
+    ///   per call; fastrand effective state ~64 bits; see ADR 001 §Decision: Nonce RNG choice).
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation
         if content.len() > self.config.max_input_len {
