@@ -1435,4 +1435,32 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    /// All three agents must receive the same nonce in their user_prompt for a
+    /// single `analyze` invocation (RF-10).
+    ///
+    /// Regression guard: if the RNG is called more than once per `analyze`
+    /// each agent would receive a different nonce, breaking injection-fence
+    /// isolation guarantees.
+    #[tokio::test]
+    async fn test_analyze_shares_same_nonce_across_all_three_agents() {
+        let captured: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::for_default_prompts(captured.clone()));
+        let fixed: u128 = 0xabcd_ef01_2345_6789_0000_0000_0000_0001;
+        let expected_nonce = format!("{fixed:032x}");
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_rng_source(Box::new(crate::user_prompt::FixedRng::new(vec![fixed])))
+            .build()
+            .expect("build should succeed");
+        let _ = magi.analyze(&Mode::Analysis, "hello").await.unwrap();
+        let calls = captured.lock().unwrap();
+        assert_eq!(calls.len(), 3, "expected 3 agent calls per analyze");
+        for (idx, (_, up)) in calls.iter().enumerate() {
+            assert!(
+                up.contains(&expected_nonce),
+                "call {idx} user_prompt missing expected nonce"
+            );
+        }
+    }
 }
