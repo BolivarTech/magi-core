@@ -14,10 +14,22 @@
 
 use std::borrow::Cow;
 
-// Placeholder to keep Cow import used until helpers land in T05-T08.
+/// Converts all Unicode line separators to `\n`.
+///
+/// Recognized separators: `\r\n`, `\r`, U+000B (VT), U+000C (FF),
+/// U+0085 (NEL), U+2028 (LS), U+2029 (PS). Returns `Cow::Borrowed`
+/// when no non-LF separator is present (no allocation needed).
+///
+/// # Arguments
+///
+/// * `s` — Input string slice to normalize.
+///
+/// # Returns
+///
+/// `Cow<'_, str>` — borrowed if unchanged, owned if any separator was replaced.
 #[allow(dead_code)]
-fn _placeholder_uses_cow() -> Cow<'static, str> {
-    Cow::Borrowed("")
+fn normalize_newlines(_s: &str) -> Cow<'_, str> {
+    unreachable!("normalize_newlines not yet implemented")
 }
 
 /// Abstraction over a `u128` random-number source.
@@ -87,5 +99,64 @@ mod tests {
         let mut rng = FixedRng::new(vec![0x1]);
         rng.next_u128();
         rng.next_u128();
+    }
+
+    // --- normalize_newlines tests ---
+
+    #[test]
+    fn test_normalize_newlines_collapses_crlf_pair_to_lf() {
+        assert_eq!(normalize_newlines("a\r\nb"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_lone_cr_to_lf() {
+        assert_eq!(normalize_newlines("a\rb"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_vertical_tab_to_lf() {
+        assert_eq!(normalize_newlines("a\u{000B}b"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_form_feed_to_lf() {
+        assert_eq!(normalize_newlines("a\u{000C}b"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_nel_to_lf() {
+        assert_eq!(normalize_newlines("a\u{0085}b"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_line_separator_to_lf() {
+        assert_eq!(normalize_newlines("a\u{2028}b"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_converts_paragraph_separator_to_lf() {
+        assert_eq!(normalize_newlines("a\u{2029}b"), "a\nb");
+    }
+
+    #[test]
+    fn test_normalize_newlines_preserves_existing_lf_borrows() {
+        let out = normalize_newlines("a\nb");
+        assert_eq!(out, "a\nb");
+        assert!(matches!(out, Cow::Borrowed(_)), "no-op case should borrow");
+    }
+
+    #[test]
+    fn test_normalize_newlines_handles_mixed_separators() {
+        assert_eq!(
+            normalize_newlines("one\r\ntwo\rthree\u{2028}four\u{0085}five\nsix"),
+            "one\ntwo\nthree\nfour\nfive\nsix"
+        );
+    }
+
+    #[test]
+    fn test_normalize_newlines_handles_empty_string() {
+        let out = normalize_newlines("");
+        assert_eq!(out, "");
+        assert!(matches!(out, Cow::Borrowed(_)));
     }
 }
