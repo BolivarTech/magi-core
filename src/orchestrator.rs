@@ -1025,25 +1025,81 @@ mod tests {
     }
 
     // -- T11: MagiBuilder API — for_mode / all_modes / rng_source --
+    // -- T13: CapturingMockProvider upgrade — explicit agent-routing table --
 
-    /// Minimal capturing provider for T11 nonce-injection test.
+    /// Mock provider with an explicit `(system_prompt → AgentName)` routing
+    /// table. Eliminates the need to parse system-prompt content to infer
+    /// agent identity (MAGI R1 W6).
     ///
-    /// Captures `(system_prompt, user_prompt)` pairs and returns a benign
-    /// per-agent JSON response for each of the 3 MAGI agents (Melchior,
-    /// Balthasar, Caspar) by cycling through agent names based on call count.
+    /// Captures every `(system_prompt, user_prompt)` pair so tests can inspect
+    /// exactly what each agent received.
+    #[derive(Clone)]
     struct CapturingMockProvider {
+        /// Recorded calls: `(system_prompt, user_prompt)` in call order.
         captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
-        call_count: AtomicUsize,
+        /// Maps a recognized system prompt to the agent name the mock should
+        /// emit in its JSON response.
+        routing: Arc<std::collections::HashMap<String, AgentName>>, // MAGI R3 W2
     }
 
     impl CapturingMockProvider {
-        /// Creates a provider that captures prompts and returns valid JSON
-        /// using default compiled-in agent names in round-robin order.
+        /// Build a mock that routes each known default prompt back to its
+        /// owning agent.  Used when no custom overrides are in play.
         fn for_default_prompts(captured: Arc<std::sync::Mutex<Vec<(String, String)>>>) -> Self {
+            let mut routing = std::collections::HashMap::new();
+            routing.insert(
+                crate::prompts::melchior_prompt().to_string(),
+                AgentName::Melchior,
+            );
+            routing.insert(
+                crate::prompts::balthasar_prompt().to_string(),
+                AgentName::Balthasar,
+            );
+            routing.insert(
+                crate::prompts::caspar_prompt().to_string(),
+                AgentName::Caspar,
+            );
             Self {
                 captured,
-                call_count: AtomicUsize::new(0),
+                routing: Arc::new(routing),
             }
+        }
+
+        /// Build a mock with explicit `(custom_prompt → agent)` mappings for
+        /// tests that inject overrides.  Default prompts are included as
+        /// fallback so unoverridden agents still resolve correctly.
+        fn with_routing(
+            captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+            mappings: Vec<(&'static str, AgentName)>,
+        ) -> Self {
+            let mut routing = std::collections::HashMap::new();
+            // Default prompts as fallback.
+            routing.insert(
+                crate::prompts::melchior_prompt().to_string(),
+                AgentName::Melchior,
+            );
+            routing.insert(
+                crate::prompts::balthasar_prompt().to_string(),
+                AgentName::Balthasar,
+            );
+            routing.insert(
+                crate::prompts::caspar_prompt().to_string(),
+                AgentName::Caspar,
+            );
+            for (custom, name) in mappings {
+                routing.insert(custom.to_string(), name);
+            }
+            Self {
+                captured,
+                routing: Arc::new(routing),
+            }
+        }
+
+        /// Alias for `for_default_prompts`.  Used when a test only wants to
+        /// inspect captured inputs and does not care about response routing.
+        #[allow(dead_code)]
+        fn for_prompt_capture(captured: Arc<std::sync::Mutex<Vec<(String, String)>>>) -> Self {
+            Self::for_default_prompts(captured)
         }
     }
 
@@ -1055,17 +1111,21 @@ mod tests {
             user_prompt: &str,
             _config: &CompletionConfig,
         ) -> Result<String, ProviderError> {
-            let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
             self.captured
                 .lock()
                 .unwrap()
                 .push((system_prompt.to_string(), user_prompt.to_string()));
-            let agent_name = match idx % 3 {
-                0 => "melchior",
-                1 => "balthasar",
-                _ => "caspar",
+            let agent = self
+                .routing
+                .get(system_prompt)
+                .copied()
+                .unwrap_or(AgentName::Melchior);
+            let agent_str = match agent {
+                AgentName::Melchior => "melchior",
+                AgentName::Balthasar => "balthasar",
+                AgentName::Caspar => "caspar",
             };
-            Ok(mock_agent_json(agent_name, "approve", 0.9))
+            Ok(mock_agent_json(agent_str, "approve", 0.9))
         }
 
         fn name(&self) -> &str {
@@ -1218,6 +1278,134 @@ mod tests {
         assert!(
             user_prompt.contains(&expected_nonce_hex),
             "user_prompt should contain the fixed nonce {expected_nonce_hex}"
+        );
+    }
+
+    // -- T13: End-to-end integration tests --
+
+    /// A mode-agnostic override registered via `with_custom_prompt_all_modes`
+    /// must be forwarded as the system prompt to the targeted agent regardless
+    /// of which `Mode` is passed to `analyze`.
+    #[tokio::test]
+    async fn test_analyze_applies_mode_agnostic_override_to_melchior() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::with_routing(
+            captured.clone(),
+            vec![("CUSTOM MEL", AgentName::Melchior)],
+        ));
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_custom_prompt_all_modes(AgentName::Melchior, "CUSTOM MEL".into())
+            .build()
+            .expect("build should succeed");
+        let _ = magi.analyze(&Mode::Design, "x").await.unwrap();
+        let calls = captured.lock().unwrap();
+        assert!(
+            calls.iter().any(|(sys, _)| sys == "CUSTOM MEL"),
+            "Melchior should have received the mode-agnostic custom prompt"
+        );
+    }
+
+    /// A mode-specific override registered via `with_custom_prompt_for_mode`
+    /// must supersede a mode-agnostic override for the same agent when `analyze`
+    /// is called with the matching mode.
+    #[tokio::test]
+    async fn test_analyze_per_mode_override_supersedes_all_modes() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::with_routing(
+            captured.clone(),
+            vec![
+                ("GENERIC MEL", AgentName::Melchior),
+                ("SPECIFIC MEL", AgentName::Melchior),
+            ],
+        ));
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_custom_prompt_all_modes(AgentName::Melchior, "GENERIC MEL".into())
+            .with_custom_prompt_for_mode(AgentName::Melchior, Mode::Design, "SPECIFIC MEL".into())
+            .build()
+            .expect("build should succeed");
+        let _ = magi.analyze(&Mode::Design, "x").await.unwrap();
+        let calls = captured.lock().unwrap();
+        assert!(
+            calls.iter().any(|(sys, _)| sys == "SPECIFIC MEL"),
+            "mode-specific prompt should have been used for Mode::Design"
+        );
+        assert!(
+            !calls.iter().any(|(sys, _)| sys == "GENERIC MEL"),
+            "mode-agnostic prompt must NOT be used when a mode-specific one is present"
+        );
+    }
+
+    /// When the injected `FixedRng` produces a nonce whose hex encoding
+    /// appears verbatim in the (sanitized) input, `analyze` must propagate
+    /// `MagiError::InvalidInput` from `build_user_prompt`.
+    #[tokio::test]
+    async fn test_analyze_nonce_collision_returns_invalid_input() {
+        let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::for_default_prompts(captured));
+        let fixed_nonce_val: u128 = 0x1234_5678_9012_3456_7890_1234_5678_9012;
+        let fixed_nonce_hex = format!("{fixed_nonce_val:032x}");
+        // Content that is exactly the nonce hex — guaranteed collision.
+        let colliding_content = fixed_nonce_hex.clone();
+
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_rng_source(Box::new(crate::user_prompt::FixedRng::new(vec![
+                fixed_nonce_val,
+            ])))
+            .build()
+            .expect("build should succeed");
+
+        let result = magi.analyze(&Mode::Analysis, &colliding_content).await;
+        assert!(
+            matches!(result, Err(MagiError::InvalidInput { .. })),
+            "nonce collision must yield MagiError::InvalidInput, got: {result:?}"
+        );
+    }
+
+    /// The deprecated `with_custom_prompt` shim must round-trip through the
+    /// new `with_custom_prompt_for_mode` path and produce a result identical
+    /// to calling `with_custom_prompt_for_mode` directly.
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn test_legacy_with_custom_prompt_shim_roundtrip() {
+        let captured_legacy = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured_new = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let provider_legacy = Arc::new(CapturingMockProvider::with_routing(
+            captured_legacy.clone(),
+            vec![("SHIM PROMPT", AgentName::Caspar)],
+        ));
+        let provider_new = Arc::new(CapturingMockProvider::with_routing(
+            captured_new.clone(),
+            vec![("SHIM PROMPT", AgentName::Caspar)],
+        ));
+
+        let magi_legacy = MagiBuilder::new(provider_legacy as Arc<dyn LlmProvider>)
+            .with_custom_prompt(AgentName::Caspar, Mode::CodeReview, "SHIM PROMPT".into())
+            .build()
+            .expect("legacy build should succeed");
+
+        let magi_new = MagiBuilder::new(provider_new as Arc<dyn LlmProvider>)
+            .with_custom_prompt_for_mode(AgentName::Caspar, Mode::CodeReview, "SHIM PROMPT".into())
+            .build()
+            .expect("new build should succeed");
+
+        let _ = magi_legacy
+            .analyze(&Mode::CodeReview, "test")
+            .await
+            .unwrap();
+        let _ = magi_new.analyze(&Mode::CodeReview, "test").await.unwrap();
+
+        let legacy_calls = captured_legacy.lock().unwrap();
+        let new_calls = captured_new.lock().unwrap();
+
+        // Both paths must have forwarded "SHIM PROMPT" to Caspar.
+        assert!(
+            legacy_calls.iter().any(|(sys, _)| sys == "SHIM PROMPT"),
+            "legacy shim must forward the custom prompt to Caspar"
+        );
+        assert!(
+            new_calls.iter().any(|(sys, _)| sys == "SHIM PROMPT"),
+            "new API must forward the custom prompt to Caspar"
         );
     }
 }
