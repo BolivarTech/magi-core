@@ -44,8 +44,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`MagiError::InvalidInput { reason }`** — returned from
   `build_user_prompt` when sanitized content contains the generated
   nonce (fail-closed; probability ~2^-128).
-- **~70 new tests** (pipeline + adversarial + lookup + integration +
-  SHA-256 parity). Total test count: 323.
+- **72 new unit tests** (pipeline + adversarial + integration + SHA-256
+  parity). Total: 324.
 
 ### Security considerations (MAGI R3 W8)
 
