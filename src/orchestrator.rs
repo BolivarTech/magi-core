@@ -7,12 +7,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::sync::Mutex;
+
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
 use crate::error::{MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::schema::{AgentName, AgentOutput, Mode};
+use crate::user_prompt::{FastrandSource, RngLike, build_user_prompt};
 use crate::validate::{ValidationLimits, Validator};
 use tokio::task::AbortHandle;
 
@@ -90,12 +93,13 @@ impl Default for MagiConfig {
 pub struct MagiBuilder {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: BTreeMap<AgentName, Arc<dyn LlmProvider>>,
-    custom_prompts: BTreeMap<AgentName, String>,
+    overrides: BTreeMap<(AgentName, Option<Mode>), String>,
     prompts_dir: Option<PathBuf>,
     config: MagiConfig,
     validation_limits: ValidationLimits,
     consensus_config: ConsensusConfig,
     report_config: ReportConfig,
+    rng_source: Option<Box<dyn RngLike + Send>>,
 }
 
 impl MagiBuilder {
@@ -107,12 +111,13 @@ impl MagiBuilder {
         Self {
             default_provider,
             agent_providers: BTreeMap::new(),
-            custom_prompts: BTreeMap::new(),
+            overrides: BTreeMap::new(),
             prompts_dir: None,
             config: MagiConfig::default(),
             validation_limits: ValidationLimits::default(),
             consensus_config: ConsensusConfig::default(),
             report_config: ReportConfig::default(),
+            rng_source: None,
         }
     }
 
@@ -126,14 +131,64 @@ impl MagiBuilder {
         self
     }
 
-    /// Sets a custom system prompt for a specific agent.
+    /// Sets a custom system prompt for a specific agent and mode.
+    ///
+    /// Stores the override under the `(agent, Some(mode))` key so that
+    /// [`Magi::analyze`] can select it for the matching `(agent, mode)` pair.
     ///
     /// # Parameters
-    /// - `name`: Which agent to override.
+    /// - `agent`: Which agent to override.
+    /// - `mode`: The analysis mode for which this prompt applies.
     /// - `prompt`: The custom system prompt.
-    pub fn with_custom_prompt(mut self, name: AgentName, prompt: String) -> Self {
-        self.custom_prompts.insert(name, prompt);
+    pub fn with_custom_prompt_for_mode(
+        mut self,
+        agent: AgentName,
+        mode: Mode,
+        prompt: String,
+    ) -> Self {
+        self.overrides.insert((agent, Some(mode)), prompt);
         self
+    }
+
+    /// Sets a custom system prompt for a specific agent across all modes.
+    ///
+    /// Stores the override under the `(agent, None)` key, which serves as a
+    /// mode-agnostic fallback when no mode-specific override exists.
+    ///
+    /// # Parameters
+    /// - `agent`: Which agent to override.
+    /// - `prompt`: The custom system prompt applied for all analysis modes.
+    pub fn with_custom_prompt_all_modes(mut self, agent: AgentName, prompt: String) -> Self {
+        self.overrides.insert((agent, None), prompt);
+        self
+    }
+
+    /// Injects a custom RNG source for nonce generation in `build_user_prompt`.
+    ///
+    /// Intended for testing only (`pub(crate)`). The nonce is shared across
+    /// all agents for a single `analyze()` invocation (one call per request).
+    ///
+    /// # Parameters
+    /// - `rng`: A boxed [`RngLike`] implementation to use instead of the default
+    ///   [`FastrandSource`].
+    pub(crate) fn with_rng_source(mut self, rng: Box<dyn RngLike + Send>) -> Self {
+        self.rng_source = Some(rng);
+        self
+    }
+
+    /// Sets a custom system prompt for a specific agent and mode.
+    ///
+    /// # Deprecated
+    ///
+    /// Use [`with_custom_prompt_for_mode`](Self::with_custom_prompt_for_mode) instead.
+    ///
+    /// # Parameters
+    /// - `agent`: Which agent to override.
+    /// - `mode`: The analysis mode.
+    /// - `prompt`: The custom system prompt.
+    #[deprecated(since = "0.3.0", note = "use `with_custom_prompt_for_mode`")]
+    pub fn with_custom_prompt(self, agent: AgentName, mode: Mode, prompt: String) -> Self {
+        self.with_custom_prompt_for_mode(agent, mode, prompt)
     }
 
     /// Sets a directory from which to load custom prompt files.
@@ -210,12 +265,13 @@ impl MagiBuilder {
         for (name, provider) in self.agent_providers {
             factory = factory.with_provider(name, provider);
         }
-        for (name, prompt) in self.custom_prompts {
-            factory = factory.with_custom_prompt(name, prompt);
-        }
         if let Some(dir) = self.prompts_dir {
             factory = factory.from_directory(&dir)?;
         }
+
+        let rng_source = self
+            .rng_source
+            .unwrap_or_else(|| Box::new(FastrandSource) as Box<dyn RngLike + Send>);
 
         Ok(Magi {
             config: self.config,
@@ -224,6 +280,8 @@ impl MagiBuilder {
             consensus_engine: ConsensusEngine::new(self.consensus_config),
             formatter: ReportFormatter::with_config(self.report_config)
                 .map_err(|e| MagiError::Validation(e.to_string()))?,
+            overrides: self.overrides,
+            rng_source: Arc::new(Mutex::new(rng_source)),
         })
     }
 }
@@ -265,6 +323,8 @@ pub struct Magi {
     validator: Validator,
     consensus_engine: ConsensusEngine,
     formatter: ReportFormatter,
+    overrides: BTreeMap<(AgentName, Option<Mode>), String>,
+    rng_source: Arc<Mutex<Box<dyn RngLike + Send>>>,
 }
 
 impl Magi {
@@ -303,6 +363,7 @@ impl Magi {
     /// # Errors
     /// - [`MagiError::InputTooLarge`] if `content.len()` exceeds `max_input_len`.
     /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
+    /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-128).
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation
         if content.len() > self.config.max_input_len {
@@ -315,8 +376,12 @@ impl Magi {
         // 2. Create agents
         let agents = self.agent_factory.create_agents(*mode);
 
-        // 3. Build user prompt
-        let prompt = build_prompt(mode, content);
+        // 3. Build user prompt with sanitization and nonce injection.
+        //    Lock is released immediately after prompt construction.
+        let prompt = {
+            let mut rng = self.rng_source.lock().expect("rng_source mutex poisoned");
+            build_user_prompt(*mode, content, &mut **rng)?
+        };
 
         // 4. Launch agents in parallel and collect results
         let agent_results = self.launch_agents(agents, &prompt).await;
@@ -444,6 +509,15 @@ impl Magi {
         }
 
         Ok((successful, failed_agents))
+    }
+
+    /// Returns the custom prompt overrides map for inspection in tests.
+    ///
+    /// Keys are `(AgentName, Some(Mode))` for mode-specific overrides and
+    /// `(AgentName, None)` for mode-agnostic overrides.
+    #[cfg(test)]
+    pub(crate) fn overrides(&self) -> &BTreeMap<(AgentName, Option<Mode>), String> {
+        &self.overrides
     }
 }
 
@@ -929,9 +1003,7 @@ mod tests {
     impl CapturingMockProvider {
         /// Creates a provider that captures prompts and returns valid JSON
         /// using default compiled-in agent names in round-robin order.
-        fn for_default_prompts(
-            captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
-        ) -> Self {
+        fn for_default_prompts(captured: Arc<std::sync::Mutex<Vec<(String, String)>>>) -> Self {
             Self {
                 captured,
                 call_count: AtomicUsize::new(0),
@@ -982,7 +1054,8 @@ mod tests {
             .build()
             .expect("build should succeed");
         assert_eq!(
-            magi.overrides().get(&(AgentName::Melchior, Some(Mode::CodeReview))),
+            magi.overrides()
+                .get(&(AgentName::Melchior, Some(Mode::CodeReview))),
             Some(&"X".to_string())
         );
     }
@@ -1019,7 +1092,8 @@ mod tests {
             .build()
             .expect("build should succeed");
         assert_eq!(
-            magi.overrides().get(&(AgentName::Caspar, Some(Mode::Design))),
+            magi.overrides()
+                .get(&(AgentName::Caspar, Some(Mode::Design))),
             Some(&"Z".to_string())
         );
     }
@@ -1045,7 +1119,10 @@ mod tests {
         let _ = magi.analyze(&Mode::Analysis, "hello").await.unwrap();
 
         let calls = captured.lock().unwrap();
-        assert!(!calls.is_empty(), "mock should have received at least one call");
+        assert!(
+            !calls.is_empty(),
+            "mock should have received at least one call"
+        );
         let (_, user_prompt) = &calls[0];
         assert!(
             user_prompt.contains(&expected_nonce_hex),
