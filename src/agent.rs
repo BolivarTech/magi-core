@@ -265,7 +265,7 @@ impl AgentFactory {
     /// - `mode`: The analysis mode for all three agents.
     ///
     /// # Deprecation
-    /// Use [`AgentFactory::create_agents_with_prompts`] or
+    /// Use `AgentFactory::create_agents_with_prompts` or
     /// [`crate::orchestrator::MagiBuilder::build`] instead. Those paths
     /// respect the v0.3 overrides map set via
     /// `with_custom_prompt_for_mode` / `with_custom_prompt_all_modes`.

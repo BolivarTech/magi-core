@@ -375,6 +375,16 @@ impl Magi {
     /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
     /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-64
     ///   per call; fastrand effective state ~64 bits; see ADR 001 §Decision: Nonce RNG choice).
+    ///
+    /// # Concurrency
+    ///
+    /// The internal `rng_source` is guarded by a `std::sync::Mutex`, so concurrent
+    /// calls to `analyze()` from multiple tasks serialize on nonce generation. In
+    /// practice nonce generation is a single `u128` read (~nanoseconds), so
+    /// contention is negligible under typical workloads. If profiling shows this
+    /// becomes a bottleneck in a multi-tenant deployment, consider wrapping `Magi`
+    /// in a pool of instances (one per tenant), or await v0.4 which may expose
+    /// `with_rng_source` publicly to allow a thread-local RNG strategy.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation
         if content.len() > self.config.max_input_len {
