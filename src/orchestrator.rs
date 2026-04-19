@@ -558,15 +558,6 @@ pub(crate) fn lookup_prompt(
     }
 }
 
-/// Formats the user prompt sent to each agent.
-///
-/// # Parameters
-/// - `mode`: The analysis mode.
-/// - `content`: The content to analyze.
-fn build_prompt(mode: &Mode, content: &str) -> String {
-    format!("MODE: {mode}\nCONTEXT:\n{content}")
-}
-
 /// Extracts an [`AgentOutput`] from raw LLM response text.
 ///
 /// Handles common LLM output quirks:
@@ -970,15 +961,6 @@ mod tests {
             }
             other => panic!("Expected InputTooLarge, got: {other:?}"),
         }
-    }
-
-    // -- build_prompt formatting --
-
-    /// build_prompt formats "MODE: {mode}\nCONTEXT:\n{content}".
-    #[test]
-    fn test_build_prompt_formats_mode_and_content() {
-        let result = build_prompt(&Mode::CodeReview, "fn main() {}");
-        assert_eq!(result, "MODE: code-review\nCONTEXT:\nfn main() {}");
     }
 
     // -- parse_agent_response --
