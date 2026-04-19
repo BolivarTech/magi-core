@@ -17,6 +17,8 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
+use crate::validate::INVISIBLE_AND_SEPARATOR_RE;
+
 /// Compiled regex matching all Unicode line separators except `\n`.
 ///
 /// `\r\n` is listed before `\r` so the CRLF pair is consumed as a unit
@@ -63,8 +65,8 @@ fn normalize_newlines(s: &str) -> Cow<'_, str> {
 ///
 /// `Cow<'_, str>` — borrowed if unchanged, owned if any character was removed.
 #[allow(dead_code)]
-fn strip_invisibles(_s: &str) -> Cow<'_, str> {
-    unreachable!("strip_invisibles not yet implemented")
+fn strip_invisibles(s: &str) -> Cow<'_, str> {
+    INVISIBLE_AND_SEPARATOR_RE.replace_all(s, "")
 }
 
 /// Abstraction over a `u128` random-number source.
