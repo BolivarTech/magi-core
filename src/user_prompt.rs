@@ -69,10 +69,41 @@ fn strip_invisibles(s: &str) -> Cow<'_, str> {
     INVISIBLE_AND_SEPARATOR_RE.replace_all(s, "")
 }
 
-/// Neutralize header-starting lines (stub — not yet implemented).
+/// Compiled regex matching header-like lines at the start of each line,
+/// including any leading ASCII horizontal whitespace.
+///
+/// Pattern: `(?m)^([\t ]*)(MODE|CONTEXT|---BEGIN|---END)(\s|:|$)`
+///
+/// Group 1: leading tabs/spaces (may be empty).
+/// Group 2: the reserved keyword.
+/// Group 3: the separator character or end-of-string anchor.
+static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^([\t ]*)(MODE|CONTEXT|---BEGIN|---END)(\s|:|$)")
+        .expect("HEADER_RE is a valid regex")
+});
+
+/// Neutralizes header-starting lines by inserting `"  "` before the
+/// reserved keyword.
+///
+/// The regex absorbs any leading ASCII whitespace (group 1) to defend
+/// against leading-space bypass (MAGI R1 C1). Substitution preserves
+/// the original whitespace, inserts the neutralization prefix `"  "`,
+/// and preserves the keyword and separator groups.
+///
+/// Case-sensitive by design; see ADR 001 Scope IS-NOT for rationale.
+///
+/// Returns `Cow::Borrowed` when no header patterns are found (no allocation).
+///
+/// # Arguments
+///
+/// * `s` — Input string slice to neutralize.
+///
+/// # Returns
+///
+/// `Cow<'_, str>` — borrowed if unchanged, owned if any header was neutralized.
 #[allow(dead_code)]
-fn neutralize_headers(_s: &str) -> Cow<'_, str> {
-    unreachable!("neutralize_headers not yet implemented")
+fn neutralize_headers(s: &str) -> Cow<'_, str> {
+    HEADER_RE.replace_all(s, "$1  $2$3")
 }
 
 /// Abstraction over a `u128` random-number source.
@@ -252,7 +283,10 @@ mod tests {
 
     #[test]
     fn test_neutralize_headers_prefixes_context_line() {
-        assert_eq!(neutralize_headers("CONTEXT: something"), "  CONTEXT: something");
+        assert_eq!(
+            neutralize_headers("CONTEXT: something"),
+            "  CONTEXT: something"
+        );
     }
 
     #[test]
@@ -281,17 +315,26 @@ mod tests {
 
     #[test]
     fn test_neutralize_headers_does_not_match_modesty() {
-        assert_eq!(neutralize_headers("MODESTY is a virtue"), "MODESTY is a virtue");
+        assert_eq!(
+            neutralize_headers("MODESTY is a virtue"),
+            "MODESTY is a virtue"
+        );
     }
 
     #[test]
     fn test_neutralize_headers_does_not_match_contextual() {
-        assert_eq!(neutralize_headers("CONTEXTUAL awareness"), "CONTEXTUAL awareness");
+        assert_eq!(
+            neutralize_headers("CONTEXTUAL awareness"),
+            "CONTEXTUAL awareness"
+        );
     }
 
     #[test]
     fn test_neutralize_headers_does_not_match_beginning() {
-        assert_eq!(neutralize_headers("---BEGINNING of time"), "---BEGINNING of time");
+        assert_eq!(
+            neutralize_headers("---BEGINNING of time"),
+            "---BEGINNING of time"
+        );
     }
 
     #[test]
@@ -327,9 +370,6 @@ mod tests {
 
     #[test]
     fn test_neutralize_headers_matches_with_leading_tabs() {
-        assert_eq!(
-            neutralize_headers("\t\tCONTEXT: xyz"),
-            "\t\t  CONTEXT: xyz"
-        );
+        assert_eq!(neutralize_headers("\t\tCONTEXT: xyz"), "\t\t  CONTEXT: xyz");
     }
 }
