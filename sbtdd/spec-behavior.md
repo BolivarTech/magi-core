@@ -444,7 +444,8 @@ lineas inyectadas neutralizadas con doble espacio.
 
 | Variante | Agregada en v0.3 | Uso |
 |----------|-----------------|-----|
-| `InvalidInput { reason: String }` | Si (si no existe) | Colision de nonce; oversize de content (preexistente de v0.2) |
+| `InvalidInput { reason: String }` | Si (si no existe) | Colision de nonce |
+| `InputTooLarge { size: usize, max: usize }` | No (preexistente v0.2.0) | Content excede `max_input_len`; contrato preservado de v0.2 |
 | `InsufficientAgents { ... }` | No (preexistente) | Sin cambios |
 | `Provider(ProviderError)` | No | Sin cambios |
 | `Validation(String)` | No | Sin cambios |
@@ -461,7 +462,7 @@ lineas inyectadas neutralizadas con doble espacio.
 
 - Colision de nonce: `"content contains generated nonce; refuse and retry"`.
   **No** incluye el valor del nonce (privacidad; no da senal a atacante).
-- Oversize de content: mensaje existente de v0.2.0, sin cambios.
+- Oversize de content: retorna `InputTooLarge { size, max }` (variante v0.2.0 preservada, sin cambios).
 
 ### 6.4 Rutas que NO emiten error (anti-contrato)
 
@@ -739,7 +740,7 @@ Y `build_user_prompt` produce un payload donde la linea MODE esta
 ```
 Dado `MagiConfig { max_input_len: 20, .. }` y `content` de 21 bytes raw
 Cuando invoca `analyze(Mode::Analysis, content)`
-Entonces retorna `Err(MagiError::InvalidInput { reason: "content exceeds max_input_len" })`
+Entonces retorna `Err(MagiError::InputTooLarge { size: 21, max: 20 })`
 Y `build_user_prompt` NO se invoca (rechazo pre-sanitizacion)
 ```
 
