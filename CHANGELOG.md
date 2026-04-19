@@ -59,9 +59,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Deprecated
 
-- **`Finding::stripped_title`** is now `#[deprecated(since = "0.2.0")]`; use
-  `validate::clean_title` instead. The method still exists as a shim and will
-  be removed in v0.3.0.
+- **`Finding::stripped_title`** is now `#[deprecated(since = "0.2.0")]`. The
+  method still exists as a shim over `validate::clean_title`, but with a
+  **different character coverage** than v0.1.x — it now strips the Python
+  MAGI `_ZERO_WIDTH_RE` set (U+200B-U+200F, U+2028-U+202F, U+2060-U+206F,
+  U+FEFF, U+00AD) instead of the v0.1.x `ZERO_WIDTH_PATTERN` set (which
+  covered Arabic/Syriac/Mongolian format marks). See
+  `docs/migration-v0.2.md` for the full comparison. The method will be
+  removed in v0.3.0.
 
 ### Dependencies
 

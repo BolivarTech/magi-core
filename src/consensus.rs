@@ -352,9 +352,10 @@ impl ConsensusEngine {
         }
 
         // Intentional O(m²) — preserves insertion order without adding indexmap.
-        // For m ≤ 300 (capped by ValidationLimits::max_findings × 3 agents), cost
-        // is ~90k string comparisons on short strings, <1ms in practice. Switch to
-        // `indexmap` if max_findings raises above 500.
+        // m is bounded by `ValidationLimits::max_findings × agent_count`. At the
+        // default max_findings (100) × 3 agents = 300, this is ~90k string
+        // comparisons on short strings, <1ms in practice. Consider switching to
+        // `indexmap` if max_findings is configured above 500.
         let mut groups: Vec<(String, GroupState)> = Vec::new();
 
         for agent in agents {

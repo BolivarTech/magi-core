@@ -25,6 +25,15 @@ pub enum ReportError {
         /// The invalid value.
         value: String,
     },
+    /// `banner_width` is below the minimum required for meaningful rendering.
+    ///
+    /// The minimum is 8: one `|` border + 6 content bytes + one `|` border.
+    BannerTooSmall {
+        /// The requested (invalid) width.
+        requested: usize,
+        /// The minimum accepted width.
+        minimum: usize,
+    },
 }
 
 impl fmt::Display for ReportError {
@@ -38,6 +47,10 @@ impl fmt::Display for ReportError {
                 f,
                 "agent_titles[{:?}].{} contains non-ASCII characters: {:?}",
                 agent, field, value
+            ),
+            ReportError::BannerTooSmall { requested, minimum } => write!(
+                f,
+                "banner_width {requested} is below the minimum of {minimum}"
             ),
         }
     }
@@ -77,7 +90,9 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///
 /// The byte length of the result is:
 /// - `content.len()` when `content.len() <= width` (no truncation).
-/// - Exactly `width` when `width >= 4` and truncation occurs.
+/// - `<= width` when `width >= 4` and truncation occurs. When `content` is ASCII the result is
+///   exactly `width` bytes; for non-ASCII input `floor_char_boundary` may snap the cutoff to a
+///   slightly smaller value (graceful degradation, no panic).
 /// - May exceed `width` when `width < 4` (documented edge case: cannot fit one char + `"..."`).
 ///   Callers should ensure `width >= 4` for sensible truncation.
 ///
@@ -109,7 +124,8 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     // Step 2: fallback tail-cut when no suffix or suffix + ellipsis fills width
     if preserve_suffix.is_empty() || preserve_suffix.len() + ELLIPSIS.len() >= width {
         let cutoff = (width.saturating_sub(ELLIPSIS.len())).max(1);
-        return format!("{}{}", &content[..cutoff], ELLIPSIS);
+        let safe_cutoff = content.floor_char_boundary(cutoff);
+        return format!("{}{}", &content[..safe_cutoff], ELLIPSIS);
     }
 
     // Step 3: prefix-truncate with suffix protected.
@@ -118,9 +134,10 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     let prefix_budget = width - ELLIPSIS.len() - preserve_suffix.len();
     // prefix_source is content with the suffix tail removed
     let prefix_source = &content[..content.len() - preserve_suffix.len()];
+    let safe_prefix_budget = prefix_source.floor_char_boundary(prefix_budget);
     format!(
         "{}{}{}",
-        &prefix_source[..prefix_budget],
+        &prefix_source[..safe_prefix_budget],
         ELLIPSIS,
         preserve_suffix
     )
@@ -188,13 +205,19 @@ pub struct MagiReport {
 }
 
 impl ReportConfig {
-    /// Creates a `ReportConfig` with validated ASCII `agent_titles`.
+    /// Minimum `banner_width` accepted by [`ReportConfig::new_checked`].
     ///
+    /// Allows `|` + 6 content bytes + `|` = 8 bytes minimum for any meaningful banner.
+    pub const MIN_BANNER_WIDTH: usize = 8;
+
+    /// Creates a `ReportConfig` with validated `banner_width` and ASCII `agent_titles`.
+    ///
+    /// Returns `Err(ReportError::BannerTooSmall)` if `banner_width < 8`.
     /// Returns `Err(ReportError::NonAsciiTitle)` if any display name or title in
-    /// `agent_titles` contains non-ASCII characters. The `banner_width` is set to
-    /// the provided value without validation (caller's responsibility).
+    /// `agent_titles` contains non-ASCII characters.
     ///
-    /// This allows `fit_content` to assume ASCII without run-time panic.
+    /// This allows `fit_content` to assume ASCII without run-time panic and
+    /// ensures the banner is at least minimally renderable.
     ///
     /// # Example
     ///
@@ -207,6 +230,12 @@ impl ReportConfig {
         banner_width: usize,
         agent_titles: BTreeMap<AgentName, (String, String)>,
     ) -> Result<Self, ReportError> {
+        if banner_width < Self::MIN_BANNER_WIDTH {
+            return Err(ReportError::BannerTooSmall {
+                requested: banner_width,
+                minimum: Self::MIN_BANNER_WIDTH,
+            });
+        }
         for (agent, (display_name, title)) in &agent_titles {
             if !display_name.is_ascii() {
                 return Err(ReportError::NonAsciiTitle {
@@ -298,7 +327,7 @@ impl ReportFormatter {
                 format!("{} ({}):", display_name, title)
             })
             .collect();
-        let max_label_len = labels.iter().map(|l| l.len()).max().unwrap_or(0);
+        let max_label_len = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
         writeln!(out, "{}", sep).ok();
         writeln!(
@@ -1944,11 +1973,15 @@ mod tests {
 
         let result = ReportConfig::new_checked(52, agent_titles);
         assert!(result.is_err(), "Should reject non-ASCII display_name");
+        let err = result.unwrap_err();
         let ReportError::NonAsciiTitle {
             agent,
             field,
             value,
-        } = result.unwrap_err();
+        } = err
+        else {
+            panic!("expected NonAsciiTitle, got {err:?}");
+        };
         assert_eq!(agent, AgentName::Melchior);
         assert_eq!(field, "display_name");
         assert_eq!(value, "Mélchior");
@@ -1965,13 +1998,45 @@ mod tests {
 
         let result = ReportConfig::new_checked(52, agent_titles);
         assert!(result.is_err(), "Should reject non-ASCII title");
+        let err = result.unwrap_err();
         let ReportError::NonAsciiTitle {
             agent,
             field,
             value,
-        } = result.unwrap_err();
+        } = err
+        else {
+            panic!("expected NonAsciiTitle, got {err:?}");
+        };
         assert_eq!(agent, AgentName::Balthasar);
         assert_eq!(field, "title");
         assert_eq!(value, "Pragmátist");
+    }
+
+    // -- ReportConfig::new_checked rejects banner_width too small --
+
+    #[test]
+    fn test_new_checked_rejects_banner_width_too_small() {
+        let titles = BTreeMap::new();
+        for width in [0usize, 1, 4, 7] {
+            let result = ReportConfig::new_checked(width, titles.clone());
+            assert!(result.is_err(), "banner_width={width} should be rejected");
+            assert_eq!(
+                result.unwrap_err(),
+                ReportError::BannerTooSmall {
+                    requested: width,
+                    minimum: ReportConfig::MIN_BANNER_WIDTH,
+                },
+                "wrong error variant for banner_width={width}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_new_checked_accepts_banner_width_at_minimum() {
+        let titles = BTreeMap::new();
+        assert!(
+            ReportConfig::new_checked(ReportConfig::MIN_BANNER_WIDTH, titles).is_ok(),
+            "banner_width == MIN_BANNER_WIDTH should be accepted"
+        );
     }
 }

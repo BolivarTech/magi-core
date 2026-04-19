@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::error::MagiError;
-use crate::schema::{AgentOutput, Finding, ZERO_WIDTH_PATTERN};
+use crate::schema::{AgentOutput, Finding};
 
 /// Matches control whitespace characters that should be replaced with a space:
 /// horizontal tab, newline, vertical tab, form feed, carriage return, and NEL (U+0085).
@@ -85,8 +85,8 @@ impl Default for ValidationLimits {
 
 /// Validates `AgentOutput` fields against configurable limits.
 ///
-/// Uses [`ZERO_WIDTH_PATTERN`] from `schema` for stripping zero-width Unicode
-/// characters, and configurable limits for field lengths and counts.
+/// Uses [`clean_title`] for normalizing finding titles before length validation,
+/// and configurable limits for field lengths and counts.
 pub struct Validator {
     /// Active validation limits.
     pub limits: ValidationLimits,
@@ -129,15 +129,18 @@ impl Validator {
     /// because it ensures downstream code sees titles in the canonical cleaned
     /// form used by the consensus engine.
     ///
+    /// # Side effects on error
+    ///
+    /// This method mutates `output.findings[*].title` in place by applying
+    /// [`clean_title`]. On error, findings processed before the failing one may
+    /// have already been cleaned; the mutation is NOT rolled back. Callers
+    /// requiring all-or-nothing semantics should clone `output` before calling.
+    ///
     /// # Errors
     ///
     /// Returns [`MagiError::Validation`] on the first field that fails validation.
     /// Validation order: confidence → summary → reasoning → recommendation →
     /// findings (count, then each title/detail after cleaning).
-    ///
-    /// On error, findings before the failing one may have already had their titles
-    /// cleaned in place — the mutation is NOT rolled back. Callers that need
-    /// all-or-nothing semantics should clone `output` before calling this method.
     pub fn validate_mut(&self, output: &mut AgentOutput) -> Result<(), MagiError> {
         self.validate_confidence(output.confidence)?;
         self.validate_text_field("summary", &output.summary)?;
@@ -222,12 +225,8 @@ impl Validator {
     }
 
     fn validate_finding(&self, finding: &Finding) -> Result<(), MagiError> {
-        let stripped = self.strip_zero_width(&finding.title);
-        self.validate_finding_fields(&stripped, &finding.detail)
-    }
-
-    fn strip_zero_width(&self, text: &str) -> String {
-        ZERO_WIDTH_PATTERN.replace_all(text, "").into_owned()
+        let cleaned = clean_title(&finding.title);
+        self.validate_finding_fields(&cleaned, &finding.detail)
     }
 }
 
@@ -457,14 +456,21 @@ mod tests {
         assert!(v.validate(&valid_agent_output()).is_ok());
     }
 
-    // -- strip_zero_width --
+    // -- validate removes zero-width via clean_title pipeline --
 
     #[test]
-    fn test_strip_zero_width_removes_cf_category_characters() {
+    fn test_validate_strips_zero_width_characters_via_clean_title() {
         let v = Validator::new();
-        let input = "Hello\u{200B}World\u{FEFF}Test\u{200C}End";
-        let result = v.strip_zero_width(input);
-        assert_eq!(result, "HelloWorldTestEnd");
+        // validate uses clean_title pipeline internally; zero-width chars are removed
+        let output = output_with_findings(vec![Finding {
+            severity: Severity::Info,
+            title: "Hello\u{200B}World\u{FEFF}Test\u{200C}End".to_string(),
+            detail: "detail".to_string(),
+        }]);
+        assert!(
+            v.validate(&output).is_ok(),
+            "valid title after clean should pass"
+        );
     }
 
     // -- Validation order --
