@@ -1387,4 +1387,42 @@ mod tests {
             "new API must forward the custom prompt to Caspar"
         );
     }
+
+    /// with_prompts_dir-loaded files must reach the targeted agent as system prompt.
+    ///
+    /// Regression guard for the v0.3 bug where `factory.custom_prompts` was
+    /// populated by `from_directory` but never merged into `self.overrides`,
+    /// causing filesystem-loaded prompts to be silently dropped in `analyze`.
+    #[tokio::test]
+    async fn test_analyze_respects_prompts_dir_loaded_files() {
+        // Create a temp dir with a custom melchior prompt file.
+        let tmp = std::env::temp_dir()
+            .join(format!("magi_v03_test_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(
+            tmp.join("melchior_code_review.md"),
+            "CUSTOM FROM FILESYSTEM",
+        )
+        .unwrap();
+
+        let captured: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::with_routing(
+            captured.clone(),
+            vec![("CUSTOM FROM FILESYSTEM", AgentName::Melchior)],
+        ));
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_prompts_dir(tmp.clone())
+            .build()
+            .expect("build should succeed");
+        let _ = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
+
+        let calls = captured.lock().unwrap();
+        assert!(
+            calls.iter().any(|(sys, _)| sys == "CUSTOM FROM FILESYSTEM"),
+            "with_prompts_dir file-based prompt should reach Melchior"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
