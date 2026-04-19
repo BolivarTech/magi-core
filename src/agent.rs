@@ -34,12 +34,7 @@ impl Agent {
     /// - `name`: Which MAGI agent (Melchior, Balthasar, Caspar).
     /// - `provider`: The LLM backend for this agent.
     pub fn new(name: AgentName, provider: Arc<dyn LlmProvider>) -> Self {
-        // TODO(T12): replace with lookup_prompt (T12).
-        let prompt = match name {
-            AgentName::Melchior => crate::prompts::melchior_prompt(),
-            AgentName::Balthasar => crate::prompts::balthasar_prompt(),
-            AgentName::Caspar => crate::prompts::caspar_prompt(),
-        };
+        let prompt = crate::prompts::embedded_prompt_for(name);
         Self {
             name,
             system_prompt: prompt.to_string(),

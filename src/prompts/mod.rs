@@ -2,6 +2,8 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use crate::schema::AgentName;
+
 // ── Mode-agnostic accessors (v0.3.0) ─────────────────────────────────────────
 
 /// Returns the consolidated, mode-agnostic system prompt for Melchior (Scientist).
@@ -44,6 +46,22 @@ pub fn balthasar_prompt() -> &'static str {
 /// ```
 pub fn caspar_prompt() -> &'static str {
     include_str!("../prompts_md/caspar.md")
+}
+
+/// Returns the compiled-in system prompt for the given agent name.
+///
+/// Shared by [`crate::agent::Agent::new`] and [`crate::orchestrator::lookup_prompt`]
+/// to avoid duplicate `match` arms. Any change to the embedded prompt mapping
+/// must be made here only.
+///
+/// # Parameters
+/// - `name`: The agent whose embedded prompt to retrieve.
+pub(crate) fn embedded_prompt_for(name: AgentName) -> &'static str {
+    match name {
+        AgentName::Melchior => melchior_prompt(),
+        AgentName::Balthasar => balthasar_prompt(),
+        AgentName::Caspar => caspar_prompt(),
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

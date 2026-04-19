@@ -551,11 +551,7 @@ pub(crate) fn lookup_prompt(
     if let Some(s) = overrides.get(&(agent, None)) {
         return s.as_str();
     }
-    match agent {
-        AgentName::Melchior => crate::prompts::melchior_prompt(),
-        AgentName::Balthasar => crate::prompts::balthasar_prompt(),
-        AgentName::Caspar => crate::prompts::caspar_prompt(),
-    }
+    crate::prompts::embedded_prompt_for(agent)
 }
 
 /// Extracts an [`AgentOutput`] from raw LLM response text.
