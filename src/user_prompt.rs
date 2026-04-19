@@ -131,13 +131,37 @@ fn neutralize_headers(s: &str) -> Cow<'_, str> {
 ///
 /// Returns [`MagiError::InvalidInput`] if the sanitized content contains
 /// the generated nonce (collision probability ~2^-128).
-#[allow(dead_code)]
 pub(crate) fn build_user_prompt(
-    _mode: Mode,
-    _content: &str,
-    _rng: &mut (impl RngLike + ?Sized),
+    mode: Mode,
+    content: &str,
+    rng: &mut (impl RngLike + ?Sized),
 ) -> Result<String, MagiError> {
-    unreachable!("build_user_prompt not yet implemented")
+    // Step 1: normalize all Unicode line separators to \n.
+    let step1 = normalize_newlines(content);
+    // Step 2: strip zero-width and bidi invisible characters.
+    let step2 = strip_invisibles(&step1);
+    // Step 3: neutralize reserved header keywords by inserting "  " prefix.
+    let sanitized = neutralize_headers(&step2);
+
+    // Step 4: generate a 128-bit per-request nonce.
+    let nonce_val = rng.next_u128();
+    let nonce = format!("{nonce_val:032x}");
+
+    // Step 5: fail closed if sanitized content contains the nonce literally.
+    // Probability of collision is ~2^-128.
+    if sanitized.contains(nonce.as_str()) {
+        return Err(MagiError::InvalidInput {
+            reason: "content contains generated nonce; refuse and retry".to_string(),
+        });
+    }
+
+    // Step 6: wrap in structured delimiters.
+    Ok(format!(
+        "MODE: {mode}\n\
+         ---BEGIN USER CONTEXT {nonce}---\n\
+         {sanitized}\n\
+         ---END USER CONTEXT {nonce}---"
+    ))
 }
 
 /// Abstraction over a `u128` random-number source.
@@ -637,6 +661,9 @@ mod tests {
         let mut rng = FixedRng::new(vec![0x1]);
         let input = "before\0after";
         let out = build_user_prompt(Mode::Analysis, input, &mut rng).unwrap();
-        assert!(out.contains("before\0after"), "NUL should be preserved; got: {out:?}");
+        assert!(
+            out.contains("before\0after"),
+            "NUL should be preserved; got: {out:?}"
+        );
     }
 }
