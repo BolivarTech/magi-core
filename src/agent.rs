@@ -301,6 +301,12 @@ mod tests {
         }
     }
 
+    impl Default for MockProvider {
+        fn default() -> Self {
+            Self::new("mock", "model", "response")
+        }
+    }
+
     #[async_trait::async_trait]
     impl LlmProvider for MockProvider {
         async fn complete(
@@ -578,5 +584,12 @@ mod tests {
             Path::new("/nonexistent/prompt.md"),
         );
         assert!(matches!(result, Err(MagiError::Io(_))));
+    }
+
+    /// Agent::new no longer requires a Mode parameter (v0.3.0 signature change).
+    #[test]
+    fn test_agent_new_no_longer_requires_mode_parameter() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::default());
+        let _agent = Agent::new(AgentName::Melchior, provider);
     }
 }
