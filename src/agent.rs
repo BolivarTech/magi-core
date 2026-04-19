@@ -263,6 +263,19 @@ impl AgentFactory {
     ///
     /// # Parameters
     /// - `mode`: The analysis mode for all three agents.
+    ///
+    /// # Deprecation
+    /// Use [`AgentFactory::create_agents_with_prompts`] or
+    /// [`crate::orchestrator::MagiBuilder::build`] instead. Those paths
+    /// respect the v0.3 overrides map set via
+    /// `with_custom_prompt_for_mode` / `with_custom_prompt_all_modes`.
+    /// This method falls back to embedded defaults only (ignores
+    /// orchestrator-level overrides) and will be removed in v0.4.0.
+    #[deprecated(
+        since = "0.3.0",
+        note = "use `AgentFactory::create_agents_with_prompts` or \
+                `MagiBuilder::build` which respects overrides"
+    )]
     pub fn create_agents(&self, mode: Mode) -> Vec<Agent> {
         let names = [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar];
 
@@ -355,6 +368,7 @@ mod tests {
     // -- BDD Scenario 26: agents with different providers --
 
     /// Each agent uses its own provider (verify mock receives exactly 1 call).
+    #[allow(deprecated)]
     #[tokio::test]
     async fn test_each_agent_uses_its_own_provider() {
         let p1 = Arc::new(MockProvider::new("p1", "m1", "r1"));
@@ -381,6 +395,7 @@ mod tests {
     // -- BDD Scenario 27: factory with default and override --
 
     /// Factory uses default provider for unoverridden agents, override for Caspar.
+    #[allow(deprecated)]
     #[tokio::test]
     async fn test_factory_default_and_override_providers() {
         let default = Arc::new(MockProvider::new("default", "m1", "r1"));
@@ -487,6 +502,7 @@ mod tests {
     // -- AgentFactory tests --
 
     /// AgentFactory::new creates 3 agents sharing default provider.
+    #[allow(deprecated)]
     #[test]
     fn test_agent_factory_creates_three_agents() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
@@ -502,6 +518,7 @@ mod tests {
     }
 
     /// AgentFactory::create_agents returns agents in order [Melchior, Balthasar, Caspar].
+    #[allow(deprecated)]
     #[test]
     fn test_agent_factory_creates_agents_in_order() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
@@ -514,6 +531,7 @@ mod tests {
     }
 
     /// AgentFactory::with_provider overrides provider for specific agent.
+    #[allow(deprecated)]
     #[test]
     fn test_agent_factory_with_provider_overrides_specific_agent() {
         let default = Arc::new(MockProvider::new("default", "m1", "r1")) as Arc<dyn LlmProvider>;
@@ -537,6 +555,7 @@ mod tests {
     }
 
     /// AgentFactory::with_custom_prompt overrides prompt for specific agent.
+    #[allow(deprecated)]
     #[test]
     fn test_agent_factory_with_custom_prompt_overrides_prompt() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
@@ -560,6 +579,7 @@ mod tests {
     }
 
     /// AgentFactory::create_agents returns exactly 3 agents for all modes.
+    #[allow(deprecated)]
     #[test]
     fn test_agent_factory_creates_three_agents_for_all_modes() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
