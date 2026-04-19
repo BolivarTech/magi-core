@@ -116,9 +116,15 @@ is <1 ms).
 - Sufficient for per-request uniqueness within the threat model.
 
 `pub(crate) fn MagiBuilder::with_rng_source(Box<dyn RngLike + Send>)`
-allows internal tests to inject a deterministic RNG for end-to-end
-verification of the fail-closed branch. External consumers use
-`FastrandSource` exclusively; promoting to `pub` is aditive and can wait.
+allows **internal** tests to inject a deterministic RNG for end-to-end
+verification of the fail-closed branch. **External consumers cannot inject
+a custom RNG in v0.3.0** — promotion to `pub` is deferred to v0.4+ if a
+real consumer use-case emerges. For the threat model documented here
+(non-cryptographic attacker, single-process deployments), `fastrand`'s
+~64-bit effective entropy is sufficient. Consumers with stricter
+requirements today should wrap `Magi::analyze` with their own
+application-layer rate limits and filtering rather than rely on
+cryptographic nonce unpredictability.
 
 ## Implementation References
 
