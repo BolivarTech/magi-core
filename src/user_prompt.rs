@@ -44,6 +44,29 @@ fn normalize_newlines(s: &str) -> Cow<'_, str> {
     NEWLINE_RE.replace_all(s, "\n")
 }
 
+/// Removes invisible and Unicode separator characters from `s`.
+///
+/// Delegates to [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`], which covers:
+/// zero-width spaces, bidi marks, line/paragraph separators
+/// (U+2028..U+202F), word joiner and related formatting controls
+/// (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+///
+/// Returns `Cow::Borrowed` when no invisible characters are present
+/// (no allocation). Returns `Cow::Owned` when at least one character
+/// is removed.
+///
+/// # Arguments
+///
+/// * `s` — Input string slice to sanitize.
+///
+/// # Returns
+///
+/// `Cow<'_, str>` — borrowed if unchanged, owned if any character was removed.
+#[allow(dead_code)]
+fn strip_invisibles(_s: &str) -> Cow<'_, str> {
+    unreachable!("strip_invisibles not yet implemented")
+}
+
 /// Abstraction over a `u128` random-number source.
 ///
 /// `Send` is required so `Box<dyn RngLike + Send>` can cross threads via
@@ -170,5 +193,45 @@ mod tests {
         let out = normalize_newlines("");
         assert_eq!(out, "");
         assert!(matches!(out, Cow::Borrowed(_)));
+    }
+
+    // --- strip_invisibles tests ---
+
+    #[test]
+    fn test_strip_invisibles_removes_zwsp() {
+        assert_eq!(strip_invisibles("a\u{200b}b"), "ab");
+    }
+
+    #[test]
+    fn test_strip_invisibles_removes_bom() {
+        assert_eq!(strip_invisibles("a\u{feff}b"), "ab");
+    }
+
+    #[test]
+    fn test_strip_invisibles_removes_bidi_marks() {
+        assert_eq!(strip_invisibles("a\u{200e}b\u{202d}c"), "abc");
+    }
+
+    #[test]
+    fn test_strip_invisibles_removes_soft_hyphen() {
+        assert_eq!(strip_invisibles("a\u{00ad}b"), "ab");
+    }
+
+    #[test]
+    fn test_strip_invisibles_preserves_regular_text() {
+        let out = strip_invisibles("hello world");
+        assert_eq!(out, "hello world");
+        assert!(matches!(out, Cow::Borrowed(_)), "no-op case should borrow");
+    }
+
+    #[test]
+    fn test_strip_invisibles_preserves_ascii_whitespace() {
+        assert_eq!(strip_invisibles("a b\tc\nd"), "a b\tc\nd");
+    }
+
+    #[test]
+    fn test_strip_invisibles_handles_word_joiner_range() {
+        // U+2060 is in the U+2060-U+206F range and should be stripped.
+        assert_eq!(strip_invisibles("a\u{2060}b"), "ab");
     }
 }
