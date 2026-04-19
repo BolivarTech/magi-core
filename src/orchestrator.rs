@@ -1381,11 +1381,28 @@ mod tests {
     /// causing filesystem-loaded prompts to be silently dropped in `analyze`.
     #[tokio::test]
     async fn test_analyze_respects_prompts_dir_loaded_files() {
+        /// RAII guard that removes a directory on drop, ensuring cleanup even on panic.
+        struct TmpDir(std::path::PathBuf);
+        impl Drop for TmpDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        // Build a collision-resistant name: PID + nanosecond timestamp.
+        let uniq = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let tmp = TmpDir(
+            std::env::temp_dir()
+                .join(format!("magi_v03_test_{}_{}", std::process::id(), uniq)),
+        );
+        std::fs::create_dir_all(&tmp.0).unwrap();
+
         // Create a temp dir with a custom melchior prompt file.
-        let tmp = std::env::temp_dir().join(format!("magi_v03_test_{}", std::process::id()));
-        std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(
-            tmp.join("melchior_code_review.md"),
+            tmp.0.join("melchior_code_review.md"),
             "CUSTOM FROM FILESYSTEM",
         )
         .unwrap();
@@ -1397,7 +1414,7 @@ mod tests {
             vec![("CUSTOM FROM FILESYSTEM", AgentName::Melchior)],
         ));
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
-            .with_prompts_dir(tmp.clone())
+            .with_prompts_dir(tmp.0.clone())
             .build()
             .expect("build should succeed");
         let _ = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
@@ -1407,8 +1424,7 @@ mod tests {
             calls.iter().any(|(sys, _)| sys == "CUSTOM FROM FILESYSTEM"),
             "with_prompts_dir file-based prompt should reach Melchior"
         );
-
-        let _ = std::fs::remove_dir_all(&tmp);
+        // tmp is dropped here, removing the directory automatically.
     }
 
     /// All three agents must receive the same nonce in their user_prompt for a
