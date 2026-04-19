@@ -18,7 +18,7 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Matches invisible characters and Unicode separators that should be removed:
 /// zero-width spaces, bidi marks, line/paragraph separators (U+2028..U+202F range),
 /// extended formatting controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
-static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}\u{00ad}]")
         .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
 });

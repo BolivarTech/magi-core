@@ -90,6 +90,13 @@ pub enum MagiError {
         max: usize,
     },
 
+    /// Input rejected by invariant check (e.g., prompt nonce collision).
+    #[error("invalid input: {reason}")]
+    InvalidInput {
+        /// Description of the invariant violation.
+        reason: String,
+    },
+
     /// Filesystem I/O error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
