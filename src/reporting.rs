@@ -290,12 +290,21 @@ impl Default for ReportConfig {
 }
 
 impl ReportFormatter {
+    /// Internal infallible constructor — assumes `config` is already validated.
+    fn from_valid_config(config: ReportConfig) -> Self {
+        let banner_inner = config.banner_width - 2;
+        Self {
+            config,
+            banner_inner,
+        }
+    }
+
     /// Creates a new formatter with default configuration.
     ///
-    /// Always succeeds because [`ReportConfig::default`] produces a valid config.
+    /// Infallible because [`ReportConfig::default`] always produces a valid
+    /// configuration with an 8-byte-or-larger banner width and ASCII agent titles.
     pub fn new() -> Self {
-        // SAFETY: default config is always valid; unwrap is infallible.
-        Self::with_config(ReportConfig::default()).expect("default config is always valid")
+        Self::from_valid_config(ReportConfig::default())
     }
 
     /// Creates a new formatter with a validated custom configuration.
@@ -340,11 +349,7 @@ impl ReportFormatter {
                 });
             }
         }
-        let banner_inner = config.banner_width - 2;
-        Ok(Self {
-            config,
-            banner_inner,
-        })
+        Ok(Self::from_valid_config(config))
     }
 
     /// Generates the fixed-width ASCII verdict banner with column-aligned agent labels.

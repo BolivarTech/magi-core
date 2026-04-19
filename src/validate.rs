@@ -211,7 +211,7 @@ impl Validator {
     fn validate_finding_fields(&self, title: &str, detail: &str) -> Result<(), MagiError> {
         if title.is_empty() {
             return Err(MagiError::Validation(
-                "finding title is empty after removing zero-width characters".to_string(),
+                "finding title is empty after normalization".to_string(),
             ));
         }
         if title.chars().count() > self.limits.max_title_len {
