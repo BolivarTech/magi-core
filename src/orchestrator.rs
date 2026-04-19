@@ -265,8 +265,18 @@ impl MagiBuilder {
         for (name, provider) in self.agent_providers {
             factory = factory.with_provider(name, provider);
         }
+        let mut overrides = self.overrides;
         if let Some(dir) = self.prompts_dir {
             factory = factory.from_directory(&dir)?;
+            // Merge filesystem-loaded prompts into overrides so that
+            // `lookup_prompt` finds them during `analyze`.
+            // `.or_insert_with` ensures builder-level `with_custom_prompt_for_mode`
+            // wins over filesystem prompts (higher precedence).
+            for ((agent, mode), prompt) in factory.custom_prompts() {
+                overrides
+                    .entry((*agent, Some(*mode)))
+                    .or_insert_with(|| prompt.clone());
+            }
         }
 
         let rng_source = self
@@ -280,7 +290,7 @@ impl MagiBuilder {
             consensus_engine: ConsensusEngine::new(self.consensus_config),
             formatter: ReportFormatter::with_config(self.report_config)
                 .map_err(|e| MagiError::Validation(e.to_string()))?,
-            overrides: self.overrides,
+            overrides,
             rng_source: Arc::new(Mutex::new(rng_source)),
         })
     }

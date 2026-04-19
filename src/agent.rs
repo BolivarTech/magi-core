@@ -283,6 +283,16 @@ impl AgentFactory {
             })
             .collect()
     }
+
+    /// Returns a reference to the filesystem-loaded custom prompts map.
+    ///
+    /// Keys are `(AgentName, Mode)` pairs; values are prompt strings loaded
+    /// by [`from_directory`](Self::from_directory). Used by [`MagiBuilder::build`]
+    /// to merge these into the orchestrator's `overrides` map so that
+    /// `lookup_prompt` can find them during `analyze`.
+    pub(crate) fn custom_prompts(&self) -> &BTreeMap<(AgentName, Mode), String> {
+        &self.custom_prompts
+    }
 }
 
 #[cfg(test)]
