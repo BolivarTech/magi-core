@@ -373,8 +373,12 @@ impl Magi {
             });
         }
 
-        // 2. Create agents
-        let agents = self.agent_factory.create_agents(*mode);
+        // 2. Create agents, resolving system prompts via lookup_prompt so that
+        //    overrides registered through with_custom_prompt_for_mode /
+        //    with_custom_prompt_all_modes take effect.
+        let agents = self
+            .agent_factory
+            .create_agents_with_prompts(*mode, &self.overrides);
 
         // 3. Build user prompt with sanitization and nonce injection.
         //    Lock is released immediately after prompt construction.
@@ -521,6 +525,37 @@ impl Magi {
     }
 }
 
+/// Resolves the system prompt for an agent given a mode and the overrides map.
+///
+/// Priority order:
+/// 1. Mode-specific override: `(agent, Some(mode))`
+/// 2. Mode-agnostic override: `(agent, None)`
+/// 3. Compiled-in embedded default for the agent
+///
+/// # Parameters
+/// - `agent`: Which MAGI agent (Melchior, Balthasar, Caspar).
+/// - `mode`: The current analysis mode.
+/// - `overrides`: Map of custom prompt overrides keyed by `(AgentName, Option<Mode>)`.
+///
+/// # Returns
+/// A string slice of the resolved prompt (borrowed from the map or `'static` from embedded).
+pub(crate) fn lookup_prompt(
+    agent: AgentName,
+    mode: Mode,
+    overrides: &BTreeMap<(AgentName, Option<Mode>), String>,
+) -> &str {
+    if let Some(s) = overrides.get(&(agent, Some(mode))) {
+        return s.as_str();
+    }
+    if let Some(s) = overrides.get(&(agent, None)) {
+        return s.as_str();
+    }
+    match agent {
+        AgentName::Melchior => crate::prompts::melchior_prompt(),
+        AgentName::Balthasar => crate::prompts::balthasar_prompt(),
+        AgentName::Caspar => crate::prompts::caspar_prompt(),
+    }
+}
 
 /// Formats the user prompt sent to each agent.
 ///

@@ -228,6 +228,38 @@ impl AgentFactory {
         Ok(self)
     }
 
+    /// Creates exactly three agents for the given mode, resolving system prompts
+    /// via the orchestrator's `overrides` map using `lookup_prompt`.
+    ///
+    /// Overrides registered with `(agent, Some(mode))` take precedence over
+    /// `(agent, None)` which falls back to the compiled-in embedded default.
+    /// This variant is called by [`crate::orchestrator::Magi::analyze`] to
+    /// honour prompts set via `with_custom_prompt_for_mode` and
+    /// `with_custom_prompt_all_modes`.
+    ///
+    /// # Parameters
+    /// - `mode`: The analysis mode for all three agents.
+    /// - `overrides`: The orchestrator-level prompt overrides map.
+    pub(crate) fn create_agents_with_prompts(
+        &self,
+        mode: Mode,
+        overrides: &std::collections::BTreeMap<(AgentName, Option<Mode>), String>,
+    ) -> Vec<Agent> {
+        let names = [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar];
+        names
+            .iter()
+            .map(|&name| {
+                let provider = self
+                    .agent_providers
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_else(|| self.default_provider.clone());
+                let prompt = crate::orchestrator::lookup_prompt(name, mode, overrides).to_string();
+                Agent::with_custom_prompt(name, provider, prompt)
+            })
+            .collect()
+    }
+
     /// Creates exactly three agents for the given mode.
     ///
     /// Returns agents in fixed order: `[Melchior, Balthasar, Caspar]`.
