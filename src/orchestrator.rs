@@ -913,4 +913,143 @@ mod tests {
         let magi = MagiBuilder::new(provider).build();
         assert!(magi.is_ok());
     }
+
+    // -- T11: MagiBuilder API — for_mode / all_modes / rng_source --
+
+    /// Minimal capturing provider for T11 nonce-injection test.
+    ///
+    /// Captures `(system_prompt, user_prompt)` pairs and returns a benign
+    /// per-agent JSON response for each of the 3 MAGI agents (Melchior,
+    /// Balthasar, Caspar) by cycling through agent names based on call count.
+    struct CapturingMockProvider {
+        captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+        call_count: AtomicUsize,
+    }
+
+    impl CapturingMockProvider {
+        /// Creates a provider that captures prompts and returns valid JSON
+        /// using default compiled-in agent names in round-robin order.
+        fn for_default_prompts(
+            captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+        ) -> Self {
+            Self {
+                captured,
+                call_count: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for CapturingMockProvider {
+        async fn complete(
+            &self,
+            system_prompt: &str,
+            user_prompt: &str,
+            _config: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
+            self.captured
+                .lock()
+                .unwrap()
+                .push((system_prompt.to_string(), user_prompt.to_string()));
+            let agent_name = match idx % 3 {
+                0 => "melchior",
+                1 => "balthasar",
+                _ => "caspar",
+            };
+            Ok(mock_agent_json(agent_name, "approve", 0.9))
+        }
+
+        fn name(&self) -> &str {
+            "capturing-mock"
+        }
+
+        fn model(&self) -> &str {
+            "test-model"
+        }
+    }
+
+    /// with_custom_prompt_for_mode stores entry with Some(mode) key.
+    #[test]
+    fn test_with_custom_prompt_for_mode_stores_with_some_key() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        let magi = MagiBuilder::new(provider)
+            .with_custom_prompt_for_mode(AgentName::Melchior, Mode::CodeReview, "X".into())
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            magi.overrides().get(&(AgentName::Melchior, Some(Mode::CodeReview))),
+            Some(&"X".to_string())
+        );
+    }
+
+    /// with_custom_prompt_all_modes stores entry with None key.
+    #[test]
+    fn test_with_custom_prompt_all_modes_stores_with_none_key() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        let magi = MagiBuilder::new(provider)
+            .with_custom_prompt_all_modes(AgentName::Balthasar, "Y".into())
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            magi.overrides().get(&(AgentName::Balthasar, None)),
+            Some(&"Y".to_string())
+        );
+    }
+
+    /// Deprecated with_custom_prompt delegates to with_custom_prompt_for_mode.
+    #[test]
+    fn test_legacy_with_custom_prompt_delegates_to_for_mode() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        #[allow(deprecated)]
+        let magi = MagiBuilder::new(provider)
+            .with_custom_prompt(AgentName::Caspar, Mode::Design, "Z".into())
+            .build()
+            .expect("build should succeed");
+        assert_eq!(
+            magi.overrides().get(&(AgentName::Caspar, Some(Mode::Design))),
+            Some(&"Z".to_string())
+        );
+    }
+
+    /// with_rng_source injects a fixed nonce observable in the captured user_prompt.
+    #[tokio::test]
+    async fn test_with_rng_source_injects_nonce_observable_in_user_prompt() {
+        // Strengthened per MAGI R2 W9 — not a no-op assertion; observes
+        // the fixed nonce flowing through to the captured user_prompt.
+        let captured: Arc<std::sync::Mutex<Vec<(String, String)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(CapturingMockProvider::for_default_prompts(captured.clone()));
+        let nonce_val: u128 = 0x1234_5678_9abc_def0_fedc_ba98_7654_3210;
+        let expected_nonce_hex = format!("{nonce_val:032x}");
+
+        // Single nonce shared across all agents for one analyze call (RF-10).
+        let rng = Box::new(crate::user_prompt::FixedRng::new(vec![nonce_val]))
+            as Box<dyn crate::user_prompt::RngLike + Send>;
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_rng_source(rng)
+            .build()
+            .expect("build should succeed");
+        let _ = magi.analyze(&Mode::Analysis, "hello").await.unwrap();
+
+        let calls = captured.lock().unwrap();
+        assert!(!calls.is_empty(), "mock should have received at least one call");
+        let (_, user_prompt) = &calls[0];
+        assert!(
+            user_prompt.contains(&expected_nonce_hex),
+            "user_prompt should contain the fixed nonce {expected_nonce_hex}"
+        );
+    }
 }
