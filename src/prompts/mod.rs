@@ -2,10 +2,6 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-pub mod balthasar;
-pub mod caspar;
-pub mod melchior;
-
 // ── Mode-agnostic accessors (v0.3.0) ─────────────────────────────────────────
 
 /// Returns the consolidated, mode-agnostic system prompt for Melchior (Scientist).
@@ -48,80 +44,6 @@ pub fn balthasar_prompt() -> &'static str {
 /// ```
 pub fn caspar_prompt() -> &'static str {
     include_str!("../prompts_md/caspar.md")
-}
-
-// ── Legacy per-mode accessors (deprecated since 0.3.0) ───────────────────────
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `melchior_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Melchior's code-review system prompt (legacy per-mode accessor).
-pub fn melchior_code_review() -> &'static str {
-    melchior::prompt_for_mode(&crate::schema::Mode::CodeReview)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `melchior_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Melchior's design system prompt (legacy per-mode accessor).
-pub fn melchior_design() -> &'static str {
-    melchior::prompt_for_mode(&crate::schema::Mode::Design)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `melchior_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Melchior's analysis system prompt (legacy per-mode accessor).
-pub fn melchior_analysis() -> &'static str {
-    melchior::prompt_for_mode(&crate::schema::Mode::Analysis)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `balthasar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Balthasar's code-review system prompt (legacy per-mode accessor).
-pub fn balthasar_code_review() -> &'static str {
-    balthasar::prompt_for_mode(&crate::schema::Mode::CodeReview)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `balthasar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Balthasar's design system prompt (legacy per-mode accessor).
-pub fn balthasar_design() -> &'static str {
-    balthasar::prompt_for_mode(&crate::schema::Mode::Design)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `balthasar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Balthasar's analysis system prompt (legacy per-mode accessor).
-pub fn balthasar_analysis() -> &'static str {
-    balthasar::prompt_for_mode(&crate::schema::Mode::Analysis)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `caspar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Caspar's code-review system prompt (legacy per-mode accessor).
-pub fn caspar_code_review() -> &'static str {
-    caspar::prompt_for_mode(&crate::schema::Mode::CodeReview)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `caspar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Caspar's design system prompt (legacy per-mode accessor).
-pub fn caspar_design() -> &'static str {
-    caspar::prompt_for_mode(&crate::schema::Mode::Design)
-}
-
-#[allow(dead_code)]
-#[deprecated(since = "0.3.0", note = "use `caspar_prompt()` — mode-agnostic")]
-#[doc(hidden)]
-/// Returns Caspar's analysis system prompt (legacy per-mode accessor).
-pub fn caspar_analysis() -> &'static str {
-    caspar::prompt_for_mode(&crate::schema::Mode::Analysis)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
