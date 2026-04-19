@@ -2,8 +2,54 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use std::sync::LazyLock;
+
+use regex::Regex;
+
 use crate::error::MagiError;
-use crate::schema::{AgentOutput, Finding, ZERO_WIDTH_PATTERN};
+use crate::schema::{AgentOutput, Finding};
+
+/// Matches control whitespace characters that should be replaced with a space:
+/// horizontal tab, newline, vertical tab, form feed, carriage return, and NEL (U+0085).
+static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\t\n\x0B\x0C\r\x{85}]").expect("valid CONTROL_WHITESPACE_RE regex")
+});
+
+/// Matches invisible characters and Unicode separators that should be removed:
+/// zero-width spaces, bidi marks, line/paragraph separators (U+2028..U+202F range),
+/// extended formatting controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}\u{00ad}]")
+        .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
+});
+
+/// Cleans a title by normalizing control whitespace, stripping invisible
+/// characters and separators, and trimming edges.
+///
+/// # Pipeline
+///
+/// 1. Replace control whitespace (`\t`, `\n`, `\x0B`, `\x0C`, `\r`, U+0085) with ASCII space.
+/// 2. Remove invisible characters and selected Unicode separators
+///    (zero-width, bidi marks, line/paragraph separators in the U+2028..U+202F range,
+///    word joiner and related U+2060..U+206F controls, BOM, soft hyphen).
+/// 3. Trim leading/trailing whitespace.
+///
+/// Note: interior whitespace is NOT collapsed — an input `"foo\t\tbar"` becomes
+/// `"foo  bar"` (two spaces). This matches the Python reference implementation.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::validate::clean_title;
+///
+/// assert_eq!(clean_title("  hello\nworld  "), "hello world");
+/// assert_eq!(clean_title("text\u{200b}with\u{feff}invisibles"), "textwithinvisibles");
+/// ```
+pub fn clean_title(input: &str) -> String {
+    let step1 = CONTROL_WHITESPACE_RE.replace_all(input, " ");
+    let step2 = INVISIBLE_AND_SEPARATOR_RE.replace_all(&step1, "");
+    step2.trim().to_string()
+}
 
 /// Configuration thresholds for agent output validation.
 #[non_exhaustive]
@@ -39,8 +85,8 @@ impl Default for ValidationLimits {
 
 /// Validates `AgentOutput` fields against configurable limits.
 ///
-/// Uses [`ZERO_WIDTH_PATTERN`] from `schema` for stripping zero-width Unicode
-/// characters, and configurable limits for field lengths and counts.
+/// Uses [`clean_title`] for normalizing finding titles before length validation,
+/// and configurable limits for field lengths and counts.
 pub struct Validator {
     /// Active validation limits.
     pub limits: ValidationLimits,
@@ -73,6 +119,54 @@ impl Validator {
         self.validate_text_field("reasoning", &output.reasoning)?;
         self.validate_text_field("recommendation", &output.recommendation)?;
         self.validate_findings(&output.findings)?;
+        Ok(())
+    }
+
+    /// Validates `output` in place, replacing each finding's title with its
+    /// cleaned form (see [`clean_title`]) before length validation.
+    ///
+    /// This is the preferred entry point for pipelines that parse LLM responses,
+    /// because it ensures downstream code sees titles in the canonical cleaned
+    /// form used by the consensus engine.
+    ///
+    /// # Atomicity
+    ///
+    /// This method is atomic on error: it cleans and validates all finding titles
+    /// into a temporary buffer before committing any mutation to `output`. If any
+    /// validation check fails, `output` is left completely unchanged — no partial
+    /// title cleaning occurs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MagiError::Validation`] on the first field that fails validation.
+    /// Validation order: confidence → summary → reasoning → recommendation →
+    /// findings (count, then each cleaned title/detail).
+    /// On error, `output` is not modified.
+    pub fn validate_mut(&self, output: &mut AgentOutput) -> Result<(), MagiError> {
+        self.validate_confidence(output.confidence)?;
+        self.validate_text_field("summary", &output.summary)?;
+        self.validate_text_field("reasoning", &output.reasoning)?;
+        self.validate_text_field("recommendation", &output.recommendation)?;
+        if output.findings.len() > self.limits.max_findings {
+            return Err(MagiError::Validation(format!(
+                "findings count {} exceeds maximum of {}",
+                output.findings.len(),
+                self.limits.max_findings
+            )));
+        }
+        // Collect cleaned titles and validate each before any mutation.
+        let cleaned_titles: Vec<String> = output
+            .findings
+            .iter()
+            .map(|f| clean_title(&f.title))
+            .collect();
+        for (cleaned, finding) in cleaned_titles.iter().zip(output.findings.iter()) {
+            self.validate_finding_fields(cleaned, &finding.detail)?;
+        }
+        // All valid — now commit mutations.
+        for (cleaned, finding) in cleaned_titles.into_iter().zip(output.findings.iter_mut()) {
+            finding.title = cleaned;
+        }
         Ok(())
     }
 
@@ -110,20 +204,23 @@ impl Validator {
         Ok(())
     }
 
-    fn validate_finding(&self, finding: &Finding) -> Result<(), MagiError> {
-        let stripped = self.strip_zero_width(&finding.title);
-        if stripped.is_empty() {
+    /// Validates title and detail length invariants.
+    ///
+    /// `title` must already be in its final form (raw or pre-cleaned — the
+    /// caller decides). No stripping is performed here.
+    fn validate_finding_fields(&self, title: &str, detail: &str) -> Result<(), MagiError> {
+        if title.is_empty() {
             return Err(MagiError::Validation(
-                "finding title is empty after removing zero-width characters".to_string(),
+                "finding title is empty after normalization".to_string(),
             ));
         }
-        if stripped.chars().count() > self.limits.max_title_len {
+        if title.chars().count() > self.limits.max_title_len {
             return Err(MagiError::Validation(format!(
                 "finding title exceeds maximum length of {} characters",
                 self.limits.max_title_len
             )));
         }
-        if finding.detail.chars().count() > self.limits.max_detail_len {
+        if detail.chars().count() > self.limits.max_detail_len {
             return Err(MagiError::Validation(format!(
                 "finding detail exceeds maximum length of {} characters",
                 self.limits.max_detail_len
@@ -132,8 +229,9 @@ impl Validator {
         Ok(())
     }
 
-    fn strip_zero_width(&self, text: &str) -> String {
-        ZERO_WIDTH_PATTERN.replace_all(text, "").into_owned()
+    fn validate_finding(&self, finding: &Finding) -> Result<(), MagiError> {
+        let cleaned = clean_title(&finding.title);
+        self.validate_finding_fields(&cleaned, &finding.detail)
     }
 }
 
@@ -363,14 +461,21 @@ mod tests {
         assert!(v.validate(&valid_agent_output()).is_ok());
     }
 
-    // -- strip_zero_width --
+    // -- validate removes zero-width via clean_title pipeline --
 
     #[test]
-    fn test_strip_zero_width_removes_cf_category_characters() {
+    fn test_validate_strips_zero_width_characters_via_clean_title() {
         let v = Validator::new();
-        let input = "Hello\u{200B}World\u{FEFF}Test\u{200C}End";
-        let result = v.strip_zero_width(input);
-        assert_eq!(result, "HelloWorldTestEnd");
+        // validate uses clean_title pipeline internally; zero-width chars are removed
+        let output = output_with_findings(vec![Finding {
+            severity: Severity::Info,
+            title: "Hello\u{200B}World\u{FEFF}Test\u{200C}End".to_string(),
+            detail: "detail".to_string(),
+        }]);
+        assert!(
+            v.validate(&output).is_ok(),
+            "valid title after clean should pass"
+        );
     }
 
     // -- Validation order --
@@ -439,5 +544,254 @@ mod tests {
             detail: "detail".to_string(),
         }]);
         assert!(v.validate(&output).is_ok());
+    }
+
+    // -- validate_mut tests --
+
+    fn finding_with_title(title: &str) -> Finding {
+        Finding {
+            severity: Severity::Info,
+            title: title.to_string(),
+            detail: "some detail".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_validate_mut_replaces_title_with_cleaned_form() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title("  Issue\t\u{200b}Title  ")]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "Issue Title");
+    }
+
+    #[test]
+    fn test_validate_mut_strips_zero_width_from_titles() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title("Good\u{200b}Title")]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "GoodTitle");
+    }
+
+    #[test]
+    fn test_validate_mut_collapses_control_whitespace_in_titles() {
+        let v = Validator::new();
+        let mut output = output_with_findings(vec![finding_with_title("Bad\tTitle")]);
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "Bad Title");
+    }
+
+    #[test]
+    fn test_validate_mut_preserves_order_of_findings() {
+        let v = Validator::new();
+        let titles = ["Alpha\u{200b}One", "Beta\tTwo", "  Gamma Three  "];
+        let mut output =
+            output_with_findings(titles.iter().map(|t| finding_with_title(t)).collect());
+        v.validate_mut(&mut output).unwrap();
+        assert_eq!(output.findings[0].title, "AlphaOne");
+        assert_eq!(output.findings[1].title, "Beta Two");
+        assert_eq!(output.findings[2].title, "Gamma Three");
+    }
+
+    #[test]
+    fn test_validate_retains_original_behavior_on_immutable_slice() {
+        let v = Validator::new();
+        let output = output_with_findings(vec![finding_with_title("Normal Title")]);
+        // Immutable validate does not mutate.
+        let original_title = output.findings[0].title.clone();
+        v.validate(&output).unwrap();
+        assert_eq!(output.findings[0].title, original_title);
+    }
+
+    // -- clean_title tests --
+
+    #[test]
+    fn test_clean_title_replaces_tab_with_space() {
+        assert_eq!(clean_title("foo\tbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_newline_with_space() {
+        assert_eq!(clean_title("foo\nbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_vertical_tab_with_space() {
+        assert_eq!(clean_title("foo\x0Bbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_carriage_return_with_space() {
+        assert_eq!(clean_title("foo\rbar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_replaces_nel_u0085_with_space() {
+        assert_eq!(clean_title("foo\u{85}bar"), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zero_width_space_u200b() {
+        assert_eq!(clean_title("a\u{200b}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zwnj_u200c() {
+        assert_eq!(clean_title("a\u{200c}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_zwj_u200d() {
+        assert_eq!(clean_title("a\u{200d}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_lrm_rlm_u200e_u200f() {
+        assert_eq!(clean_title("a\u{200e}b\u{200f}c"), "abc");
+    }
+
+    #[test]
+    fn test_clean_title_strips_line_separator_u2028() {
+        assert_eq!(clean_title("a\u{2028}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_paragraph_separator_u2029() {
+        assert_eq!(clean_title("a\u{2029}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_narrow_nbsp_u202f() {
+        assert_eq!(clean_title("a\u{202f}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_bidi_override_u202a_through_u202e() {
+        for cp in ['\u{202a}', '\u{202b}', '\u{202c}', '\u{202d}', '\u{202e}'] {
+            let input = format!("a{cp}b");
+            assert_eq!(clean_title(&input), "ab", "failed for U+{:04X}", cp as u32);
+        }
+    }
+
+    #[test]
+    fn test_clean_title_strips_word_joiner_u2060() {
+        assert_eq!(clean_title("a\u{2060}b"), "ab");
+    }
+
+    #[test]
+    fn test_clean_title_strips_bom_ufeff() {
+        assert_eq!(clean_title("\u{feff}hello"), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_strips_soft_hyphen_u00ad() {
+        assert_eq!(clean_title("soft\u{00ad}hyphen"), "softhyphen");
+    }
+
+    #[test]
+    fn test_clean_title_trims_leading_trailing_spaces() {
+        assert_eq!(clean_title("  hello  "), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_trims_leading_trailing_tabs_after_replacement() {
+        // Leading/trailing \t are replaced to spaces in step 1, then trimmed in step 3
+        assert_eq!(clean_title("\thello\t"), "hello");
+    }
+
+    #[test]
+    fn test_clean_title_preserves_interior_single_spaces() {
+        assert_eq!(clean_title("hello world"), "hello world");
+    }
+
+    #[test]
+    fn test_clean_title_does_not_collapse_double_spaces_interior() {
+        // Interior whitespace is NOT collapsed — this is intentional Python parity
+        assert_eq!(clean_title("foo  bar"), "foo  bar");
+    }
+
+    #[test]
+    fn test_clean_title_preserves_unicode_letters() {
+        assert_eq!(clean_title("café"), "café");
+    }
+
+    #[test]
+    fn test_clean_title_empty_string_returns_empty() {
+        assert_eq!(clean_title(""), "");
+    }
+
+    #[test]
+    fn test_clean_title_all_whitespace_returns_empty() {
+        assert_eq!(clean_title("   \t\n  "), "");
+    }
+
+    #[test]
+    fn test_clean_title_is_idempotent() {
+        let inputs = [
+            "hello\nworld",
+            "  \u{200b}spaces\u{feff}  ",
+            "café\u{2060}",
+            "normal text",
+            "",
+        ];
+        for input in inputs {
+            let once = clean_title(input);
+            let twice = clean_title(&once);
+            assert_eq!(once, twice, "not idempotent for input: {input:?}");
+        }
+    }
+
+    /// validate_mut is atomic: if any finding fails validation, no titles are mutated.
+    #[test]
+    fn test_validate_mut_atomic_no_partial_mutation_on_error() {
+        let limits = ValidationLimits {
+            max_title_len: 5,
+            ..ValidationLimits::default()
+        };
+        let v = Validator::with_limits(limits);
+
+        // Finding 0: valid clean title with zero-width chars (will be cleaned to "AB")
+        // Finding 1: valid clean title with zero-width chars (will be cleaned to "CD")
+        // Finding 2: title that exceeds max_title_len=5 after cleaning → triggers error
+        let long_title_after_clean = "toolong"; // 7 chars after clean, exceeds max 5
+        let mut output = output_with_findings(vec![
+            Finding {
+                severity: Severity::Info,
+                title: "A\u{200b}B".to_string(), // contains zero-width char
+                detail: "detail".to_string(),
+            },
+            Finding {
+                severity: Severity::Info,
+                title: "C\u{200b}D".to_string(), // contains zero-width char
+                detail: "detail".to_string(),
+            },
+            Finding {
+                severity: Severity::Info,
+                title: long_title_after_clean.to_string(),
+                detail: "detail".to_string(),
+            },
+        ]);
+
+        // Capture original titles before calling validate_mut
+        let orig0 = output.findings[0].title.clone();
+        let orig1 = output.findings[1].title.clone();
+        let orig2 = output.findings[2].title.clone();
+
+        // validate_mut must fail due to finding 2 exceeding max_title_len
+        let result = v.validate_mut(&mut output);
+        assert!(result.is_err(), "should fail on over-length title");
+
+        // Atomicity: no titles must have been modified
+        assert_eq!(
+            output.findings[0].title, orig0,
+            "finding 0 title must not be mutated on error"
+        );
+        assert_eq!(
+            output.findings[1].title, orig1,
+            "finding 1 title must not be mutated on error"
+        );
+        assert_eq!(
+            output.findings[2].title, orig2,
+            "finding 2 title must not be mutated on error"
+        );
     }
 }

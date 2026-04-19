@@ -12,7 +12,19 @@ use std::sync::LazyLock;
 ///
 /// Matches soft hyphens, Arabic markers, zero-width spaces, directional marks,
 /// byte order marks, and other invisible formatting characters. Used by
-/// [`Finding::stripped_title`] and [`crate::validate::Validator`].
+/// [`crate::validate::Validator`]. Prefer [`crate::validate::clean_title`] for title cleanup.
+///
+/// # Deprecation
+///
+/// This constant is retained for external consumers that depend on it. Internal
+/// code uses [`crate::validate::clean_title`] which applies a different (updated)
+/// character set aligned with Python MAGI 2.1.3.
+#[deprecated(
+    since = "0.2.0",
+    note = "use `magi_core::validate::clean_title` for current behavior; \
+            `ZERO_WIDTH_PATTERN` covers a different character set and is retained \
+            for legacy callers only"
+)]
 pub static ZERO_WIDTH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         "[\u{00AD}\u{0600}-\u{0605}\u{061C}\u{06DD}\u{070F}\u{08E2}\u{180E}\
@@ -221,13 +233,22 @@ pub struct Finding {
 }
 
 impl Finding {
-    /// Returns the title with Unicode format characters (category Cf) removed.
+    /// Returns the title after applying the full [`crate::validate::clean_title`] pipeline.
     ///
-    /// Strips zero-width spaces, byte order marks, and other invisible
-    /// formatting characters that could interfere with deduplication.
-    /// Uses [`ZERO_WIDTH_PATTERN`], compiled once via `LazyLock`.
+    /// Replaces control whitespace with spaces, removes invisible characters and Unicode
+    /// separators, and trims leading/trailing whitespace.
+    ///
+    /// # Deprecation
+    ///
+    /// Prefer calling [`crate::validate::clean_title`] directly, which applies the same
+    /// pipeline and is the authoritative implementation.
+    #[deprecated(
+        since = "0.2.0",
+        note = "use `magi_core::validate::clean_title` (applies full cleanup pipeline, \
+                not just zero-width strip)"
+    )]
     pub fn stripped_title(&self) -> String {
-        ZERO_WIDTH_PATTERN.replace_all(&self.title, "").into_owned()
+        crate::validate::clean_title(&self.title)
     }
 }
 
@@ -503,6 +524,7 @@ mod tests {
 
     // -- Finding tests --
 
+    #[allow(deprecated)]
     #[test]
     fn test_finding_stripped_title_removes_zero_width_characters() {
         let finding = Finding {
@@ -513,6 +535,7 @@ mod tests {
         assert_eq!(finding.stripped_title(), "HelloWorldTestEnd");
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_finding_stripped_title_preserves_normal_text() {
         let finding = Finding {

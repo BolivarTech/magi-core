@@ -17,13 +17,15 @@ pub use crate::error::{MagiError, ProviderError};
 pub use crate::schema::{AgentName, AgentOutput, Finding, Mode, Severity, Verdict};
 
 // Validation
-pub use crate::validate::{ValidationLimits, Validator};
+pub use crate::validate::{ValidationLimits, Validator, clean_title};
 
 // Consensus
 pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 
 // Reporting
-pub use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
+pub use crate::reporting::{
+    BANNER_INNER, BANNER_WIDTH, MagiReport, ReportConfig, ReportError, ReportFormatter,
+};
 
 // Provider trait and config
 pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider, resolve_claude_alias};
@@ -32,7 +34,7 @@ pub use crate::provider::{CompletionConfig, LlmProvider, RetryProvider, resolve_
 pub use crate::agent::{Agent, AgentFactory};
 
 // Orchestrator
-pub use crate::orchestrator::{Magi, MagiBuilder, MagiConfig};
+pub use crate::orchestrator::{DEFAULT_MAX_INPUT_LEN, Magi, MagiBuilder, MagiConfig};
 
 // Feature-gated providers
 #[cfg(feature = "claude-api")]

@@ -4,9 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::error::MagiError;
-use crate::schema::{AgentName, AgentOutput, Finding, Severity, Verdict};
+use crate::schema::{AgentName, AgentOutput, Severity, Verdict};
+use crate::validate::clean_title;
 
 /// Configuration for the consensus engine.
 #[non_exhaustive]
@@ -74,7 +76,7 @@ pub struct Dissent {
 pub struct Condition {
     /// The agent that set the condition.
     pub agent: AgentName,
-    /// The condition text (from the agent's recommendation).
+    /// The condition text (from the agent's summary).
     pub condition: String,
 }
 
@@ -97,6 +99,31 @@ impl Default for ConsensusConfig {
 /// is independent and the engine is safe to share across threads.
 pub struct ConsensusEngine {
     config: ConsensusConfig,
+}
+
+/// Computes the deduplication key for a finding title.
+///
+/// Applies a three-step transformation, matching Python's `_dedup_key` behavior:
+///
+/// 1. [`clean_title`] — strips zero-width Unicode characters, normalizes line
+///    endings and control characters to a single space, trims leading/trailing
+///    whitespace.  Interior runs of multiple spaces are **not** collapsed (aligned
+///    with Python: `clean_title` does not coalesce interior whitespace).
+/// 2. NFKC normalization — collapses compatibility variants (e.g., fullwidth Latin
+///    `ＡＢＣ` → `ABC`, ligatures, circled letters).
+/// 3. Unicode default casefold via `caseless::default_case_fold_str` — handles
+///    characters that `to_lowercase` misses, e.g., `ß` → `"ss"`, `Σ`/`σ`/`ς` → same
+///    folded form.  This is **not** locale-aware (Turkish dotted-I folds per Unicode
+///    default tables, not Turkish locale rules).
+///
+/// ### Divergence from v0.1.x
+///
+/// v0.1.x applied `split_whitespace().join(" ")` before lowercasing, so
+/// `"foo  bar"` and `"foo bar"` were treated as the same finding. This function
+/// does **not** collapse interior whitespace — `"foo  bar"` and `"foo bar"`
+/// produce distinct keys, matching Python behavior.
+fn dedup_key(title: &str) -> String {
+    caseless::default_case_fold_str(&clean_title(title).nfkc().collect::<String>())
 }
 
 impl ConsensusEngine {
@@ -236,7 +263,7 @@ impl ConsensusEngine {
             .filter(|a| a.verdict == Verdict::Conditional)
             .map(|a| Condition {
                 agent: a.agent,
-                condition: a.recommendation.clone(),
+                condition: a.summary.clone(),
             })
             .collect();
 
@@ -248,7 +275,7 @@ impl ConsensusEngine {
         let majority_summary = agents
             .iter()
             .filter(|a| a.effective_verdict() == majority_verdict)
-            .map(|a| a.summary.as_str())
+            .map(|a| format!("{}: {}", a.agent.display_name(), a.summary))
             .collect::<Vec<_>>()
             .join(" | ");
 
@@ -287,7 +314,10 @@ impl ConsensusEngine {
         } else if (score - (-1.0)).abs() < epsilon {
             ("STRONG NO-GO".to_string(), Verdict::Reject)
         } else if score > epsilon && has_conditional {
-            ("GO WITH CAVEATS".to_string(), Verdict::Approve)
+            (
+                format!("GO WITH CAVEATS ({}-{})", approve_count, reject_count),
+                Verdict::Approve,
+            )
         } else if score > epsilon {
             (
                 format!("GO ({}-{})", approve_count, reject_count),
@@ -303,56 +333,67 @@ impl ConsensusEngine {
         }
     }
 
-    /// Deduplicates findings across agents by case-insensitive stripped title.
+    /// Deduplicates findings across agents using NFKC + Unicode casefold keying.
+    ///
+    /// Ordering contract: findings appear in first-seen order (by agent slice position),
+    /// then sorted by severity DESC (Critical → Info). Within equal severity, first-seen
+    /// order is preserved (stable sort).
     fn deduplicate_findings(&self, agents: &[AgentOutput]) -> Vec<DedupFinding> {
-        // Collect (agent_name, finding) pairs sorted by agent name for determinism
-        let mut agent_findings: Vec<(AgentName, &Finding)> = Vec::new();
+        /// Accumulates state for a group of findings that share the same dedup key.
+        struct GroupState {
+            /// Severity promoted to the highest seen across all matching findings.
+            severity: Severity,
+            /// Title from the first-seen finding (insertion order preserved).
+            title: String,
+            /// Detail from the highest-severity finding.
+            detail: String,
+            /// Agents that contributed a matching finding, in first-seen order.
+            sources: Vec<AgentName>,
+        }
+
+        // Intentional O(m²) — preserves insertion order without adding indexmap.
+        // m is bounded by `ValidationLimits::max_findings × agent_count`. At the
+        // default max_findings (100) × 3 agents = 300, this is ~90k string
+        // comparisons on short strings, <1ms in practice. Consider switching to
+        // `indexmap` if max_findings is configured above 500.
+        let mut groups: Vec<(String, GroupState)> = Vec::new();
+
         for agent in agents {
             for finding in &agent.findings {
-                agent_findings.push((agent.agent, finding));
+                let key = dedup_key(&finding.title);
+                if let Some((_, state)) = groups.iter_mut().find(|(k, _)| k == &key) {
+                    // Promote severity and update detail if this finding is higher
+                    if finding.severity > state.severity {
+                        state.severity = finding.severity;
+                        state.detail = finding.detail.clone();
+                    }
+                    state.sources.push(agent.agent);
+                } else {
+                    groups.push((
+                        key,
+                        GroupState {
+                            severity: finding.severity,
+                            title: finding.title.clone(),
+                            detail: finding.detail.clone(),
+                            sources: vec![agent.agent],
+                        },
+                    ));
+                }
             }
         }
-        // Sort by agent name for deterministic tiebreaking
-        agent_findings.sort_by(|a, b| a.0.cmp(&b.0));
 
-        // Group by case-insensitive stripped title
-        let mut groups: std::collections::HashMap<String, Vec<(AgentName, &Finding)>> =
-            std::collections::HashMap::new();
-        let mut order: Vec<String> = Vec::new();
+        let mut result: Vec<DedupFinding> = groups
+            .into_iter()
+            .map(|(_, state)| DedupFinding {
+                severity: state.severity,
+                title: state.title,
+                detail: state.detail,
+                sources: state.sources,
+            })
+            .collect();
 
-        for (agent_name, finding) in &agent_findings {
-            let key = finding
-                .stripped_title()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .to_lowercase();
-            if !groups.contains_key(&key) {
-                order.push(key.clone());
-            }
-            groups.entry(key).or_default().push((*agent_name, finding));
-        }
-
-        let mut result: Vec<DedupFinding> = Vec::new();
-        for key in &order {
-            let entries = &groups[key];
-            // Find highest severity
-            let max_severity = entries.iter().map(|(_, f)| f.severity).max().unwrap();
-            // Find the first entry with that severity (already sorted by agent name)
-            let best = entries
-                .iter()
-                .find(|(_, f)| f.severity == max_severity)
-                .unwrap();
-            let sources: Vec<AgentName> = entries.iter().map(|(name, _)| *name).collect();
-            result.push(DedupFinding {
-                severity: max_severity,
-                title: best.1.title.clone(),
-                detail: best.1.detail.clone(),
-                sources,
-            });
-        }
-
-        // Sort by severity (Critical first = descending)
+        // Sort by severity descending (Critical first); stable to preserve first-seen
+        // order within equal severity groups.
         result.sort_by(|a, b| b.severity.cmp(&a.severity));
         result
     }
@@ -419,7 +460,7 @@ mod tests {
 
     // -- BDD Scenario 3: approve + conditional + reject --
 
-    /// Approve + conditional + reject produces GO WITH CAVEATS.
+    /// Approve + conditional + reject produces GO WITH CAVEATS (2-1).
     #[test]
     fn test_approve_conditional_reject_produces_go_with_caveats() {
         let agents = vec![
@@ -429,10 +470,149 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert_eq!(result.consensus, "GO WITH CAVEATS");
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
         assert_eq!(result.consensus_verdict, Verdict::Approve);
         assert!(!result.conditions.is_empty());
         assert_eq!(result.conditions[0].agent, AgentName::Balthasar);
+    }
+
+    // -- S05: GO WITH CAVEATS includes split count --
+
+    /// Three conditional agents produce GO WITH CAVEATS (3-0) (unanimous go side).
+    #[test]
+    fn test_go_with_caveats_three_conditionals_unanimous() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Conditional, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (3-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Two conditionals + one approve produce GO WITH CAVEATS (3-0).
+    #[test]
+    fn test_go_with_caveats_two_conditionals_one_approve() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Approve, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (3-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Two conditionals + one reject.
+    /// score = (0.5 + 0.5 - 1.0) / 3 = 0.0 → HOLD -- TIE (score is exactly zero).
+    /// Reject pulls score to zero despite conditional majority on effective-verdict side.
+    #[test]
+    fn test_go_with_caveats_two_conditionals_one_reject() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        // score = (0.5 + 0.5 + (-1.0)) / 3 = 0.0 → HOLD -- TIE
+        assert_eq!(result.consensus, "HOLD -- TIE");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
+    }
+
+    /// Two conditionals (degraded, 2 agents) produce GO WITH CAVEATS (2-0).
+    /// Degraded mode does NOT alter GO WITH CAVEATS — only caps STRONG labels.
+    #[test]
+    fn test_go_with_caveats_degraded_two_conditionals() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+        assert_eq!(result.agent_count, 2);
+    }
+
+    /// One conditional + one approve (degraded) produce GO WITH CAVEATS (2-0).
+    #[test]
+    fn test_go_with_caveats_degraded_one_conditional_one_approve() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Approve, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-0)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+        assert_eq!(result.agent_count, 2);
+    }
+
+    /// One conditional + one reject (degraded) produce HOLD (1-1).
+    /// Score = (0.5 + -1.0) / 2 = -0.25 → negative → HOLD (1-1), not a tie.
+    #[test]
+    fn test_degraded_one_conditional_one_reject_produces_hold_1_1() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Conditional, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Reject, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        // score = (0.5 - 1.0) / 2 = -0.25, negative, so HOLD side wins
+        // approve_count=1 (Conditional maps to Approve), reject_count=1
+        // HOLD label uses (reject_count-approve_count) = (1-1)
+        assert_eq!(result.consensus, "HOLD (1-1)");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
+    }
+
+    /// Boundary test: score just above epsilon classifies as GO WITH CAVEATS.
+    ///
+    /// Uses custom epsilon (0.2) to straddle the real score of
+    /// Approve(+1) + Conditional(+0.5) + Reject(-1) = 0.5/3 ≈ 0.1667.
+    /// With epsilon=0.1, score 0.1667 > epsilon → GO WITH CAVEATS.
+    #[test]
+    fn test_score_just_above_epsilon_classifies_as_go_with_caveats() {
+        // score = (1.0 + 0.5 - 1.0) / 3 ≈ 0.1667
+        // epsilon = 0.1 → score > epsilon → GO WITH CAVEATS (2-1)
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig {
+            epsilon: 0.1,
+            ..ConsensusConfig::default()
+        });
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "GO WITH CAVEATS (2-1)");
+        assert_eq!(result.consensus_verdict, Verdict::Approve);
+    }
+
+    /// Boundary test: score just below epsilon classifies as HOLD.
+    ///
+    /// Uses custom epsilon (0.2) to straddle the real score of
+    /// Approve(+1) + Conditional(+0.5) + Reject(-1) = 0.5/3 ≈ 0.1667.
+    /// With epsilon=0.2, score 0.1667 < epsilon → HOLD -- TIE.
+    #[test]
+    fn test_score_just_below_epsilon_classifies_as_hold() {
+        // score = (1.0 + 0.5 - 1.0) / 3 ≈ 0.1667
+        // epsilon = 0.2 → score.abs() < epsilon → HOLD -- TIE
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig {
+            epsilon: 0.2,
+            ..ConsensusConfig::default()
+        });
+        let result = engine.determine(&agents).unwrap();
+        assert_eq!(result.consensus, "HOLD -- TIE");
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
     }
 
     // -- BDD Scenario 4: unanimous reject --
@@ -535,7 +715,7 @@ mod tests {
         assert_eq!(result.findings[0].detail, "detail_critical");
     }
 
-    /// On same severity, detail comes from first agent by AgentName ordering.
+    /// On same severity, detail comes from the first-seen agent (slice order).
     #[test]
     fn test_merged_finding_detail_from_first_agent_on_same_severity() {
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
@@ -553,7 +733,7 @@ mod tests {
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[b, m, c]).unwrap();
-        // Balthasar < Melchior alphabetically, same severity → Balthasar's detail
+        // Balthasar is first in the slice → first seen → Balthasar's detail preserved
         assert_eq!(result.findings[0].detail, "detail_b");
     }
 
@@ -682,10 +862,34 @@ mod tests {
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        assert!(result.majority_summary.contains("Melchior summary"));
-        assert!(result.majority_summary.contains("Balthasar summary"));
+        assert!(
+            result
+                .majority_summary
+                .contains("Melchior: Melchior summary")
+        );
+        assert!(
+            result
+                .majority_summary
+                .contains("Balthasar: Balthasar summary")
+        );
         assert!(result.majority_summary.contains(" | "));
         assert!(!result.majority_summary.contains("Caspar summary"));
+    }
+
+    /// Majority summary uses agent display name capitalized (not lowercase).
+    #[test]
+    fn test_majority_summary_uses_display_name_capitalized() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Approve, 0.8),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        assert!(result.majority_summary.contains("Melchior:"));
+        assert!(result.majority_summary.contains("Balthasar:"));
+        // Ensure NOT lowercase
+        assert!(!result.majority_summary.contains("melchior:"));
+        assert!(!result.majority_summary.contains("balthasar:"));
     }
 
     /// Conditions extracted from agents with Conditional verdict.
@@ -700,7 +904,49 @@ mod tests {
         let result = engine.determine(&agents).unwrap();
         assert_eq!(result.conditions.len(), 1);
         assert_eq!(result.conditions[0].agent, AgentName::Balthasar);
-        assert_eq!(result.conditions[0].condition, "Balthasar recommendation");
+        assert_eq!(result.conditions[0].condition, "Balthasar summary");
+    }
+
+    /// Conditions use summary field, not recommendation field.
+    #[test]
+    fn test_conditions_use_summary_field_not_recommendation_field() {
+        let mut agent = make_output(AgentName::Melchior, Verdict::Conditional, 0.9);
+        agent.summary = "Melchior condition summary".to_string();
+        agent.recommendation = "Melchior detailed recommendation".to_string();
+        let support = make_output(AgentName::Balthasar, Verdict::Approve, 0.8);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[agent, support]).unwrap();
+        assert_eq!(result.conditions.len(), 1);
+        assert_eq!(result.conditions[0].condition, "Melchior condition summary");
+        assert_ne!(
+            result.conditions[0].condition,
+            "Melchior detailed recommendation"
+        );
+    }
+
+    /// Conditions are distinct from recommendations section.
+    #[test]
+    fn test_conditions_are_distinct_from_recommendations_section() {
+        let mut agent = make_output(AgentName::Balthasar, Verdict::Conditional, 0.85);
+        agent.summary = "Short condition summary".to_string();
+        agent.recommendation = "Long detailed recommendation text".to_string();
+        let support = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[agent, support]).unwrap();
+        // Conditions should be sourced from summary
+        assert_eq!(result.conditions.len(), 1);
+        assert_eq!(result.conditions[0].condition, "Short condition summary");
+        // Recommendations should contain the recommendation field
+        assert!(result.recommendations.contains_key(&AgentName::Balthasar));
+        assert_eq!(
+            result.recommendations[&AgentName::Balthasar],
+            "Long detailed recommendation text"
+        );
+        // They must be distinct
+        assert_ne!(
+            result.conditions[0].condition,
+            result.recommendations[&AgentName::Balthasar]
+        );
     }
 
     /// Recommendations map includes all agents.
@@ -783,19 +1029,23 @@ mod tests {
         assert_eq!(result.findings[1].severity, Severity::Info);
     }
 
-    /// Titles differing only in whitespace (tabs, multiple spaces, NBSP) are deduplicated.
+    /// Tab-separated and space-separated titles merge (clean_title replaces tab with space);
+    /// but double-space interior is preserved — "SQL  injection" is a DISTINCT finding
+    /// from "SQL injection". Aligned with Python dedup_key behavior (no split_whitespace).
     #[test]
-    fn test_duplicate_findings_merged_with_whitespace_normalization() {
+    fn test_dedup_tab_normalizes_to_space_but_double_space_is_distinct() {
+        // "SQL\tinjection" → clean_title → "SQL injection" → same key as "sql injection"
+        // "SQL  injection" → clean_title → "SQL  injection" → different key (double space)
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
         m.findings.push(Finding {
             severity: Severity::Warning,
-            title: "SQL  injection".to_string(),
+            title: "SQL  injection".to_string(), // double space — distinct key
             detail: "detail_m".to_string(),
         });
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
         b.findings.push(Finding {
             severity: Severity::Warning,
-            title: "SQL\tinjection".to_string(),
+            title: "SQL\tinjection".to_string(), // tab → space → merges with "sql injection"
             detail: "detail_b".to_string(),
         });
         let mut c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
@@ -806,9 +1056,20 @@ mod tests {
         });
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
-        assert_eq!(result.findings.len(), 1, "should merge all three into one");
+        // "SQL\tinjection" and "sql injection" share the same key → merge into 1
+        // "SQL  injection" has a distinct key → separate finding
+        // Total: 2 findings
+        assert_eq!(
+            result.findings.len(),
+            2,
+            "tab-normalized title merges with single-space; double-space is distinct"
+        );
+        // Critical finding (merged tab+space group) sorts first
         assert_eq!(result.findings[0].severity, Severity::Critical);
-        assert_eq!(result.findings[0].sources.len(), 3);
+        assert_eq!(result.findings[0].sources.len(), 2);
+        // Warning finding (double-space group) is separate
+        assert_eq!(result.findings[1].severity, Severity::Warning);
+        assert_eq!(result.findings[1].sources.len(), 1);
     }
 
     /// Votes map contains all agent verdicts.
@@ -838,5 +1099,205 @@ mod tests {
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
         assert_eq!(result.agent_count, 3);
+    }
+
+    // -- S03: dedup_key NFKC + casefold tests --
+
+    /// dedup_key applies NFKC normalization: fullwidth Latin chars collapse to ASCII.
+    /// "ＡＢＣ" (fullwidth) and "abc" must produce the same key after NFKC + casefold.
+    #[test]
+    fn test_dedup_key_nfkc_collapses_fullwidth_latin() {
+        let key_fullwidth = dedup_key("\u{FF21}\u{FF22}\u{FF23}"); // ＡＢＣ
+        let key_ascii = dedup_key("abc");
+        assert_eq!(
+            key_fullwidth, key_ascii,
+            "NFKC must collapse fullwidth ＡＢＣ to abc"
+        );
+    }
+
+    /// dedup_key applies NFKC: precomposed and combining forms of the same character
+    /// produce the same key ("café" U+00E9 == "cafe\u{301}").
+    #[test]
+    fn test_dedup_key_nfkc_collapses_combining_accents() {
+        let precomposed = dedup_key("caf\u{E9}"); // é precomposed
+        let combining = dedup_key("cafe\u{301}"); // e + combining acute
+        assert_eq!(
+            precomposed, combining,
+            "NFKC must collapse combining accents to precomposed form"
+        );
+    }
+
+    /// dedup_key uses full Unicode casefold: sharp-S ß must fold to "ss" (not "ß").
+    /// Python str.casefold() and caseless crate both produce "ss". No #[ignore] needed.
+    #[test]
+    fn test_dedup_key_casefold_sharp_s_equals_double_s() {
+        let sharp_s = dedup_key("\u{DF}"); // ß
+        let double_s = dedup_key("ss");
+        assert_eq!(
+            sharp_s, double_s,
+            "casefold must fold ß to ss (full Unicode fold, not to_lowercase)"
+        );
+    }
+
+    /// dedup_key casefolding: all Greek sigma variants (Σ, σ, ς) fold to the same key.
+    ///
+    /// Empirically verified (S03 Step 1):
+    ///   Python: "ς".casefold() == "σ" (U+03C3)
+    ///   caseless::default_case_fold_str("ς") == "σ" (U+03C3)
+    /// Both agree, so all three variants are included in this test.
+    #[test]
+    fn test_dedup_key_casefold_greek_sigma_variants() {
+        let capital = dedup_key("\u{03A3}"); // Σ GREEK CAPITAL LETTER SIGMA
+        let small = dedup_key("\u{03C3}"); // σ GREEK SMALL LETTER SIGMA
+        let final_s = dedup_key("\u{03C2}"); // ς GREEK SMALL LETTER FINAL SIGMA
+        assert_eq!(capital, small, "Σ and σ must fold to the same key");
+        assert_eq!(
+            small, final_s,
+            "σ and ς must fold to the same key (both caseless and Python agree)"
+        );
+    }
+
+    /// dedup_key does NOT apply locale-aware Turkish dotted-I folding.
+    /// Unicode default casefold: "İ" (U+0130) folds to "i\u{307}" (i + combining dot above).
+    /// This test confirms default (non-locale) behavior, matching caseless crate semantics.
+    #[test]
+    fn test_dedup_key_casefold_turkish_dotted_i() {
+        // U+0130 (LATIN CAPITAL LETTER I WITH DOT ABOVE) under default (non-locale) casefold
+        // maps to 'i' (U+0069) + combining dot above (U+0307). This matches Python's casefold
+        // behavior (default, not Turkish locale).
+        let input = "\u{0130}";
+        assert_eq!(dedup_key(input), "i\u{307}");
+    }
+
+    /// dedup_key preserves interior whitespace — aligning with Python clean_title + NFKC behavior.
+    /// "foo  bar" (double space) and "foo bar" (single space) produce DIFFERENT keys.
+    /// This is the correct Python-aligned behavior: no split_whitespace collapsing.
+    #[test]
+    fn test_dedup_key_preserves_interior_whitespace() {
+        let double_space = dedup_key("foo  bar");
+        let single_space = dedup_key("foo bar");
+        assert_ne!(
+            double_space, single_space,
+            "dedup_key must NOT collapse interior whitespace (aligned with Python)"
+        );
+    }
+
+    /// Findings with fullwidth ASCII titles (e.g., "ＳＱＬ injection") and ASCII titles
+    /// ("SQL injection") are merged into a single deduplicated finding via NFKC.
+    #[test]
+    fn test_dedup_merges_fullwidth_and_ascii_titles() {
+        // ＳＱＬ = U+FF33 U+FF31 U+FF2C (fullwidth)
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "\u{FF33}\u{FF31}\u{FF2C} injection".to_string(), // ＳＱＬ injection
+            detail: "detail_fullwidth".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Critical,
+            title: "sql injection".to_string(),
+            detail: "detail_ascii".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(
+            result.findings.len(),
+            1,
+            "fullwidth and ASCII titles must merge to one finding via NFKC"
+        );
+        assert_eq!(result.findings[0].severity, Severity::Critical);
+    }
+
+    // -- S03: ordering regression tests --
+
+    /// When Melchior reports first in the agent slice, the deduplicated finding's
+    /// title comes from Melchior's form and sources list is [Melchior, Balthasar].
+    #[test]
+    fn test_dedup_first_seen_order_preserved_when_melchior_reports_first() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Issue A".to_string(),
+            detail: "detail_m".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "issue a".to_string(),
+            detail: "detail_b".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Melchior is first in slice
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(
+            result.findings[0].title, "Issue A",
+            "title must come from Melchior (first seen)"
+        );
+        assert_eq!(result.findings[0].sources.len(), 2);
+        // First source should be Melchior (first-seen insertion order)
+        assert_eq!(result.findings[0].sources[0], AgentName::Melchior);
+        assert_eq!(result.findings[0].sources[1], AgentName::Balthasar);
+    }
+
+    /// When Balthasar reports first in the agent slice, the deduplicated finding's
+    /// title comes from Balthasar's form and sources list is [Balthasar, Melchior].
+    #[test]
+    fn test_dedup_first_seen_order_preserved_when_balthasar_reports_first() {
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "issue a".to_string(),
+            detail: "detail_b".to_string(),
+        });
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Issue A".to_string(),
+            detail: "detail_m".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Balthasar is first in slice
+        let result = engine.determine(&[b, m, c]).unwrap();
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(
+            result.findings[0].title, "issue a",
+            "title must come from Balthasar (first seen)"
+        );
+        assert_eq!(result.findings[0].sources.len(), 2);
+        assert_eq!(result.findings[0].sources[0], AgentName::Balthasar);
+        assert_eq!(result.findings[0].sources[1], AgentName::Melchior);
+    }
+
+    /// When two distinct findings have equal severity, the finding seen first in the
+    /// agent slice appears first in the output (stable ordering).
+    #[test]
+    fn test_dedup_ordering_stable_across_equal_severity() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Alpha Issue".to_string(),
+            detail: "detail_alpha".to_string(),
+        });
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings.push(Finding {
+            severity: Severity::Warning,
+            title: "Beta Issue".to_string(),
+            detail: "detail_beta".to_string(),
+        });
+        let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        // Melchior is first, so "Alpha Issue" should appear first when severity ties
+        let result = engine.determine(&[m, b, c]).unwrap();
+        assert_eq!(result.findings.len(), 2);
+        assert_eq!(
+            result.findings[0].title, "Alpha Issue",
+            "first-seen finding must appear first when severity is equal"
+        );
+        assert_eq!(result.findings[1].title, "Beta Issue");
     }
 }

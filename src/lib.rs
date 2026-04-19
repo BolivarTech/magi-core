@@ -35,4 +35,5 @@ pub mod provider;
 pub mod providers;
 pub mod reporting;
 pub mod schema;
+mod user_prompt;
 pub mod validate;

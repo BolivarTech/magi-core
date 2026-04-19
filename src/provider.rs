@@ -71,7 +71,7 @@ pub trait LlmProvider: Send + Sync {
 /// # Aliases
 ///
 /// - `"sonnet"` → `"claude-sonnet-4-6"`
-/// - `"opus"` → `"claude-opus-4-6"`
+/// - `"opus"` → `"claude-opus-4-7"`
 /// - `"haiku"` → `"claude-haiku-4-5-20251001"`
 /// - Any string containing `"claude-"` passes through as-is
 ///
@@ -84,14 +84,14 @@ pub trait LlmProvider: Send + Sync {
 /// ```
 /// use magi_core::provider::resolve_claude_alias;
 ///
-/// assert_eq!(resolve_claude_alias("opus").unwrap(), "claude-opus-4-6");
+/// assert_eq!(resolve_claude_alias("opus").unwrap(), "claude-opus-4-7");
 /// assert_eq!(resolve_claude_alias("claude-custom").unwrap(), "claude-custom");
 /// assert!(resolve_claude_alias("unknown").is_err());
 /// ```
 pub fn resolve_claude_alias(model: &str) -> Result<String, ProviderError> {
     match model {
         "sonnet" => Ok("claude-sonnet-4-6".to_string()),
-        "opus" => Ok("claude-opus-4-6".to_string()),
+        "opus" => Ok("claude-opus-4-7".to_string()),
         "haiku" => Ok("claude-haiku-4-5-20251001".to_string()),
         m if m.contains("claude-") => Ok(m.to_string()),
         _ => Err(ProviderError::Auth {
@@ -529,5 +529,35 @@ mod tests {
         let retry = RetryProvider::new(mock);
         assert_eq!(retry.max_retries, 3);
         assert_eq!(retry.base_delay, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_resolve_claude_alias_opus_returns_claude_opus_4_7() {
+        let result = resolve_claude_alias("opus").unwrap();
+        assert_eq!(result, "claude-opus-4-7");
+    }
+
+    #[test]
+    fn test_resolve_claude_alias_sonnet_returns_claude_sonnet_4_6() {
+        let result = resolve_claude_alias("sonnet").unwrap();
+        assert_eq!(result, "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn test_resolve_claude_alias_haiku_returns_claude_haiku_4_5_20251001() {
+        let result = resolve_claude_alias("haiku").unwrap();
+        assert_eq!(result, "claude-haiku-4-5-20251001");
+    }
+
+    /// Consumers who pinned "claude-opus-4-6" from v0.1.x get the string passed through
+    /// unchanged — backward compatibility for callers that already resolved the alias.
+    #[test]
+    fn test_resolve_claude_alias_accepts_literal_claude_opus_4_6_passthrough() {
+        // Consumers may have pinned the string "claude-opus-4-6" from v0.1.x;
+        // the resolver must pass any string containing "claude-" through unchanged.
+        assert_eq!(
+            resolve_claude_alias("claude-opus-4-6").unwrap(),
+            "claude-opus-4-6"
+        );
     }
 }

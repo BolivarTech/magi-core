@@ -4,10 +4,159 @@
 
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
 use crate::schema::{AgentName, AgentOutput, Mode};
+
+/// Error returned by `ReportConfig::new_checked` when validation fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ReportError {
+    /// An `agent_titles` value contains non-ASCII characters.
+    ///
+    /// The field name is either `"display_name"` or `"title"`,
+    /// and `agent` identifies which agent's entry failed validation.
+    #[non_exhaustive]
+    NonAsciiTitle {
+        /// The agent whose title failed validation.
+        agent: AgentName,
+        /// Which field: `"display_name"` or `"title"`.
+        field: &'static str,
+        /// The invalid value.
+        value: String,
+    },
+    /// `banner_width` is below the minimum required for meaningful rendering.
+    ///
+    /// The minimum is 8: one `|` border + 6 content bytes + one `|` border.
+    #[non_exhaustive]
+    BannerTooSmall {
+        /// The requested (invalid) width.
+        requested: usize,
+        /// The minimum accepted width.
+        minimum: usize,
+    },
+}
+
+impl fmt::Display for ReportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ReportError::NonAsciiTitle {
+                agent,
+                field,
+                value,
+            } => write!(
+                f,
+                "agent_titles[{:?}].{} contains non-ASCII characters: {:?}",
+                agent, field, value
+            ),
+            ReportError::BannerTooSmall { requested, minimum } => write!(
+                f,
+                "banner_width {requested} is below the minimum of {minimum}"
+            ),
+        }
+    }
+}
+
+/// Default total width of the ASCII banner in bytes, including the two border `|` characters.
+///
+/// Equals [`BANNER_INNER`] + 2. Assumes ASCII content for correct visual alignment.
+pub const BANNER_WIDTH: usize = 52;
+
+/// Default inner width of the ASCII banner in bytes (between the two border `|` characters).
+///
+/// Equals [`BANNER_WIDTH`] - 2. All content lines are padded or truncated to exactly this width.
+pub const BANNER_INNER: usize = BANNER_WIDTH - 2;
+
+/// Left-justified width of the severity icon column (e.g., `[!!!]`, `[!!]`, `[i]`).
+const FINDING_MARKER_WIDTH: usize = 5;
+
+/// Fits `content` into exactly `width` bytes, preserving `preserve_suffix` when truncating.
+///
+/// # Preconditions (ASCII-only input)
+///
+/// - `content` and `preserve_suffix` must be ASCII.
+///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
+/// - `width > 0`.
+///   `debug_assert!(width > 0)`
+/// - When `preserve_suffix` is non-empty **and** truncation occurs and the suffix is not
+///   consumed by the fallback path, `content.ends_with(preserve_suffix)` must hold.
+///   Step 3 (suffix-preserving truncation) slices `content` by
+///   `content.len() - preserve_suffix.len()` assuming the tail matches. If violated,
+///   the function still produces a String but the returned prefix is arbitrary (not a
+///   meaningful truncation). This precondition is not checked when `content.len() <= width`
+///   (no truncation) or when the fallback path fires.
+///   `debug_assert!(content.ends_with(preserve_suffix))` — checked at Step 3 entry.
+///
+/// # Post-condition
+///
+/// The byte length of the result is:
+/// - `content.len()` when `content.len() <= width` (no truncation).
+/// - `<= width` when `width >= 4` and truncation occurs. When `content` is ASCII the result is
+///   exactly `width` bytes; for non-ASCII input `floor_char_boundary` may snap the cutoff to a
+///   slightly smaller value (graceful degradation, no panic).
+/// - May exceed `width` when `width < 4` (documented edge case: cannot fit one char + `"..."`).
+///   Callers should ensure `width >= 4` for sensible truncation.
+///
+/// # Algorithm
+///
+/// 1. If `content.len() <= width`, return `content` unchanged.
+/// 2. Fallback (tail-cut) applies when `preserve_suffix` is empty or
+///    `preserve_suffix.len() + 3 >= width`:
+///    `cutoff = max(1, width.saturating_sub(3))`, return `content[..cutoff] + "..."`.
+/// 3. Otherwise prefix-truncate with suffix protected:
+///    `prefix_budget = width - 3 - preserve_suffix.len()`,
+///    return `prefix_source[..prefix_budget] + "..." + preserve_suffix`.
+///
+/// # Panics
+///
+/// In release mode, if preconditions are violated and byte-slice boundaries fall
+/// inside a multi-byte codepoint, this function panics (loud failure, no UB).
+fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
+    debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
+    debug_assert!(width > 0);
+    debug_assert!(
+        width >= 4,
+        "fit_content requires width >= 4 for sensible truncation; got {}",
+        width
+    );
+
+    const ELLIPSIS: &str = "...";
+
+    // Step 1: no truncation needed
+    if content.len() <= width {
+        return content.to_string();
+    }
+
+    // Step 2: fallback tail-cut when no suffix or suffix + ellipsis fills width
+    if preserve_suffix.is_empty() || preserve_suffix.len() + ELLIPSIS.len() >= width {
+        let cutoff = (width.saturating_sub(ELLIPSIS.len())).max(1);
+        let safe_cutoff = content.floor_char_boundary(cutoff);
+        return format!("{}{}", &content[..safe_cutoff], ELLIPSIS);
+    }
+
+    // Step 3: prefix-truncate with suffix protected.
+    // Precondition: content must end with preserve_suffix so the tail-slice is meaningful.
+    debug_assert!(content.ends_with(preserve_suffix));
+    let prefix_budget = width - ELLIPSIS.len() - preserve_suffix.len();
+    // prefix_source is content with the suffix tail removed
+    let prefix_source = &content[..content.len() - preserve_suffix.len()];
+    let safe_prefix_budget = prefix_source.floor_char_boundary(prefix_budget);
+    format!(
+        "{}{}{}",
+        &prefix_source[..safe_prefix_budget],
+        ELLIPSIS,
+        preserve_suffix
+    )
+}
+
+/// Left-justified width of the markdown severity label column (e.g., `**[CRITICAL]**`).
+///
+/// `**[CRITICAL]**` = 14 chars (fits exactly).
+/// `**[WARNING]**`  = 13 chars (1 trailing space added by padding).
+/// `**[INFO]**`     = 10 chars (4 trailing spaces added by padding).
+const FINDING_SEVERITY_WIDTH: usize = 14;
 
 /// Configuration for the report formatter.
 ///
@@ -63,6 +212,61 @@ pub struct MagiReport {
     pub failed_agents: BTreeMap<AgentName, String>,
 }
 
+impl ReportConfig {
+    /// Minimum `banner_width` accepted by [`ReportConfig::new_checked`].
+    ///
+    /// Allows `|` + 6 content bytes + `|` = 8 bytes minimum for any meaningful banner.
+    pub const MIN_BANNER_WIDTH: usize = 8;
+
+    /// Creates a `ReportConfig` with validated `banner_width` and ASCII `agent_titles`.
+    ///
+    /// Returns `Err(ReportError::BannerTooSmall)` if `banner_width < 8`.
+    /// Returns `Err(ReportError::NonAsciiTitle)` if any display name or title in
+    /// `agent_titles` contains non-ASCII characters.
+    ///
+    /// This allows `fit_content` to assume ASCII without run-time panic and
+    /// ensures the banner is at least minimally renderable.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut titles = BTreeMap::new();
+    /// titles.insert(AgentName::Melchior, ("Melchior".to_string(), "Scientist".to_string()));
+    /// let config = ReportConfig::new_checked(52, titles)?;
+    /// ```
+    pub fn new_checked(
+        banner_width: usize,
+        agent_titles: BTreeMap<AgentName, (String, String)>,
+    ) -> Result<Self, ReportError> {
+        if banner_width < Self::MIN_BANNER_WIDTH {
+            return Err(ReportError::BannerTooSmall {
+                requested: banner_width,
+                minimum: Self::MIN_BANNER_WIDTH,
+            });
+        }
+        for (agent, (display_name, title)) in &agent_titles {
+            if !display_name.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "display_name",
+                    value: display_name.clone(),
+                });
+            }
+            if !title.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "title",
+                    value: title.clone(),
+                });
+            }
+        }
+        Ok(Self {
+            banner_width,
+            agent_titles,
+        })
+    }
+}
+
 impl Default for ReportConfig {
     fn default() -> Self {
         let mut agent_titles = BTreeMap::new();
@@ -86,13 +290,8 @@ impl Default for ReportConfig {
 }
 
 impl ReportFormatter {
-    /// Creates a new formatter with default configuration.
-    pub fn new() -> Self {
-        Self::with_config(ReportConfig::default())
-    }
-
-    /// Creates a new formatter with custom configuration.
-    pub fn with_config(config: ReportConfig) -> Self {
+    /// Internal infallible constructor — assumes `config` is already validated.
+    fn from_valid_config(config: ReportConfig) -> Self {
         let banner_inner = config.banner_width - 2;
         Self {
             config,
@@ -100,21 +299,91 @@ impl ReportFormatter {
         }
     }
 
-    /// Generates the fixed-width ASCII verdict banner.
+    /// Creates a new formatter with default configuration.
     ///
-    /// Every line is exactly `banner_width` (52) characters. Structure:
+    /// Infallible because [`ReportConfig::default`] always produces a valid
+    /// configuration with an 8-byte-or-larger banner width and ASCII agent titles.
+    pub fn new() -> Self {
+        Self::from_valid_config(ReportConfig::default())
+    }
+
+    /// Creates a new formatter with a validated custom configuration.
+    ///
+    /// Re-runs the same ASCII and minimum-width checks as
+    /// [`ReportConfig::new_checked`], so callers who mutate a `ReportConfig`
+    /// after construction (e.g., via `default()` + field assignment) cannot
+    /// bypass validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReportError::BannerTooSmall`] if `config.banner_width < 8`.
+    /// Returns [`ReportError::NonAsciiTitle`] if any agent title contains
+    /// non-ASCII characters.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let cfg = ReportConfig::default();
+    /// let fmt = ReportFormatter::with_config(cfg).expect("default config is valid");
+    /// ```
+    pub fn with_config(config: ReportConfig) -> Result<Self, ReportError> {
+        if config.banner_width < ReportConfig::MIN_BANNER_WIDTH {
+            return Err(ReportError::BannerTooSmall {
+                requested: config.banner_width,
+                minimum: ReportConfig::MIN_BANNER_WIDTH,
+            });
+        }
+        for (agent, (display_name, title)) in &config.agent_titles {
+            if !display_name.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "display_name",
+                    value: display_name.clone(),
+                });
+            }
+            if !title.is_ascii() {
+                return Err(ReportError::NonAsciiTitle {
+                    agent: *agent,
+                    field: "title",
+                    value: title.clone(),
+                });
+            }
+        }
+        Ok(Self::from_valid_config(config))
+    }
+
+    /// Generates the fixed-width ASCII verdict banner with column-aligned agent labels.
+    ///
+    /// Every line is exactly `banner_width` (52) characters. Agent labels are
+    /// left-justified to the same width (`max_label_len`), so verdict suffixes
+    /// start at the same column for all agents. When content overflows the inner
+    /// width, the label is ellipsized while the verdict suffix is preserved intact.
+    ///
+    /// Structure:
     /// ```text
     /// +==================================================+
     /// |          MAGI SYSTEM -- VERDICT                  |
     /// +==================================================+
     /// |  Melchior (Scientist):  APPROVE (90%)            |
+    /// |  Balthasar (Pragmatist): APPROVE (85%)           |
+    /// |  Caspar (Critic):        APPROVE (78%)           |
     /// +==================================================+
-    /// |  CONSENSUS: GO WITH CAVEATS                      |
+    /// |  CONSENSUS: GO WITH CAVEATS (2-1)                |
     /// +==================================================+
     /// ```
     pub fn format_banner(&self, agents: &[AgentOutput], consensus: &ConsensusResult) -> String {
         let mut out = String::new();
         let sep = self.format_separator();
+
+        // Step 1: compute per-agent labels and max label length
+        let labels: Vec<String> = agents
+            .iter()
+            .map(|a| {
+                let (display_name, title) = self.agent_display(&a.agent);
+                format!("{} ({}):", display_name, title)
+            })
+            .collect();
+        let max_label_len = labels.iter().map(|l| l.chars().count()).max().unwrap_or(0);
 
         writeln!(out, "{}", sep).ok();
         writeln!(
@@ -125,19 +394,26 @@ impl ReportFormatter {
         .ok();
         writeln!(out, "{}", sep).ok();
 
-        for agent in agents {
-            let (display_name, title) = self.agent_display(&agent.agent);
+        // Step 2: render each agent line with aligned label
+        for (agent, label) in agents.iter().zip(labels.iter()) {
             let pct = (agent.confidence * 100.0).round() as u32;
-            let content = format!(
-                "  {} ({}):  {} ({}%)",
-                display_name, title, agent.verdict, pct
-            );
-            writeln!(out, "{}", self.format_line(&content)).ok();
+            let verdict_suffix = format!(" {} ({}%)", agent.verdict, pct);
+            let content = format!("  {:<max_label_len$}{}", label, verdict_suffix);
+            let fitted = fit_content(&content, self.banner_inner, &verdict_suffix);
+            writeln!(out, "|{:<width$}|", fitted, width = self.banner_inner).ok();
         }
 
+        // Step 3: consensus line (no suffix protection)
         writeln!(out, "{}", sep).ok();
-        let consensus_line = format!("  CONSENSUS: {}", consensus.consensus);
-        writeln!(out, "{}", self.format_line(&consensus_line)).ok();
+        let consensus_content = format!("  CONSENSUS: {}", consensus.consensus);
+        let fitted_consensus = fit_content(&consensus_content, self.banner_inner, "");
+        writeln!(
+            out,
+            "|{:<width$}|",
+            fitted_consensus,
+            width = self.banner_inner
+        )
+        .ok();
         write!(out, "{}", sep).ok();
 
         out
@@ -183,8 +459,8 @@ impl ReportFormatter {
 
     /// Generates the full markdown report (banner + all sections).
     ///
-    /// Concatenates sections in order: banner, consensus summary, key findings,
-    /// dissenting opinion, conditions for approval, recommended actions.
+    /// Concatenates sections in order: banner, key findings, dissenting opinion,
+    /// conditions for approval, recommended actions.
     /// Optional sections are omitted entirely when their data is absent.
     pub fn format_report(&self, agents: &[AgentOutput], consensus: &ConsensusResult) -> String {
         let mut out = String::new();
@@ -193,25 +469,22 @@ impl ReportFormatter {
         out.push_str(&self.format_banner(agents, consensus));
         out.push('\n');
 
-        // 2. Consensus Summary
-        out.push_str(&self.format_consensus_summary(consensus));
-
-        // 3. Key Findings (optional)
+        // 2. Key Findings (optional)
         if !consensus.findings.is_empty() {
             out.push_str(&self.format_findings(&consensus.findings));
         }
 
-        // 4. Dissenting Opinion (optional)
+        // 3. Dissenting Opinion (optional)
         if !consensus.dissent.is_empty() {
             out.push_str(&self.format_dissent(&consensus.dissent));
         }
 
-        // 5. Conditions for Approval (optional)
+        // 4. Conditions for Approval (optional)
         if !consensus.conditions.is_empty() {
             out.push_str(&self.format_conditions(&consensus.conditions));
         }
 
-        // 6. Recommended Actions
+        // 5. Recommended Actions
         out.push_str(&self.format_recommendations(&consensus.recommendations));
 
         out
@@ -250,15 +523,15 @@ impl ReportFormatter {
         }
     }
 
-    /// Formats the consensus summary section.
-    fn format_consensus_summary(&self, consensus: &ConsensusResult) -> String {
-        let mut out = String::new();
-        writeln!(out, "\n## Consensus Summary\n").ok();
-        writeln!(out, "{}", consensus.majority_summary).ok();
-        out
-    }
-
     /// Formats the key findings section.
+    ///
+    /// Renders one line per finding in the Python MAGI reference layout:
+    /// ```text
+    /// {marker:<5} {severity_label:<14} {title} _(from {sources})_
+    /// ```
+    /// The `detail` field is intentionally excluded from the markdown output.
+    /// It remains accessible via the `ConsensusResult::findings[].detail` field
+    /// in the JSON-serialized `MagiReport`.
     fn format_findings(&self, findings: &[DedupFinding]) -> String {
         let mut out = String::new();
         writeln!(out, "\n## Key Findings\n").ok();
@@ -266,35 +539,39 @@ impl ReportFormatter {
             let sources = finding
                 .sources
                 .iter()
-                .map(|s| s.display_name())
+                .map(|s| self.agent_display(s).0)
                 .collect::<Vec<_>>()
                 .join(", ");
+            let severity_label = format!("**[{}]**", finding.severity);
             writeln!(
                 out,
-                "{} **[{}]** {} _(from {})_",
+                "{:<marker_w$} {:<sev_w$} {} _(from {})_",
                 finding.severity.icon(),
-                finding.severity,
+                severity_label,
                 finding.title,
-                sources
+                sources,
+                marker_w = FINDING_MARKER_WIDTH,
+                sev_w = FINDING_SEVERITY_WIDTH,
             )
             .ok();
-            writeln!(out, "   {}", finding.detail).ok();
-            writeln!(out).ok();
         }
+        writeln!(out).ok();
         out
     }
 
     /// Formats the dissenting opinion section.
+    ///
+    /// Emits one line per dissenter: `**Name (Title)**: <summary>`.
+    /// The `reasoning` field is intentionally excluded — it is preserved
+    /// in the JSON output (`Dissent` struct) but not rendered in the report.
     fn format_dissent(&self, dissent: &[Dissent]) -> String {
         let mut out = String::new();
         writeln!(out, "\n## Dissenting Opinion\n").ok();
         for d in dissent {
-            let (display_name, title) = self.agent_display(&d.agent);
-            writeln!(out, "**{} ({})**: {}", display_name, title, d.summary).ok();
-            writeln!(out).ok();
-            writeln!(out, "{}", d.reasoning).ok();
-            writeln!(out).ok();
+            let (name, title) = self.agent_display(&d.agent);
+            writeln!(out, "**{} ({})**: {}", name, title, d.summary).ok();
         }
+        writeln!(out).ok();
         out
     }
 
@@ -460,7 +737,7 @@ mod tests {
 
     // -- BDD Scenario 16: report sections --
 
-    /// Report with mixed consensus contains all 5 markdown headers.
+    /// Report with mixed consensus contains 4 markdown headers (no Consensus Summary).
     #[test]
     fn test_report_with_mixed_consensus_contains_all_headers() {
         let m = make_agent(
@@ -516,8 +793,8 @@ mod tests {
         let report = formatter.format_report(&agents, &consensus);
 
         assert!(
-            report.contains("## Consensus Summary"),
-            "Missing Consensus Summary"
+            !report.contains("## Consensus Summary"),
+            "Consensus Summary must not appear"
         );
         assert!(report.contains("## Key Findings"), "Missing Key Findings");
         assert!(
@@ -531,6 +808,148 @@ mod tests {
         assert!(
             report.contains("## Recommended Actions"),
             "Missing Recommended Actions"
+        );
+    }
+
+    /// Report does not contain the "## Consensus Summary" heading.
+    #[test]
+    fn test_report_does_not_contain_consensus_summary_heading() {
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let c = make_agent(
+            AgentName::Caspar,
+            Verdict::Approve,
+            0.95,
+            "Good",
+            "R",
+            "Merge",
+        );
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
+
+        let formatter = ReportFormatter::new();
+        let report = formatter.format_report(&agents, &consensus);
+
+        assert!(!report.contains("## Consensus Summary"));
+    }
+
+    /// Report section order: banner ("+====") before any optional sections,
+    /// with no "## Consensus Summary" between them.
+    #[test]
+    fn test_report_section_order_banner_then_findings_or_dissent_or_conditions_or_actions() {
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good code",
+            "Solid",
+            "Merge",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Conditional,
+            0.85,
+            "Needs work",
+            "Issues",
+            "Fix first",
+        );
+        let c = make_agent(
+            AgentName::Caspar,
+            Verdict::Reject,
+            0.78,
+            "Problems",
+            "Risky",
+            "Reject",
+        );
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+
+        let mut consensus = make_consensus(
+            "GO WITH CAVEATS",
+            Verdict::Approve,
+            0.85,
+            0.33,
+            &[&m, &b, &c],
+        );
+        consensus.findings = vec![DedupFinding {
+            severity: Severity::Warning,
+            title: "Test finding".to_string(),
+            detail: "Detail here".to_string(),
+            sources: vec![AgentName::Melchior],
+        }];
+        consensus.dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Problems found".to_string(),
+            reasoning: "Risk is too high".to_string(),
+        }];
+        consensus.conditions = vec![Condition {
+            agent: AgentName::Balthasar,
+            condition: "Fix first".to_string(),
+        }];
+
+        let formatter = ReportFormatter::new();
+        let report = formatter.format_report(&agents, &consensus);
+
+        // No Consensus Summary anywhere
+        assert!(!report.contains("## Consensus Summary"));
+
+        // Banner border must appear before all section headings
+        let banner_pos = report.find("+====").expect("banner border not found");
+        let actions_pos = report
+            .find("## Recommended Actions")
+            .expect("Recommended Actions not found");
+        let findings_pos = report
+            .find("## Key Findings")
+            .expect("Key Findings not found");
+        let dissent_pos = report
+            .find("## Dissenting Opinion")
+            .expect("Dissenting Opinion not found");
+        let conditions_pos = report
+            .find("## Conditions for Approval")
+            .expect("Conditions not found");
+
+        assert!(
+            banner_pos < findings_pos,
+            "banner must come before Key Findings"
+        );
+        assert!(
+            banner_pos < dissent_pos,
+            "banner must come before Dissenting Opinion"
+        );
+        assert!(
+            banner_pos < conditions_pos,
+            "banner must come before Conditions"
+        );
+        assert!(
+            banner_pos < actions_pos,
+            "banner must come before Recommended Actions"
+        );
+
+        // Section order: findings < dissent < conditions < actions
+        assert!(
+            findings_pos < dissent_pos,
+            "Key Findings must come before Dissenting Opinion"
+        );
+        assert!(
+            dissent_pos < conditions_pos,
+            "Dissenting Opinion must come before Conditions"
+        );
+        assert!(
+            conditions_pos < actions_pos,
+            "Conditions must come before Recommended Actions"
         );
     }
 
@@ -691,7 +1110,16 @@ mod tests {
         assert_eq!(sep.len(), 52);
     }
 
-    /// Agent line shows "Name (Title):  VERDICT (NN%)" format.
+    /// Agent line shows "Name (Title):" aligned to max label width, then " VERDICT (NN%)".
+    ///
+    /// With default config:
+    /// - "Melchior (Scientist):"   = 21 chars → padded to 23 → 2 trailing spaces before verdict
+    /// - "Balthasar (Pragmatist):" = 23 chars → max, no padding
+    /// - "Caspar (Critic):"        = 17 chars → padded to 23 → 6 trailing spaces before verdict
+    ///
+    /// Content = "  {label:<23}{verdict_suffix}" where verdict_suffix starts with one space:
+    /// - Melchior: "  Melchior (Scientist):   APPROVE (90%)"  (2+21+2 padding+1 from suffix)
+    /// - Caspar:   "  Caspar (Critic):         APPROVE (78%)" (2+17+6 padding+1 from suffix)
     #[test]
     fn test_agent_line_format() {
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
@@ -710,13 +1138,17 @@ mod tests {
         let formatter = ReportFormatter::new();
         let banner = formatter.format_banner(&agents, &consensus);
 
-        assert!(banner.contains("Melchior (Scientist):  APPROVE (90%)"));
-        assert!(banner.contains("Caspar (Critic):  APPROVE (78%)"));
+        // "Melchior (Scientist):" = 21 chars, padded to 23 (max): 2 extra spaces.
+        // verdict_suffix starts with 1 space → total 3 spaces between colon and APPROVE.
+        assert!(banner.contains("Melchior (Scientist):   APPROVE (90%)"));
+        // "Caspar (Critic):" = 17 chars, padded to 23: 6 extra spaces.
+        // verdict_suffix starts with 1 space → total 7 spaces between colon and APPROVE.
+        assert!(banner.contains("Caspar (Critic):        APPROVE (78%)"));
     }
 
     // -- Report content sections --
 
-    /// Findings section shows icon + severity + title + sources + detail.
+    /// Findings section shows icon + severity + title + sources (detail is excluded from markdown).
     #[test]
     fn test_findings_section_format() {
         let m = make_agent(
@@ -744,13 +1176,14 @@ mod tests {
         assert!(report.contains("SQL injection risk"), "Missing title");
         assert!(report.contains("Melchior"), "Missing source agent");
         assert!(report.contains("Caspar"), "Missing source agent");
+        // detail is preserved in JSON but not rendered in markdown
         assert!(
-            report.contains("User input not sanitized"),
-            "Missing detail"
+            !report.contains("User input not sanitized"),
+            "Detail must not appear in markdown report"
         );
     }
 
-    /// Dissent section shows agent name, summary, full reasoning.
+    /// Dissent section shows agent name and summary; reasoning is not rendered.
     #[test]
     fn test_dissent_section_format() {
         let m = make_agent(
@@ -786,9 +1219,10 @@ mod tests {
             report.contains("Too many issues"),
             "Missing dissent summary"
         );
+        // Reasoning is preserved in the Dissent struct (JSON) but not rendered in the report.
         assert!(
-            report.contains("The code has critical flaws"),
-            "Missing dissent reasoning"
+            !report.contains("The code has critical flaws"),
+            "Dissent reasoning must not appear in the rendered report"
         );
     }
 
@@ -871,7 +1305,7 @@ mod tests {
             banner_width: 52,
             agent_titles: BTreeMap::new(),
         };
-        let formatter = ReportFormatter::with_config(config);
+        let formatter = ReportFormatter::with_config(config).unwrap();
 
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
         let agents = vec![m.clone()];
@@ -973,6 +1407,544 @@ mod tests {
         assert!(report.failed_agents.contains_key(&AgentName::Caspar));
     }
 
+    // -- S07: Dissent rendered as single line (summary-only) --
+
+    /// Two dissenters produce exactly two `**Name (Title)**:` header lines.
+    #[test]
+    fn test_dissent_shows_one_line_per_dissenter() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![
+            Dissent {
+                agent: AgentName::Caspar,
+                summary: "Summary for Caspar".to_string(),
+                reasoning: "Reasoning for Caspar that is long and detailed".to_string(),
+            },
+            Dissent {
+                agent: AgentName::Balthasar,
+                summary: "Summary for Balthasar".to_string(),
+                reasoning: "Reasoning for Balthasar that is very lengthy".to_string(),
+            },
+        ];
+
+        let output = formatter.format_dissent(&dissent);
+
+        // Count lines matching the "**Name (Title)**:" pattern
+        let header_lines: Vec<&str> = output
+            .lines()
+            .filter(|l| l.starts_with("**") && l.contains(")**:"))
+            .collect();
+        assert_eq!(
+            header_lines.len(),
+            2,
+            "Expected exactly 2 dissenter header lines, got {}: {:?}",
+            header_lines.len(),
+            header_lines
+        );
+    }
+
+    /// Each dissenter line contains the summary text but NOT the reasoning text.
+    #[test]
+    fn test_dissent_line_contains_summary_not_reasoning() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Unique summary text here".to_string(),
+            reasoning: "Unique reasoning text should not appear".to_string(),
+        }];
+
+        let output = formatter.format_dissent(&dissent);
+
+        assert!(
+            output.contains("Unique summary text here"),
+            "Output must contain the summary"
+        );
+        assert!(
+            !output.contains("Unique reasoning text should not appear"),
+            "Output must NOT contain the reasoning"
+        );
+    }
+
+    /// The dissent section ends with a blank line after the last dissenter's line.
+    #[test]
+    fn test_dissent_section_has_blank_line_after() {
+        let formatter = ReportFormatter::new();
+        let dissent = vec![Dissent {
+            agent: AgentName::Caspar,
+            summary: "Some summary".to_string(),
+            reasoning: "Some reasoning".to_string(),
+        }];
+
+        let output = formatter.format_dissent(&dissent);
+
+        // The output must end with "\n\n" (dissenter line + trailing blank line)
+        assert!(
+            output.ends_with("\n\n"),
+            "Dissent section must end with a blank line (\\n\\n), got: {:?}",
+            output
+        );
+    }
+
+    // -- S08: Finding line layout (single line, fixed-width columns, no detail) --
+
+    /// Finding detail text must not appear in the rendered findings section.
+    ///
+    /// The detail field is preserved in the JSON output (`DedupFinding::detail`)
+    /// but is intentionally excluded from the markdown report.
+    #[test]
+    fn test_findings_line_does_not_contain_detail_text() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![DedupFinding {
+            severity: Severity::Critical,
+            title: "SQL injection in query builder".to_string(),
+            detail: "UNIQUE_DETAIL_SENTINEL_XYZ".to_string(),
+            sources: vec![AgentName::Melchior],
+        }];
+
+        let output = formatter.format_findings(&findings);
+
+        assert!(
+            !output.contains("UNIQUE_DETAIL_SENTINEL_XYZ"),
+            "Detail text must not appear in the markdown findings output"
+        );
+    }
+
+    /// Marker column is exactly 5 characters, left-justified.
+    ///
+    /// The first token before the separator space must be exactly 5 bytes
+    /// (the icon padded to `FINDING_MARKER_WIDTH`).
+    #[test]
+    fn test_findings_line_marker_column_is_5_chars_left_justified() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "Critical finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Melchior],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "Warning finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "Info finding".to_string(),
+                detail: "detail".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        for line in output.lines() {
+            if line.starts_with('[') {
+                // The marker column occupies positions 0..5 (5 chars), then a space at index 5.
+                let marker_col = &line[..5];
+                assert_eq!(
+                    marker_col.len(),
+                    5,
+                    "Marker column must be 5 chars; got {:?} in line {:?}",
+                    marker_col,
+                    line
+                );
+                assert_eq!(
+                    line.chars().nth(5),
+                    Some(' '),
+                    "Column 5 must be a space separator; got {:?} in line {:?}",
+                    line.chars().nth(5),
+                    line
+                );
+            }
+        }
+    }
+
+    /// Severity label column is exactly 14 characters wide (padded with trailing spaces).
+    ///
+    /// The severity label token (chars 6..20) must be exactly 14 bytes,
+    /// with the markdown-decorated label left-justified inside that width.
+    #[test]
+    fn test_findings_line_severity_label_column_is_14_chars_left_justified() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "A".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Melchior],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "B".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "C".to_string(),
+                detail: "d".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        for line in output.lines() {
+            if line.starts_with('[') {
+                // Layout: [marker:5] [space] [severity_label:14] [space] ...
+                // Positions: 0-4 = marker (5 chars), 5 = space, 6-19 = severity (14 chars), 20 = space
+                assert!(
+                    line.len() >= 21,
+                    "Line too short to contain marker+severity columns: {:?}",
+                    line
+                );
+                let severity_col = &line[6..20];
+                assert_eq!(
+                    severity_col.len(),
+                    14,
+                    "Severity label column must be 14 chars; got {:?} in line {:?}",
+                    severity_col,
+                    line
+                );
+                assert_eq!(
+                    line.chars().nth(20),
+                    Some(' '),
+                    "Column 20 must be a space separator after severity; got {:?} in line {:?}",
+                    line.chars().nth(20),
+                    line
+                );
+            }
+        }
+    }
+
+    /// Full finding line matches the Python MAGI reference layout byte-for-byte.
+    ///
+    /// Format: `{marker:<5} {severity_label:<14} {title} _(from {sources})_`
+    #[test]
+    fn test_findings_line_matches_python_layout_exactly() {
+        let formatter = ReportFormatter::new();
+        let findings = vec![
+            DedupFinding {
+                severity: Severity::Critical,
+                title: "Test title".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Melchior, AgentName::Caspar],
+            },
+            DedupFinding {
+                severity: Severity::Warning,
+                title: "Missing retry logic".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Balthasar],
+            },
+            DedupFinding {
+                severity: Severity::Info,
+                title: "Consider timeout".to_string(),
+                detail: "ignored detail".to_string(),
+                sources: vec![AgentName::Caspar],
+            },
+        ];
+
+        let output = formatter.format_findings(&findings);
+
+        // Exact expected lines per Python MAGI reference layout
+        let expected_critical = "[!!!] **[CRITICAL]** Test title _(from Melchior, Caspar)_";
+        let expected_warning = "[!!]  **[WARNING]**  Missing retry logic _(from Balthasar)_";
+        let expected_info = "[i]   **[INFO]**     Consider timeout _(from Caspar)_";
+
+        assert!(
+            output.contains(expected_critical),
+            "Critical line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_critical,
+            output
+        );
+        assert!(
+            output.contains(expected_warning),
+            "Warning line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_warning,
+            output
+        );
+        assert!(
+            output.contains(expected_info),
+            "Info line does not match Python layout.\nExpected: {:?}\nOutput:\n{}",
+            expected_info,
+            output
+        );
+    }
+
+    // -- S10: fit_content helper --
+
+    /// fit_content returns input unchanged when input length <= width.
+    #[test]
+    fn test_fit_content_returns_input_when_shorter_than_width() {
+        assert_eq!(fit_content("hello", 10, ""), "hello");
+        assert_eq!(fit_content("hi", 10, "lo"), "hi");
+    }
+
+    /// fit_content returns input unchanged when input length exactly equals width.
+    #[test]
+    fn test_fit_content_returns_input_when_exactly_width() {
+        assert_eq!(fit_content("hello", 5, ""), "hello");
+        assert_eq!(fit_content("abcde", 5, "lo"), "abcde");
+    }
+
+    /// fit_content preserves the suffix and ellipsizes the prefix when prefix overflows.
+    #[test]
+    fn test_fit_content_preserves_suffix_when_prefix_overflows() {
+        // content = "abcdefghij" (10), width = 8, preserve_suffix = "hij"
+        // prefix_budget = 8 - 3 - 3 = 2
+        // prefix_source = "abcdefg" (content minus last 3 chars)
+        // prefix_source[..2] = "ab"
+        // result = "ab...hij" (8 chars)
+        assert_eq!(fit_content("abcdefghij", 8, "hij"), "ab...hij");
+    }
+
+    /// fit_content falls back to tail-cut when no suffix is given.
+    #[test]
+    fn test_fit_content_falls_back_to_tail_cut_when_no_suffix() {
+        // content = "abcdefghij" (10), width = 6, preserve_suffix = ""
+        // fallback: cutoff = max(1, 6-3) = 3, result = "abc..."
+        assert_eq!(fit_content("abcdefghij", 6, ""), "abc...");
+    }
+
+    /// fit_content falls back to tail-cut when suffix + ellipsis >= width.
+    #[test]
+    fn test_fit_content_falls_back_to_tail_cut_when_suffix_plus_ellipsis_exceeds_width() {
+        // preserve_suffix = "xy" (2), ELLIPSIS = 3 bytes, total = 5 = width
+        // condition: len(preserve_suffix) + 3 >= width  →  2 + 3 >= 5  → true → fallback
+        // cutoff = max(1, 5-3) = 2, result = "ab..."
+        assert_eq!(fit_content("abcdefghij", 5, "xy"), "ab...");
+    }
+
+    /// fit_content ellipsis is exactly three dots.
+    #[test]
+    fn test_fit_content_ellipsis_is_exactly_three_dots() {
+        let result = fit_content("abcdefghij", 6, "");
+        assert!(
+            result.ends_with("..."),
+            "Expected ellipsis '...', got: {:?}",
+            result
+        );
+        let ellipsis_start = result.len() - 3;
+        assert_eq!(&result[ellipsis_start..], "...");
+    }
+
+    /// fit_content resulting byte length equals width when truncation occurs.
+    #[test]
+    fn test_fit_content_resulting_length_equals_width_when_truncated() {
+        // All cases where content.len() > width must produce exactly width bytes
+        // (except width < 4 edge case documented below)
+        for w in 4..=20usize {
+            let content = "a".repeat(w + 5);
+            let result = fit_content(&content, w, "");
+            assert_eq!(
+                result.len(),
+                w,
+                "Expected result length {w} for width={w}, got {} from {:?}",
+                result.len(),
+                result
+            );
+        }
+        // With suffix
+        let result = fit_content("abcdefghij", 8, "hij");
+        assert_eq!(
+            result.len(),
+            8,
+            "Expected 8, got {}: {:?}",
+            result.len(),
+            result
+        );
+    }
+
+    /// fit_content boundary at width=1: Python-literal fallback produces "a..." (4 bytes).
+    ///
+    /// For width < 4, the result length exceeds `width` (cannot fit ellipsis + 1 char).
+    /// This is an accepted edge case documented in the spec — a literal port of Python behavior.
+    /// Callers should ensure `width >= 4` for sensible truncation.
+    ///
+    /// This test is skipped in debug builds because `fit_content` fires a `debug_assert!(width >= 4)`
+    /// to catch unintended callers in dev/test environments. The width=1 path is only reachable in
+    /// release mode where the assert is compiled out.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn test_fit_content_boundary_width_1() {
+        // width=1: cutoff = max(1, 1.saturating_sub(3)) = max(1, 0) = 1
+        // result = "a..." (4 bytes, exceeds width — documented edge case)
+        let result = fit_content("abc", 1, "");
+        assert_eq!(
+            result, "a...",
+            "Expected 'a...' for width=1, got: {:?}",
+            result
+        );
+    }
+
+    // -- S10: Banner column alignment --
+
+    /// All agent labels are left-aligned to the same column width (max_label_len).
+    #[test]
+    fn test_banner_labels_are_column_aligned_to_max_label_len() {
+        // Default config: Melchior (Scientist): = 21, Balthasar (Pragmatist): = 23, Caspar (Critic): = 17
+        // max_label_len = 23
+        // After alignment: all verdict suffixes start at the same column
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "S",
+            "R",
+            "Rec",
+        );
+        let c = make_agent(AgentName::Caspar, Verdict::Approve, 0.78, "S", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        // Find the agent content lines (not separator, not header, not consensus)
+        // Each agent line starts with "|  " and contains a verdict.
+        // The verdict suffix " APPROVE (NN%)" must start at the same column in all lines.
+        let agent_lines: Vec<&str> = banner
+            .lines()
+            .filter(|l| l.starts_with('|') && l.contains("APPROVE") && !l.contains("CONSENSUS"))
+            .collect();
+
+        assert_eq!(agent_lines.len(), 3, "Expected 3 agent lines");
+
+        // Find position of " APPROVE" in each line — must be the same for all
+        let verdict_positions: Vec<usize> = agent_lines
+            .iter()
+            .map(|l| l.find(" APPROVE").expect("APPROVE not found"))
+            .collect();
+
+        let first_pos = verdict_positions[0];
+        for (i, &pos) in verdict_positions.iter().enumerate() {
+            assert_eq!(
+                pos, first_pos,
+                "Agent line {i} has APPROVE at column {pos}, expected {first_pos}\nLines: {agent_lines:?}"
+            );
+        }
+    }
+
+    /// When a label is so long that the rendered line would overflow, the label is ellipsized
+    /// but the verdict suffix is preserved intact.
+    #[test]
+    fn test_banner_verdict_preserved_when_label_exceeds_width() {
+        // Use a very long title that would push the line over banner_inner (50 chars)
+        let mut config = ReportConfig::default();
+        config.agent_titles.insert(
+            AgentName::Balthasar,
+            (
+                "Balthasar".to_string(),
+                "Very Long Pragmatist Title Indeed Here".to_string(),
+            ),
+        );
+        let formatter = ReportFormatter::with_config(config).unwrap();
+
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "S",
+            "R",
+            "Rec",
+        );
+        let agents = vec![b.clone()];
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.85, 1.0, &[&b]);
+
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        // All lines must still be exactly 52 chars
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
+
+        // The verdict suffix must appear intact in the banner
+        let verdict_suffix = " APPROVE (85%)";
+        assert!(
+            banner.contains(verdict_suffix),
+            "Verdict suffix {:?} must be preserved in banner:\n{}",
+            verdict_suffix,
+            banner
+        );
+    }
+
+    /// The consensus line for GO WITH CAVEATS includes the split count (e.g., "GO WITH CAVEATS (2-1)").
+    #[test]
+    fn test_banner_consensus_line_includes_split_for_go_with_caveats() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let b = make_agent(AgentName::Balthasar, Verdict::Approve, 0.8, "S", "R", "Rec");
+        let c = make_agent(AgentName::Caspar, Verdict::Reject, 0.75, "S", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        // The consensus label must include the split — this is produced by the consensus engine (S05)
+        let consensus = make_consensus(
+            "GO WITH CAVEATS (2-1)",
+            Verdict::Approve,
+            0.8,
+            0.33,
+            &[&m, &b, &c],
+        );
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        assert!(
+            banner.contains("GO WITH CAVEATS (2-1)"),
+            "Banner consensus line must include the split count: {banner}"
+        );
+
+        // All lines must be exactly 52 chars
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
+    }
+
+    /// All lines of format_banner output are exactly banner_width (52) bytes.
+    ///
+    /// Re-verifies the existing invariant after alignment changes.
+    #[test]
+    fn test_banner_all_lines_are_exactly_banner_width() {
+        let m = make_agent(
+            AgentName::Melchior,
+            Verdict::Approve,
+            0.9,
+            "Good",
+            "R",
+            "Rec",
+        );
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Conditional,
+            0.85,
+            "Ok",
+            "R",
+            "Rec",
+        );
+        let c = make_agent(AgentName::Caspar, Verdict::Reject, 0.78, "Bad", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus(
+            "GO WITH CAVEATS (2-1)",
+            Verdict::Approve,
+            0.85,
+            0.33,
+            &[&m, &b, &c],
+        );
+
+        let formatter = ReportFormatter::new();
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        for line in banner.lines() {
+            if !line.is_empty() {
+                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+            }
+        }
+    }
+
     /// Agent names in JSON are lowercase.
     #[test]
     fn test_magi_report_json_agent_names_lowercase() {
@@ -1024,5 +1996,153 @@ mod tests {
             json.contains("0.8567"),
             "Confidence should be serialized as-is (rounding is consensus engine's job)"
         );
+    }
+
+    // -- ReportConfig::new_checked tests --
+
+    /// ReportConfig::new_checked accepts all ASCII titles.
+    #[test]
+    fn test_new_checked_accepts_all_ascii_titles() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Melchior,
+            ("Melchior".to_string(), "Scientist".to_string()),
+        );
+        agent_titles.insert(
+            AgentName::Balthasar,
+            ("Balthasar".to_string(), "Pragmatist".to_string()),
+        );
+        agent_titles.insert(
+            AgentName::Caspar,
+            ("Caspar".to_string(), "Critic".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_ok(), "Should accept all ASCII titles");
+        let config = result.unwrap();
+        assert_eq!(config.banner_width, 52);
+    }
+
+    /// ReportConfig::new_checked rejects non-ASCII display_name.
+    #[test]
+    fn test_new_checked_rejects_non_ascii_display_name() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Melchior,
+            ("Mélchior".to_string(), "Scientist".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_err(), "Should reject non-ASCII display_name");
+        let err = result.unwrap_err();
+        let ReportError::NonAsciiTitle {
+            agent,
+            field,
+            value,
+            ..
+        } = err
+        else {
+            panic!("expected NonAsciiTitle, got {err:?}");
+        };
+        assert_eq!(agent, AgentName::Melchior);
+        assert_eq!(field, "display_name");
+        assert_eq!(value, "Mélchior");
+    }
+
+    /// ReportConfig::new_checked rejects non-ASCII title field.
+    #[test]
+    fn test_new_checked_rejects_non_ascii_title_field() {
+        let mut agent_titles = BTreeMap::new();
+        agent_titles.insert(
+            AgentName::Balthasar,
+            ("Balthasar".to_string(), "Pragmátist".to_string()),
+        );
+
+        let result = ReportConfig::new_checked(52, agent_titles);
+        assert!(result.is_err(), "Should reject non-ASCII title");
+        let err = result.unwrap_err();
+        let ReportError::NonAsciiTitle {
+            agent,
+            field,
+            value,
+            ..
+        } = err
+        else {
+            panic!("expected NonAsciiTitle, got {err:?}");
+        };
+        assert_eq!(agent, AgentName::Balthasar);
+        assert_eq!(field, "title");
+        assert_eq!(value, "Pragmátist");
+    }
+
+    // -- ReportConfig::new_checked rejects banner_width too small --
+
+    #[test]
+    fn test_new_checked_rejects_banner_width_too_small() {
+        let titles = BTreeMap::new();
+        for width in [0usize, 1, 4, 7] {
+            let result = ReportConfig::new_checked(width, titles.clone());
+            assert!(result.is_err(), "banner_width={width} should be rejected");
+            assert_eq!(
+                result.unwrap_err(),
+                ReportError::BannerTooSmall {
+                    requested: width,
+                    minimum: ReportConfig::MIN_BANNER_WIDTH,
+                },
+                "wrong error variant for banner_width={width}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_new_checked_accepts_banner_width_at_minimum() {
+        let titles = BTreeMap::new();
+        assert!(
+            ReportConfig::new_checked(ReportConfig::MIN_BANNER_WIDTH, titles).is_ok(),
+            "banner_width == MIN_BANNER_WIDTH should be accepted"
+        );
+    }
+
+    // -- ReportFormatter::with_config re-validation tests (Fix 1) --
+
+    /// with_config rejects banner_width below minimum even when set via field mutation.
+    #[test]
+    fn test_with_config_rejects_banner_width_too_small() {
+        // Construct directly to bypass new_checked validation and test that with_config
+        // catches the invalid value at formatter construction time.
+        let cfg = ReportConfig {
+            banner_width: 1,
+            ..ReportConfig::default()
+        };
+        match ReportFormatter::with_config(cfg) {
+            Err(ReportError::BannerTooSmall { requested, minimum }) => {
+                assert_eq!(requested, 1);
+                assert_eq!(minimum, ReportConfig::MIN_BANNER_WIDTH);
+            }
+            Err(other) => panic!("expected BannerTooSmall, got {other:?}"),
+            Ok(_) => panic!("with_config must re-validate banner_width"),
+        }
+    }
+
+    /// with_config rejects non-ASCII agent title set after default construction.
+    #[test]
+    fn test_with_config_rejects_non_ascii_agent_title() {
+        let mut titles = BTreeMap::new();
+        titles.insert(
+            AgentName::Melchior,
+            ("Ménagère".to_string(), "Scientist".to_string()),
+        );
+        let cfg = ReportConfig {
+            banner_width: 52,
+            agent_titles: titles,
+        };
+        match ReportFormatter::with_config(cfg) {
+            Err(ReportError::NonAsciiTitle { agent, field, .. }) => {
+                assert_eq!(agent, AgentName::Melchior);
+                assert_eq!(field, "display_name");
+            }
+            Err(other) => panic!("expected NonAsciiTitle, got {other:?}"),
+            Ok(_) => panic!("with_config must reject non-ASCII titles"),
+        }
     }
 }
