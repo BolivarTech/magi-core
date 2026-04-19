@@ -19,7 +19,7 @@ pub mod melchior;
 /// assert!(!prompt.is_empty());
 /// ```
 pub fn melchior_prompt() -> &'static str {
-    unreachable!("T09 Green will replace with include_str!")
+    include_str!("../prompts_md/melchior.md")
 }
 
 /// Returns the consolidated, mode-agnostic system prompt for Balthasar (Pragmatist).
@@ -33,7 +33,7 @@ pub fn melchior_prompt() -> &'static str {
 /// assert!(!prompt.is_empty());
 /// ```
 pub fn balthasar_prompt() -> &'static str {
-    unreachable!("T09 Green will replace with include_str!")
+    include_str!("../prompts_md/balthasar.md")
 }
 
 /// Returns the consolidated, mode-agnostic system prompt for Caspar (Critic).
@@ -47,7 +47,7 @@ pub fn balthasar_prompt() -> &'static str {
 /// assert!(!prompt.is_empty());
 /// ```
 pub fn caspar_prompt() -> &'static str {
-    unreachable!("T09 Green will replace with include_str!")
+    include_str!("../prompts_md/caspar.md")
 }
 
 // ── Legacy per-mode accessors (deprecated since 0.3.0) ───────────────────────
