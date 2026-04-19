@@ -9,41 +9,39 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::prompts;
-
 /// All analysis modes in iteration order.
 const ALL_MODES: [Mode; 3] = [Mode::CodeReview, Mode::Design, Mode::Analysis];
 
 /// An autonomous MAGI agent with its own identity, system prompt, and LLM provider.
 ///
-/// Each agent combines an [`AgentName`] identity, a [`Mode`]-specific system prompt,
-/// and an [`LlmProvider`] backend. The agent delegates LLM communication to its
-/// provider via [`execute`](Agent::execute).
+/// Each agent combines an [`AgentName`] identity, a mode-agnostic system prompt
+/// (v0.3.0+), and an [`LlmProvider`] backend. The agent delegates LLM communication
+/// to its provider via [`execute`](Agent::execute).
 pub struct Agent {
     name: AgentName,
-    mode: Mode,
     system_prompt: String,
     provider: Arc<dyn LlmProvider>,
 }
 
 impl Agent {
-    /// Creates an agent with an auto-generated system prompt for the given name and mode.
+    /// Creates an agent with a mode-agnostic system prompt for the given name.
     ///
     /// The prompt is selected from compiled-in markdown files via `include_str!`.
+    /// As of v0.3.0 the `mode` parameter has been removed; the agent uses a single
+    /// consolidated prompt per identity. Mode routing is handled by the orchestrator.
     ///
     /// # Parameters
     /// - `name`: Which MAGI agent (Melchior, Balthasar, Caspar).
-    /// - `mode`: Analysis mode (CodeReview, Design, Analysis).
     /// - `provider`: The LLM backend for this agent.
-    pub fn new(name: AgentName, mode: Mode, provider: Arc<dyn LlmProvider>) -> Self {
+    pub fn new(name: AgentName, provider: Arc<dyn LlmProvider>) -> Self {
+        // TODO(T12): replace with lookup_prompt (T12).
         let prompt = match name {
-            AgentName::Melchior => prompts::melchior::prompt_for_mode(&mode),
-            AgentName::Balthasar => prompts::balthasar::prompt_for_mode(&mode),
-            AgentName::Caspar => prompts::caspar::prompt_for_mode(&mode),
+            AgentName::Melchior => crate::prompts::melchior_prompt(),
+            AgentName::Balthasar => crate::prompts::balthasar_prompt(),
+            AgentName::Caspar => crate::prompts::caspar_prompt(),
         };
         Self {
             name,
-            mode,
             system_prompt: prompt.to_string(),
             provider,
         }
@@ -53,18 +51,15 @@ impl Agent {
     ///
     /// # Parameters
     /// - `name`: Which MAGI agent.
-    /// - `mode`: Analysis mode.
     /// - `provider`: The LLM backend.
     /// - `prompt`: Custom system prompt string.
     pub fn with_custom_prompt(
         name: AgentName,
-        mode: Mode,
         provider: Arc<dyn LlmProvider>,
         prompt: String,
     ) -> Self {
         Self {
             name,
-            mode,
             system_prompt: prompt,
             provider,
         }
@@ -76,7 +71,6 @@ impl Agent {
     ///
     /// # Parameters
     /// - `name`: Which MAGI agent.
-    /// - `mode`: Analysis mode.
     /// - `provider`: The LLM backend.
     /// - `path`: Path to the prompt file.
     ///
@@ -84,14 +78,12 @@ impl Agent {
     /// Returns `MagiError::Io` if the file does not exist or cannot be read.
     pub fn from_file(
         name: AgentName,
-        mode: Mode,
         provider: Arc<dyn LlmProvider>,
         path: &Path,
     ) -> Result<Self, MagiError> {
         let prompt = std::fs::read_to_string(path)?;
         Ok(Self {
             name,
-            mode,
             system_prompt: prompt,
             provider,
         })
@@ -121,11 +113,6 @@ impl Agent {
     /// Returns the agent's name.
     pub fn name(&self) -> AgentName {
         self.name
-    }
-
-    /// Returns the agent's analysis mode.
-    pub fn mode(&self) -> Mode {
-        self.mode
     }
 
     /// Returns the agent's system prompt.
@@ -262,9 +249,9 @@ impl AgentFactory {
                     .unwrap_or_else(|| self.default_provider.clone());
 
                 if let Some(prompt) = self.custom_prompts.get(&(name, mode)) {
-                    Agent::with_custom_prompt(name, mode, provider, prompt.clone())
+                    Agent::with_custom_prompt(name, provider, prompt.clone())
                 } else {
-                    Agent::new(name, mode, provider)
+                    Agent::new(name, provider)
                 }
             })
             .collect()
@@ -387,20 +374,20 @@ mod tests {
         assert_eq!(caspar.provider_name(), "caspar-special");
     }
 
-    // -- BDD Scenario 30: modes generate different prompts --
+    // -- BDD Scenario 30: each agent identity produces a distinct prompt --
 
-    /// CodeReview, Design, Analysis produce distinct system prompts per agent.
+    /// Melchior, Balthasar, and Caspar produce distinct mode-agnostic system prompts.
     #[test]
-    fn test_different_modes_produce_distinct_prompts() {
+    fn test_different_agent_identities_produce_distinct_prompts() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
 
-        let cr = Agent::new(AgentName::Melchior, Mode::CodeReview, provider.clone());
-        let design = Agent::new(AgentName::Melchior, Mode::Design, provider.clone());
-        let analysis = Agent::new(AgentName::Melchior, Mode::Analysis, provider.clone());
+        let melchior = Agent::new(AgentName::Melchior, provider.clone());
+        let balthasar = Agent::new(AgentName::Balthasar, provider.clone());
+        let caspar = Agent::new(AgentName::Caspar, provider.clone());
 
-        assert_ne!(cr.system_prompt(), design.system_prompt());
-        assert_ne!(cr.system_prompt(), analysis.system_prompt());
-        assert_ne!(design.system_prompt(), analysis.system_prompt());
+        assert_ne!(melchior.system_prompt(), balthasar.system_prompt());
+        assert_ne!(melchior.system_prompt(), caspar.system_prompt());
+        assert_ne!(balthasar.system_prompt(), caspar.system_prompt());
     }
 
     // -- BDD Scenario 31: from_directory with nonexistent path --
@@ -416,11 +403,11 @@ mod tests {
 
     // -- Agent construction and accessors --
 
-    /// Agent::new generates system prompt from include_str! prompts.
+    /// Agent::new generates system prompt from mode-agnostic compiled-in prompts.
     #[test]
     fn test_agent_new_generates_system_prompt() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
-        let agent = Agent::new(AgentName::Melchior, Mode::CodeReview, provider);
+        let agent = Agent::new(AgentName::Melchior, provider);
         assert!(!agent.system_prompt().is_empty());
     }
 
@@ -428,12 +415,8 @@ mod tests {
     #[test]
     fn test_agent_with_custom_prompt_uses_provided_prompt() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
-        let agent = Agent::with_custom_prompt(
-            AgentName::Melchior,
-            Mode::CodeReview,
-            provider,
-            "Custom prompt".to_string(),
-        );
+        let agent =
+            Agent::with_custom_prompt(AgentName::Melchior, provider, "Custom prompt".to_string());
         assert_eq!(agent.system_prompt(), "Custom prompt");
     }
 
@@ -442,7 +425,7 @@ mod tests {
     async fn test_agent_execute_delegates_to_provider() {
         let provider = Arc::new(MockProvider::new("mock", "m1", "response text"));
         let provider_arc = provider.clone() as Arc<dyn LlmProvider>;
-        let agent = Agent::new(AgentName::Melchior, Mode::CodeReview, provider_arc);
+        let agent = Agent::new(AgentName::Melchior, provider_arc);
         let config = CompletionConfig::default();
 
         let result = agent.execute("user input", &config).await;
@@ -455,10 +438,9 @@ mod tests {
     fn test_agent_accessors() {
         let provider = Arc::new(MockProvider::new("test-provider", "test-model", "r"));
         let provider_arc = provider.clone() as Arc<dyn LlmProvider>;
-        let agent = Agent::new(AgentName::Balthasar, Mode::Design, provider_arc);
+        let agent = Agent::new(AgentName::Balthasar, provider_arc);
 
         assert_eq!(agent.name(), AgentName::Balthasar);
-        assert_eq!(agent.mode(), Mode::Design);
         assert_eq!(agent.provider_name(), "test-provider");
         assert_eq!(agent.provider_model(), "test-model");
         assert_eq!(agent.display_name(), "Balthasar");
@@ -558,18 +540,16 @@ mod tests {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
 
         for name in [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar] {
-            for mode in [Mode::CodeReview, Mode::Design, Mode::Analysis] {
-                let agent = Agent::new(name, mode, provider.clone());
-                let prompt = agent.system_prompt();
-                assert!(
-                    prompt.contains("JSON"),
-                    "{name:?}/{mode:?} prompt should mention JSON"
-                );
-                assert!(
-                    prompt.contains("English"),
-                    "{name:?}/{mode:?} prompt should mention English"
-                );
-            }
+            let agent = Agent::new(name, provider.clone());
+            let prompt = agent.system_prompt();
+            assert!(
+                prompt.contains("JSON"),
+                "{name:?} prompt should mention JSON"
+            );
+            assert!(
+                prompt.contains("English"),
+                "{name:?} prompt should mention English"
+            );
         }
     }
 
@@ -579,7 +559,6 @@ mod tests {
         let provider = Arc::new(MockProvider::new("mock", "m1", "r1")) as Arc<dyn LlmProvider>;
         let result = Agent::from_file(
             AgentName::Melchior,
-            Mode::CodeReview,
             provider,
             Path::new("/nonexistent/prompt.md"),
         );
