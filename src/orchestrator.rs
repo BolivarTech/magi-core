@@ -1068,6 +1068,152 @@ mod tests {
         }
     }
 
+    // -- T08: integration tests via Magi::analyze --
+
+    /// BDD-03: Melchior fails first attempt with empty JSON, recovers on
+    /// retry. retried_agents contains Melchior, failed_agents empty.
+    #[tokio::test]
+    async fn test_analyze_populates_retried_agents_on_recovery() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![
+                        Ok("{}".to_string()),
+                        Ok(mock_agent_json("melchior", "approve", 0.9)),
+                    ],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await.unwrap();
+
+        assert!(
+            report.failed_agents.is_empty(),
+            "failed: {:?}",
+            report.failed_agents
+        );
+        assert_eq!(report.retried_agents.len(), 1);
+        assert!(report.retried_agents.contains(&AgentName::Melchior));
+        assert_eq!(report.agents.len(), 3);
+    }
+
+    /// BDD-05: Caspar fails both attempts; lands in failed_agents AND
+    /// retried_agents. Degraded mode triggers (2/3 agents).
+    #[tokio::test]
+    async fn test_analyze_retry_also_fails_lands_in_both_sets() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok("bad".to_string()), Ok("still bad".to_string())],
+                )
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![Ok(mock_agent_json("melchior", "approve", 0.9))],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                ),
+        );
+        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        let report = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
+
+        assert_eq!(report.agents.len(), 2);
+        assert!(report.failed_agents.contains_key(&AgentName::Caspar));
+        assert!(
+            report.failed_agents[&AgentName::Caspar].starts_with("retry-failed: "),
+            "got: {}",
+            report.failed_agents[&AgentName::Caspar]
+        );
+        assert!(report.retried_agents.contains(&AgentName::Caspar));
+        assert!(report.degraded);
+    }
+
+    /// BDD-06: Provider timeout for Balthasar — no retry, retried_agents empty.
+    #[tokio::test]
+    async fn test_analyze_no_retry_on_timeout_keeps_retried_empty() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Err(ProviderError::Timeout {
+                        message: "t".to_string(),
+                    })],
+                )
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![Ok(mock_agent_json("melchior", "approve", 0.9))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        let report = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
+
+        assert_eq!(report.agents.len(), 2);
+        assert!(report.failed_agents.contains_key(&AgentName::Balthasar));
+        assert!(
+            report.retried_agents.is_empty(),
+            "no retry on timeout; got: {:?}",
+            report.retried_agents
+        );
+    }
+
+    /// MAGI R2 W6 / spec [D-24]: MagiBuilder::with_retry_disabled() bypasses
+    /// the retry layer end-to-end. Melchior's first invalid response becomes
+    /// the failure reason WITHOUT "retry-failed:" prefix; the sentinel in
+    /// the second slot must never be consumed.
+    #[tokio::test]
+    async fn test_analyze_with_retry_disabled_skips_retry() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![
+                        Ok("{}".to_string()),                       // invalid
+                        Ok("MUST NOT BE CALLED".to_string()),       // sentinel
+                    ],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_retry_disabled()
+            .build()
+            .expect("build");
+        let report = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
+
+        assert_eq!(report.agents.len(), 2);
+        assert!(report.failed_agents.contains_key(&AgentName::Melchior));
+        assert!(
+            report.retried_agents.is_empty(),
+            "retry disabled => no retry telemetry"
+        );
+        // MAGI R3 Melchior: tighten — must NOT see retry-failed prefix.
+        let mel_reason = &report.failed_agents[&AgentName::Melchior];
+        assert!(
+            !mel_reason.starts_with("retry-failed:"),
+            "disabled retry MUST NOT produce retry-failed: prefix. Got: {mel_reason}"
+        );
+    }
+
     // -- T07: dispatch_one_agent retry FSM + BDD-19 no-retry suite --
 
     use crate::agent::CURRENT_AGENT_IDENTITY;
