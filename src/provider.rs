@@ -3,6 +3,7 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
+use crate::schema::Mode;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -213,6 +214,36 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
+
+    // -- default_model_for_mode tests (T02) --
+
+    /// Default model for code-review mode is opus per Python v2.2.8 MODE_DEFAULT_MODELS.
+    #[test]
+    fn test_default_model_for_mode_code_review_is_opus() {
+        assert_eq!(default_model_for_mode(Mode::CodeReview), "opus");
+    }
+
+    /// Default model for design mode is opus per Python v2.2.8 MODE_DEFAULT_MODELS.
+    #[test]
+    fn test_default_model_for_mode_design_is_opus() {
+        assert_eq!(default_model_for_mode(Mode::Design), "opus");
+    }
+
+    /// Default model for analysis mode is opus per Python v2.2.8 MODE_DEFAULT_MODELS.
+    /// Note: Python v2.2.3 had sonnet here briefly, reverted to opus in v2.2.5
+    /// due to output-length structural failures. See `models.py:39-50` in upstream.
+    #[test]
+    fn test_default_model_for_mode_analysis_is_opus() {
+        assert_eq!(default_model_for_mode(Mode::Analysis), "opus");
+    }
+
+    /// Pairing with resolve_claude_alias yields the full model id.
+    #[test]
+    fn test_default_model_for_mode_composes_with_resolve_claude_alias() {
+        let alias = default_model_for_mode(Mode::Analysis);
+        let id = resolve_claude_alias(alias).expect("opus alias resolves");
+        assert_eq!(id, "claude-opus-4-7");
+    }
 
     /// Manual mock provider for testing.
     struct MockProvider {
