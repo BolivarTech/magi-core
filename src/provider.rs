@@ -101,6 +101,38 @@ pub fn resolve_claude_alias(model: &str) -> Result<String, ProviderError> {
     }
 }
 
+/// Resolves the default model short-name (`"opus"`, `"sonnet"`, `"haiku"`)
+/// recommended for the given analysis mode.
+///
+/// Mirrors Python's `MODE_DEFAULT_MODELS` (MAGI@v2.2.8 `models.py:58-62`).
+/// As of v0.4.0 all three modes default to `"opus"` per Python parity.
+/// Pair with [`resolve_claude_alias`] to obtain the full model id:
+///
+/// ```
+/// use magi_core::provider::{default_model_for_mode, resolve_claude_alias};
+/// use magi_core::schema::Mode;
+///
+/// let alias = default_model_for_mode(Mode::Analysis);
+/// let model_id = resolve_claude_alias(alias).unwrap();
+/// assert_eq!(model_id, "claude-opus-4-7");
+/// ```
+///
+/// # Arguments
+///
+/// * `mode` — The analysis mode whose default model alias to return.
+///
+/// # Returns
+///
+/// The short alias name (always `"opus"` in v0.4.0). Future versions may
+/// route different modes to different defaults without breaking this API.
+pub fn default_model_for_mode(mode: Mode) -> &'static str {
+    match mode {
+        Mode::CodeReview => "opus",
+        Mode::Design => "opus",
+        Mode::Analysis => "opus",
+    }
+}
+
 /// Opt-in retry wrapper for any `LlmProvider`.
 ///
 /// Wraps an inner provider and retries transient errors (timeout, network,
