@@ -33,6 +33,56 @@ use magi_core::prelude::*;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Configures the console output codepage to UTF-8 on Windows so that
+/// subsequent `println!` calls can emit multibyte UTF-8 sequences (em-dash,
+/// ellipsis, etc.) without panicking on cp1252-default consoles.
+///
+/// On non-Windows platforms this is a no-op — terminals are already UTF-8
+/// by default on Linux/macOS.
+///
+/// **MAGI R1 W15:** the SetConsoleOutputCP return value is checked; a failed
+/// call (e.g., stdout redirected to a file with no console attached) emits
+/// a stderr warning instead of being silently ignored. Downstream consumers
+/// that pipe the example's output may still see codepage-related corruption
+/// in that case, but the warning makes it diagnosable.
+#[cfg(windows)]
+fn setup_console_encoding() {
+    // SAFETY: SetConsoleOutputCP is a Win32 API that takes a single u32
+    // by value and returns a BOOL (i32 — nonzero on success, zero on
+    // failure). It accesses no shared memory, has no aliasing concerns,
+    // and is documented thread-safe by Microsoft. Calling it once at
+    // process start with CP_UTF8 (65001) is the canonical way to
+    // configure UTF-8 console output on Windows.
+    const CP_UTF8: u32 = 65001;
+    unsafe extern "system" {
+        fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
+    }
+    let ok = unsafe { SetConsoleOutputCP(CP_UTF8) };
+    if ok == 0 {
+        eprintln!(
+            "warning: SetConsoleOutputCP(CP_UTF8) failed (likely no console attached); \
+             UTF-8 output may be corrupted in downstream consumers"
+        );
+    }
+}
+
+#[cfg(not(windows))]
+fn setup_console_encoding() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// MAGI R1 W11 regression guard: ensures `setup_console_encoding`
+    /// compiles and runs without panicking on both Windows and non-Windows.
+    /// Does NOT verify the side effect (codepage change) — that requires a
+    /// manual smoke test on a Windows console.
+    #[test]
+    fn test_setup_console_encoding_runs_without_panic() {
+        setup_console_encoding();
+    }
+}
+
 /// Prints usage information and exits.
 fn print_usage() {
     eprintln!(
@@ -106,9 +156,13 @@ fn read_input(input_arg: Option<String>) -> Result<String, std::io::Error> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Default argument values
+    setup_console_encoding();
+
+    // Default argument values. `model` defaults to None; if the user does
+    // not pass --model, we resolve it via `default_model_for_mode(mode)`
+    // once mode is parsed (v0.4.0, Python v2.2.3 parity).
     let mut provider_name = "cli".to_string();
-    let mut model = "opus".to_string();
+    let mut model: Option<String> = None;
     let mut mode_str = "code-review".to_string();
     let mut api_key: Option<String> = None;
     let mut input: Option<String> = None;
@@ -130,7 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--model" => {
                 i += 1;
-                model = args.get(i).ok_or("--model requires a value")?.clone();
+                model = Some(args.get(i).ok_or("--model requires a value")?.clone());
             }
             "--mode" => {
                 i += 1;
@@ -164,6 +218,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse mode
     let mode = parse_mode(&mode_str).map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+    // Resolve model: explicit --model wins; otherwise use the mode default
+    // (v0.4.0 / Python v2.2.3 MODE_DEFAULT_MODELS parity).
+    let model = model.unwrap_or_else(|| default_model_for_mode(mode).to_string());
 
     // Create the provider
     let provider = create_provider(&provider_name, &model, api_key.as_deref())?;
