@@ -86,6 +86,21 @@ impl Default for MagiConfig {
     }
 }
 
+/// Type alias for the complexity-gate predicate. Erased trait object
+/// shared via `Arc` so it can be cloned across spawned tasks at zero
+/// runtime cost (Arc clone is a refcount bump).
+///
+/// Predicate signature uses `&Mode` (not `Mode` by value) so that future
+/// growth of `Mode` (e.g., variants holding non-`Copy` data) does not
+/// silently change predicate ergonomics. `Mode` is currently `Copy` so
+/// the by-reference choice has zero runtime cost.
+///
+/// **Future: a fallible variant** — a `Result<bool, MagiError>`-returning
+/// alternative may be added in v0.6.x if callers need predicate-supplied
+/// error context. The current `bool` form is the simple-case API; it
+/// will not be removed (the type alias may grow a sibling, not change).
+pub(crate) type ComplexityGate = Arc<dyn Fn(&str, &Mode) -> bool + Send + Sync>;
+
 /// Consuming builder for constructing [`Magi`] instances.
 ///
 /// The only required field is `default_provider`, passed to the constructor.
@@ -104,21 +119,6 @@ impl Default for MagiConfig {
 /// //     .build()
 /// //     .expect("build");
 /// ```
-/// Type alias for the complexity-gate predicate. Erased trait object
-/// shared via `Arc` so it can be cloned across spawned tasks at zero
-/// runtime cost (Arc clone is a refcount bump).
-///
-/// Predicate signature uses `&Mode` (not `Mode` by value) so that future
-/// growth of `Mode` (e.g., variants holding non-`Copy` data) does not
-/// silently change predicate ergonomics. `Mode` is currently `Copy` so
-/// the by-reference choice has zero runtime cost.
-///
-/// **Future: a fallible variant** — a `Result<bool, MagiError>`-returning
-/// alternative may be added in v0.6.x if callers need predicate-supplied
-/// error context. The current `bool` form is the simple-case API; it
-/// will not be removed (the type alias may grow a sibling, not change).
-pub(crate) type ComplexityGate = Arc<dyn Fn(&str, &Mode) -> bool + Send + Sync>;
-
 pub struct MagiBuilder {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: BTreeMap<AgentName, Arc<dyn LlmProvider>>,
@@ -547,14 +547,14 @@ impl Magi {
             });
         }
 
-        // 2. Create agents, resolving system prompts via lookup_prompt so that
+        // 3. Create agents, resolving system prompts via lookup_prompt so that
         //    overrides registered through with_custom_prompt_for_mode /
         //    with_custom_prompt_all_modes take effect.
         let agents = self
             .agent_factory
             .create_agents_with_prompts(*mode, &self.overrides);
 
-        // 3. Build user prompt with sanitization and nonce injection.
+        // 4. Build user prompt with sanitization and nonce injection.
         //    Lock is released immediately after prompt construction.
         let prompt = {
             let mut rng = self
@@ -564,19 +564,19 @@ impl Magi {
             build_user_prompt(*mode, content, &mut **rng)?
         };
 
-        // 4. Dispatch agents in parallel with single-shot retry on schema/parse errors.
+        // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
         //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
         let (successful, failed_agents, retried_agents) =
             self.dispatch_with_retry(agents, &prompt).await?;
 
-        // 5. Consensus
+        // 6. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
 
-        // 6. Report
+        // 7. Report
         let banner = self.formatter.format_banner(&successful, &consensus);
         let report = self.formatter.format_report(&successful, &consensus);
 
-        // 7. Build MagiReport
+        // 8. Build MagiReport
         let degraded = successful.len() < 3;
         Ok(MagiReport {
             agents: successful,
@@ -1421,7 +1421,11 @@ mod tests {
             .expect("build");
         let err = magi.analyze(&Mode::Analysis, "short").await.unwrap_err();
         match err {
-            MagiError::SkippedByComplexityGate { reason } => {
+            // `..` rest pattern matches the documented #[non_exhaustive] contract
+            // on the variant (see error.rs). Downstream callers MUST use this
+            // pattern; in-crate code can match exhaustively but uses `..` here
+            // for consistency with the documented user-facing pattern.
+            MagiError::SkippedByComplexityGate { reason, .. } => {
                 // Loop 1 I2: tightened from `contains("content_len") ||
                 // contains("len")` — the loose disjunct would silently
                 // accept regressions to unrelated strings containing "len".
