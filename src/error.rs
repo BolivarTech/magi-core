@@ -107,14 +107,25 @@ pub enum MagiError {
     /// the `reason` string in this variant is **library-synthesized**, not
     /// caller-supplied — see field doc below for the format.
     ///
+    /// The variant itself is `#[non_exhaustive]` so future fields (e.g.,
+    /// structured `content_len: usize`, `mode: Mode`) can be added without
+    /// breaking match patterns. Match using `..` rest pattern.
+    ///
     /// See [`MagiBuilder::with_complexity_gate`](crate::orchestrator::MagiBuilder::with_complexity_gate).
     #[error("skipped by complexity gate: {reason}")]
+    #[non_exhaustive]
     SkippedByComplexityGate {
-        /// Library-synthesized description of the skip, in the format
-        /// `"complexity gate rejected: mode={mode}, content_len={N}"`.
-        /// Useful for structured logging of skip rates and tuning the
-        /// predicate downstream. Callers cannot influence this text — the
-        /// gate predicate returns only a `bool`.
+        /// Library-synthesized description of the skip, currently in the
+        /// format `"complexity gate rejected: mode={mode}, content_len={N}"`
+        /// where `content_len` is the byte length (not UTF-8 char count).
+        ///
+        /// **The exact format is NOT part of the SemVer contract.** It may
+        /// change between minor releases to add more diagnostic context.
+        /// Treat this string as human-readable log output only. For
+        /// structured logging on skip rate, count occurrences of the
+        /// variant itself; do not parse this field. Future versions may
+        /// expose `content_len` / `mode` as structured fields on this
+        /// variant (enabled by `#[non_exhaustive]`).
         reason: String,
     },
 

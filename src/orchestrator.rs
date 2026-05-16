@@ -107,7 +107,17 @@ impl Default for MagiConfig {
 /// Type alias for the complexity-gate predicate. Erased trait object
 /// shared via `Arc` so it can be cloned across spawned tasks at zero
 /// runtime cost (Arc clone is a refcount bump).
-pub(crate) type ComplexityGate = Arc<dyn Fn(&str, Mode) -> bool + Send + Sync>;
+///
+/// Predicate signature uses `&Mode` (not `Mode` by value) so that future
+/// growth of `Mode` (e.g., variants holding non-`Copy` data) does not
+/// silently change predicate ergonomics. `Mode` is currently `Copy` so
+/// the by-reference choice has zero runtime cost.
+///
+/// **Future: a fallible variant** — a `Result<bool, MagiError>`-returning
+/// alternative may be added in v0.6.x if callers need predicate-supplied
+/// error context. The current `bool` form is the simple-case API; it
+/// will not be removed (the type alias may grow a sibling, not change).
+pub(crate) type ComplexityGate = Arc<dyn Fn(&str, &Mode) -> bool + Send + Sync>;
 
 pub struct MagiBuilder {
     default_provider: Arc<dyn LlmProvider>,
@@ -143,22 +153,47 @@ impl MagiBuilder {
     }
 
     /// **v0.5.0** — Set a complexity-gate predicate. Called by
-    /// [`Magi::analyze`] before dispatching agents. If the predicate
-    /// returns `false`, `analyze` returns
+    /// [`Magi::analyze`] **after** input-size validation but before any
+    /// LLM dispatch. If the predicate returns `false`, `analyze` returns
     /// [`MagiError::SkippedByComplexityGate`] without invoking the LLM
     /// (zero token cost on skipped calls).
     ///
-    /// The predicate receives the raw `content` and `Mode` so it can
-    /// implement criteria like:
+    /// # Evaluation order
+    ///
+    /// `analyze` checks (in order):
+    /// 1. Input length vs `max_input_len` → `MagiError::InputTooLarge`
+    ///    on oversize.
+    /// 2. **This gate.** Side effects (rate-limiter increments, cache
+    ///    lookups) ONLY fire on inputs that passed size validation.
+    ///    Stateful predicates can safely assume the input is bounded.
+    /// 3. Agent factory + nonce + dispatch.
+    ///
+    /// This order was chosen over "gate first" because stateful predicates
+    /// (e.g., rate limiters via shared atomics) on oversize inputs would
+    /// burn caller budget on inputs that would have failed validation
+    /// anyway. Validate-first is the safer default.
+    ///
+    /// # Predicate contract
+    ///
+    /// The predicate receives the raw `content: &str` and `mode: &Mode`
+    /// (by reference, future-proofing against non-`Copy` Mode growth).
+    /// Common patterns:
     /// - Length thresholds per mode
     /// - Code-vs-prose classification heuristics
     /// - Rate limiting via shared atomic counters
-    /// - Pre-flight LLM triage via cheap models
+    /// - Pre-flight LLM triage via cheap models (wrap async in
+    ///   `pollster::block_on` consciously)
     ///
-    /// Bounds: `Fn(&str, Mode) -> bool + Send + Sync + 'static`. The
-    /// closure is stored as `Arc<dyn Fn>` and shared across spawned
-    /// tasks. It must be cheap — it runs synchronously on every
-    /// `analyze` call, blocking the dispatch path.
+    /// Bounds: `Fn(&str, &Mode) -> bool + Send + Sync + 'static`. The
+    /// closure is stored as `Arc<dyn Fn>` so it must be `Send + Sync`
+    /// even though `analyze` does not currently spawn the gate call
+    /// (defensive — keeps the `Magi` struct `Send + Sync`).
+    ///
+    /// **The predicate runs synchronously on the calling task's
+    /// executor.** It must be cheap (microseconds, not milliseconds).
+    /// Long-running predicates block the async runtime; offload heavy
+    /// classification to a separate task in the caller or use the
+    /// pre-flight LLM pattern above.
     ///
     /// Default: no gate (every `analyze` proceeds to dispatch).
     ///
@@ -170,12 +205,10 @@ impl MagiBuilder {
     /// # use magi_core::schema::Mode;
     /// # fn make_provider() -> Arc<dyn magi_core::provider::LlmProvider> { unimplemented!() }
     /// let magi = MagiBuilder::new(make_provider())
-    ///     .with_complexity_gate(|content, mode| {
-    ///         match mode {
-    ///             Mode::CodeReview => content.len() >= 200,
-    ///             Mode::Design => content.len() >= 500,
-    ///             Mode::Analysis => !content.trim().is_empty(),
-    ///         }
+    ///     .with_complexity_gate(|content, mode| match mode {
+    ///         Mode::CodeReview => content.len() >= 200,
+    ///         Mode::Design => content.len() >= 500,
+    ///         Mode::Analysis => !content.trim().is_empty(),
     ///     })
     ///     .build()
     ///     .expect("build");
@@ -184,7 +217,7 @@ impl MagiBuilder {
     /// See `docs/migration-v0.5.md` for cost-control patterns.
     pub fn with_complexity_gate<F>(mut self, predicate: F) -> Self
     where
-        F: Fn(&str, Mode) -> bool + Send + Sync + 'static,
+        F: Fn(&str, &Mode) -> bool + Send + Sync + 'static,
     {
         self.complexity_gate = Some(Arc::new(predicate));
         self
@@ -487,26 +520,30 @@ impl Magi {
     /// in a pool of instances (one per tenant), or await v0.4 which may expose
     /// `with_rng_source` publicly to allow a thread-local RNG strategy.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
-        // 0. v0.5.0 complexity gate — caller-supplied predicate runs BEFORE
-        //    any cost is incurred (no input validation, no agent factory
-        //    instantiation, no nonce generation). Short-circuit on false
-        //    is the cheapest path through `analyze`.
+        // 1. Input validation — runs BEFORE the complexity gate so that
+        //    stateful predicates (rate limiters, cache counters) do NOT
+        //    fire on oversized inputs. v0.5.0 MAGI R2 W5: gate-first
+        //    ordering allowed adversarial side-effect burn on inputs
+        //    that would have failed validation anyway.
+        if content.len() > self.config.max_input_len {
+            return Err(MagiError::InputTooLarge {
+                size: content.len(),
+                max: self.config.max_input_len,
+            });
+        }
+
+        // 2. v0.5.0 complexity gate — caller-supplied predicate runs
+        //    AFTER input validation but BEFORE agent factory, nonce
+        //    generation, and LLM dispatch. Short-circuit on `false`
+        //    avoids the cost of all three.
         if let Some(gate) = &self.complexity_gate
-            && !gate(content, *mode)
+            && !gate(content, mode)
         {
             return Err(MagiError::SkippedByComplexityGate {
                 reason: format!(
                     "complexity gate rejected: mode={mode}, content_len={}",
                     content.len()
                 ),
-            });
-        }
-
-        // 1. Input validation
-        if content.len() > self.config.max_input_len {
-            return Err(MagiError::InputTooLarge {
-                size: content.len(),
-                max: self.config.max_input_len,
             });
         }
 
@@ -1286,8 +1323,9 @@ mod tests {
         );
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
             .with_complexity_gate(move |content, mode| {
+                // mode: &Mode (v0.5.0 sig); deref to store the Copy value.
                 let mut g = captured_for_gate.lock().unwrap();
-                *g = Some((content.to_string(), mode));
+                *g = Some((content.to_string(), *mode));
                 true
             })
             .build()
@@ -1398,6 +1436,41 @@ mod tests {
             }
             other => panic!("expected SkippedByComplexityGate, got: {other:?}"),
         }
+    }
+
+    /// MAGI R2 W5 invariant: stateful predicate side effects MUST NOT fire
+    /// when input fails `max_input_len` validation. Validates-first
+    /// ordering means oversize inputs hit `InputTooLarge` before the
+    /// gate is ever evaluated. Critical for rate limiters: a budget-burner
+    /// adversary sending oversized payloads cannot deplete the caller's
+    /// quota without ever triggering an LLM call.
+    #[tokio::test]
+    async fn test_complexity_gate_does_not_fire_on_oversized_input() {
+        let gate_calls = Arc::new(AtomicUsizeV05::new(0));
+        let gate_calls_for_closure = Arc::clone(&gate_calls);
+        let provider = Arc::new(RoutingMockProvider::new());
+
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_max_input_len(10) // tiny cap to force InputTooLarge
+            .with_complexity_gate(move |_content, _mode| {
+                gate_calls_for_closure.fetch_add(1, OrderingV05::SeqCst);
+                true
+            })
+            .build()
+            .expect("build");
+
+        let oversized = "X".repeat(1_000); // far exceeds 10-byte cap
+        let result = magi.analyze(&Mode::Analysis, &oversized).await;
+
+        assert!(
+            matches!(result, Err(MagiError::InputTooLarge { .. })),
+            "must return InputTooLarge, got: {result:?}"
+        );
+        assert_eq!(
+            gate_calls.load(OrderingV05::SeqCst),
+            0,
+            "gate MUST NOT fire on oversize input — side effects must not run"
+        );
     }
 
     // -- T08: integration tests via Magi::analyze --
