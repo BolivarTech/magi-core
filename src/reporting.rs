@@ -1463,6 +1463,67 @@ mod tests {
         );
     }
 
+    /// BDD-12: `retried_agents` MUST NOT appear in the markdown report
+    /// rendered by `format_report` (Python parity: telemetry stays JSON-only).
+    /// The current architecture makes this structurally true — `format_report`
+    /// only receives `(&[AgentOutput], &ConsensusResult)` and has no
+    /// visibility into the telemetry field. This test is a regression guard:
+    /// if a future change adds a parameter or threads `retried_agents` into
+    /// the formatter, the markdown rendering must continue to omit the
+    /// field name and value strings.
+    #[test]
+    fn test_magi_report_retried_agents_not_rendered_in_markdown() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let b = make_agent(
+            AgentName::Balthasar,
+            Verdict::Approve,
+            0.85,
+            "S",
+            "R",
+            "Rec",
+        );
+        let c = make_agent(AgentName::Caspar, Verdict::Approve, 0.95, "S", "R", "Rec");
+        let agents = vec![m.clone(), b.clone(), c.clone()];
+        let consensus = make_consensus("STRONG GO", Verdict::Approve, 0.9, 1.0, &[&m, &b, &c]);
+
+        let mut retried = BTreeSet::new();
+        retried.insert(AgentName::Melchior);
+        retried.insert(AgentName::Caspar);
+
+        let formatter = ReportFormatter::new();
+        let markdown = formatter.format_report(&agents, &consensus);
+        let banner = formatter.format_banner(&agents, &consensus);
+
+        // Build a report so we can also inspect the `report.report` field
+        // path (which is what consumers see in stdout/CLI output).
+        let report = MagiReport {
+            agents,
+            consensus,
+            banner: banner.clone(),
+            report: markdown.clone(),
+            degraded: false,
+            failed_agents: BTreeMap::new(),
+            retried_agents: retried,
+        };
+
+        // The field name must NOT leak into the human-facing render. The
+        // word "retried" anywhere in the markdown would be a regression.
+        assert!(
+            !report.report.to_lowercase().contains("retried"),
+            "markdown report must NOT contain 'retried' — got:\n{}",
+            report.report
+        );
+        assert!(
+            !report.banner.to_lowercase().contains("retried"),
+            "banner must NOT contain 'retried' — got:\n{}",
+            report.banner
+        );
+        assert!(
+            !markdown.to_lowercase().contains("retried"),
+            "format_report output must NOT contain 'retried' — got:\n{markdown}"
+        );
+    }
+
     /// v0.3.1 JSON fixture (no retried_agents key) deserializes with the
     /// field defaulted to empty. Backward-compatibility contract.
     ///
