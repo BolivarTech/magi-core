@@ -29,10 +29,13 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Graceful degradation** — if one agent fails, the remaining two still produce a result
 - **Weighted consensus** — approve (+1), conditional (+0.5), reject (-1) scoring with epsilon-aware classification
 - **Finding deduplication** — NFKC + full Unicode case-folding merges duplicates across agents, promotes severity
-- **Retry with backoff** — opt-in `RetryProvider` wrapper with exponential backoff
-- **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. See [`docs/adr/001-prompt-injection-threat-model.md`](docs/adr/001-prompt-injection-threat-model.md).
-- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts verified via SHA-256 fixture in CI
+- **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
+- **Retry with backoff** — opt-in `RetryProvider` wrapper with exponential backoff for HTTP/network transient errors (orthogonal to the schema-retry layer)
+- **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
+- **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants. See [`docs/adr/001-prompt-injection-threat-model.md`](docs/adr/001-prompt-injection-threat-model.md) and [`docs/adr/002-retry-on-schema-error.md`](docs/adr/002-retry-on-schema-error.md).
+- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v2.2.8`, verified via SHA-256 fixture in CI
 - **Feature-gated providers** — `claude-api` (HTTP) and `claude-cli` (subprocess) ship as optional features
+- **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
 - **Zero unsafe in library code** — `#![forbid(unsafe_code)]` safe by design
 
 ## Quick Start
@@ -41,12 +44,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "0.3"
+magi-core = "0.5"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # Enable one or both built-in providers:
-# magi-core = { version = "0.3", features = ["claude-cli"] }
-# magi-core = { version = "0.3", features = ["claude-api"] }
+# magi-core = { version = "0.5", features = ["claude-cli"] }
+# magi-core = { version = "0.5", features = ["claude-api"] }
 ```
 
 ### Basic Usage
@@ -123,6 +126,83 @@ let magi = Magi::builder(provider)
 > deprecated. Use `with_custom_prompt_for_mode` (per-mode) or
 > `with_custom_prompt_all_modes` (mode-agnostic). See
 > [`docs/migration-v0.3.md`](docs/migration-v0.3.md).
+
+### Cost Control with Complexity Gate
+
+*(v0.5+)* `analyze` always costs 3 Claude calls. To avoid spending on
+trivial inputs, install a caller-supplied predicate via
+`MagiBuilder::with_complexity_gate`. When it returns `false`, `analyze`
+returns `MagiError::SkippedByComplexityGate` with **zero LLM dispatch**.
+
+```rust
+use magi_core::prelude::*;
+use std::sync::Arc;
+
+# async fn example() -> Result<(), MagiError> {
+let provider: Arc<dyn LlmProvider> = /* ... */;
+
+let magi = Magi::builder(provider)
+    .with_complexity_gate(|content, mode| match mode {
+        Mode::CodeReview => content.len() >= 200,
+        Mode::Design => content.len() >= 500,
+        Mode::Analysis => !content.trim().is_empty(),
+    })
+    .build()?;
+
+match magi.analyze(&Mode::CodeReview, "fn main() {}").await {
+    Ok(report) => println!("{}", report.report),
+    Err(MagiError::SkippedByComplexityGate { reason, .. }) => {
+        eprintln!("skipped: {reason}");
+    }
+    Err(other) => return Err(other),
+}
+# Ok(())
+# }
+```
+
+**Evaluation order:** `analyze` checks (1) `max_input_len` validation,
+(2) the gate, (3) agent factory + nonce + dispatch. Validate-first
+means stateful predicates (rate limiters, cache counters) do NOT
+fire on oversize inputs.
+
+**Predicate contract:** `Fn(&str, &Mode) -> bool + Send + Sync + 'static`.
+Must be cheap (microseconds, not milliseconds) because it runs
+synchronously on the calling task's executor. Long-running classification
+should be offloaded to a separate task. Predicate panics propagate
+uncaught — wrap your predicate body in defensive code if its inputs are
+not under your control.
+
+Composable patterns: length thresholds per mode, rate limiters via
+`Arc<AtomicUsize>`, pre-flight cheap-LLM triage via `pollster::block_on`,
+or a stateful classifier shared across `Magi` instances.
+
+**Disabling the gate (v0.4-equivalent behavior):** simply don't call
+`with_complexity_gate`. The default state is "no gate set" and `analyze`
+proceeds to dispatch unconditionally — byte-equivalent to v0.4.x.
+
+```rust
+use magi_core::prelude::*;
+use std::sync::Arc;
+
+# async fn example() -> Result<(), MagiError> {
+let provider: Arc<dyn LlmProvider> = /* ... */;
+
+// No `.with_complexity_gate(...)` call → v0.4.x behavior preserved.
+let magi = Magi::builder(provider).build()?;
+
+let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await?;
+// `MagiError::SkippedByComplexityGate` will NEVER be returned when no
+// gate is set — the variant only fires when a predicate is installed
+// and returns `false`.
+println!("{}", report.report);
+# Ok(())
+# }
+```
+
+The shorter `Magi::new(provider)` constructor also creates a Magi
+without a gate. Choose `Magi::new` for the simplest path; choose
+`Magi::builder(...).build()` only when you need to configure timeouts,
+custom prompts, providers per agent, or the complexity gate itself.
 
 ### Using the Built-in Claude CLI Provider
 
@@ -275,6 +355,7 @@ The agent expects a JSON response matching the `AgentOutput` schema:
 |---------------|---------|--------------------------------------|
 | `claude-api`  | off     | HTTP provider via `reqwest`          |
 | `claude-cli`  | off     | Subprocess provider via `tokio::process` |
+| `test-utils`  | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable only within v0.5.x — see [`docs/migration-v0.4.md`](docs/migration-v0.4.md). |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
 no optional features enabled.
@@ -300,6 +381,8 @@ This crate uses Rust edition 2024 and requires **Rust 1.91+**.
 See [CHANGELOG.md](CHANGELOG.md) for the full version history. Migration
 guides for breaking releases:
 
+- [`docs/migration-v0.5.md`](docs/migration-v0.5.md) — complexity gate + `MagiError` is now `#[non_exhaustive]`
+- [`docs/migration-v0.4.md`](docs/migration-v0.4.md) — Python v2.2.8 parity: retry layer + retried_agents telemetry + Windows UTF-8 hardening
 - [`docs/migration-v0.3.md`](docs/migration-v0.3.md) — prompt architecture + defense-in-depth
 - [`docs/migration-v0.2.md`](docs/migration-v0.2.md) — consensus/report/validation parity with Python MAGI
 

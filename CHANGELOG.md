@@ -4,6 +4,79 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-16
+
+### Added
+
+- **`MagiBuilder::with_complexity_gate(F)`** — caller-supplied predicate
+  `Fn(&str, &Mode) -> bool + Send + Sync + 'static` evaluated by
+  `Magi::analyze` after input-size validation but before LLM dispatch.
+  When the predicate returns `false`, `analyze` short-circuits with
+  `MagiError::SkippedByComplexityGate` and **zero LLM calls are made**.
+  Useful for cost control (rate limiters, length thresholds, pre-flight
+  triage). See `with_complexity_gate` docstring for evaluation order,
+  panic/cost contracts, and composable patterns.
+- **`MagiError::SkippedByComplexityGate { reason: String }`** new
+  variant, marked `#[non_exhaustive]` so future structured fields
+  (e.g., `content_len`, `mode`) can be added without breaking match
+  patterns. The `reason` string is library-synthesized in the format
+  `"complexity gate rejected: mode={mode}, content_len={N}"`. **This
+  format is NOT part of the SemVer contract** — treat as human/log
+  output only; count variant occurrences for structured logging.
+- **Internal type alias `pub(crate) ComplexityGate`** —
+  `Arc<dyn Fn(&str, &Mode) -> bool + Send + Sync>`. A `Result`-returning
+  sibling alias may be added in v0.6+ if callers need predicate-supplied
+  error context.
+
+### Changed (breaking)
+
+- **`MagiError` is now `#[non_exhaustive]`.** Downstream consumers that
+  pattern-match exhaustively on `MagiError` MUST add a `_ => ...` arm.
+  This closes the per-variant breaking-change pattern for all future
+  releases — additions in v0.6+ will no longer require minor bumps.
+
+### Performance
+
+- Complexity gate path: when the predicate returns `false`, `analyze`
+  returns immediately without instantiating the agent factory,
+  generating a nonce, or calling any provider. The cost of a skipped
+  call is the cost of the predicate plus one `format!` allocation for
+  the synthesized reason.
+
+### Documentation
+
+- `with_complexity_gate` rustdoc enumerates the 3-step evaluation
+  order (validate-first, then gate, then dispatch) with rationale
+  for the order chosen (stateful predicates do not fire on oversize
+  inputs).
+- Variant doc on `SkippedByComplexityGate` documents the
+  `#[non_exhaustive]` contract and instructs consumers to use
+  `{ reason, .. }` rest pattern.
+
+### Test count
+
+`cargo nextest run --features test-utils` runs **377 tests** (up from
+370 in v0.4.0). 7 new tests cover the gate's allow/block paths, the
+content+mode propagation, the default no-gate v0.4.x backward compat,
+the stateful rate-limiter use case, the synthesized reason format,
+and the validate-first invariant (oversize inputs do not fire the
+predicate's side effects).
+
+### Backward compatibility
+
+- All v0.4.x public APIs preserved. Default (no gate set) preserves
+  v0.4.x behavior exactly — verified by a dedicated test using the
+  `Magi::new` default-builder path.
+- New `MagiError` variant means downstream exhaustive matchers must
+  add a catch-all arm. Acceptable per project convention (v0.3 added
+  `InvalidInput` similarly). Forward-compatible thanks to enum-level
+  `#[non_exhaustive]` added in this release.
+
+### Pre-merge gates (CLAUDE.local.md §6)
+
+- **Loop 1** `/requesting-code-review`: clean-to-go (4 iterations)
+- **Loop 2** `/magi:magi`: STRONG GO unanimous (2 iterations) — Melchior 92%, Balthasar 85%, Caspar 88%
+
 ## [0.4.0] - 2026-05-16
 
 ### Added
