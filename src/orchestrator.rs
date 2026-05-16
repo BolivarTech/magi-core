@@ -606,6 +606,25 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
     ))
 }
 
+/// Parse a raw agent response and validate the resulting `AgentOutput`
+/// against the supplied [`Validator`]. Returns the parsed output on
+/// success, or one of the two error variants that trigger retry in the
+/// dispatch layer (T07):
+/// - `MagiError::Deserialization` from `parse_agent_response`
+/// - `MagiError::Validation` from `validator.validate_mut`
+///
+/// Other `MagiError` variants are not produced here; the retry gate
+/// matches only these two.
+#[allow(dead_code)] // wired into dispatch_one_agent in T07; remove allow then
+pub(crate) fn parse_and_validate(
+    raw: &str,
+    validator: &Validator,
+) -> Result<AgentOutput, MagiError> {
+    let mut output = parse_agent_response(raw)?;
+    validator.validate_mut(&mut output)?;
+    Ok(output)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -978,8 +997,10 @@ mod tests {
         let validator = Validator::new();
         let raw = "not json at all {{{";
         let err = parse_and_validate(raw, &validator).unwrap_err();
-        assert!(matches!(err, MagiError::Deserialization(_)),
-            "expected Deserialization, got: {err:?}");
+        assert!(
+            matches!(err, MagiError::Deserialization(_)),
+            "expected Deserialization, got: {err:?}"
+        );
     }
 
     /// parse_and_validate surfaces MagiError::Validation when schema fields are valid
@@ -991,8 +1012,10 @@ mod tests {
         // confidence > 1.0 violates Validator rules.
         let raw = r#"{"agent":"melchior","verdict":"approve","confidence":1.5,"summary":"s","reasoning":"r","findings":[],"recommendation":"rec"}"#;
         let err = parse_and_validate(raw, &validator).unwrap_err();
-        assert!(matches!(err, MagiError::Validation(_)),
-            "expected Validation, got: {err:?}");
+        assert!(
+            matches!(err, MagiError::Validation(_)),
+            "expected Validation, got: {err:?}"
+        );
     }
 
     // -- parse_agent_response --
