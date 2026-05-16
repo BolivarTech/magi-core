@@ -656,4 +656,37 @@ mod tests {
         assert_eq!(output.agent, AgentName::Caspar);
         assert_eq!(output.verdict, Verdict::Reject);
     }
+
+    // -- T04 BDD-18: AgentName Ord is alphabetical-by-display-name --
+
+    /// AgentName Ord is alphabetical by display_name (Balthasar < Caspar < Melchior).
+    /// This invariant is load-bearing for BDD-10 (retried_agents JSON ordering)
+    /// and the consensus tie-break logic in src/consensus.rs.
+    #[test]
+    fn test_agent_name_ord_is_alphabetical_by_display_name() {
+        use AgentName::*;
+        assert!(Balthasar < Caspar, "Balthasar must sort before Caspar");
+        assert!(Caspar < Melchior, "Caspar must sort before Melchior");
+        assert!(Balthasar < Melchior, "Balthasar must sort before Melchior");
+
+        let mut v = vec![Melchior, Balthasar, Caspar];
+        v.sort();
+        assert_eq!(v, vec![Balthasar, Caspar, Melchior]);
+    }
+
+    /// BTreeSet<AgentName> iterates in alphabetical order. This is what
+    /// gives `MagiReport.retried_agents` its deterministic JSON serialization.
+    #[test]
+    fn test_agent_name_btreeset_orders_alphabetically() {
+        use std::collections::BTreeSet;
+        let mut s = BTreeSet::new();
+        s.insert(AgentName::Melchior);
+        s.insert(AgentName::Balthasar);
+        s.insert(AgentName::Caspar);
+        let v: Vec<_> = s.into_iter().collect();
+        assert_eq!(
+            v,
+            vec![AgentName::Balthasar, AgentName::Caspar, AgentName::Melchior]
+        );
+    }
 }

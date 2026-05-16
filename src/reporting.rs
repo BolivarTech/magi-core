@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write;
 
@@ -1376,6 +1376,96 @@ mod tests {
 
         assert!(!report.degraded);
         assert!(report.failed_agents.is_empty());
+    }
+
+    // -- T04: retried_agents tests --
+
+    /// Default-constructed MagiReport has empty retried_agents BTreeSet.
+    #[test]
+    fn test_magi_report_retried_agents_default_empty() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let agents = vec![m.clone()];
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.9, 1.0, &[&m]);
+        let report = MagiReport {
+            agents,
+            consensus,
+            banner: String::new(),
+            report: String::new(),
+            degraded: false,
+            failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
+        };
+        assert!(report.retried_agents.is_empty());
+    }
+
+    /// Empty retried_agents is omitted from JSON serialization.
+    #[test]
+    fn test_magi_report_skip_serializing_empty_retried_agents() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let agents = vec![m.clone()];
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.9, 1.0, &[&m]);
+        let report = MagiReport {
+            agents,
+            consensus,
+            banner: String::new(),
+            report: String::new(),
+            degraded: false,
+            failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            !json.contains("retried_agents"),
+            "empty retried_agents must be omitted; got: {json}"
+        );
+    }
+
+    /// Non-empty retried_agents serializes in alphabetical agent-name order.
+    #[test]
+    fn test_magi_report_serializes_non_empty_retried_agents_alphabetically() {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let agents = vec![m.clone()];
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.9, 1.0, &[&m]);
+        let mut retried = BTreeSet::new();
+        retried.insert(AgentName::Melchior);
+        retried.insert(AgentName::Balthasar);
+        retried.insert(AgentName::Caspar);
+        let report = MagiReport {
+            agents,
+            consensus,
+            banner: String::new(),
+            report: String::new(),
+            degraded: false,
+            failed_agents: BTreeMap::new(),
+            retried_agents: retried,
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        assert!(
+            json.contains(r#""retried_agents":["balthasar","caspar","melchior"]"#),
+            "alphabetical order required; got: {json}"
+        );
+    }
+
+    /// v0.3.1 JSON fixture (no retried_agents key) deserializes with the
+    /// field defaulted to empty. Backward-compatibility contract.
+    ///
+    /// Fixture capture path: C — constructed from v0.4 with
+    /// retried_agents=BTreeSet::new(), serialized form is byte-identical
+    /// to what v0.3.1 produced for the same MagiReport shape (since
+    /// skip_serializing_if omits the empty field). See MAGI R2 W2/W7/W10.
+    #[test]
+    fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
+        let json = include_str!("../tests/fixtures/magi_report_v0_3_1.json");
+        let report: MagiReport = serde_json::from_str(json)
+            .expect("v0.3.1 JSON must deserialize cleanly into v0.4 MagiReport");
+        assert!(
+            report.retried_agents.is_empty(),
+            "absent retried_agents must default to empty"
+        );
+        // Sanity: other fields populate correctly.
+        assert!(report.degraded);
+        assert!(!report.failed_agents.is_empty());
+        assert_eq!(report.agents.len(), 2);
     }
 
     /// degraded=true with failed_agents populated when agent fails.
