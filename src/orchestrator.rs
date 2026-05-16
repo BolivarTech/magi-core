@@ -960,6 +960,41 @@ mod tests {
         }
     }
 
+    // -- T06: parse_and_validate helper --
+
+    /// parse_and_validate returns Ok for valid JSON + valid agent output.
+    #[test]
+    fn test_parse_and_validate_ok_for_valid_json() {
+        let validator = Validator::new();
+        let raw = mock_agent_json("melchior", "approve", 0.9);
+        let out = parse_and_validate(&raw, &validator).unwrap();
+        assert_eq!(out.agent, AgentName::Melchior);
+    }
+
+    /// parse_and_validate surfaces MagiError::Deserialization on bad JSON.
+    /// This is the variant that triggers retry in dispatch_one_agent (T07).
+    #[test]
+    fn test_parse_and_validate_returns_deserialization_for_bad_json() {
+        let validator = Validator::new();
+        let raw = "not json at all {{{";
+        let err = parse_and_validate(raw, &validator).unwrap_err();
+        assert!(matches!(err, MagiError::Deserialization(_)),
+            "expected Deserialization, got: {err:?}");
+    }
+
+    /// parse_and_validate surfaces MagiError::Validation when schema fields are valid
+    /// JSON but fail validator rules (e.g., confidence out of range).
+    /// This is the other variant that triggers retry in dispatch_one_agent (T07).
+    #[test]
+    fn test_parse_and_validate_returns_validation_for_out_of_range_confidence() {
+        let validator = Validator::new();
+        // confidence > 1.0 violates Validator rules.
+        let raw = r#"{"agent":"melchior","verdict":"approve","confidence":1.5,"summary":"s","reasoning":"r","findings":[],"recommendation":"rec"}"#;
+        let err = parse_and_validate(raw, &validator).unwrap_err();
+        assert!(matches!(err, MagiError::Validation(_)),
+            "expected Validation, got: {err:?}");
+    }
+
     // -- parse_agent_response --
 
     /// parse_agent_response strips code fences from JSON.
