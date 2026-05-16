@@ -1107,6 +1107,213 @@ mod tests {
         }
     }
 
+    // -- v0.5.0: with_complexity_gate tests --
+
+    use std::sync::atomic::{AtomicUsize as AtomicUsizeV05, Ordering as OrderingV05};
+
+    /// Gate returning true allows analyze to proceed normally.
+    #[tokio::test]
+    async fn test_complexity_gate_allows_when_predicate_returns_true() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![Ok(mock_agent_json("melchior", "approve", 0.9))],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_complexity_gate(|_content, _mode| true)
+            .build()
+            .expect("build");
+        let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await.unwrap();
+        assert_eq!(report.agents.len(), 3);
+    }
+
+    /// Gate returning false short-circuits with SkippedByComplexityGate error
+    /// and the provider is NEVER called (zero LLM cost).
+    #[tokio::test]
+    async fn test_complexity_gate_blocks_when_predicate_returns_false() {
+        let calls = Arc::new(AtomicUsizeV05::new(0));
+        let calls_for_provider = Arc::clone(&calls);
+        struct CountingProvider {
+            counter: Arc<AtomicUsizeV05>,
+        }
+        #[async_trait::async_trait]
+        impl LlmProvider for CountingProvider {
+            async fn complete(
+                &self,
+                _s: &str,
+                _u: &str,
+                _c: &CompletionConfig,
+            ) -> Result<String, ProviderError> {
+                self.counter.fetch_add(1, OrderingV05::SeqCst);
+                Ok(String::new())
+            }
+            fn name(&self) -> &str {
+                "count"
+            }
+            fn model(&self) -> &str {
+                "x"
+            }
+        }
+        let provider = Arc::new(CountingProvider {
+            counter: calls_for_provider,
+        });
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_complexity_gate(|_content, _mode| false)
+            .build()
+            .expect("build");
+        let result = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        assert!(matches!(
+            result,
+            Err(MagiError::SkippedByComplexityGate { .. })
+        ));
+        // Critical: the provider must NEVER have been called.
+        assert_eq!(
+            calls.load(OrderingV05::SeqCst),
+            0,
+            "complexity gate must short-circuit BEFORE any LLM dispatch"
+        );
+    }
+
+    /// Gate predicate sees the exact content and mode passed to analyze.
+    #[tokio::test]
+    async fn test_complexity_gate_receives_correct_content_and_mode() {
+        use std::sync::Mutex;
+        let captured: Arc<Mutex<Option<(String, Mode)>>> = Arc::new(Mutex::new(None));
+        let captured_for_gate = Arc::clone(&captured);
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![Ok(mock_agent_json("melchior", "approve", 0.9))],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_complexity_gate(move |content, mode| {
+                let mut g = captured_for_gate.lock().unwrap();
+                *g = Some((content.to_string(), *mode));
+                true
+            })
+            .build()
+            .expect("build");
+        let _ = magi
+            .analyze(&Mode::Analysis, "needle-content-marker")
+            .await
+            .unwrap();
+        let g = captured.lock().unwrap();
+        let (content, mode) = g.as_ref().expect("gate was called");
+        assert_eq!(content, "needle-content-marker");
+        assert_eq!(*mode, Mode::Analysis);
+    }
+
+    /// Default (no gate set) preserves v0.4.x behavior — analyze proceeds.
+    #[tokio::test]
+    async fn test_complexity_gate_default_no_gate_preserves_v04_behavior() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![Ok(mock_agent_json("melchior", "approve", 0.9))],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![Ok(mock_agent_json("balthasar", "approve", 0.85))],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
+                ),
+        );
+        // Magi::new path — no gate configured.
+        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        let report = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
+        assert_eq!(report.agents.len(), 3);
+    }
+
+    /// Stateful closure: rate limiter that blocks after N calls.
+    #[tokio::test]
+    async fn test_complexity_gate_stateful_rate_limiter() {
+        let calls = Arc::new(AtomicUsizeV05::new(0));
+        let calls_for_gate = Arc::clone(&calls);
+        let limit = 2;
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(
+                    AgentName::Melchior,
+                    vec![
+                        Ok(mock_agent_json("melchior", "approve", 0.9)),
+                        Ok(mock_agent_json("melchior", "approve", 0.9)),
+                    ],
+                )
+                .with_agent_responses(
+                    AgentName::Balthasar,
+                    vec![
+                        Ok(mock_agent_json("balthasar", "approve", 0.85)),
+                        Ok(mock_agent_json("balthasar", "approve", 0.85)),
+                    ],
+                )
+                .with_agent_responses(
+                    AgentName::Caspar,
+                    vec![
+                        Ok(mock_agent_json("caspar", "approve", 0.95)),
+                        Ok(mock_agent_json("caspar", "approve", 0.95)),
+                    ],
+                ),
+        );
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_complexity_gate(move |_content, _mode| {
+                let n = calls_for_gate.fetch_add(1, OrderingV05::SeqCst);
+                n < limit
+            })
+            .build()
+            .expect("build");
+
+        assert!(magi.analyze(&Mode::Analysis, "a").await.is_ok());
+        assert!(magi.analyze(&Mode::Analysis, "b").await.is_ok());
+        let third = magi.analyze(&Mode::Analysis, "c").await;
+        assert!(matches!(
+            third,
+            Err(MagiError::SkippedByComplexityGate { .. })
+        ));
+    }
+
+    /// Reason string from the gate is propagated through the error variant.
+    #[tokio::test]
+    async fn test_complexity_gate_error_includes_synthesized_reason() {
+        let provider = Arc::new(RoutingMockProvider::new());
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_complexity_gate(|content, _mode| content.len() >= 100)
+            .build()
+            .expect("build");
+        let err = magi.analyze(&Mode::Analysis, "short").await.unwrap_err();
+        match err {
+            MagiError::SkippedByComplexityGate { reason } => {
+                assert!(
+                    reason.contains("content_len") || reason.contains("len"),
+                    "reason should mention length; got: {reason}"
+                );
+            }
+            other => panic!("expected SkippedByComplexityGate, got: {other:?}"),
+        }
+    }
+
     // -- T08: integration tests via Magi::analyze --
 
     /// BDD-03: Melchior fails first attempt with empty JSON, recovers on

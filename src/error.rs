@@ -97,6 +97,19 @@ pub enum MagiError {
         reason: String,
     },
 
+    /// **v0.5.0** — Input did not pass the caller-supplied complexity gate.
+    /// No LLM dispatch occurred. The reason string is whatever the
+    /// gate predicate returned (or a default if not provided).
+    ///
+    /// See [`MagiBuilder::with_complexity_gate`].
+    #[error("skipped by complexity gate: {reason}")]
+    SkippedByComplexityGate {
+        /// Caller-supplied (or default) description of why the input
+        /// was rejected by the gate. Useful for logging skip rates and
+        /// tuning the predicate.
+        reason: String,
+    },
+
     /// Filesystem I/O error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
