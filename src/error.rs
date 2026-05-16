@@ -58,6 +58,11 @@ pub enum ProviderError {
 ///
 /// All public APIs return `Result<T, MagiError>`. This enum unifies
 /// provider errors, validation failures, and I/O errors into a single type.
+///
+/// Marked `#[non_exhaustive]` (added v0.5.0) so future variants can be
+/// introduced in minor releases without breaking downstream exhaustive
+/// matchers. Consumers MUST include a `_ => ...` arm when matching.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum MagiError {
     /// Invalid input or schema violation.
@@ -98,15 +103,18 @@ pub enum MagiError {
     },
 
     /// **v0.5.0** — Input did not pass the caller-supplied complexity gate.
-    /// No LLM dispatch occurred. The reason string is whatever the
-    /// gate predicate returned (or a default if not provided).
+    /// No LLM dispatch occurred. The caller's predicate is `bool`-returning;
+    /// the `reason` string in this variant is **library-synthesized**, not
+    /// caller-supplied — see field doc below for the format.
     ///
     /// See [`MagiBuilder::with_complexity_gate`](crate::orchestrator::MagiBuilder::with_complexity_gate).
     #[error("skipped by complexity gate: {reason}")]
     SkippedByComplexityGate {
-        /// Caller-supplied (or default) description of why the input
-        /// was rejected by the gate. Useful for logging skip rates and
-        /// tuning the predicate.
+        /// Library-synthesized description of the skip, in the format
+        /// `"complexity gate rejected: mode={mode}, content_len={N}"`.
+        /// Useful for structured logging of skip rates and tuning the
+        /// predicate downstream. Callers cannot influence this text — the
+        /// gate predicate returns only a `bool`.
         reason: String,
     },
 

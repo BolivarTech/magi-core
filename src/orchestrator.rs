@@ -1384,9 +1384,16 @@ mod tests {
         let err = magi.analyze(&Mode::Analysis, "short").await.unwrap_err();
         match err {
             MagiError::SkippedByComplexityGate { reason } => {
+                // Loop 1 I2: tightened from `contains("content_len") ||
+                // contains("len")` — the loose disjunct would silently
+                // accept regressions to unrelated strings containing "len".
                 assert!(
-                    reason.contains("content_len") || reason.contains("len"),
-                    "reason should mention length; got: {reason}"
+                    reason.contains("content_len"),
+                    "reason should contain exactly 'content_len'; got: {reason}"
+                );
+                assert!(
+                    reason.contains("mode="),
+                    "reason should contain 'mode='; got: {reason}"
                 );
             }
             other => panic!("expected SkippedByComplexityGate, got: {other:?}"),
