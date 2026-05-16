@@ -6,13 +6,7 @@
       "confidence": 0.92,
       "summary": "Sound implementation",
       "reasoning": "Detailed reasoning paragraph from Melchior describing why the code is correct from a scientific perspective. No defects found.",
-      "findings": [
-        {
-          "severity": "info",
-          "title": "Consider adding telemetry",
-          "detail": "Adding metrics around the hot path would help diagnose future regressions."
-        }
-      ],
+      "findings": [],
       "recommendation": "Merge after addressing the info-level finding."
     },
     {
@@ -35,16 +29,9 @@
       "balthasar": "approve",
       "melchior": "approve"
     },
-    "majority_summary": "Sound implementation. Pragmatic and shippable.",
+    "majority_summary": "Melchior: Sound implementation | Balthasar: Pragmatic and shippable",
     "dissent": [],
-    "findings": [
-      {
-        "severity": "info",
-        "title": "Consider adding telemetry",
-        "detail": "Adding metrics around the hot path would help diagnose future regressions.",
-        "sources": ["melchior"]
-      }
-    ],
+    "findings": [],
     "conditions": [],
     "recommendations": {
       "balthasar": "Ship it.",
@@ -52,7 +39,8 @@
     }
   },
   "banner": "+==================================================+\n|              MAGI SYSTEM -- VERDICT              |\n+==================================================+\n|  Melchior (Scientist):   APPROVE (92%)           |\n|  Balthasar (Pragmatist): APPROVE (87%)           |\n+==================================================+\n|  CONSENSUS: GO (2-0)                             |\n+==================================================+",
-  "report": "+==================================================+\n|              MAGI SYSTEM -- VERDICT              |\n+==================================================+\n|  Melchior (Scientist):   APPROVE (92%)           |\n|  Balthasar (Pragmatist): APPROVE (87%)           |\n+==================================================+\n|  CONSENSUS: GO (2-0)                             |\n+==================================================+\n\n## Key Findings\n[i]   **[INFO]**     Consider adding telemetry _(from melchior)_\n\n## Recommended Actions\n- **Melchior** (Scientist): Merge after addressing the info-level finding.\n- **Balthasar** (Pragmatist): Ship it.",
+  "report": "+==================================================+\n|              MAGI SYSTEM -- VERDICT              |\n+==================================================+\n|  Melchior (Scientist):   APPROVE (92%)           |\n|  Balthasar (Pragmatist): APPROVE (87%)           |\n+==================================================+\n|  CONSENSUS: GO (2-0)                             |\n+==================================================+\n\n## Recommended Actions\n- **Melchior** (Scientist): Merge after addressing the info-level finding.\n- **Balthasar** (Pragmatist): Ship it."
+,
   "degraded": true,
   "failed_agents": {
     "caspar": "timeout: agent timed out after 900s"
