@@ -83,9 +83,9 @@ T01–T05 paralelizables. T06–T07–T08a–T08b secuenciales (mismo archivo). 
 
 Sin TDD (documentación). Pre-Red mandatorio per spec §11.
 
-- [ ] **T00.1: Crear ADR 002** (texto en spec §11 — port directo). Incluye §"Mitigación de inyección de segundo orden (MAGI R1 C1)" que documenta la sanitización del `error` string en `build_retry_prompt`.
+- [x] **T00.1: Crear ADR 002** (texto en spec §11 — port directo). Incluye §"Mitigación de inyección de segundo orden (MAGI R1 C1)" que documenta la sanitización del `error` string en `build_retry_prompt`.
 
-- [ ] **T00.2: Crear `docs/migration-v0.4.md`** con secciones (texto en spec §12):
+- [x] **T00.2: Crear `docs/migration-v0.4.md`** con secciones (texto en spec §12):
   - Summary
   - API compatibility
   - Behavior changes
@@ -93,7 +93,7 @@ Sin TDD (documentación). Pre-Red mandatorio per spec §11.
   - Consumer action items
   - Test count
 
-- [ ] **T00.3: Commit:**
+- [x] **T00.3: Commit:**
 
 ```bash
 git add docs/adr/002-retry-on-schema-error.md docs/migration-v0.4.md
@@ -109,7 +109,7 @@ git commit -m "docs: add ADR 002 + v0.4 migration guide"
 - Modify: `tests/fixtures/magi_ref_prompts.sha256`
 - Modify: `tests/fixtures/gen_magi_ref_prompts.py`
 
-- [ ] **T01.1 (Red): Actualizar `MAGI_REF_SHA` + agregar pre-check**
+- [x] **T01.1 (Red): Actualizar `MAGI_REF_SHA` + agregar pre-check**
 
 Editar `tests/fixtures/gen_magi_ref_prompts.py`. Cambiar el constant a:
 
@@ -150,7 +150,7 @@ python tests/fixtures/gen_magi_ref_prompts.py
 
 Expected: `magi_ref_prompts.sha256` regenerado con nuevos hashes + header `# Generated from MAGI@645932c7... on YYYY-MM-DD`.
 
-- [ ] **T01.2 (Red): Verificar test falla**
+- [x] **T01.2 (Red): Verificar test falla**
 
 ```bash
 cargo nextest run test_prompts_match_python_reference_sha256
@@ -158,7 +158,7 @@ cargo nextest run test_prompts_match_python_reference_sha256
 
 Expected: **FAIL** — prompts embedded aún son v2.1.3, fixture espera v2.2.8 hashes.
 
-- [ ] **T01.3 (Green): Reemplazar prompts embedded con bytes de v2.2.8**
+- [x] **T01.3 (Green): Reemplazar prompts embedded con bytes de v2.2.8**
 
 ```bash
 python -c "
@@ -178,7 +178,7 @@ for agent in ('melchior', 'balthasar', 'caspar'):
 
 Expected: 3 líneas `wrote X.md (NNNN bytes)` con ~4158/4249/4749 bytes.
 
-- [ ] **T01.4 (Green): Verificar test pasa**
+- [x] **T01.4 (Green): Verificar test pasa**
 
 ```bash
 cargo nextest run test_prompts_match_python_reference_sha256
@@ -186,7 +186,7 @@ cargo nextest run test_prompts_match_python_reference_sha256
 
 Expected: **PASS**.
 
-- [ ] **T01.5 (Green): Full suite green**
+- [x] **T01.5 (Green): Full suite green**
 
 ```bash
 cargo clippy --tests -- -D warnings
@@ -196,7 +196,7 @@ cargo doc --no-deps
 cargo audit
 ```
 
-- [ ] **T01.6 (Refactor): Docstring update**
+- [x] **T01.6 (Refactor): Docstring update**
 
 Actualizar el docstring del constant `MAGI_REF_SHA`:
 
@@ -209,7 +209,7 @@ Actualizar el docstring del constant `MAGI_REF_SHA`:
 MAGI_REF_SHA = "645932c78da5327a0deee01f38b90849cda37d18"
 ```
 
-- [ ] **T01.7 (Commits):**
+- [x] **T01.7 (Commits):**
 
 ```bash
 # Red — fixture updated, test failing
@@ -239,7 +239,7 @@ git commit -m "refactor: document MAGI_REF_SHA pin and pre-check rationale"
 
 Sin cambios respecto a v1.0 del plan.
 
-- [ ] **T02.1 (Red): 3 tests**
+- [x] **T02.1 (Red): 3 tests**
 
 ```rust
 #[test]
@@ -258,13 +258,13 @@ fn test_default_model_for_mode_analysis_is_opus() {
 }
 ```
 
-- [ ] **T02.2 (Red): Verify FAIL**
+- [x] **T02.2 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run test_default_model_for_mode
 ```
 
-- [ ] **T02.3 (Green): Implementar**
+- [x] **T02.3 (Green): Implementar**
 
 ```rust
 /// Resolves the default model short-name recommended for the given
@@ -287,11 +287,11 @@ pub fn default_model_for_mode(mode: Mode) -> &'static str {
 }
 ```
 
-- [ ] **T02.4 (Green): Re-export en `lib.rs`**
+- [x] **T02.4 (Green): Re-export en `lib.rs`**
 
 Agregar `default_model_for_mode` al `pub use provider::{...}` group.
 
-- [ ] **T02.5 (Green): Verify PASS + verification**
+- [x] **T02.5 (Green): Verify PASS + verification**
 
 ```bash
 cargo nextest run test_default_model_for_mode
@@ -300,7 +300,7 @@ cargo fmt --check
 cargo doc --no-deps
 ```
 
-- [ ] **T02.6 (Commits):**
+- [x] **T02.6 (Commits):**
 
 ```bash
 git add src/provider.rs
@@ -317,7 +317,7 @@ git commit -m "feat: add default_model_for_mode for Python v2.2.3 parity"
 **Files:**
 - Modify: `src/user_prompt.rs`
 
-- [ ] **T03.1 (Red): 7 tests (5 originales + BDD-17 + multi-error regresión)**
+- [x] **T03.1 (Red): 7 tests (5 originales + BDD-17 + multi-error regresión)**
 
 ```rust
 #[test]
@@ -418,13 +418,13 @@ fn test_build_retry_prompt_sanitizes_chained_injection_attempts() {
 }
 ```
 
-- [ ] **T03.2 (Red): Verify FAIL**
+- [x] **T03.2 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run build_retry_prompt --no-run 2>&1 | tail -5
 ```
 
-- [ ] **T03.2b (Red — NUEVO MAGI R2 C1): Test del `---RETRY-FEEDBACK---` bypass**
+- [x] **T03.2b (Red — NUEVO MAGI R2 C1): Test del `---RETRY-FEEDBACK---` bypass**
 
 Agregar este test extra que el revisor R2 marcó como crítico:
 
@@ -451,7 +451,7 @@ fn test_build_retry_prompt_neutralizes_injected_retry_feedback_marker() {
 }
 ```
 
-- [ ] **T03.3 (Green): Implementar con sanitización en dos capas**
+- [x] **T03.3 (Green): Implementar con sanitización en dos capas**
 
 En `src/user_prompt.rs` (antes de `RngLike`):
 
@@ -499,7 +499,7 @@ fn sanitize_error_for_retry_feedback(error: &str) -> String {
 
 `neutralize_headers` ya existe como `fn` privado en `user_prompt.rs` (con `#[allow(dead_code)]` que ahora se removerá porque tiene un consumer real).
 
-- [ ] **T03.4 (Green): Remover `#[allow(dead_code)]` de `neutralize_headers`**
+- [x] **T03.4 (Green): Remover `#[allow(dead_code)]` de `neutralize_headers`**
 
 ```rust
 // Antes:
@@ -509,7 +509,7 @@ fn neutralize_headers(s: &str) -> Cow<'_, str> { ... }
 fn neutralize_headers(s: &str) -> Cow<'_, str> { ... }
 ```
 
-- [ ] **T03.5 (Green): Verify PASS**
+- [x] **T03.5 (Green): Verify PASS**
 
 ```bash
 cargo nextest run build_retry_prompt
@@ -520,9 +520,9 @@ cargo doc --no-deps
 
 Expected: 7 tests pass.
 
-- [ ] **T03.6 (Refactor): None.**
+- [x] **T03.6 (Refactor): None.**
 
-- [ ] **T03.7 (Commits):**
+- [x] **T03.7 (Commits):**
 
 ```bash
 git add src/user_prompt.rs
@@ -542,11 +542,11 @@ git commit -m "feat: add build_retry_prompt with error sanitization (MAGI R1 C1)
 - Modify: `src/orchestrator.rs` (constructor update)
 - Create: `tests/fixtures/magi_report_v0_3_1.json` (capturado real)
 
-- [ ] **T04.1 (Red): Tests — `retried_agents` field**
+- [x] **T04.1 (Red): Tests — `retried_agents` field**
 
 (Como en plan org, 4 tests sobre serialize/deserialize/skip/orden.)
 
-- [ ] **T04.2 (Red): NUEVO BDD-18 — AgentName Ord pinned**
+- [x] **T04.2 (Red): NUEVO BDD-18 — AgentName Ord pinned**
 
 En `src/schema.rs` test mod:
 
@@ -575,7 +575,7 @@ fn test_agent_name_btreeset_orders_alphabetically() {
 }
 ```
 
-- [ ] **T04.3 (Red): NUEVO — capturar JSON REAL v0.3.1 (MAGI R2 W2/W7/W10)**
+- [x] **T04.3 (Red): NUEVO — capturar JSON REAL v0.3.1 (MAGI R2 W2/W7/W10)**
 
 **MAGI R2 W10 (Caspar):** hand-authored JSON risks drift from real v0.3.1
 output. Solución: capturar el fixture desde la build v0.3.1 real.
@@ -645,7 +645,7 @@ fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
 }
 ```
 
-- [ ] **T04.4 (Red): Verify FAIL**
+- [x] **T04.4 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run magi_report agent_name_ord --no-run 2>&1 | tail -10
@@ -653,15 +653,15 @@ cargo nextest run magi_report agent_name_ord --no-run 2>&1 | tail -10
 
 Expected: compile errors `no field 'retried_agents'`, `Deserialize not implemented`.
 
-- [ ] **T04.5 (Green): Implementar campo + derive `Deserialize`**
+- [x] **T04.5 (Green): Implementar campo + derive `Deserialize`**
 
 (Idéntico al plan org T04.3.)
 
-- [ ] **T04.6 (Green): Update constructors**
+- [x] **T04.6 (Green): Update constructors**
 
 (Idéntico al plan org T04.4.)
 
-- [ ] **T04.7 (Green): Verify PASS**
+- [x] **T04.7 (Green): Verify PASS**
 
 ```bash
 cargo nextest run
@@ -669,7 +669,7 @@ cargo clippy --tests -- -D warnings
 cargo fmt --check
 ```
 
-- [ ] **T04.8 (Commits):**
+- [x] **T04.8 (Commits):**
 
 **MAGI R3 Caspar W9:** el commit message del fixture DEBE nombrar qué
 path de captura (A/B/C) se usó, para reproducibilidad y auditoría
@@ -705,7 +705,7 @@ coupling, API misuse).
 
 **`CompletionConfig` permanece sin cambios respecto a v0.3.1.**
 
-- [ ] **T05.1 (Green): Declarar `tokio::task_local!` en `src/agent.rs`**
+- [x] **T05.1 (Green): Declarar `tokio::task_local!` en `src/agent.rs`**
 
 ```rust
 use crate::schema::AgentName;
@@ -731,7 +731,7 @@ tokio::task_local! {
 }
 ```
 
-- [ ] **T05.2 (Green): Wrap `Agent::execute` con la task-local scope**
+- [x] **T05.2 (Green): Wrap `Agent::execute` con la task-local scope**
 
 ```rust
 impl Agent {
@@ -752,7 +752,7 @@ impl Agent {
 Notar que `CompletionConfig` se pasa por referencia sin modificación. Ningún
 cambio en el struct público.
 
-- [ ] **T05.3 (Red): Tests del `RoutingMockProvider`** (usando task-local)
+- [x] **T05.3 (Red): Tests del `RoutingMockProvider`** (usando task-local)
 
 Crear `src/test_support.rs`. Los tests deben envolver las llamadas a
 `provider.complete()` dentro del `CURRENT_AGENT_IDENTITY.scope()`:
@@ -844,7 +844,7 @@ mod tests {
 }
 ```
 
-- [ ] **T05.4 (Green): Implementar `RoutingMockProvider` (vía task-local)**
+- [x] **T05.4 (Green): Implementar `RoutingMockProvider` (vía task-local)**
 
 En `src/test_support.rs`:
 
@@ -933,21 +933,21 @@ impl LlmProvider for RoutingMockProvider {
 }
 ```
 
-- [ ] **T05.5 (Green): Feature `test-utils` en `Cargo.toml`**
+- [x] **T05.5 (Green): Feature `test-utils` en `Cargo.toml`**
 
 ```toml
 [features]
 test-utils = []
 ```
 
-- [ ] **T05.6 (Green): Gate del módulo en `lib.rs`**
+- [x] **T05.6 (Green): Gate del módulo en `lib.rs`**
 
 ```rust
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_support;
 ```
 
-- [ ] **T05.7 (Green): Verify PASS**
+- [x] **T05.7 (Green): Verify PASS**
 
 ```bash
 cargo nextest run routing_mock_provider agent_role_marker
@@ -956,7 +956,7 @@ cargo clippy --tests --features test-utils -- -D warnings
 cargo fmt --check
 ```
 
-- [ ] **T05.8 (Commits):**
+- [x] **T05.8 (Commits):**
 
 ```bash
 git add src/agent.rs
@@ -982,7 +982,7 @@ idéntico a v0.3.1, sin SemVer hazard.
 **Cambio vs plan org:** ELIMINAR el step T06.5 interim refactor (MAGI R1 W7).
 Ya no hay `DispatchOutcome` enum — usamos tupla.
 
-- [ ] **T06.1 (Red): Tests**
+- [x] **T06.1 (Red): Tests**
 
 ```rust
 #[test]
@@ -1012,13 +1012,13 @@ fn test_parse_and_validate_returns_validation_for_out_of_range_confidence() {
 
 (SIN `DispatchOutcome` test — la enum ya no existe.)
 
-- [ ] **T06.2 (Red): Verify FAIL**
+- [x] **T06.2 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run parse_and_validate --no-run 2>&1 | tail -5
 ```
 
-- [ ] **T06.3 (Green): Implementar `parse_and_validate` solamente**
+- [x] **T06.3 (Green): Implementar `parse_and_validate` solamente**
 
 En `src/orchestrator.rs`:
 
@@ -1041,18 +1041,18 @@ pub(crate) fn parse_and_validate(
 **No** se agrega `DispatchOutcome`. La tupla `(Result<AgentOutput, String>, bool)`
 se usa directamente en T07.
 
-- [ ] **T06.4 (Green): Verify PASS**
+- [x] **T06.4 (Green): Verify PASS**
 
 ```bash
 cargo nextest run parse_and_validate
 cargo clippy --tests -- -D warnings
 ```
 
-- [ ] **T06.5 (REMOVED MAGI R1 W7): NO interim refactor de `process_results`**
+- [x] **T06.5 (REMOVED MAGI R1 W7): NO interim refactor de `process_results`**
 
 `process_results` se eliminará junto con `launch_agents` en T08b. No reescribir.
 
-- [ ] **T06.6 (Commits):**
+- [x] **T06.6 (Commits):**
 
 ```bash
 git add src/orchestrator.rs
@@ -1069,7 +1069,7 @@ git commit -m "feat: add parse_and_validate helper"
 **Files:**
 - Modify: `src/orchestrator.rs`
 
-- [ ] **T07.1 (Red): Tests retry FSM + NUEVO BDD-19 explicit no-retry suite**
+- [x] **T07.1 (Red): Tests retry FSM + NUEVO BDD-19 explicit no-retry suite**
 
 ```rust
 #[tokio::test]
@@ -1217,13 +1217,13 @@ async fn test_dispatch_one_agent_retry_then_provider_error_marks_retried() {
 }
 ```
 
-- [ ] **T07.2 (Red): Verify FAIL**
+- [x] **T07.2 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run dispatch_one_agent --no-run 2>&1 | tail -5
 ```
 
-- [ ] **T07.3 (Green): Implementar con tupla (spec §3.4 D-8 revisado)**
+- [x] **T07.3 (Green): Implementar con tupla (spec §3.4 D-8 revisado)**
 
 ```rust
 use std::sync::Arc;
@@ -1291,7 +1291,7 @@ pub(crate) async fn dispatch_one_agent(
 }
 ```
 
-- [ ] **T07.4 (Green): Verify PASS**
+- [x] **T07.4 (Green): Verify PASS**
 
 ```bash
 cargo nextest run dispatch_one_agent --features test-utils
@@ -1301,7 +1301,7 @@ cargo fmt --check
 
 Expected: ~9 tests pass (3 retry FSM + 5 no-retry-on-provider + 1 retry+provider-error mark).
 
-- [ ] **T07.5 (Commits):**
+- [x] **T07.5 (Commits):**
 
 ```bash
 git add src/orchestrator.rs
@@ -1326,7 +1326,7 @@ agrega `dispatch_with_retry`, switchea `analyze` para usarla, elimina
 `launch_agents`/`process_results`, agrega `Arc<Validator>` field, y agrega
 el opt-out — todo en commits secuenciales pero sin gap clippy.
 
-- [ ] **T08.1 (Red): Tests integración + opt-out**
+- [x] **T08.1 (Red): Tests integración + opt-out**
 
 ```rust
 #[tokio::test]
@@ -1441,7 +1441,7 @@ async fn test_with_retry_disabled_skips_retry_on_schema_error() {
 }
 ```
 
-- [ ] **T08.2 (Red): Verify FAIL**
+- [x] **T08.2 (Red): Verify FAIL**
 
 ```bash
 cargo nextest run test_analyze_populates_retried test_analyze_retry_also test_analyze_no_retry_on_timeout test_with_retry_disabled --features test-utils
@@ -1449,7 +1449,7 @@ cargo nextest run test_analyze_populates_retried test_analyze_retry_also test_an
 
 Expected: tests fail (los nuevos APIs no existen).
 
-- [ ] **T08.3 (Green): Cambio en `MagiConfig` y `MagiBuilder`**
+- [x] **T08.3 (Green): Cambio en `MagiConfig` y `MagiBuilder`**
 
 En `src/orchestrator.rs`:
 
@@ -1481,7 +1481,7 @@ impl MagiBuilder {
 }
 ```
 
-- [ ] **T08.4 (Green): Cambio en `Magi` struct — `Arc<Validator>`**
+- [x] **T08.4 (Green): Cambio en `Magi` struct — `Arc<Validator>`**
 
 ```rust
 pub struct Magi {
@@ -1502,7 +1502,7 @@ impl Magi {
 // MagiBuilder::build también wrap: validator: Arc::new(self.validator)
 ```
 
-- [ ] **T08.5 (Green): `dispatch_one_agent` chequea el flag**
+- [x] **T08.5 (Green): `dispatch_one_agent` chequea el flag**
 
 Modificar la implementación de T07 para tomar el flag desde el config:
 
@@ -1534,7 +1534,7 @@ pub(crate) async fn dispatch_one_agent(
 }
 ```
 
-- [ ] **T08.6 (Green): Implementar `dispatch_with_retry`**
+- [x] **T08.6 (Green): Implementar `dispatch_with_retry`**
 
 ```rust
 async fn dispatch_with_retry(
@@ -1599,7 +1599,7 @@ async fn dispatch_with_retry(
 }
 ```
 
-- [ ] **T08.7 (Green): Switch `Magi::analyze` AND delete obsolete code en el MISMO commit**
+- [x] **T08.7 (Green): Switch `Magi::analyze` AND delete obsolete code en el MISMO commit**
 
 ```rust
 // En analyze (reemplazo del launch + process pair):
@@ -1623,7 +1623,7 @@ Y eliminar `launch_agents` + `process_results` (ya unused).
 
 Hacer estos cambios en UN solo commit Green para evitar clippy gap (MAGI R2 W9).
 
-- [ ] **T08.8 (Green): Verify PASS full suite**
+- [x] **T08.8 (Green): Verify PASS full suite**
 
 ```bash
 cargo nextest run --features test-utils
@@ -1635,9 +1635,9 @@ cargo audit
 
 Expected: todos verde. 4 nuevos integration tests + tests existentes.
 
-- [ ] **T08.9 (Refactor): None.**
+- [x] **T08.9 (Refactor): None.**
 
-- [ ] **T08.10 (Commits):**
+- [x] **T08.10 (Commits):**
 
 Cada commit deja el árbol compilando + clippy clean. Sin gaps intermedios.
 
@@ -1663,7 +1663,7 @@ para que `cargo clippy -D warnings` pase en cada SHA.
 **Files:**
 - Modify: `examples/basic_analysis.rs`
 
-- [ ] **T09.1 (Red): Test compile-time stub**
+- [x] **T09.1 (Red): Test compile-time stub**
 
 Al final de `examples/basic_analysis.rs`:
 
@@ -1682,13 +1682,13 @@ mod tests {
 }
 ```
 
-- [ ] **T09.2 (Red): Verify FAIL** (function doesn't exist yet)
+- [x] **T09.2 (Red): Verify FAIL** (function doesn't exist yet)
 
 ```bash
 cargo nextest run --example basic_analysis setup_console_encoding 2>&1 | tail -5
 ```
 
-- [ ] **T09.3 (Green): Implementar `setup_console_encoding`**
+- [x] **T09.3 (Green): Implementar `setup_console_encoding`**
 
 ```rust
 #[cfg(windows)]
@@ -1731,7 +1731,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-- [ ] **T09.4 (Green): Verify PASS en ambas plataformas**
+- [x] **T09.4 (Green): Verify PASS en ambas plataformas**
 
 ```bash
 cargo build --example basic_analysis --features claude-cli
@@ -1742,7 +1742,7 @@ cargo fmt --check
 
 Expected: test pasa, zero warnings.
 
-- [ ] **T09.5 (Commits):**
+- [x] **T09.5 (Commits):**
 
 ```bash
 git add examples/basic_analysis.rs
@@ -1761,10 +1761,10 @@ git commit -m "feat: harden basic_analysis for Windows UTF-8 console + log failu
 
 Sin cambios respecto al plan org.
 
-- [ ] **T10.1 (Inspect)**: `grep -n "model\|opus" examples/basic_analysis.rs`
-- [ ] **T10.2 (Green)**: reemplazar fallback hardcoded `"opus"` con `default_model_for_mode(mode)`.
-- [ ] **T10.3 (Verify)**: `cargo build --example basic_analysis --features claude-cli`.
-- [ ] **T10.4 (Commit)**:
+- [x] **T10.1 (Inspect)**: `grep -n "model\|opus" examples/basic_analysis.rs`
+- [x] **T10.2 (Green)**: reemplazar fallback hardcoded `"opus"` con `default_model_for_mode(mode)`.
+- [x] **T10.3 (Verify)**: `cargo build --example basic_analysis --features claude-cli`.
+- [x] **T10.4 (Commit)**:
 
 ```bash
 git add examples/basic_analysis.rs
@@ -1780,11 +1780,11 @@ git commit -m "feat: use default_model_for_mode in basic_analysis"
 - Modify: `CHANGELOG.md`
 - Modify: `docs/migration-v0.4.md` (verify la nota de 2x-timeout esté)
 
-- [ ] **T11.1: Bump version a 0.4.0**
+- [x] **T11.1: Bump version a 0.4.0**
 
-- [ ] **T11.2: Update CHANGELOG.md** (texto en plan org §T11.2 — sin cambios).
+- [x] **T11.2: Update CHANGELOG.md** (texto en plan org §T11.2 — sin cambios).
 
-- [ ] **T11.3: Verify migration guide tiene la nota de 2x-timeout** (agregada en T00.2):
+- [x] **T11.3: Verify migration guide tiene la nota de 2x-timeout** (agregada en T00.2):
 
 ```bash
 grep -c "doubles\|2x\|worst-case latency" docs/migration-v0.4.md
@@ -1792,7 +1792,7 @@ grep -c "doubles\|2x\|worst-case latency" docs/migration-v0.4.md
 
 Expected: ≥ 1 match.
 
-- [ ] **T11.4: Full verification**
+- [x] **T11.4: Full verification**
 
 ```bash
 cargo build --release
@@ -1803,14 +1803,14 @@ cargo doc --no-deps
 cargo audit
 ```
 
-- [ ] **T11.5: Pre-merge gates per CLAUDE.local.md §6**
+- [x] **T11.5: Pre-merge gates per CLAUDE.local.md §6**
 
 ```bash
 # Loop 1: /requesting-code-review until clean-to-go
 # Loop 2: /magi:magi until >= GO WITH CAVEATS
 ```
 
-- [ ] **T11.6: Final commit**
+- [x] **T11.6: Final commit**
 
 ```bash
 git add Cargo.toml CHANGELOG.md docs/migration-v0.4.md
