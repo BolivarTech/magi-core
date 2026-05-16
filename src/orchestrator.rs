@@ -15,7 +15,7 @@ use crate::error::{MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::schema::{AgentName, AgentOutput, Mode};
-use crate::user_prompt::{FastrandSource, RngLike, build_user_prompt};
+use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
 use crate::validate::{ValidationLimits, Validator};
 use tokio::task::AbortHandle;
 
@@ -554,6 +554,96 @@ impl Magi {
     }
 }
 
+/// Dispatch a single agent with one-shot retry on schema/parse errors.
+///
+/// Returns `(Result<AgentOutput, String>, bool)` — a flat tuple, no enum
+/// (MAGI R1 C2/W2: avoids dead-variant + unreachable! noise):
+/// - First element: `Ok(output)` on success (first or second attempt),
+///   `Err(reason)` on failure.
+/// - Second element: `true` if a retry attempt was made (regardless of
+///   outcome), `false` otherwise. Used by orchestrator to populate
+///   [`MagiReport::retried_agents`] telemetry.
+///
+/// Retry trigger: `MagiError::Validation` or `MagiError::Deserialization`
+/// from [`parse_and_validate`] on the first attempt. Provider errors and
+/// timeouts skip retry — they're surfaced via the dedicated transient-error
+/// layer ([`RetryProvider`](crate::provider::RetryProvider)) instead.
+///
+/// When `retry_enabled` is `false`, the retry path is skipped entirely
+/// even on schema/parse errors. The first error becomes the failure reason
+/// without the `retry-failed:` prefix. Used by
+/// [`MagiBuilder::with_retry_disabled`] for latency-sensitive deployments.
+///
+/// See `docs/adr/002-retry-on-schema-error.md`.
+#[allow(dead_code)] // wired into Magi::analyze in T08; remove allow then
+pub(crate) async fn dispatch_one_agent(
+    agent: Agent,
+    user_prompt: String,
+    config: CompletionConfig,
+    validator: Arc<Validator>,
+    timeout: Duration,
+    retry_enabled: bool,
+) -> (Result<AgentOutput, String>, bool) {
+    // First attempt.
+    let first_result = tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
+    let first_raw = match first_result {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(provider_err)) => {
+            return (Err(MagiError::Provider(provider_err).to_string()), false);
+        }
+        Err(_elapsed) => {
+            return (
+                Err(format!("timeout: agent timed out after {timeout:?}")),
+                false,
+            );
+        }
+    };
+
+    // Parse + validate first response. Success exits here.
+    let first_err = match parse_and_validate(&first_raw, &validator) {
+        Ok(output) => return (Ok(output), false),
+        Err(e) => e,
+    };
+
+    // Retry gate: only on Validation or Deserialization, and only if
+    // retry_enabled (set by MagiBuilder::with_retry_disabled = false).
+    let should_retry = retry_enabled
+        && matches!(
+            first_err,
+            MagiError::Validation(_) | MagiError::Deserialization(_)
+        );
+    if !should_retry {
+        return (Err(first_err.to_string()), false);
+    }
+
+    // Single-shot retry with corrective feedback prompt.
+    let retry_prompt = build_retry_prompt(&user_prompt, &first_err.to_string());
+    let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
+    let second_raw = match second_result {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(provider_err)) => {
+            return (
+                Err(format!(
+                    "retry-failed: {}",
+                    MagiError::Provider(provider_err)
+                )),
+                true,
+            );
+        }
+        Err(_elapsed) => {
+            return (
+                Err(format!("retry-failed: timeout after {timeout:?}")),
+                true,
+            );
+        }
+    };
+
+    match parse_and_validate(&second_raw, &validator) {
+        Ok(output) => (Ok(output), true),
+        Err(e) => (Err(format!("retry-failed: {e}")), true),
+    }
+}
+
 /// Extracts an [`AgentOutput`] from raw LLM response text.
 ///
 /// Handles common LLM output quirks:
@@ -615,7 +705,6 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
 ///
 /// Other `MagiError` variants are not produced here; the retry gate
 /// matches only these two.
-#[allow(dead_code)] // wired into dispatch_one_agent in T07; remove allow then
 pub(crate) fn parse_and_validate(
     raw: &str,
     validator: &Validator,
@@ -977,6 +1066,327 @@ mod tests {
             }
             other => panic!("Expected InputTooLarge, got: {other:?}"),
         }
+    }
+
+    // -- T07: dispatch_one_agent retry FSM + BDD-19 no-retry suite --
+
+    use crate::agent::CURRENT_AGENT_IDENTITY;
+    use crate::test_support::RoutingMockProvider;
+
+    /// First attempt succeeds: result Ok, retried=false.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_success_first_attempt_no_retry() {
+        let valid = mock_agent_json("melchior", "approve", 0.9);
+        let provider = Arc::new(
+            RoutingMockProvider::new().with_agent_responses(AgentName::Melchior, vec![Ok(valid)]),
+        );
+        let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                .to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        assert!(!retried);
+    }
+
+    /// First attempt validation-error, retry succeeds: result Ok, retried=true.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_retries_on_validation_error_and_succeeds() {
+        let bad = r#"{"agent":"melchior"}"#.to_string();
+        let good = mock_agent_json("melchior", "approve", 0.9);
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(AgentName::Melchior, vec![Ok(bad), Ok(good)]),
+        );
+        let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                .to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+
+        assert!(result.is_ok(), "got: {result:?}");
+        assert!(retried);
+    }
+
+    /// First and second attempts both fail parsing: result Err with
+    /// "retry-failed:" prefix, retried=true.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_retries_on_deserialization_and_fails() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Caspar,
+            vec![
+                Ok("not json {{{".to_string()),
+                Ok("still not json".to_string()),
+            ],
+        ));
+        let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "MODE: design\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let reason = result.unwrap_err();
+        assert!(reason.starts_with("retry-failed: "), "got: {reason}");
+        assert!(retried);
+    }
+
+    /// MAGI R1 W5 / BDD-19: provider timeout does NOT trigger retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_provider_timeout() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Balthasar,
+            vec![
+                Err(ProviderError::Timeout {
+                    message: "t".to_string(),
+                }),
+                Ok("MUST NOT BE CALLED".to_string()), // sentinel
+            ],
+        ));
+        let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let reason = result.unwrap_err();
+        assert!(reason.to_lowercase().contains("timeout"));
+        assert!(!retried, "provider errors must NOT trigger retry");
+    }
+
+    /// BDD-19: HTTP 500 does not retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_http_500() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Caspar,
+            vec![Err(ProviderError::Http {
+                status: 500,
+                body: "ISE".to_string(),
+            })],
+        ));
+        let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(
+            !retried,
+            "HTTP 500 must NOT retry — RetryProvider handles transient HTTP"
+        );
+    }
+
+    /// BDD-19: HTTP 429 does not retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_http_429() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Melchior,
+            vec![Err(ProviderError::Http {
+                status: 429,
+                body: "rate".to_string(),
+            })],
+        ));
+        let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!retried);
+    }
+
+    /// BDD-19: Auth error does not retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_auth_error() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Balthasar,
+            vec![Err(ProviderError::Auth {
+                message: "401".to_string(),
+            })],
+        ));
+        let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!retried);
+    }
+
+    /// BDD-19: NestedSession error does not retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_nested_session() {
+        let provider = Arc::new(
+            RoutingMockProvider::new()
+                .with_agent_responses(AgentName::Caspar, vec![Err(ProviderError::NestedSession)]),
+        );
+        let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!retried);
+    }
+
+    /// BDD-19: Network error does not retry.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_does_not_retry_on_network_error() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Melchior,
+            vec![Err(ProviderError::Network {
+                message: "dns".to_string(),
+            })],
+        ));
+        let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(!retried);
+    }
+
+    /// BDD-08: first attempt validation error → retry hits provider error.
+    /// retried=true must be preserved (telemetry semantics).
+    #[tokio::test]
+    async fn test_dispatch_one_agent_retry_then_provider_error_marks_retried() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Caspar,
+            vec![
+                Ok("{}".to_string()), // validation error
+                Err(ProviderError::Timeout {
+                    message: "t2".to_string(),
+                }),
+            ],
+        ));
+        let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "MODE: x\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            true,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let reason = result.unwrap_err();
+        assert!(reason.starts_with("retry-failed: "), "got: {reason}");
+        assert!(retried);
+    }
+
+    /// MAGI R2 W6 / spec [D-24]: with_retry_disabled bypasses the retry.
+    /// First validation-error becomes the failure reason WITHOUT
+    /// "retry-failed:" prefix. The second slot's sentinel is never consumed.
+    #[tokio::test]
+    async fn test_dispatch_one_agent_retry_disabled_skips_retry_path() {
+        let provider = Arc::new(RoutingMockProvider::new().with_agent_responses(
+            AgentName::Melchior,
+            vec![
+                Ok("{}".to_string()),                 // validation error
+                Ok("MUST NOT BE CALLED".to_string()), // sentinel
+            ],
+        ));
+        let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
+        let validator = Arc::new(Validator::new());
+        let cfg = CompletionConfig::default();
+
+        // retry_enabled=false
+        let (result, retried) = dispatch_one_agent(
+            agent,
+            "p".to_string(),
+            cfg,
+            validator,
+            Duration::from_secs(30),
+            false,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let reason = result.unwrap_err();
+        assert!(
+            !reason.starts_with("retry-failed:"),
+            "disabled retry must NOT produce retry-failed: prefix; got: {reason}"
+        );
+        assert!(!retried, "retry disabled => retried=false");
+        // Silence unused warning for CURRENT_AGENT_IDENTITY (used elsewhere).
+        let _ = &CURRENT_AGENT_IDENTITY;
     }
 
     // -- T06: parse_and_validate helper --
