@@ -35,6 +35,34 @@ v0.4.0 closes 5 gaps with the Python MAGI reference (v2.2.8):
   the retry also fails, the agent ALSO appears in `failed_agents` with
   reason prefix `"retry-failed: "`.
 
+## Retry semantics caveat (MAGI R3 W3)
+
+The retry preserves the **original user prompt verbatim** — including
+the BEGIN/END USER CONTEXT delimiters and the same nonce. Same `content`
+goes back to the LLM with only a `---RETRY-FEEDBACK---` block appended
+after the END delimiter. This is intentional ([D-17] in
+`sbtdd/spec-behavior.md`) for Python parity: a fresh nonce and
+re-sanitization would change the LLM's perception of the framing and
+weaken the corrective feedback's effectiveness.
+
+**Implication for prompt-injection-induced failures:** if the original
+`content` contains an injection that successfully evaded the v0.3
+sanitization layer (`build_user_prompt`), the retry will resend the
+same content. The model will see the same adversarial payload twice.
+This is acceptable because:
+1. The v0.3 sanitization (normalize → strip → neutralize → nonce-fail-closed)
+   is the primary defense; a payload that passes those layers is, by
+   construction, structurally neutralized.
+2. The retry-feedback block has its own independent 4-layer sanitization
+   (`sanitize_error_for_retry_feedback`) covering the corrective message
+   itself, so the retry envelope cannot be hijacked even by error
+   strings that echo adversarial content.
+3. Burning a second API call on the same payload is preferable to
+   weakening the structural framing that the LLM has learned to trust.
+
+If your threat model requires per-retry re-sanitization, use
+`MagiBuilder::with_retry_disabled()` to skip the retry layer entirely.
+
 ## Performance impact
 
 **Worst-case latency doubles when an agent triggers retry.** The retry
