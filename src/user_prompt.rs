@@ -125,7 +125,6 @@ fn neutralize_headers(s: &str) -> Cow<'_, str> {
 /// `MagiError::Deserialization` — though those messages are crate-controlled,
 /// the defense in depth here protects against future error formats that
 /// might echo content from the LLM's adversarial first output.
-#[allow(dead_code)] // wired into dispatch_one_agent in T07; remove allow then
 fn sanitize_error_for_retry_feedback(error: &str) -> String {
     let neutralized = neutralize_headers(error);
     neutralized.replace("---RETRY-FEEDBACK---", "  ---RETRY-FEEDBACK---")
@@ -155,7 +154,6 @@ fn sanitize_error_for_retry_feedback(error: &str) -> String {
 /// # Returns
 ///
 /// A new prompt string with the retry-feedback block appended.
-#[allow(dead_code)] // wired into dispatch_one_agent in T07; remove allow then
 pub(crate) fn build_retry_prompt(original_prompt: &str, error: &str) -> String {
     let sanitized_error = sanitize_error_for_retry_feedback(error);
     format!(

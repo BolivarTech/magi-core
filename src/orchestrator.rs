@@ -11,7 +11,9 @@ use std::sync::Mutex;
 
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
-use crate::error::{MagiError, ProviderError};
+use crate::error::MagiError;
+#[cfg(test)]
+use crate::error::ProviderError;
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::schema::{AgentName, AgentOutput, Mode};
@@ -60,6 +62,17 @@ pub struct MagiConfig {
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
     pub completion: CompletionConfig,
+    /// **v0.4.0** — enable the single-shot retry on schema/parse errors.
+    ///
+    /// Default: `true`. When enabled, an agent whose first response fails
+    /// `MagiError::Validation` or `MagiError::Deserialization` is retried
+    /// once with a corrective prompt (Python v2.2.0/v2.2.4 parity).
+    ///
+    /// When disabled (via [`MagiBuilder::with_retry_disabled`]), the first
+    /// schema/parse error becomes the failure reason without retry. Useful
+    /// for latency-sensitive deployments where 2× worst-case timeout per
+    /// agent is unacceptable.
+    pub retry_on_schema_error: bool,
 }
 
 impl Default for MagiConfig {
@@ -68,6 +81,7 @@ impl Default for MagiConfig {
             timeout: Duration::from_secs(300),
             max_input_len: DEFAULT_MAX_INPUT_LEN,
             completion: CompletionConfig::default(),
+            retry_on_schema_error: true,
         }
     }
 }
@@ -176,6 +190,24 @@ impl MagiBuilder {
     #[cfg(test)]
     pub(crate) fn with_rng_source(mut self, rng: Box<dyn RngLike + Send>) -> Self {
         self.rng_source = Some(rng);
+        self
+    }
+
+    /// **v0.4.0** — Disable the single-shot retry on schema/parse errors.
+    ///
+    /// Agents whose first response fails `MagiError::Validation` or
+    /// `MagiError::Deserialization` go directly to `failed_agents` without
+    /// a second attempt. `retried_agents` is always empty in the resulting
+    /// [`MagiReport`].
+    ///
+    /// Useful for latency-sensitive deployments where the 2× worst-case
+    /// timeout per agent (one for the first attempt + one for the retry,
+    /// each with a fresh `timeout` budget) is unacceptable.
+    ///
+    /// Default: retry enabled. See `docs/migration-v0.4.md` and
+    /// `docs/adr/002-retry-on-schema-error.md`.
+    pub fn with_retry_disabled(mut self) -> Self {
+        self.config.retry_on_schema_error = false;
         self
     }
 
@@ -289,7 +321,7 @@ impl MagiBuilder {
         Ok(Magi {
             config: self.config,
             agent_factory: factory,
-            validator: Validator::with_limits(self.validation_limits),
+            validator: Arc::new(Validator::with_limits(self.validation_limits)),
             consensus_engine: ConsensusEngine::new(self.consensus_config),
             formatter: ReportFormatter::with_config(self.report_config)
                 .map_err(|e| MagiError::Validation(e.to_string()))?,
@@ -333,7 +365,12 @@ impl Drop for AbortGuard {
 pub struct Magi {
     config: MagiConfig,
     agent_factory: AgentFactory,
-    validator: Validator,
+    /// **v0.4.0** — wrapped in `Arc` (was bare `Validator`) so the dispatch
+    /// layer can share it across spawned tasks without per-task deep clones.
+    /// Validator's compiled regexes are amortized over the lifetime of
+    /// the Magi instance instead of being rebuilt per `analyze()` call.
+    /// See MAGI R1 W6/W14.
+    validator: Arc<Validator>,
     consensus_engine: ConsensusEngine,
     formatter: ReportFormatter,
     overrides: BTreeMap<(AgentName, Option<Mode>), String>,
@@ -414,20 +451,19 @@ impl Magi {
             build_user_prompt(*mode, content, &mut **rng)?
         };
 
-        // 4. Launch agents in parallel and collect results
-        let agent_results = self.launch_agents(agents, &prompt).await;
+        // 4. Dispatch agents in parallel with single-shot retry on schema/parse errors.
+        //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
+        let (successful, failed_agents, retried_agents) =
+            self.dispatch_with_retry(agents, &prompt).await?;
 
-        // 5. Process results: parse, validate, separate successes/failures
-        let (successful, failed_agents) = self.process_results(agent_results)?;
-
-        // 6. Consensus
+        // 5. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
 
-        // 7. Report
+        // 6. Report
         let banner = self.formatter.format_banner(&successful, &consensus);
         let report = self.formatter.format_report(&successful, &consensus);
 
-        // 8. Build MagiReport
+        // 7. Build MagiReport
         let degraded = successful.len() < 3;
         Ok(MagiReport {
             agents: successful,
@@ -436,99 +472,89 @@ impl Magi {
             report,
             degraded,
             failed_agents,
-            // T04 placeholder: populated by T08's dispatch_with_retry.
-            retried_agents: std::collections::BTreeSet::new(),
+            retried_agents,
         })
     }
 
-    /// Launches all agents in parallel using individual `tokio::spawn` tasks.
+    /// Dispatches all agents in parallel via `tokio::spawn`, with each agent
+    /// independently running the single-shot retry FSM via [`dispatch_one_agent`].
     ///
-    /// Each agent task is wrapped in `tokio::time::timeout`. Agent names are
-    /// tracked alongside their `JoinHandle`s so that panicked tasks are correctly
-    /// attributed to the right agent (unlike `JoinSet`, which loses task identity
-    /// on panic).
+    /// Returns the trio `(successful, failed_agents, retried_agents)`:
+    /// - `successful`: parsed+validated `AgentOutput` for each agent that
+    ///   completed (first attempt or retry).
+    /// - `failed_agents`: name → reason map for failures. Reasons starting
+    ///   with `"retry-failed: "` indicate the retry path was exercised and
+    ///   also failed.
+    /// - `retried_agents`: names of agents whose first attempt triggered the
+    ///   retry path, regardless of whether the retry succeeded.
     ///
     /// An [`AbortGuard`] holds abort handles for all spawned tasks. If this
-    /// future is dropped (e.g., the caller times out), the guard aborts every
-    /// running task, preventing wasted LLM API quota.
-    async fn launch_agents(
+    /// future is cancelled (caller drops or times out), the guard aborts
+    /// every running task to prevent wasted LLM API quota.
+    ///
+    /// Returns `MagiError::InsufficientAgents` if fewer than the consensus
+    /// engine's required minimum (typically 2) succeed. See ADR 002.
+    async fn dispatch_with_retry(
         &self,
         agents: Vec<Agent>,
-        prompt: &str,
-    ) -> Vec<(AgentName, Result<String, MagiError>)> {
+        user_prompt: &str,
+    ) -> Result<
+        (
+            Vec<AgentOutput>,
+            BTreeMap<AgentName, String>,
+            std::collections::BTreeSet<AgentName>,
+        ),
+        MagiError,
+    > {
         let timeout = self.config.timeout;
         let completion = self.config.completion.clone();
+        let retry_enabled = self.config.retry_on_schema_error;
+        let validator: Arc<Validator> = Arc::clone(&self.validator);
+
         let mut handles = Vec::new();
         let mut abort_handles = Vec::new();
 
         for agent in agents {
             let name = agent.name();
-            let user_prompt = prompt.to_string();
+            let user_prompt_cloned = user_prompt.to_string();
             let config = completion.clone();
-
+            let validator = Arc::clone(&validator);
             let handle = tokio::spawn(async move {
-                let result =
-                    tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
-                match result {
-                    Ok(Ok(response)) => Ok(response),
-                    Ok(Err(provider_err)) => Err(MagiError::Provider(provider_err)),
-                    Err(_elapsed) => Err(MagiError::Provider(ProviderError::Timeout {
-                        message: format!("agent timed out after {timeout:?}"),
-                    })),
-                }
+                dispatch_one_agent(
+                    agent,
+                    user_prompt_cloned,
+                    config,
+                    validator,
+                    timeout,
+                    retry_enabled,
+                )
+                .await
             });
             abort_handles.push(handle.abort_handle());
             handles.push((name, handle));
         }
 
-        // Guard aborts all tasks if this future is cancelled before completion.
-        // Once all handles are awaited below, abort() on a finished task is a no-op.
         let _guard = AbortGuard(abort_handles);
 
-        let mut results = Vec::new();
+        let mut successful = Vec::new();
+        let mut failed = BTreeMap::new();
+        let mut retried = std::collections::BTreeSet::new();
         for (name, handle) in handles {
             match handle.await {
-                Ok(result) => results.push((name, result)),
-                Err(join_err) => results.push((
-                    name,
-                    Err(MagiError::Provider(ProviderError::Process {
-                        exit_code: None,
-                        stderr: format!("agent task panicked: {join_err}"),
-                    })),
-                )),
-            }
-        }
-
-        results
-    }
-
-    /// Separates successful agent outputs from failures.
-    ///
-    /// Parses and validates each raw response, preserving failure reasons
-    /// for diagnostic visibility. Returns an error if fewer than 2 agents
-    /// succeeded.
-    fn process_results(
-        &self,
-        results: Vec<(AgentName, Result<String, MagiError>)>,
-    ) -> Result<(Vec<AgentOutput>, BTreeMap<AgentName, String>), MagiError> {
-        let mut successful = Vec::new();
-        let mut failed_agents = BTreeMap::new();
-
-        for (name, result) in results {
-            match result {
-                Ok(raw) => match parse_agent_response(&raw) {
-                    Ok(mut output) => match self.validator.validate_mut(&mut output) {
-                        Ok(()) => successful.push(output),
-                        Err(e) => {
-                            failed_agents.insert(name, format!("validation: {e}"));
-                        }
-                    },
-                    Err(e) => {
-                        failed_agents.insert(name, format!("parse: {e}"));
+                Ok((Ok(output), was_retried)) => {
+                    successful.push(output);
+                    if was_retried {
+                        retried.insert(name);
                     }
-                },
-                Err(e) => {
-                    failed_agents.insert(name, e.to_string());
+                }
+                Ok((Err(reason), was_retried)) => {
+                    failed.insert(name, reason);
+                    if was_retried {
+                        retried.insert(name);
+                    }
+                }
+                Err(join_err) => {
+                    failed.insert(name, format!("panic: {join_err}"));
                 }
             }
         }
@@ -541,7 +567,7 @@ impl Magi {
             });
         }
 
-        Ok((successful, failed_agents))
+        Ok((successful, failed, retried))
     }
 
     /// Returns the custom prompt overrides map for inspection in tests.
@@ -575,7 +601,6 @@ impl Magi {
 /// [`MagiBuilder::with_retry_disabled`] for latency-sensitive deployments.
 ///
 /// See `docs/adr/002-retry-on-schema-error.md`.
-#[allow(dead_code)] // wired into Magi::analyze in T08; remove allow then
 pub(crate) async fn dispatch_one_agent(
     agent: Agent,
     user_prompt: String,
@@ -852,7 +877,17 @@ mod tests {
             Ok("not valid json at all".to_string()),
         ];
         let provider = Arc::new(MockProvider::mixed("mock", "test-model", responses));
-        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        // v0.4.0: explicit retry-disabled to preserve v0.3.1 single-shot test
+        // semantics. With retry enabled, MockProvider's modulo-cycling
+        // response queue would return melchior's valid response for the
+        // retry, producing duplicate-agent rejection rather than the
+        // intended degradation behavior. RoutingMockProvider exists for
+        // retry-aware tests; this test predates v0.4 and is intentionally
+        // scoped to the no-retry path.
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_retry_disabled()
+            .build()
+            .expect("build");
 
         let result = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
         let report = result.expect("analyze should succeed with degradation");
@@ -935,7 +970,11 @@ mod tests {
             Ok("I think the code is good".to_string()),
         ];
         let provider = Arc::new(MockProvider::mixed("mock", "test-model", responses));
-        let magi = Magi::new(provider as Arc<dyn LlmProvider>);
+        // v0.4.0: see comment in test_analyze_one_agent_bad_json_degrades_gracefully.
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_retry_disabled()
+            .build()
+            .expect("build");
 
         let result = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
         let report = result.expect("should succeed with degradation");
@@ -1093,7 +1132,10 @@ mod tests {
                 ),
         );
         let magi = Magi::new(provider as Arc<dyn LlmProvider>);
-        let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await.unwrap();
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .unwrap();
 
         assert!(
             report.failed_agents.is_empty(),
@@ -1181,8 +1223,8 @@ mod tests {
                 .with_agent_responses(
                     AgentName::Melchior,
                     vec![
-                        Ok("{}".to_string()),                       // invalid
-                        Ok("MUST NOT BE CALLED".to_string()),       // sentinel
+                        Ok("{}".to_string()),                 // invalid
+                        Ok("MUST NOT BE CALLED".to_string()), // sentinel
                     ],
                 )
                 .with_agent_responses(
