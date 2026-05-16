@@ -27,6 +27,9 @@ caseless = "~0.2.2"
 [features]
 claude-api = ["dep:reqwest"]
 claude-cli = []
+# v0.4.0: exposes RoutingMockProvider for downstream integration tests.
+# Stable only within v0.4.x — see docs/migration-v0.4.md.
+test-utils = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

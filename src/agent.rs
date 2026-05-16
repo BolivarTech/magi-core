@@ -9,6 +9,26 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+tokio::task_local! {
+    /// Per-task agent identity. Set by [`Agent::execute`] for the duration
+    /// of a provider call so test-only providers can route responses
+    /// per-agent without parsing the system prompt.
+    ///
+    /// **Not** accessible to library consumers — `pub(crate)` only.
+    /// Production providers (Claude HTTP, Claude CLI) MUST ignore this
+    /// (they never read it).
+    ///
+    /// **MAGI R3 Caspar W7:** `tokio::task_local!` requires a running
+    /// tokio runtime and a current task to `scope` into. Reads via
+    /// `try_with` return `Err(AccessError)` if no scope is active; the
+    /// `RoutingMockProvider` converts that into a fail-closed
+    /// `ProviderError::Process`. The stored value must be `'static`
+    /// (`AgentName` is `Copy + 'static`, so it qualifies trivially).
+    /// The wrapping `Send` requirement of `tokio::spawn` is preserved
+    /// because `AgentName` is `Send + Sync`.
+    pub(crate) static CURRENT_AGENT_IDENTITY: AgentName;
+}
+
 /// All analysis modes in iteration order.
 const ALL_MODES: [Mode; 3] = [Mode::CodeReview, Mode::Design, Mode::Analysis];
 
@@ -100,8 +120,15 @@ impl Agent {
         user_prompt: &str,
         config: &CompletionConfig,
     ) -> Result<String, ProviderError> {
-        self.provider
-            .complete(&self.system_prompt, user_prompt, config)
+        // Set CURRENT_AGENT_IDENTITY for the duration of the provider call
+        // so test-only providers (RoutingMockProvider) can route responses
+        // per-agent. Production providers ignore the task-local.
+        CURRENT_AGENT_IDENTITY
+            .scope(
+                self.name,
+                self.provider
+                    .complete(&self.system_prompt, user_prompt, config),
+            )
             .await
     }
 
