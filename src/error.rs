@@ -101,7 +101,7 @@ pub enum MagiError {
     /// No LLM dispatch occurred. The reason string is whatever the
     /// gate predicate returned (or a default if not provided).
     ///
-    /// See [`MagiBuilder::with_complexity_gate`].
+    /// See [`MagiBuilder::with_complexity_gate`](crate::orchestrator::MagiBuilder::with_complexity_gate).
     #[error("skipped by complexity gate: {reason}")]
     SkippedByComplexityGate {
         /// Caller-supplied (or default) description of why the input

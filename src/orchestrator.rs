@@ -104,6 +104,11 @@ impl Default for MagiConfig {
 /// //     .build()
 /// //     .expect("build");
 /// ```
+/// Type alias for the complexity-gate predicate. Erased trait object
+/// shared via `Arc` so it can be cloned across spawned tasks at zero
+/// runtime cost (Arc clone is a refcount bump).
+pub(crate) type ComplexityGate = Arc<dyn Fn(&str, Mode) -> bool + Send + Sync>;
+
 pub struct MagiBuilder {
     default_provider: Arc<dyn LlmProvider>,
     agent_providers: BTreeMap<AgentName, Arc<dyn LlmProvider>>,
@@ -114,6 +119,7 @@ pub struct MagiBuilder {
     consensus_config: ConsensusConfig,
     report_config: ReportConfig,
     rng_source: Option<Box<dyn RngLike + Send>>,
+    complexity_gate: Option<ComplexityGate>,
 }
 
 impl MagiBuilder {
@@ -132,7 +138,56 @@ impl MagiBuilder {
             consensus_config: ConsensusConfig::default(),
             report_config: ReportConfig::default(),
             rng_source: None,
+            complexity_gate: None,
         }
+    }
+
+    /// **v0.5.0** — Set a complexity-gate predicate. Called by
+    /// [`Magi::analyze`] before dispatching agents. If the predicate
+    /// returns `false`, `analyze` returns
+    /// [`MagiError::SkippedByComplexityGate`] without invoking the LLM
+    /// (zero token cost on skipped calls).
+    ///
+    /// The predicate receives the raw `content` and `Mode` so it can
+    /// implement criteria like:
+    /// - Length thresholds per mode
+    /// - Code-vs-prose classification heuristics
+    /// - Rate limiting via shared atomic counters
+    /// - Pre-flight LLM triage via cheap models
+    ///
+    /// Bounds: `Fn(&str, Mode) -> bool + Send + Sync + 'static`. The
+    /// closure is stored as `Arc<dyn Fn>` and shared across spawned
+    /// tasks. It must be cheap — it runs synchronously on every
+    /// `analyze` call, blocking the dispatch path.
+    ///
+    /// Default: no gate (every `analyze` proceeds to dispatch).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::sync::Arc;
+    /// # use magi_core::orchestrator::MagiBuilder;
+    /// # use magi_core::schema::Mode;
+    /// # fn make_provider() -> Arc<dyn magi_core::provider::LlmProvider> { unimplemented!() }
+    /// let magi = MagiBuilder::new(make_provider())
+    ///     .with_complexity_gate(|content, mode| {
+    ///         match mode {
+    ///             Mode::CodeReview => content.len() >= 200,
+    ///             Mode::Design => content.len() >= 500,
+    ///             Mode::Analysis => !content.trim().is_empty(),
+    ///         }
+    ///     })
+    ///     .build()
+    ///     .expect("build");
+    /// ```
+    ///
+    /// See `docs/migration-v0.5.md` for cost-control patterns.
+    pub fn with_complexity_gate<F>(mut self, predicate: F) -> Self
+    where
+        F: Fn(&str, Mode) -> bool + Send + Sync + 'static,
+    {
+        self.complexity_gate = Some(Arc::new(predicate));
+        self
     }
 
     /// Sets a per-agent provider override.
@@ -327,6 +382,7 @@ impl MagiBuilder {
                 .map_err(|e| MagiError::Validation(e.to_string()))?,
             overrides,
             rng_source: Arc::new(Mutex::new(rng_source)),
+            complexity_gate: self.complexity_gate,
         })
     }
 }
@@ -375,6 +431,11 @@ pub struct Magi {
     formatter: ReportFormatter,
     overrides: BTreeMap<(AgentName, Option<Mode>), String>,
     rng_source: Arc<Mutex<Box<dyn RngLike + Send>>>,
+    /// **v0.5.0** — Caller-supplied predicate evaluated at the start of
+    /// `analyze`. If `Some(p)` and `p(content, mode)` returns `false`,
+    /// the call short-circuits with [`MagiError::SkippedByComplexityGate`]
+    /// before any LLM dispatch. Default: `None` (no gate).
+    complexity_gate: Option<ComplexityGate>,
 }
 
 impl Magi {
@@ -426,6 +487,21 @@ impl Magi {
     /// in a pool of instances (one per tenant), or await v0.4 which may expose
     /// `with_rng_source` publicly to allow a thread-local RNG strategy.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
+        // 0. v0.5.0 complexity gate — caller-supplied predicate runs BEFORE
+        //    any cost is incurred (no input validation, no agent factory
+        //    instantiation, no nonce generation). Short-circuit on false
+        //    is the cheapest path through `analyze`.
+        if let Some(gate) = &self.complexity_gate
+            && !gate(content, *mode)
+        {
+            return Err(MagiError::SkippedByComplexityGate {
+                reason: format!(
+                    "complexity gate rejected: mode={mode}, content_len={}",
+                    content.len()
+                ),
+            });
+        }
+
         // 1. Input validation
         if content.len() > self.config.max_input_len {
             return Err(MagiError::InputTooLarge {
@@ -1133,7 +1209,10 @@ mod tests {
             .with_complexity_gate(|_content, _mode| true)
             .build()
             .expect("build");
-        let report = magi.analyze(&Mode::CodeReview, "fn main() {}").await.unwrap();
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .unwrap();
         assert_eq!(report.agents.len(), 3);
     }
 
@@ -1208,7 +1287,7 @@ mod tests {
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
             .with_complexity_gate(move |content, mode| {
                 let mut g = captured_for_gate.lock().unwrap();
-                *g = Some((content.to_string(), *mode));
+                *g = Some((content.to_string(), mode));
                 true
             })
             .build()
