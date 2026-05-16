@@ -16,10 +16,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI"))
+MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI-Claude"))
 # Pinned to commit SHA (MAGI R2 I4) — tags may move, commits don't.
-# This is the release commit for Python MAGI v2.1.3.
-MAGI_REF_SHA = "668f0e5e8ba4cf6851c4dcf77e727d0174e7ca30"
+# This is the release commit for Python MAGI v2.2.8. The v2.1.4 prompt
+# update added explicit "must contain all seven top-level keys exactly"
+# enforcement; v2.2.0+ versions did not modify the agent prompts.
+# Pre-write SHA existence check (added v0.4.0, MAGI R1 W4) errors if the
+# pinned commit is missing from the local MAGI checkout. See
+# docs/migration-v0.4.md.
+MAGI_REF_SHA = "645932c78da5327a0deee01f38b90849cda37d18"
 AGENTS = ("melchior", "balthasar", "caspar")
 OUT = Path(__file__).parent / "magi_ref_prompts.sha256"
 
@@ -34,9 +39,29 @@ def read_blob(repo: Path, ref: str, rel_path: str) -> bytes:
     return result.stdout
 
 
+def verify_sha_exists(repo: Path, ref: str) -> bool:
+    """MAGI R1 W4: pre-write check that the pinned SHA exists in the repo
+    before regenerating the fixture. Avoids producing a stale fixture
+    against a missing commit (would cause silent drift downstream)."""
+    result = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "-e", f"{ref}^{{commit}}"],
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
 def main() -> int:
     if not MAGI_PATH.is_dir():
         print(f"error: MAGI_PATH does not exist: {MAGI_PATH}", file=sys.stderr)
+        return 1
+
+    if not verify_sha_exists(MAGI_PATH, MAGI_REF_SHA):
+        print(
+            f"error: pinned SHA {MAGI_REF_SHA} does not exist in {MAGI_PATH}. "
+            f"Run `git -C '{MAGI_PATH}' fetch --all` or update MAGI_REF_SHA "
+            f"before regenerating the fixture.",
+            file=sys.stderr,
+        )
         return 1
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
