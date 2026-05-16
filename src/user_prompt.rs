@@ -179,7 +179,7 @@ fn sanitize_error_for_retry_feedback(error: &str) -> String {
 /// system-level directive, not as further untrusted user content.
 ///
 /// The `error` argument is passed through
-/// [`sanitize_error_for_retry_feedback`] (two-layer sanitization)
+/// [`sanitize_error_for_retry_feedback`] (4-layer sanitization)
 /// to prevent second-order injection if the error string contains
 /// structural tokens. See `docs/adr/002-retry-on-schema-error.md`.
 ///
