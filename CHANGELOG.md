@@ -4,6 +4,101 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-16
+
+### Added
+
+- **`default_model_for_mode(Mode) -> &'static str`** in `provider.rs`
+  (Python v2.2.3 `MODE_DEFAULT_MODELS` parity). All three modes default
+  to `"opus"` per Python v2.2.8. Pair with `resolve_claude_alias` to
+  obtain the full model id. Re-exported from `prelude`.
+- **`MagiReport.retried_agents: BTreeSet<AgentName>`** field — telemetry
+  for agents whose first attempt failed schema/parse and were retried.
+  Composes with `failed_agents` for two derived cohorts (recovered vs
+  retry-also-failed). Serialized only when non-empty
+  (`#[serde(skip_serializing_if)]`); default empty on deserialize.
+- **`MagiReport` now derives `Deserialize`** (in addition to `Serialize`)
+  to support backward-compatible loading of v0.3.x JSON.
+- **`MagiBuilder::with_retry_disabled()`** opt-out for latency-sensitive
+  deployments. When disabled, schema/parse errors go directly to
+  `failed_agents` without a retry attempt (single-shot semantics).
+- **`MagiConfig.retry_on_schema_error: bool`** (default `true`) gates
+  the retry layer.
+- **Cargo feature `test-utils`** exposing
+  `magi_core::test_support::RoutingMockProvider` for downstream
+  integration tests. Stable only within the v0.4.x line — see
+  `docs/migration-v0.4.md`.
+- **`examples/basic_analysis.rs`**: Windows console UTF-8 hardening
+  (`setup_console_encoding` calls `SetConsoleOutputCP(CP_UTF8)` at
+  startup). Failed calls surface a stderr warning. Compile-time guard
+  test verifies the cfg-gating on both platforms.
+- **`examples/basic_analysis.rs`**: when `--model` is omitted, uses
+  `default_model_for_mode(mode)` (Python v2.2.3 parity).
+- **ADR 002** `docs/adr/002-retry-on-schema-error.md` — retry mechanic,
+  two-layer error sanitization, alternatives considered.
+- **Migration guide** `docs/migration-v0.4.md`.
+
+### Changed
+
+- **Single-shot retry on `MagiError::Validation` and
+  `MagiError::Deserialization`** during `Magi::analyze`. Agents whose
+  first response fails schema or JSON parsing are retried once with a
+  corrective prompt that preserves the original `BEGIN/END USER CONTEXT
+  <nonce>` envelope verbatim and appends `---RETRY-FEEDBACK---` after
+  the END delimiter. Python v2.2.0 + v2.2.4 parity. Provider errors
+  (HTTP, network, timeout, auth, nested-session) skip retry — they're
+  handled by the orthogonal `RetryProvider` layer.
+- **Retry feedback error sanitization** (two-layer): `neutralize_headers`
+  for line-start `MODE:` / `CONTEXT:` / `---BEGIN` / `---END` tokens,
+  plus literal substring replace of `---RETRY-FEEDBACK---` (anywhere,
+  not anchored — closes a regex gap where the trailing `---` lacks the
+  expected separator). Prevents second-order injection via error
+  strings.
+- **Embedded agent prompts** bumped from `MAGI@v2.1.3` (commit
+  `668f0e5e`) to `MAGI@v2.2.8` (commit `645932c7`). New prompts
+  explicitly require the seven top-level JSON keys (`agent`, `verdict`,
+  `confidence`, `summary`, `reasoning`, `findings`, `recommendation`).
+- **`Magi.validator`** is now `Arc<Validator>` (was bare `Validator`)
+  so the dispatch layer shares the compiled regexes across spawned
+  tasks instead of deep-cloning per `analyze()` call.
+- **`Agent::execute`** wraps the provider call in
+  `CURRENT_AGENT_IDENTITY.scope(self.name, ...)` (a `pub(crate)`
+  `tokio::task_local!`) so test-only providers can route responses
+  per-agent without parsing the system prompt or polluting
+  `CompletionConfig`. Production providers (Claude HTTP, Claude CLI)
+  ignore the task-local — no observable behavior change.
+
+### Backward compatibility
+
+- All v0.3.1 public APIs preserved. v0.3.x JSON deserializes cleanly to
+  v0.4.0 `MagiReport`; the new `retried_agents` field defaults to
+  empty.
+- `CompletionConfig` is unchanged from v0.3.1.
+
+### Performance
+
+- **Worst-case latency per agent doubles** when retry triggers (fresh
+  `timeout` budget for each of the two attempts). If your application
+  configures a custom timeout via `MagiBuilder::with_timeout(d)`, plan
+  for 2×`d` as the effective ceiling per agent. Use
+  `with_retry_disabled()` to restore v0.3.1 single-shot semantics.
+
+### Documentation
+
+- New ADR: `docs/adr/002-retry-on-schema-error.md`.
+- New guide: `docs/migration-v0.4.md`.
+- 19 new BDDs in `sbtdd/spec-behavior.md` (BDD-01..BDD-19) covering
+  prompt SHA, default model, retry FSM (success / fail / no-retry on
+  provider errors), telemetry serialization, backward-compat, anti
+  injection invariants, AgentName Ord, Windows hardening.
+
+### Test count
+
+`cargo nextest run --features test-utils` runs **366 tests** (up from
+324 in v0.3.1). The 42 new tests cover the retry FSM, retry
+telemetry, the 2-layer error sanitization, the `test-utils` feature,
+the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
+
 ## [0.3.1] - 2026-04-19
 
 ### Fixed
