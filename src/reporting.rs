@@ -2,7 +2,7 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fmt::Write;
@@ -195,7 +195,11 @@ pub struct ReportFormatter {
 ///
 /// Contains all analysis data plus the formatted report string.
 /// Serializes to JSON matching the Python original format.
-#[derive(Debug, Clone, Serialize)]
+///
+/// **v0.4.0:** added `#[derive(Deserialize)]` for backward-compatible
+/// loading of v0.3.x JSON (the missing `retried_agents` key defaults to
+/// `BTreeSet::new()`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MagiReport {
     /// The successful agent outputs used in analysis.
     pub agents: Vec<AgentOutput>,
@@ -210,6 +214,17 @@ pub struct MagiReport {
     /// Agents that failed, mapped to their failure reason
     /// (e.g., `"parse: no valid JSON"`, `"validation: confidence out of range"`).
     pub failed_agents: BTreeMap<AgentName, String>,
+    /// Agents whose first attempt failed schema/parse validation and that
+    /// were retried once. Included in JSON only if non-empty.
+    ///
+    /// Composes with `failed_agents` for two derived cohorts:
+    /// - `retried_agents - failed_agents.keys()` → "retry recovered"
+    /// - `retried_agents ∩ failed_agents.keys()` → "retry also failed"
+    ///
+    /// Python parity: `run_magi.py:485, 631-632` (v2.2.0 telemetry). See
+    /// `docs/adr/002-retry-on-schema-error.md`.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub retried_agents: BTreeSet<AgentName>,
 }
 
 impl ReportConfig {
@@ -1341,6 +1356,7 @@ mod tests {
             report: "report".to_string(),
             degraded: false,
             failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -1372,6 +1388,7 @@ mod tests {
             report: String::new(),
             degraded: false,
             failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
         };
 
         assert!(!report.degraded);
@@ -1490,6 +1507,7 @@ mod tests {
             report: String::new(),
             degraded: true,
             failed_agents: BTreeMap::from([(AgentName::Caspar, "timeout".to_string())]),
+            retried_agents: BTreeSet::new(),
         };
 
         assert!(report.degraded);
@@ -2049,6 +2067,7 @@ mod tests {
             report: String::new(),
             degraded: false,
             failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2077,6 +2096,7 @@ mod tests {
             report: String::new(),
             degraded: false,
             failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

@@ -436,6 +436,8 @@ impl Magi {
             report,
             degraded,
             failed_agents,
+            // T04 placeholder: populated by T08's dispatch_with_retry.
+            retried_agents: std::collections::BTreeSet::new(),
         })
     }
 
