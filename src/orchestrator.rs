@@ -165,12 +165,15 @@ impl MagiBuilder {
 
     /// Injects a custom RNG source for nonce generation in `build_user_prompt`.
     ///
-    /// Intended for testing only (`pub(crate)`). The nonce is shared across
-    /// all agents for a single `analyze()` invocation (one call per request).
+    /// Intended for testing only — `#[cfg(test)]` gated to avoid dead-code
+    /// warnings in release builds (the method is unused outside test code).
+    /// The nonce is shared across all agents for a single `analyze()`
+    /// invocation (one call per request).
     ///
     /// # Parameters
     /// - `rng`: A boxed [`RngLike`] implementation to use instead of the default
     ///   [`FastrandSource`].
+    #[cfg(test)]
     pub(crate) fn with_rng_source(mut self, rng: Box<dyn RngLike + Send>) -> Self {
         self.rng_source = Some(rng);
         self
