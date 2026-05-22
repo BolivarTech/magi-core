@@ -788,11 +788,13 @@ pub(crate) async fn dispatch_one_agent(
 /// rejected by the full deserialize — preserving the single-retry path.
 const VERDICT_KEYS: [&str; 2] = ["agent", "verdict"];
 
-/// Upper bound on input size eligible for lenient prose recovery. Above this,
-/// the input is almost certainly echoed tool-use content rather than a clean
-/// verdict, and scanning it risks the O(n^2) decode worst case — so recovery
-/// is skipped and the agent fails closed (and is retried).
-const LENIENT_RECOVERY_MAX_CHARS: usize = 1_000_000;
+/// Upper bound, in bytes ([`str::len`]), on input size eligible for lenient
+/// prose recovery. Bytes (not Unicode scalars) is the right unit here: this
+/// guards scan cost, which is byte-driven. Above this, the input is almost
+/// certainly echoed tool-use content rather than a clean verdict, and scanning
+/// it risks the O(n^2) decode worst case — so recovery is skipped and the
+/// agent fails closed (and is retried).
+const LENIENT_RECOVERY_MAX_BYTES: usize = 1_000_000;
 
 /// Hard cap on candidate `{` positions probed during recovery, bounding the
 /// scan against adversarial deeply-nested-unterminated input. A legitimate
@@ -811,6 +813,13 @@ const MAX_BRACE_PROBES: usize = 2_000;
 /// discriminator keys. Ambiguity (two qualifying objects) returns `None` so
 /// the caller fails closed rather than risk a fabricated verdict entering
 /// consensus. The scan is bounded by [`MAX_BRACE_PROBES`].
+///
+/// # Returns
+///
+/// `Some(value)` when exactly one qualifying object is found, otherwise `None`:
+/// - zero qualifying objects,
+/// - two or more qualifying objects (ambiguous — fail closed),
+/// - the probe budget ([`MAX_BRACE_PROBES`]) is exhausted first.
 ///
 /// Port of Python MAGI v2.4.2 `_embedded_verdict_object`.
 fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
@@ -894,7 +903,7 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
     // closed and the orchestrator retries instead. The 2-key candidate is
     // re-checked against the full 7-key schema; a partial object falls
     // through to Deserialization, preserving the retry path.
-    if stripped.len() <= LENIENT_RECOVERY_MAX_CHARS
+    if stripped.len() <= LENIENT_RECOVERY_MAX_BYTES
         && let Some(value) = embedded_verdict_object(stripped)
         && let Ok(output) = serde_json::from_value::<AgentOutput>(value)
     {
@@ -2164,7 +2173,7 @@ mod tests {
     #[test]
     fn test_parse_agent_response_skips_recovery_for_oversized_input() {
         let json = mock_agent_json("melchior", "approve", 0.9);
-        // Exceeds LENIENT_RECOVERY_MAX_CHARS (1_000_000 bytes) on its own.
+        // Exceeds LENIENT_RECOVERY_MAX_BYTES (1_000_000 bytes) on its own.
         let filler = "x".repeat(1_000_001);
         let raw = format!("{filler}\n\n{json}");
 
