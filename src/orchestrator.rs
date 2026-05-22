@@ -782,18 +782,88 @@ pub(crate) async fn dispatch_one_agent(
     }
 }
 
+/// Two discriminator keys that mark a JSON object as an agent verdict during
+/// lenient recovery. Kept to the two distinguishing keys (not the full 7-key
+/// schema) so a verdict merely missing a key is still recovered and then
+/// rejected by the full deserialize — preserving the single-retry path.
+const VERDICT_KEYS: [&str; 2] = ["agent", "verdict"];
+
+/// Upper bound on input size eligible for lenient prose recovery. Above this,
+/// the input is almost certainly echoed tool-use content rather than a clean
+/// verdict, and scanning it risks the O(n^2) decode worst case — so recovery
+/// is skipped and the agent fails closed (and is retried).
+const LENIENT_RECOVERY_MAX_CHARS: usize = 1_000_000;
+
+/// Hard cap on candidate `{` positions probed during recovery, bounding the
+/// scan against adversarial deeply-nested-unterminated input. A legitimate
+/// verdict is found within the first few probes.
+const MAX_BRACE_PROBES: usize = 2_000;
+
+/// Returns the *sole* embedded JSON object carrying the verdict discriminator
+/// keys ([`VERDICT_KEYS`]), or `None` when zero qualify, two or more qualify
+/// (ambiguous), or the probe budget is exhausted.
+///
+/// Scans `{` positions and decodes one complete JSON value per position with a
+/// streaming decoder, so any prose trailing a value is ignored and nested
+/// braces / braces inside strings are handled without hand-rolled counting.
+/// Selection is schema-aware, not span-based: a large JSON document an agent
+/// echoes from tool use cannot shadow the verdict because it lacks the
+/// discriminator keys. Ambiguity (two qualifying objects) returns `None` so
+/// the caller fails closed rather than risk a fabricated verdict entering
+/// consensus. The scan is bounded by [`MAX_BRACE_PROBES`].
+///
+/// Port of Python MAGI v2.4.2 `_embedded_verdict_object`.
+fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
+    let mut matches: Vec<serde_json::Value> = Vec::new();
+    let mut index = 0;
+    let mut probes = 0;
+    while index < text.len() && probes < MAX_BRACE_PROBES {
+        let Some(rel) = text[index..].find('{') else {
+            break;
+        };
+        let brace = index + rel;
+        probes += 1;
+        // Streaming decode parses one complete value and reports where it
+        // ended, so trailing prose after the object does not fail the parse.
+        let mut stream =
+            serde_json::Deserializer::from_str(&text[brace..]).into_iter::<serde_json::Value>();
+        match stream.next() {
+            Some(Ok(value)) => {
+                let end = brace + stream.byte_offset();
+                if value.is_object() && VERDICT_KEYS.iter().all(|key| value.get(key).is_some()) {
+                    matches.push(value);
+                    if matches.len() > 1 {
+                        return None; // ambiguous — fail closed rather than guess
+                    }
+                }
+                // `end` lands on a value boundary (a char boundary); advance
+                // past it, guarding a zero-width decode from pinning the scan.
+                index = if end > brace { end } else { brace + 1 };
+            }
+            // Decode failure (incl. serde_json's recursion limit on deeply
+            // nested input) — skip this `{` and continue.
+            _ => index = brace + 1,
+        }
+    }
+    // At most one match survives (the second triggers the early return above),
+    // so this yields the sole verdict object or `None` when none qualified.
+    matches.pop()
+}
+
 /// Extracts an [`AgentOutput`] from raw LLM response text.
 ///
 /// Handles common LLM output quirks:
 /// 1. Strips code fences (` ```json ` and ` ``` `).
-/// 2. Tries to parse JSON from each `{` position until one succeeds.
+/// 2. On failure, recovers the sole verdict object embedded in prose.
 /// 3. Deserializes via serde (unknown fields are ignored).
 ///
-/// This approach is resilient to LLM responses that contain stray `{}`
-/// in prose before the actual JSON payload.
+/// This tolerates prose before and after the JSON payload but fails closed
+/// when recovery is ambiguous (two verdict-shaped objects) or the input
+/// exceeds the recovery budget — see [`embedded_verdict_object`].
 ///
 /// # Errors
-/// Returns `MagiError::Deserialization` if no valid JSON object is found.
+/// Returns `MagiError::Deserialization` if no single valid verdict object is
+/// recovered.
 fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
     let trimmed = raw.trim();
 
@@ -818,15 +888,17 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
         return Ok(output);
     }
 
-    // Fallback: search forward through each '{' position for the first valid
-    // AgentOutput JSON. Forward search is preferred because it finds the first
-    // complete object, avoiding false matches from trailing prose that might
-    // coincidentally contain valid JSON.
-    for (start, _) in stripped.match_indices('{') {
-        let candidate = &stripped[start..];
-        if let Ok(output) = serde_json::from_str::<AgentOutput>(candidate) {
-            return Ok(output);
-        }
+    // Fallback: an agent doing multi-turn tool use may wrap the verdict in
+    // prose. Recover the sole embedded verdict object, but skip oversized
+    // input (likely echoed tool-use content; a scan hazard) so it fails
+    // closed and the orchestrator retries instead. The 2-key candidate is
+    // re-checked against the full 7-key schema; a partial object falls
+    // through to Deserialization, preserving the retry path.
+    if stripped.len() <= LENIENT_RECOVERY_MAX_CHARS
+        && let Some(value) = embedded_verdict_object(stripped)
+        && let Ok(output) = serde_json::from_value::<AgentOutput>(value)
+    {
+        return Ok(output);
     }
 
     Err(MagiError::Deserialization(
