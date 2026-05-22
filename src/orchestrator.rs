@@ -799,6 +799,12 @@ const LENIENT_RECOVERY_MAX_BYTES: usize = 1_000_000;
 /// Hard cap on candidate `{` positions probed during recovery, bounding the
 /// scan against adversarial deeply-nested-unterminated input. A legitimate
 /// verdict is found within the first few probes.
+///
+/// Worst-case cost is the *product* of two caps, not the input length: at most
+/// `MAX_BRACE_PROBES` probes, each a `raw_decode` bounded by serde_json's
+/// recursion limit (~128 levels). Both factors are constants, so the scan is
+/// O(1) in the size of pathological input rather than O(n^2) — empirically a
+/// few tens of milliseconds on the deeply-nested worst case.
 const MAX_BRACE_PROBES: usize = 2_000;
 
 /// Returns the *sole* embedded JSON object carrying the verdict discriminator
