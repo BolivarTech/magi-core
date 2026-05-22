@@ -2017,6 +2017,108 @@ mod tests {
         assert!(result.is_err(), "should fail on invalid input");
     }
 
+    // -- v0.6.0 prose-wrapped JSON recovery (port of Python MAGI v2.4.2) --
+    //
+    // Gap A: recover the verdict when prose TRAILS the JSON object.
+    // Gap B: fail closed when two verdict-shaped objects are present
+    //        (ambiguous — picking either risks a fabricated verdict).
+    // Gap C: bound the recovery scan (size budget + probe cap) against
+    //        oversized / adversarial input.
+
+    /// Gap A — recover the JSON verdict when natural-language prose follows it.
+    /// Agents doing multi-turn tool use sometimes append a closing sentence
+    /// after the JSON object; a strict whole-string parse rejects the trailing
+    /// text, so the embedded object must be recovered.
+    #[test]
+    fn test_parse_agent_response_recovers_json_with_trailing_prose() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let raw = format!("{json}\n\nThat concludes my analysis.");
+
+        let output = parse_agent_response(&raw).expect("should recover JSON before trailing prose");
+        assert_eq!(output.agent, AgentName::Melchior);
+        assert_eq!(output.verdict, Verdict::Approve);
+    }
+
+    /// Gap A (Rust-specific) — trailing prose containing multi-byte UTF-8
+    /// (em dash U+2014, ellipsis U+2026) must not panic the post-JSON byte
+    /// offset arithmetic / slicing. Python is immune (code-point indexed);
+    /// Rust slices by byte, so this pins char-boundary safety.
+    #[test]
+    fn test_parse_agent_response_recovers_json_with_multibyte_trailing_prose() {
+        let json = mock_agent_json("balthasar", "conditional", 0.8);
+        let raw = format!("{json}\n\nConcluido — fin del analisis\u{2026}");
+
+        let output =
+            parse_agent_response(&raw).expect("should recover before multi-byte trailing prose");
+        assert_eq!(output.agent, AgentName::Balthasar);
+    }
+
+    /// Gap B — two complete verdict-shaped objects are ambiguous, so the parser
+    /// must fail closed rather than return one. Here the fabricated `approve`
+    /// example follows the real `reject` verdict: a first/last-match heuristic
+    /// would leak the fabricated verdict into consensus.
+    #[test]
+    fn test_parse_agent_response_fails_closed_when_example_follows_verdict() {
+        let real = mock_agent_json("melchior", "reject", 0.9);
+        let echoed = mock_agent_json("melchior", "approve", 0.9);
+        let raw = format!("My verdict:\n{real}\n\nFor reference the schema is:\n{echoed}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "two verdict-shaped objects are ambiguous -> fail closed"
+        );
+    }
+
+    /// Gap B — same ambiguity with the quoted schema example PRECEDING the real
+    /// verdict. Both orderings must fail closed.
+    #[test]
+    fn test_parse_agent_response_fails_closed_when_example_precedes_verdict() {
+        let echoed = mock_agent_json("balthasar", "approve", 0.9);
+        let real = mock_agent_json("balthasar", "reject", 0.9);
+        let raw = format!("For reference:\n{echoed}\n\nMy actual verdict:\n{real}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "ambiguous multi-verdict output -> fail closed"
+        );
+    }
+
+    /// Gap C — input beyond the recovery size budget is not scanned; recovery
+    /// is skipped and the parser fails closed. A multi-MB blob is almost
+    /// certainly echoed tool-use content, and scanning risks the O(n^2)
+    /// raw-decode worst case.
+    #[test]
+    fn test_parse_agent_response_skips_recovery_for_oversized_input() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        // Exceeds LENIENT_RECOVERY_MAX_CHARS (1_000_000 bytes) on its own.
+        let filler = "x".repeat(1_000_001);
+        let raw = format!("{filler}\n\n{json}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "oversized input must skip recovery and fail closed"
+        );
+    }
+
+    /// Gap C — the brace scan stops after a bounded number of probes. A verdict
+    /// placed after more than MAX_BRACE_PROBES (2_000) lone `{` is not reached,
+    /// guarding against O(n^2) on adversarial deeply-nested-unterminated input.
+    #[test]
+    fn test_parse_agent_response_bounds_brace_scan() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let lone_braces = "{".repeat(2_005);
+        let raw = format!("{lone_braces}{json}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "a verdict beyond the probe budget must not be recovered"
+        );
+    }
+
     // -- MagiBuilder --
 
     /// MagiBuilder::build returns Ok(Magi) with required provider.
