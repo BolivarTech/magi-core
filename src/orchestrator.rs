@@ -2191,6 +2191,110 @@ mod tests {
         );
     }
 
+    // -- v0.6.0 invariant guards (pin the recovery contract) --
+
+    /// Gap B (invariant) — a JSON document echoed from tool use that lacks the
+    /// verdict discriminator keys must not shadow the real verdict, even when
+    /// it out-spans it. Selection is schema-aware, not by character span.
+    #[test]
+    fn test_parse_agent_response_ignores_echoed_object_without_verdict_keys() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let echoed = r#"{"config_a": "x", "config_b": "y", "config_c": "z", "config_d": "w"}"#;
+        let raw = format!("I read the config:\n{echoed}\n\nVerdict:\n{json}");
+
+        let output =
+            parse_agent_response(&raw).expect("verdict recovered past echoed non-verdict object");
+        assert_eq!(output.verdict, Verdict::Approve);
+    }
+
+    /// Gap B (invariant) — an object carrying only the two discriminator keys
+    /// is recovered as the sole candidate, then rejected by the full 7-key
+    /// schema, so it still fails and the orchestrator's single retry fires.
+    #[test]
+    fn test_parse_agent_response_rejects_object_missing_schema_keys() {
+        let partial = r#"{"agent": "melchior", "verdict": "approve"}"#;
+        let raw = format!("Here is my verdict:\n{partial}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "object with only discriminator keys is rejected by the full schema"
+        );
+    }
+
+    /// Gap B (invariant) — an object with only one discriminator key (`agent`,
+    /// no `verdict`) does not qualify, so recovery fails closed.
+    #[test]
+    fn test_parse_agent_response_ignores_object_with_one_discriminator_key() {
+        let raw = "The schema looks like {\"agent\": \"melchior\"}.".to_string();
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "a single discriminator key must not qualify"
+        );
+    }
+
+    /// Gap A/B (invariant) — a truncated verdict with no complete object
+    /// anywhere fails closed rather than returning a partial result.
+    #[test]
+    fn test_parse_agent_response_fails_on_truncated_verdict() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let truncated = &json[..json.len() - 12];
+        let raw = format!("Here is my verdict:\n{truncated}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "truncated verdict with no complete object fails closed"
+        );
+    }
+
+    /// Gap B (invariant) — truncation after a complete `findings` element must
+    /// still fail closed: the stray complete finding object lacks the verdict
+    /// keys, so it is not mistaken for the verdict.
+    #[test]
+    fn test_parse_agent_response_fails_on_truncated_verdict_with_intact_finding() {
+        let full = r#"{"agent": "melchior", "verdict": "approve", "confidence": 0.9, "summary": "s", "reasoning": "r", "findings": [{"severity": "info", "title": "t", "detail": "d"}], "recommendation": "rec"}"#;
+        let cut = full
+            .rfind("\"recommendation\"")
+            .expect("has recommendation key");
+        let truncated = &full[..cut];
+        let raw = format!("Here is my verdict:\n{truncated}");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "stray complete finding is not mistaken for the verdict"
+        );
+    }
+
+    /// Gap C (invariant, Rust-specific) — deeply nested input surfaces as a
+    /// closed failure, not a panic. serde_json returns a recursion-limit error
+    /// (where CPython raises RecursionError); either way the parser stays on
+    /// the fail-closed / retry path.
+    #[test]
+    fn test_parse_agent_response_handles_deeply_nested_without_panic() {
+        let nested = r#"{"a":"#.repeat(100_000);
+
+        let result = parse_agent_response(&nested);
+        assert!(
+            result.is_err(),
+            "deeply nested input fails closed without panic"
+        );
+    }
+
+    /// Gap A (invariant, Rust-specific) — multi-byte UTF-8 in the PRECEDING
+    /// prose must not break the byte-index `find('{')` / slice path.
+    #[test]
+    fn test_parse_agent_response_recovers_json_after_multibyte_preamble() {
+        let json = mock_agent_json("caspar", "reject", 0.7);
+        let raw = format!("Veredicto — final\u{2026}\n{json}");
+
+        let output = parse_agent_response(&raw).expect("should recover after multi-byte preamble");
+        assert_eq!(output.agent, AgentName::Caspar);
+    }
+
     // -- MagiBuilder --
 
     /// MagiBuilder::build returns Ok(Magi) with required provider.
