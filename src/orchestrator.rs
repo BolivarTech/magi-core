@@ -2304,6 +2304,57 @@ mod tests {
         assert_eq!(output.agent, AgentName::Caspar);
     }
 
+    // -- v0.6.0 MAGI Loop 2 follow-up coverage --
+
+    /// Gap B (invariant, MAGI follow-up) — a verdict whose string fields
+    /// themselves contain `{...}` (including a verdict-shaped JSON echo) is
+    /// recovered correctly and is NOT seen as ambiguous: the streaming decode
+    /// consumes the whole outer object, so braces inside its strings are never
+    /// probed as separate candidates. Pins Melchior's no-false-ambiguity
+    /// invariant and Caspar's string-internal-braces recovery gap.
+    #[test]
+    fn test_parse_agent_response_recovers_verdict_with_braces_in_string_field() {
+        let json = r#"{"agent": "melchior", "verdict": "approve", "confidence": 0.9, "summary": "s", "reasoning": "r", "findings": [], "recommendation": "Schema example: {\"agent\": \"x\", \"verdict\": \"reject\"}"}"#;
+        let raw = format!("Here is my verdict:\n{json}\n\nThat concludes my analysis.");
+
+        let output = parse_agent_response(&raw)
+            .expect("outer verdict recovered; in-string brace echo is not a second candidate");
+        assert_eq!(output.agent, AgentName::Melchior);
+        assert_eq!(output.verdict, Verdict::Approve);
+    }
+
+    /// Gap C (boundary, MAGI follow-up) — input exactly at the byte budget is
+    /// still scanned and recovered (`<=` boundary).
+    #[test]
+    fn test_parse_agent_response_recovers_at_size_budget_boundary() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let sep = "\n\n";
+        let filler_len = LENIENT_RECOVERY_MAX_BYTES - sep.len() - json.len();
+        let raw = format!("{}{sep}{json}", "x".repeat(filler_len));
+        assert_eq!(raw.len(), LENIENT_RECOVERY_MAX_BYTES, "boundary setup");
+
+        let output =
+            parse_agent_response(&raw).expect("input exactly at the byte budget is still scanned");
+        assert_eq!(output.verdict, Verdict::Approve);
+    }
+
+    /// Gap C (boundary, MAGI follow-up) — input one byte over the budget skips
+    /// recovery and fails closed.
+    #[test]
+    fn test_parse_agent_response_skips_one_byte_over_size_budget() {
+        let json = mock_agent_json("melchior", "approve", 0.9);
+        let sep = "\n\n";
+        let filler_len = LENIENT_RECOVERY_MAX_BYTES - sep.len() - json.len() + 1;
+        let raw = format!("{}{sep}{json}", "x".repeat(filler_len));
+        assert_eq!(raw.len(), LENIENT_RECOVERY_MAX_BYTES + 1, "boundary setup");
+
+        let result = parse_agent_response(&raw);
+        assert!(
+            result.is_err(),
+            "one byte over the byte budget skips recovery and fails closed"
+        );
+    }
+
     // -- MagiBuilder --
 
     /// MagiBuilder::build returns Ok(Magi) with required provider.
