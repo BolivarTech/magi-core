@@ -4,6 +4,57 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-21
+
+### Changed
+
+- **Prose-wrapped agent JSON recovery** in `parse_agent_response` (Python
+  MAGI v2.4.2 parity). When an agent wraps its verdict object in
+  natural-language prose — before *and now after* the JSON — the parser
+  recovers the embedded object instead of failing. The fast path (the
+  whole string is the JSON, optionally fenced) is unchanged.
+- **Fail closed on ambiguous recovery.** When two or more verdict-shaped
+  objects are present (e.g. an agent quotes the schema example beside its
+  real verdict), recovery returns no object so the agent fails closed and
+  is retried — preventing a fabricated verdict from silently entering
+  consensus. Selection is schema-aware via the `agent`/`verdict`
+  discriminator keys, not by character span, so a large echoed tool-use
+  document cannot shadow the real verdict.
+
+### Security
+
+- The recovery scan is bounded against oversized / adversarial input:
+  input larger than 1 MB (`LENIENT_RECOVERY_MAX_BYTES`) skips recovery,
+  and at most 2 000 brace positions are probed (`MAX_BRACE_PROBES`).
+  Worst-case cost is the product of the probe cap and serde_json's
+  recursion limit — both constants — so the scan stays O(1) in
+  pathological input size, not O(n^2). Deeply nested input returns an
+  error (serde recursion limit) rather than panicking.
+
+### Backward compatibility
+
+- **No public API change.** `parse_agent_response` and the new recovery
+  helper/constants are private. Well-formed and preamble-wrapped outputs
+  parse exactly as before. The only behavior changes are internal:
+  trailing-prose output now succeeds, and ambiguous multi-verdict output
+  now fails closed (previously one object was returned).
+
+### Test count
+
+`cargo nextest run --features test-utils` runs **393 tests** (up from
+377 in v0.5.0). 16 new parser tests cover trailing prose (incl.
+multi-byte UTF-8), fail-closed ambiguity (both orderings), the size and
+probe-count bounds (including the exact byte-budget boundary),
+truncated / partial objects, in-string brace echoes, and deeply-nested
+no-panic.
+
+### Pre-merge gates (CLAUDE.local.md §6)
+
+- **Loop 1** `/requesting-code-review`: clean-to-go (1 iteration; 0
+  critical, 0 important)
+- **Loop 2** `/magi:magi`: STRONG GO unanimous — Melchior 90%,
+  Balthasar 88%, Caspar 85%
+
 ## [0.5.0] - 2026-05-16
 
 ### Added
