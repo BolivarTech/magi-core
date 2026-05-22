@@ -26,9 +26,8 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
       - run: cargo generate-lockfile
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/install-action@cargo-audit
+      - run: cargo audit
 
   publish:
     name: Publish to crates.io

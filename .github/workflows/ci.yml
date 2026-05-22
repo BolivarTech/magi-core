@@ -54,9 +54,8 @@ jobs:
         with:
           toolchain: "1.91"
       - run: cargo generate-lockfile
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: taiki-e/install-action@cargo-audit
+      - run: cargo audit
 
   doc:
     name: Documentation
