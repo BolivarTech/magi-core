@@ -199,6 +199,11 @@ pub struct ReportFormatter {
 /// **v0.4.0:** added `#[derive(Deserialize)]` for backward-compatible
 /// loading of v0.3.x JSON (the missing `retried_agents` key defaults to
 /// `BTreeSet::new()`).
+///
+/// **v1.0.0:** marked `#[non_exhaustive]` so downstream crates cannot
+/// exhaustively match or construct this struct directly; new fields may
+/// be added in minor versions without breaking changes.
+#[non_exhaustive]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MagiReport {
     /// The successful agent outputs used in analysis.
@@ -2419,25 +2424,16 @@ mod tests {
             "detail": "Some detail",
             "sources": ["melchior"]
         }"#;
-        let finding: DedupFinding = serde_json::from_str(json)
-            .expect("legacy DedupFinding JSON must deserialize cleanly");
-        assert_eq!(
-            finding.file, None,
-            "absent `file` must default to None"
-        );
-        assert_eq!(
-            finding.line, None,
-            "absent `line` must default to None"
-        );
+        let finding: DedupFinding =
+            serde_json::from_str(json).expect("legacy DedupFinding JSON must deserialize cleanly");
+        assert_eq!(finding.file, None, "absent `file` must default to None");
+        assert_eq!(finding.line, None, "absent `line` must default to None");
         assert_eq!(
             finding.category,
             Category::Other,
             "absent `category` must default to Category::Other"
         );
-        assert_eq!(
-            finding.id, None,
-            "absent `id` must default to None"
-        );
+        assert_eq!(finding.id, None, "absent `id` must default to None");
         assert_eq!(finding.title, "Legacy finding");
     }
 }
