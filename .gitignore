@@ -21,8 +21,10 @@ Thumbs.db
 CLAUDE.md
 CLAUDE.local.md
 
-# SBTDD — planning/ and sbtdd/ ARE tracked per CLAUDE.local.md §1.
-# Only tooling-local artefacts excluded below.
+# SBTDD — local-only per CLAUDE.local.md §1 (not tracked).
+sbtdd/
+planning/
+# Tooling-local artefacts.
 plans/
 scripts/
 run-tests.py
