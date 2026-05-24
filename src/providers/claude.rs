@@ -49,27 +49,33 @@ impl fmt::Debug for ClaudeProvider {
 }
 
 /// Request body for the Claude Messages API.
+///
+/// This type is internal to the crate; it is HTTP request-shaping plumbing
+/// for the `claude-api` feature and is not part of the analysis contract.
 #[derive(Debug, Serialize)]
-pub struct ClaudeRequest {
+pub(crate) struct ClaudeRequest {
     /// Model identifier.
-    pub model: String,
+    pub(crate) model: String,
     /// Maximum tokens in the response.
-    pub max_tokens: u32,
+    pub(crate) max_tokens: u32,
     /// Sampling temperature.
-    pub temperature: f64,
+    pub(crate) temperature: f64,
     /// System prompt.
-    pub system: String,
+    pub(crate) system: String,
     /// Conversation messages.
-    pub messages: Vec<ClaudeMessage>,
+    pub(crate) messages: Vec<ClaudeMessage>,
 }
 
 /// A single message in the Claude Messages API request.
+///
+/// This type is internal to the crate; it is HTTP request-shaping plumbing
+/// for the `claude-api` feature and is not part of the analysis contract.
 #[derive(Debug, Serialize)]
-pub struct ClaudeMessage {
+pub(crate) struct ClaudeMessage {
     /// Message role ("user" or "assistant").
-    pub role: String,
+    pub(crate) role: String,
     /// Message content.
-    pub content: String,
+    pub(crate) content: String,
 }
 
 /// Response from the Claude Messages API.
@@ -126,11 +132,15 @@ impl ClaudeProvider {
 
     /// Builds the request body for the Claude Messages API.
     ///
+    /// This is a crate-internal helper used by the `LlmProvider` implementation.
+    /// Its return type (`ClaudeRequest`) is also `pub(crate)`, keeping HTTP
+    /// request-shaping details out of the public API surface.
+    ///
     /// # Parameters
     /// - `system_prompt`: System-level instruction for the LLM.
     /// - `user_prompt`: User's input content.
     /// - `config`: Completion parameters (max_tokens, temperature).
-    pub fn build_request_body(
+    pub(crate) fn build_request_body(
         &self,
         system_prompt: &str,
         user_prompt: &str,
@@ -412,5 +422,20 @@ mod tests {
             !debug_str.contains("sk-super-secret-key-12345"),
             "Debug output must not contain API key, got: {debug_str}"
         );
+    }
+
+    // -- pub(crate) visibility guard --
+
+    /// ClaudeProvider is fully usable after ClaudeRequest/ClaudeMessage became
+    /// pub(crate). This test is a compile-time guard: if the visibility change
+    /// accidentally broke crate-internal access it would fail to compile.
+    #[cfg(feature = "claude-api")]
+    #[test]
+    fn test_claude_provider_usable_without_public_request_types() {
+        // ClaudeRequest and ClaudeMessage are now pub(crate); ClaudeProvider still works.
+        let provider = super::ClaudeProvider::new("sk-test", "claude-sonnet-4-6")
+            .expect("ClaudeProvider should construct with a valid model");
+        assert_eq!(provider.name(), "claude");
+        assert_eq!(provider.model(), "claude-sonnet-4-6");
     }
 }
