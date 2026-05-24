@@ -14,7 +14,7 @@
 pub use crate::error::{MagiError, ProviderError};
 
 // Domain schema
-pub use crate::schema::{AgentName, AgentOutput, Finding, Mode, Severity, Verdict};
+pub use crate::schema::{AgentName, AgentOutput, Category, Finding, Mode, Severity, Verdict};
 
 // Validation
 pub use crate::validate::{ValidationLimits, Validator, clean_title};

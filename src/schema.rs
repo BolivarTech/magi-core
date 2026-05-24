@@ -252,6 +252,34 @@ impl Finding {
     }
 }
 
+/// Controlled vocabulary for finding categories (parity with Python MAGI
+/// `finding_id.CATEGORY_SLUGS`: 15 named variants + `Other` = 16 total).
+/// Unknown or absent values resolve to [`Category::Other`]. Kebab-case serde.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
+pub enum Category {
+    BufferOverflow,
+    NullDeref,
+    ResourceLeak,
+    UnvalidatedInput,
+    RaceCondition,
+    ErrorHandling,
+    HardcodedSecret,
+    IntegerOverflow,
+    Injection,
+    LogicError,
+    TypeMismatch,
+    DeprecatedApi,
+    Performance,
+    Style,
+    Documentation,
+    /// Fallback for missing/unknown categories.
+    #[default]
+    #[serde(other)]
+    Other,
+}
+
 /// Deserialized output from a single LLM agent.
 ///
 /// Contains the agent's verdict, confidence, reasoning, and findings.
@@ -688,5 +716,57 @@ mod tests {
             v,
             vec![AgentName::Balthasar, AgentName::Caspar, AgentName::Melchior]
         );
+    }
+
+    // -- Category tests --
+
+    #[test]
+    fn test_category_serializes_kebab_case() {
+        assert_eq!(
+            serde_json::to_string(&Category::LogicError).unwrap(),
+            "\"logic-error\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Category::Other).unwrap(),
+            "\"other\""
+        );
+    }
+    #[test]
+    fn test_category_deserializes_known_slug() {
+        let c: Category = serde_json::from_str("\"injection\"").unwrap();
+        assert_eq!(c, Category::Injection);
+    }
+    #[test]
+    fn test_category_unknown_slug_falls_back_to_other() {
+        let c: Category = serde_json::from_str("\"made-up\"").unwrap();
+        assert_eq!(c, Category::Other);
+    }
+    #[test]
+    fn test_category_default_is_other() {
+        assert_eq!(Category::default(), Category::Other);
+    }
+    #[test]
+    fn test_category_roundtrip_all_variants() {
+        for c in [
+            Category::BufferOverflow,
+            Category::NullDeref,
+            Category::ResourceLeak,
+            Category::UnvalidatedInput,
+            Category::RaceCondition,
+            Category::ErrorHandling,
+            Category::HardcodedSecret,
+            Category::IntegerOverflow,
+            Category::Injection,
+            Category::LogicError,
+            Category::TypeMismatch,
+            Category::DeprecatedApi,
+            Category::Performance,
+            Category::Style,
+            Category::Documentation,
+            Category::Other,
+        ] {
+            let s = serde_json::to_string(&c).unwrap();
+            assert_eq!(c, serde_json::from_str::<Category>(&s).unwrap());
+        }
     }
 }
