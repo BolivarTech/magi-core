@@ -1270,4 +1270,77 @@ mod tests {
         );
         assert_eq!(result.findings[1].title, "Beta Issue");
     }
+
+    // -- T5: stable id deduplication --
+
+    /// Two colocated findings (same file+line+category, different title/agent) merge by
+    /// stable id; severity is promoted; golden id matches Python cross-language vector.
+    #[test]
+    fn test_dedup_merges_colocated_by_id_across_agents() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        let mut b = make_output(AgentName::Balthasar, Verdict::Reject, 0.9);
+        m.findings.push(
+            Finding::new(Severity::Warning, "Off-by-one", "d")
+                .with_location("src/x.rs", 42)
+                .with_category(Category::LogicError),
+        );
+        b.findings.push(
+            Finding::new(Severity::Critical, "Indice fuera de rango", "d2")
+                .with_location("src/x.rs", 42)
+                .with_category(Category::LogicError),
+        );
+        let out = ConsensusEngine::default().deduplicate_findings(&[m, b]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].severity, Severity::Critical);
+        assert_eq!(out[0].sources, vec![AgentName::Melchior, AgentName::Balthasar]);
+        assert_eq!(out[0].id.as_deref(), Some("7fb2a28931164f30")); // golden parity
+    }
+
+    /// Unlocated findings (no file/line) still deduplicate by normalized title.
+    #[test]
+    fn test_dedup_falls_back_to_title_when_unlocated() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        m.findings.push(Finding::new(Severity::Warning, "Same Title", "d"));
+        b.findings
+            .push(Finding::new(Severity::Warning, "same title", "d"));
+        let out = ConsensusEngine::default().deduplicate_findings(&[m, b]);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].id.is_none());
+    }
+
+    /// Same location but different category → different stable ids → two findings.
+    #[test]
+    fn test_dedup_different_category_same_location_does_not_merge() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(
+            Finding::new(Severity::Warning, "a", "d")
+                .with_location("src/x.rs", 42)
+                .with_category(Category::LogicError),
+        );
+        m.findings.push(
+            Finding::new(Severity::Warning, "b", "d")
+                .with_location("src/x.rs", 42)
+                .with_category(Category::Injection),
+        );
+        assert_eq!(
+            ConsensusEngine::default().deduplicate_findings(&[m]).len(),
+            2
+        );
+    }
+
+    /// A located finding and an unlocated finding with the same title do NOT collide:
+    /// they use different dedup keys (id: vs title:).
+    #[test]
+    fn test_dedup_located_and_unlocated_same_title_do_not_collide() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings.push(
+            Finding::new(Severity::Warning, "T", "d").with_location("x", 1),
+        );
+        m.findings.push(Finding::new(Severity::Warning, "T", "d"));
+        assert_eq!(
+            ConsensusEngine::default().deduplicate_findings(&[m]).len(),
+            2
+        );
+    }
 }
