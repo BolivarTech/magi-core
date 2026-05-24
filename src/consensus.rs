@@ -153,9 +153,12 @@ enum DedupKey {
 
 /// Produces a [`DedupKey`] for a finding.
 ///
-/// Located findings (non-empty `file` and `line > 0`) produce a stable hash id
-/// via [`generate_finding_id`]. Unlocated findings fall back to [`dedup_key`]
-/// on the title.
+/// Located findings (non-empty `file` and a present `line`) produce a stable
+/// hash id via [`generate_finding_id`]. A positive line is enforced upstream by
+/// the deserializer (`de_opt_line` maps non-positive values to `None`); the
+/// `with_location` builder does not re-validate, so passing a 1-based line is the
+/// caller's responsibility. Unlocated findings fall back to [`dedup_key`] on the
+/// title.
 fn finding_key(f: &crate::schema::Finding) -> DedupKey {
     match (f.file.as_deref(), f.line) {
         (Some(file), Some(line)) if !file.is_empty() => {

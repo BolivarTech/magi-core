@@ -91,6 +91,17 @@ against their own diff (or source tree) before trusting them.** See
 [ADR 004](adr/004-diff-grounded-finding-validation-is-consumer-concern.md)
 for the rationale and a description of the recommended guard pattern.
 
+### Note: id-based dedup semantics
+
+Within a report, findings that share the same `file` + `line` + `category` merge
+into one `DedupFinding` (by stable `id`), even when their titles differ — this is
+the intended cross-agent merge. The merged finding keeps the highest severity and
+the detail of the highest-severity contributor; **non-winning details are
+discarded**. Conversely, the same logical defect reported at slightly different
+lines (LLM line fuzz) does **not** merge — identity is exact-line, matching the
+Python reference. If you need line-range tolerance, apply it in your
+consumer-side guard (see ADR 004), not by post-processing `DedupFinding`.
+
 ---
 
 ## 2. `#[non_exhaustive]` on extensible types
