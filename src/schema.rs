@@ -233,6 +233,31 @@ pub struct Finding {
 }
 
 impl Finding {
+    /// Creates a finding with severity, title, and detail.
+    ///
+    /// Accepts `&str` or `String` for title and detail via `impl Into<String>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `severity` - Severity level of the finding.
+    /// * `title` - Short title describing the finding.
+    /// * `detail` - Detailed explanation of the finding.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use magi_core::schema::{Finding, Severity};
+    /// let f = Finding::new(Severity::Warning, "SQL injection", "Unsanitized input in query");
+    /// assert_eq!(f.severity, Severity::Warning);
+    /// ```
+    pub fn new(severity: Severity, title: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            severity,
+            title: title.into(),
+            detail: detail.into(),
+        }
+    }
+
     /// Returns the title after applying the full [`crate::validate::clean_title`] pipeline.
     ///
     /// Replaces control whitespace with spaces, removes invisible characters and Unicode
