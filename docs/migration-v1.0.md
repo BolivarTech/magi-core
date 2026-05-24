@@ -77,7 +77,7 @@ let f = Finding::new(Severity::Warning, "SQL injection", "User input concatenate
 // With optional location
 let f = Finding::new(Severity::Warning, "SQL injection", "User input concatenated.")
     .with_location("src/db.rs", 42)
-    .with_category(Category::SecurityVulnerability);
+    .with_category(Category::Injection);
 ```
 
 ### Warning: unverified locations
@@ -114,19 +114,18 @@ catch-all arm.
 ```rust
 // v1.0.0 — Category is non_exhaustive
 match finding.category {
-    Category::SecurityVulnerability => { /* ... */ }
-    Category::LogicError           => { /* ... */ }
-    Category::PerformanceIssue     => { /* ... */ }
-    Category::MaintainabilityIssue => { /* ... */ }
-    Category::Other                => { /* ... */ }
+    Category::Injection   => { /* ... */ }
+    Category::LogicError  => { /* ... */ }
+    Category::Performance => { /* ... */ }
+    Category::Other       => { /* ... */ }
     _ => { /* future slugs */ }   // required
 }
 
 // Closed enums (unchanged) — no catch-all needed
-match report.consensus.verdict {
-    Verdict::Approve   => { /* ... */ }
-    Verdict::Reject    => { /* ... */ }
-    Verdict::Hold      => { /* ... */ }
+match report.consensus.consensus_verdict {
+    Verdict::Approve     => { /* ... */ }
+    Verdict::Reject      => { /* ... */ }
+    Verdict::Conditional => { /* ... */ }
 }
 ```
 
@@ -167,7 +166,7 @@ analysis runs on the same codebase, or to correlate with Python MAGI output.
 use magi_core::finding_id::generate_finding_id;
 use magi_core::schema::Category;
 
-let id = generate_finding_id("src/db.rs", 42, Category::SecurityVulnerability);
+let id = generate_finding_id("src/db.rs", 42, Category::Injection);
 assert_eq!(id.len(), 16);  // always 16 hex chars
 ```
 
