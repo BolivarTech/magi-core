@@ -2368,4 +2368,76 @@ mod tests {
             Ok(_) => panic!("with_config must reject non-ASCII titles"),
         }
     }
+
+    // -- T6: MagiReport non_exhaustive + structured-field guard tests --
+
+    /// Regression guard: format_findings must NOT render file, category, or id
+    /// in the markdown output. These are JSON-only telemetry fields.
+    ///
+    /// If this test fails, format_findings has started leaking structured
+    /// fields into the report — fix that before proceeding.
+    #[test]
+    fn test_report_markdown_omits_structured_finding_fields() {
+        let f = DedupFinding {
+            severity: Severity::Warning,
+            title: "T".into(),
+            detail: "D".into(),
+            sources: vec![AgentName::Melchior],
+            file: Some("src/secret_path.rs".into()),
+            line: Some(42),
+            category: Category::LogicError,
+            id: Some("abc123def4567890".into()),
+        };
+        let md = ReportFormatter::new().format_findings(std::slice::from_ref(&f));
+        assert!(
+            !md.contains("src/secret_path.rs"),
+            "format_findings must not render `file` — got:\n{md}"
+        );
+        assert!(
+            !md.contains("category"),
+            "format_findings must not render `category` — got:\n{md}"
+        );
+        assert!(
+            !md.contains("abc123def4567890"),
+            "format_findings must not render `id` — got:\n{md}"
+        );
+    }
+
+    /// Backward-compat guard: a v0.3.1-era JSON finding (no file/line/category
+    /// keys) deserializes with the new fields at their serde defaults:
+    /// `file == None`, `line == None`, `category == Category::Other`.
+    ///
+    /// Uses an inline JSON snippet rather than the existing fixture (which has
+    /// `findings: []`) so we can exercise a non-empty findings array without
+    /// modifying the shared fixture.
+    #[test]
+    fn test_dedup_finding_legacy_json_defaults_structured_fields() {
+        // Simulate a DedupFinding serialized by v0.3.1 (no file/line/category/id keys).
+        let json = r#"{
+            "severity": "warning",
+            "title": "Legacy finding",
+            "detail": "Some detail",
+            "sources": ["melchior"]
+        }"#;
+        let finding: DedupFinding = serde_json::from_str(json)
+            .expect("legacy DedupFinding JSON must deserialize cleanly");
+        assert_eq!(
+            finding.file, None,
+            "absent `file` must default to None"
+        );
+        assert_eq!(
+            finding.line, None,
+            "absent `line` must default to None"
+        );
+        assert_eq!(
+            finding.category,
+            Category::Other,
+            "absent `category` must default to Category::Other"
+        );
+        assert_eq!(
+            finding.id, None,
+            "absent `id` must default to None"
+        );
+        assert_eq!(finding.title, "Legacy finding");
+    }
 }
