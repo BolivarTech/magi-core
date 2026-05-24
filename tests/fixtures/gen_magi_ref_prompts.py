@@ -18,13 +18,14 @@ from pathlib import Path
 
 MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI-Claude"))
 # Pinned to commit SHA (MAGI R2 I4) — tags may move, commits don't.
-# This is the release commit for Python MAGI v2.2.8. The v2.1.4 prompt
-# update added explicit "must contain all seven top-level keys exactly"
-# enforcement; v2.2.0+ versions did not modify the agent prompts.
+# This is the release commit for Python MAGI v3.0.0. The v3.0.0 prompt
+# update added "Finding calibration" sections (per-mode guidance on
+# finding severity thresholds) and structured file/line/category fields
+# in the finding schema. The seven top-level keys are unchanged from v2.1.4.
 # Pre-write SHA existence check (added v0.4.0, MAGI R1 W4) errors if the
 # pinned commit is missing from the local MAGI checkout. See
 # docs/migration-v0.4.md.
-MAGI_REF_SHA = "645932c78da5327a0deee01f38b90849cda37d18"
+MAGI_REF_SHA = "62cf58019aeab822cd55cbb02e1b8f34a3fd5d81"
 AGENTS = ("melchior", "balthasar", "caspar")
 OUT = Path(__file__).parent / "magi_ref_prompts.sha256"
 

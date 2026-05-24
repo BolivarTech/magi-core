@@ -15,8 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI"))
-MAGI_REF_SHA = "668f0e5e8ba4cf6851c4dcf77e727d0174e7ca30"
+MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI-Claude"))
+MAGI_REF_SHA = "62cf58019aeab822cd55cbb02e1b8f34a3fd5d81"
 AGENTS = ("melchior", "balthasar", "caspar")
 DEST_DIR = Path(__file__).resolve().parents[2] / "src" / "prompts_md"
 
