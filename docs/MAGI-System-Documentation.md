@@ -372,6 +372,6 @@ magi-core preserves the same consensus algorithm, confidence formula, and findin
 
 ---
 
-*Technical reference document for magi-core v0.1.0.*
+*Technical reference document for magi-core v1.0.0.*
 *The MAGI concept originates from Neon Genesis Evangelion (Hideaki Anno, Gainax, 1995).*
 *The implementation as a Rust library is a creative adaptation for LLM-agnostic multi-perspective analysis.*

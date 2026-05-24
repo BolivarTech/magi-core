@@ -28,15 +28,16 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Parallel execution** — agents run concurrently via `tokio::spawn` with `AbortGuard` cancellation
 - **Graceful degradation** — if one agent fails, the remaining two still produce a result
 - **Weighted consensus** — approve (+1), conditional (+0.5), reject (-1) scoring with epsilon-aware classification
-- **Finding deduplication** — NFKC + full Unicode case-folding merges duplicates across agents, promotes severity
+- **Structured findings** *(v1.0)* — `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified** — validate against your own diff (see [`docs/adr/004-diff-grounded-finding-validation-is-consumer-concern.md`](docs/adr/004-diff-grounded-finding-validation-is-consumer-concern.md))
+- **Finding deduplication** — co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
 - **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
 - **Retry with backoff** — opt-in `RetryProvider` wrapper with exponential backoff for HTTP/network transient errors (orthogonal to the schema-retry layer)
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants. See [`docs/adr/001-prompt-injection-threat-model.md`](docs/adr/001-prompt-injection-threat-model.md) and [`docs/adr/002-retry-on-schema-error.md`](docs/adr/002-retry-on-schema-error.md).
-- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v2.2.8`, verified via SHA-256 fixture in CI
+- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v3.0.0` (finding calibration), verified via SHA-256 fixture in CI
 - **Feature-gated providers** — `claude-api` (HTTP) and `claude-cli` (subprocess) ship as optional features
 - **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
-- **Zero unsafe in library code** — `#![forbid(unsafe_code)]` safe by design
+- **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
 
 ## Quick Start
 
@@ -44,12 +45,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "0.5"
+magi-core = "1.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # Enable one or both built-in providers:
-# magi-core = { version = "0.5", features = ["claude-cli"] }
-# magi-core = { version = "0.5", features = ["claude-api"] }
+# magi-core = { version = "1.0", features = ["claude-cli"] }
+# magi-core = { version = "1.0", features = ["claude-api"] }
 ```
 
 ### Basic Usage
@@ -249,7 +250,8 @@ println!("{}", report.banner);
 
 ```
 error         (foundation — no internal deps)
-schema        (domain types: Verdict, Severity, Mode, AgentName, Finding, AgentOutput)
+schema        (domain types: Verdict, Severity, Mode, AgentName, Category, Finding, AgentOutput)
+finding_id    (stable SHA-256 finding identity + fail-soft file/line/category deserializers)
 validate      (field validation with regex zero-width stripping, NFKC + casefold)
 consensus     (weighted scoring, classification, finding dedup)
 reporting     (ASCII banner + markdown report generation)
@@ -343,11 +345,18 @@ The agent expects a JSON response matching the `AgentOutput` schema:
   "summary": "One-line verdict summary",
   "reasoning": "Detailed analysis (2-5 paragraphs)",
   "findings": [
-    { "severity": "warning", "title": "Short title", "detail": "Explanation" }
+    { "severity": "warning", "title": "Short title", "detail": "Explanation",
+      "file": "src/db.rs", "line": 42, "category": "logic-error" }
   ],
   "recommendation": "What this agent recommends"
 }
 ```
+
+`findings[].file`, `line`, and `category` are **optional** (typically present in
+code-review). Omit them or use `null` in design/analysis. Unknown `category`
+values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
+(never a deserialization error). These locations are agent-reported and
+**unverified** — see [`docs/adr/004-diff-grounded-finding-validation-is-consumer-concern.md`](docs/adr/004-diff-grounded-finding-validation-is-consumer-concern.md).
 
 ## Feature Flags
 
@@ -355,7 +364,7 @@ The agent expects a JSON response matching the `AgentOutput` schema:
 |---------------|---------|--------------------------------------|
 | `claude-api`  | off     | HTTP provider via `reqwest`          |
 | `claude-cli`  | off     | Subprocess provider via `tokio::process` |
-| `test-utils`  | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable only within v0.5.x — see [`docs/migration-v0.4.md`](docs/migration-v0.4.md). |
+| `test-utils`  | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line — see [`docs/migration-v1.0.md`](docs/migration-v1.0.md). |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
 no optional features enabled.
@@ -381,6 +390,7 @@ This crate uses Rust edition 2024 and requires **Rust 1.91+**.
 See [CHANGELOG.md](CHANGELOG.md) for the full version history. Migration
 guides for breaking releases:
 
+- [`docs/migration-v1.0.md`](docs/migration-v1.0.md) — structured findings (`Category`, `finding_id`, `file`/`line`/`category`) + 1.0 API freeze (`#[non_exhaustive]`, `pub(crate)` cleanup)
 - [`docs/migration-v0.5.md`](docs/migration-v0.5.md) — complexity gate + `MagiError` is now `#[non_exhaustive]`
 - [`docs/migration-v0.4.md`](docs/migration-v0.4.md) — Python v2.2.8 parity: retry layer + retried_agents telemetry + Windows UTF-8 hardening
 - [`docs/migration-v0.3.md`](docs/migration-v0.3.md) — prompt architecture + defense-in-depth
