@@ -4,6 +4,57 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-05-24
+
+First stable release under SemVer. Closes parity with Python MAGI v3.0.0
+(structured findings + agent finding-calibration prompts) and freezes the
+public API. See `docs/migration-v1.0.md` for the upgrade guide.
+
+### Added
+
+- **`Category` enum** (`magi_core::schema::Category`) — controlled finding
+  vocabulary (15 named slugs + `Other`), kebab-case serde with `#[serde(other)]`
+  fallback. Parity with Python `finding_id.CATEGORY_SLUGS`.
+- **`finding_id` module** (`magi_core::finding_id`) — `generate_finding_id`
+  (stable SHA-256[:16] dedup key from `file`/`line`/`category`, cross-language
+  parity with Python verified by golden vectors), `normalize_path`,
+  `normalize_category`.
+- **Structured findings** — `Finding` gains optional `file`, `line`, `category`
+  fields (agent-reported, fail-soft deserialization). New `Finding::new` +
+  `with_location` / `with_category` builders.
+- **Id-aware consensus dedup** — co-located findings (file + line) merge by
+  stable `finding_id`; unlocated findings merge by normalized title (unchanged).
+  `DedupFinding` gains `file`/`line`/`category`/`id`.
+- Agent prompts re-pinned to MAGI v3.0.0 (`62cf5801`): finding calibration
+  (likelihood/downgrade, Caspar override) and optional `file`/`line`/`category`
+  output fields. The 7 top-level keys are unchanged.
+
+### Changed (breaking)
+
+- **`#[non_exhaustive]`** on `Finding`, `AgentOutput`, `MagiReport`,
+  `DedupFinding`, and `Category`. External crates can no longer use struct
+  literals or exhaustive `match` on these types. Construct `Finding` via
+  `Finding::new(...)`. Closed enums (`Verdict`, `Severity`, `AgentName`, `Mode`)
+  remain exhaustively matchable.
+- **`ClaudeRequest`, `ClaudeMessage`** (and `build_request_body`) dropped from
+  `pub` to `pub(crate)` — HTTP request-shaping plumbing, never part of the
+  analysis contract (were not re-exported from the prelude).
+
+### Security
+
+- `Finding.file` / `line` and `DedupFinding.id` are **agent-reported and NOT
+  verified** against any source. The diff-grounded hallucination guard (Python
+  MAGI v3.0.0 `finding_validation.py`) is deliberately a consumer concern, not a
+  library feature (see ADR 004). Consumers building review tooling must validate
+  located findings against their own diff before trusting them.
+
+### Notes
+
+- New runtime dependency: `sha2` (promoted from dev-dependency) for stable
+  finding identity.
+- API stability policy (ADR 005): 1.x minors add providers (Gemini, OpenAI) and
+  fields additively; `2.0.0` is reserved for the next contract break.
+
 ## [0.6.0] - 2026-05-21
 
 ### Changed
