@@ -99,6 +99,28 @@ pub(crate) fn lookup_prompt(
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+mod tests {
+    #[test]
+    fn test_v3_prompts_contain_calibration_markers() {
+        let melchior = include_str!("../prompts_md/melchior.md");
+        let balthasar = include_str!("../prompts_md/balthasar.md");
+        let caspar = include_str!("../prompts_md/caspar.md");
+        for p in [melchior, balthasar, caspar] {
+            assert!(
+                p.contains("Finding calibration"),
+                "missing calibration section"
+            );
+            assert!(!p.contains('\r'), "CRLF detected — must be LF");
+            assert!(!p.starts_with('\u{feff}'), "BOM detected — must be no-BOM");
+        }
+        assert!(
+            caspar.contains("Critic's override"),
+            "caspar missing override"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests_v0_3 {
     use super::*;
 
