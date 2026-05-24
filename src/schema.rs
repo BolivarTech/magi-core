@@ -580,32 +580,28 @@ mod tests {
     #[allow(deprecated)]
     #[test]
     fn test_finding_stripped_title_removes_zero_width_characters() {
-        let finding = Finding {
-            severity: Severity::Warning,
-            title: "Hello\u{200B}World\u{FEFF}Test\u{200C}End".to_string(),
-            detail: "detail".to_string(),
-        };
+        let finding = Finding::new(
+            Severity::Warning,
+            "Hello\u{200B}World\u{FEFF}Test\u{200C}End",
+            "detail",
+        );
         assert_eq!(finding.stripped_title(), "HelloWorldTestEnd");
     }
 
     #[allow(deprecated)]
     #[test]
     fn test_finding_stripped_title_preserves_normal_text() {
-        let finding = Finding {
-            severity: Severity::Info,
-            title: "Normal title".to_string(),
-            detail: "detail".to_string(),
-        };
+        let finding = Finding::new(Severity::Info, "Normal title", "detail");
         assert_eq!(finding.stripped_title(), "Normal title");
     }
 
     #[test]
     fn test_finding_serde_roundtrip() {
-        let finding = Finding {
-            severity: Severity::Critical,
-            title: "Security issue".to_string(),
-            detail: "SQL injection vulnerability".to_string(),
-        };
+        let finding = Finding::new(
+            Severity::Critical,
+            "Security issue",
+            "SQL injection vulnerability",
+        );
         let json = serde_json::to_string(&finding).unwrap();
         let deserialized: Finding = serde_json::from_str(&json).unwrap();
         assert_eq!(finding, deserialized);
@@ -672,11 +668,11 @@ mod tests {
             confidence: 0.75,
             summary: "looks okay".to_string(),
             reasoning: "mostly good".to_string(),
-            findings: vec![Finding {
-                severity: Severity::Warning,
-                title: "Minor issue".to_string(),
-                detail: "Could improve naming".to_string(),
-            }],
+            findings: vec![Finding::new(
+                Severity::Warning,
+                "Minor issue",
+                "Could improve naming",
+            )],
             recommendation: "approve with changes".to_string(),
         };
         let json = serde_json::to_string(&output).unwrap();

@@ -344,11 +344,11 @@ mod tests {
     #[test]
     fn test_validate_rejects_finding_with_only_zero_width_title() {
         let v = Validator::new();
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Warning,
-            title: "\u{200B}\u{FEFF}\u{200C}".to_string(),
-            detail: "detail".to_string(),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Warning,
+            "\u{200B}\u{FEFF}\u{200C}",
+            "detail",
+        )]);
         let err = v.validate(&output).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("title"), "error should mention title: {msg}");
@@ -357,11 +357,11 @@ mod tests {
     #[test]
     fn test_validate_accepts_finding_with_normal_title() {
         let v = Validator::new();
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Info,
-            title: "Security vulnerability".to_string(),
-            detail: "detail".to_string(),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Info,
+            "Security vulnerability",
+            "detail",
+        )]);
         assert!(v.validate(&output).is_ok());
     }
 
@@ -412,11 +412,7 @@ mod tests {
     fn test_validate_rejects_findings_count_exceeding_max_findings() {
         let v = Validator::new();
         let findings: Vec<Finding> = (0..101)
-            .map(|i| Finding {
-                severity: Severity::Info,
-                title: format!("Finding {i}"),
-                detail: "detail".to_string(),
-            })
+            .map(|i| Finding::new(Severity::Info, format!("Finding {i}"), "detail"))
             .collect();
         let output = output_with_findings(findings);
         let err = v.validate(&output).unwrap_err();
@@ -430,11 +426,11 @@ mod tests {
     #[test]
     fn test_validate_rejects_finding_title_exceeding_max_title_len() {
         let v = Validator::new();
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Warning,
-            title: "x".repeat(501),
-            detail: "detail".to_string(),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Warning,
+            "x".repeat(501),
+            "detail",
+        )]);
         let err = v.validate(&output).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("title"), "error should mention title: {msg}");
@@ -443,11 +439,11 @@ mod tests {
     #[test]
     fn test_validate_rejects_finding_detail_exceeding_max_detail_len() {
         let v = Validator::new();
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Info,
-            title: "Valid title".to_string(),
-            detail: "x".repeat(10_001),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Info,
+            "Valid title",
+            "x".repeat(10_001),
+        )]);
         let err = v.validate(&output).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("detail"), "error should mention detail: {msg}");
@@ -467,11 +463,11 @@ mod tests {
     fn test_validate_strips_zero_width_characters_via_clean_title() {
         let v = Validator::new();
         // validate uses clean_title pipeline internally; zero-width chars are removed
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Info,
-            title: "Hello\u{200B}World\u{FEFF}Test\u{200C}End".to_string(),
-            detail: "detail".to_string(),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Info,
+            "Hello\u{200B}World\u{FEFF}Test\u{200C}End",
+            "detail",
+        )]);
         assert!(
             v.validate(&output).is_ok(),
             "valid title after clean should pass"
@@ -514,11 +510,7 @@ mod tests {
         let mut output = valid_agent_output();
         output.recommendation = "x".repeat(50_001);
         output.findings = (0..101)
-            .map(|i| Finding {
-                severity: Severity::Info,
-                title: format!("Finding {i}"),
-                detail: "detail".to_string(),
-            })
+            .map(|i| Finding::new(Severity::Info, format!("Finding {i}"), "detail"))
             .collect();
         let err = v.validate(&output).unwrap_err();
         let msg = format!("{err}");
@@ -538,22 +530,18 @@ mod tests {
         };
         let v = Validator::with_limits(limits);
         // Title is 8 chars raw but 5 after stripping 3 zero-width chars => should pass
-        let output = output_with_findings(vec![Finding {
-            severity: Severity::Info,
-            title: "He\u{200B}l\u{FEFF}lo\u{200C}".to_string(),
-            detail: "detail".to_string(),
-        }]);
+        let output = output_with_findings(vec![Finding::new(
+            Severity::Info,
+            "He\u{200B}l\u{FEFF}lo\u{200C}",
+            "detail",
+        )]);
         assert!(v.validate(&output).is_ok());
     }
 
     // -- validate_mut tests --
 
     fn finding_with_title(title: &str) -> Finding {
-        Finding {
-            severity: Severity::Info,
-            title: title.to_string(),
-            detail: "some detail".to_string(),
-        }
+        Finding::new(Severity::Info, title, "some detail")
     }
 
     #[test]
@@ -754,21 +742,9 @@ mod tests {
         // Finding 2: title that exceeds max_title_len=5 after cleaning → triggers error
         let long_title_after_clean = "toolong"; // 7 chars after clean, exceeds max 5
         let mut output = output_with_findings(vec![
-            Finding {
-                severity: Severity::Info,
-                title: "A\u{200b}B".to_string(), // contains zero-width char
-                detail: "detail".to_string(),
-            },
-            Finding {
-                severity: Severity::Info,
-                title: "C\u{200b}D".to_string(), // contains zero-width char
-                detail: "detail".to_string(),
-            },
-            Finding {
-                severity: Severity::Info,
-                title: long_title_after_clean.to_string(),
-                detail: "detail".to_string(),
-            },
+            Finding::new(Severity::Info, "A\u{200b}B", "detail"), // contains zero-width char
+            Finding::new(Severity::Info, "C\u{200b}D", "detail"), // contains zero-width char
+            Finding::new(Severity::Info, long_title_after_clean, "detail"),
         ]);
 
         // Capture original titles before calling validate_mut

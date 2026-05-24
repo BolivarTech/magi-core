@@ -653,17 +653,17 @@ mod tests {
     #[test]
     fn test_duplicate_findings_merged_with_severity_promoted() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Security Issue".to_string(),
-            detail: "detail_warning".to_string(),
-        });
+        m.findings.push(Finding::new(
+            Severity::Warning,
+            "Security Issue",
+            "detail_warning",
+        ));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "security issue".to_string(),
-            detail: "detail_critical".to_string(),
-        });
+        b.findings.push(Finding::new(
+            Severity::Critical,
+            "security issue",
+            "detail_critical",
+        ));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
@@ -675,17 +675,17 @@ mod tests {
     #[test]
     fn test_merged_finding_sources_include_both_agents() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Security Issue".to_string(),
-            detail: "detail_m".to_string(),
-        });
+        m.findings.push(Finding::new(
+            Severity::Warning,
+            "Security Issue",
+            "detail_m",
+        ));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "security issue".to_string(),
-            detail: "detail_b".to_string(),
-        });
+        b.findings.push(Finding::new(
+            Severity::Critical,
+            "security issue",
+            "detail_b",
+        ));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
@@ -698,17 +698,11 @@ mod tests {
     #[test]
     fn test_merged_finding_detail_from_highest_severity() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Issue".to_string(),
-            detail: "detail_warning".to_string(),
-        });
+        m.findings
+            .push(Finding::new(Severity::Warning, "Issue", "detail_warning"));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "issue".to_string(),
-            detail: "detail_critical".to_string(),
-        });
+        b.findings
+            .push(Finding::new(Severity::Critical, "issue", "detail_critical"));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
@@ -719,17 +713,11 @@ mod tests {
     #[test]
     fn test_merged_finding_detail_from_first_agent_on_same_severity() {
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Issue".to_string(),
-            detail: "detail_b".to_string(),
-        });
+        b.findings
+            .push(Finding::new(Severity::Warning, "Issue", "detail_b"));
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "issue".to_string(),
-            detail: "detail_m".to_string(),
-        });
+        m.findings
+            .push(Finding::new(Severity::Warning, "issue", "detail_m"));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[b, m, c]).unwrap();
@@ -1010,16 +998,13 @@ mod tests {
     #[test]
     fn test_findings_sorted_by_severity_critical_first() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Info,
-            title: "Info issue".to_string(),
-            detail: "info detail".to_string(),
-        });
-        m.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "Critical issue".to_string(),
-            detail: "critical detail".to_string(),
-        });
+        m.findings
+            .push(Finding::new(Severity::Info, "Info issue", "info detail"));
+        m.findings.push(Finding::new(
+            Severity::Critical,
+            "Critical issue",
+            "critical detail",
+        ));
         let b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
@@ -1037,23 +1022,23 @@ mod tests {
         // "SQL\tinjection" → clean_title → "SQL injection" → same key as "sql injection"
         // "SQL  injection" → clean_title → "SQL  injection" → different key (double space)
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "SQL  injection".to_string(), // double space — distinct key
-            detail: "detail_m".to_string(),
-        });
+        m.findings.push(Finding::new(
+            Severity::Warning,
+            "SQL  injection",
+            "detail_m",
+        )); // double space — distinct key
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "SQL\tinjection".to_string(), // tab → space → merges with "sql injection"
-            detail: "detail_b".to_string(),
-        });
+        b.findings.push(Finding::new(
+            Severity::Warning,
+            "SQL\tinjection",
+            "detail_b",
+        )); // tab → space → merges with "sql injection"
         let mut c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
-        c.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "sql injection".to_string(),
-            detail: "detail_c".to_string(),
-        });
+        c.findings.push(Finding::new(
+            Severity::Critical,
+            "sql injection",
+            "detail_c",
+        ));
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
         // "SQL\tinjection" and "sql injection" share the same key → merge into 1
@@ -1188,17 +1173,17 @@ mod tests {
     fn test_dedup_merges_fullwidth_and_ascii_titles() {
         // ＳＱＬ = U+FF33 U+FF31 U+FF2C (fullwidth)
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "\u{FF33}\u{FF31}\u{FF2C} injection".to_string(), // ＳＱＬ injection
-            detail: "detail_fullwidth".to_string(),
-        });
+        m.findings.push(Finding::new(
+            Severity::Warning,
+            "\u{FF33}\u{FF31}\u{FF2C} injection", // ＳＱＬ injection
+            "detail_fullwidth",
+        ));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Critical,
-            title: "sql injection".to_string(),
-            detail: "detail_ascii".to_string(),
-        });
+        b.findings.push(Finding::new(
+            Severity::Critical,
+            "sql injection",
+            "detail_ascii",
+        ));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&[m, b, c]).unwrap();
@@ -1217,17 +1202,11 @@ mod tests {
     #[test]
     fn test_dedup_first_seen_order_preserved_when_melchior_reports_first() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Issue A".to_string(),
-            detail: "detail_m".to_string(),
-        });
+        m.findings
+            .push(Finding::new(Severity::Warning, "Issue A", "detail_m"));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "issue a".to_string(),
-            detail: "detail_b".to_string(),
-        });
+        b.findings
+            .push(Finding::new(Severity::Warning, "issue a", "detail_b"));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         // Melchior is first in slice
@@ -1248,17 +1227,11 @@ mod tests {
     #[test]
     fn test_dedup_first_seen_order_preserved_when_balthasar_reports_first() {
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "issue a".to_string(),
-            detail: "detail_b".to_string(),
-        });
+        b.findings
+            .push(Finding::new(Severity::Warning, "issue a", "detail_b"));
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Issue A".to_string(),
-            detail: "detail_m".to_string(),
-        });
+        m.findings
+            .push(Finding::new(Severity::Warning, "Issue A", "detail_m"));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         // Balthasar is first in slice
@@ -1278,17 +1251,14 @@ mod tests {
     #[test]
     fn test_dedup_ordering_stable_across_equal_severity() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Alpha Issue".to_string(),
-            detail: "detail_alpha".to_string(),
-        });
+        m.findings.push(Finding::new(
+            Severity::Warning,
+            "Alpha Issue",
+            "detail_alpha",
+        ));
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        b.findings.push(Finding {
-            severity: Severity::Warning,
-            title: "Beta Issue".to_string(),
-            detail: "detail_beta".to_string(),
-        });
+        b.findings
+            .push(Finding::new(Severity::Warning, "Beta Issue", "detail_beta"));
         let c = make_output(AgentName::Caspar, Verdict::Approve, 0.9);
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         // Melchior is first, so "Alpha Issue" should appear first when severity ties
