@@ -769,4 +769,14 @@ mod tests {
             assert_eq!(c, serde_json::from_str::<Category>(&s).unwrap());
         }
     }
+
+    // -- T4a: Finding::new --
+
+    #[test]
+    fn test_finding_new_constructs_three_field_finding() {
+        let f = Finding::new(Severity::Warning, "t", "d");
+        assert_eq!(f.severity, Severity::Warning);
+        assert_eq!(f.title, "t");
+        assert_eq!(f.detail, "d");
+    }
 }
