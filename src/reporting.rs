@@ -802,6 +802,10 @@ mod tests {
             title: "Test finding".to_string(),
             detail: "Detail here".to_string(),
             sources: vec![AgentName::Melchior, AgentName::Caspar],
+            file: None,
+            line: None,
+            category: Category::Other,
+            id: None,
         }];
 
         let formatter = ReportFormatter::new();
@@ -904,6 +908,10 @@ mod tests {
             title: "Test finding".to_string(),
             detail: "Detail here".to_string(),
             sources: vec![AgentName::Melchior],
+            file: None,
+            line: None,
+            category: Category::Other,
+            id: None,
         }];
         consensus.dissent = vec![Dissent {
             agent: AgentName::Caspar,
@@ -1181,6 +1189,10 @@ mod tests {
             title: "SQL injection risk".to_string(),
             detail: "User input not sanitized".to_string(),
             sources: vec![AgentName::Melchior, AgentName::Caspar],
+            file: None,
+            line: None,
+            category: Category::Other,
+            id: None,
         }];
 
         let formatter = ReportFormatter::new();
@@ -1667,6 +1679,10 @@ mod tests {
             title: "SQL injection in query builder".to_string(),
             detail: "UNIQUE_DETAIL_SENTINEL_XYZ".to_string(),
             sources: vec![AgentName::Melchior],
+            file: None,
+            line: None,
+            category: Category::Other,
+            id: None,
         }];
 
         let output = formatter.format_findings(&findings);
@@ -1690,18 +1706,30 @@ mod tests {
                 title: "Critical finding".to_string(),
                 detail: "detail".to_string(),
                 sources: vec![AgentName::Melchior],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Warning,
                 title: "Warning finding".to_string(),
                 detail: "detail".to_string(),
                 sources: vec![AgentName::Balthasar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Info,
                 title: "Info finding".to_string(),
                 detail: "detail".to_string(),
                 sources: vec![AgentName::Caspar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
         ];
 
@@ -1742,18 +1770,30 @@ mod tests {
                 title: "A".to_string(),
                 detail: "d".to_string(),
                 sources: vec![AgentName::Melchior],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Warning,
                 title: "B".to_string(),
                 detail: "d".to_string(),
                 sources: vec![AgentName::Balthasar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Info,
                 title: "C".to_string(),
                 detail: "d".to_string(),
                 sources: vec![AgentName::Caspar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
         ];
 
@@ -1799,18 +1839,30 @@ mod tests {
                 title: "Test title".to_string(),
                 detail: "ignored detail".to_string(),
                 sources: vec![AgentName::Melchior, AgentName::Caspar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Warning,
                 title: "Missing retry logic".to_string(),
                 detail: "ignored detail".to_string(),
                 sources: vec![AgentName::Balthasar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
             DedupFinding {
                 severity: Severity::Info,
                 title: "Consider timeout".to_string(),
                 detail: "ignored detail".to_string(),
                 sources: vec![AgentName::Caspar],
+                file: None,
+                line: None,
+                category: Category::Other,
+                id: None,
             },
         ];
 

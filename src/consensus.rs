@@ -7,7 +7,8 @@ use std::collections::BTreeMap;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::error::MagiError;
-use crate::schema::{AgentName, AgentOutput, Severity, Verdict};
+use crate::finding_id::generate_finding_id;
+use crate::schema::{AgentName, AgentOutput, Category, Severity, Verdict};
 use crate::validate::clean_title;
 
 /// Configuration for the consensus engine.
@@ -47,17 +48,30 @@ pub struct ConsensusResult {
     pub recommendations: BTreeMap<AgentName, String>,
 }
 
-/// A deduplicated finding aggregated across agents.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// A finding after cross-agent deduplication.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct DedupFinding {
-    /// Severity level (promoted to highest across duplicates).
+    /// Severity (promoted to highest across duplicates).
     pub severity: Severity,
-    /// Finding title.
+    /// Finding title (first-seen form).
     pub title: String,
     /// Finding detail (from highest-severity contributor).
     pub detail: String,
     /// Agents that reported this finding.
     pub sources: Vec<AgentName>,
+    /// Agent-reported, unverified (see `crate::schema::Finding::file`).
+    #[serde(default)]
+    pub file: Option<String>,
+    /// 1-based line number; agent-reported, unverified.
+    #[serde(default)]
+    pub line: Option<u32>,
+    /// Finding category (propagated from the first-seen finding).
+    #[serde(default)]
+    pub category: Category,
+    /// Stable id; `Some` only for located findings (file + line present).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// A dissenting agent's summary and reasoning.
@@ -124,6 +138,31 @@ pub struct ConsensusEngine {
 /// produce distinct keys, matching Python behavior.
 fn dedup_key(title: &str) -> String {
     caseless::default_case_fold_str(&clean_title(title).nfkc().collect::<String>())
+}
+
+/// Discriminated key for deduplication: stable id for located findings, normalized title otherwise.
+///
+/// Using an `id:` vs `title:` prefix ensures that a located finding and an unlocated finding
+/// with the same title never collide into the same group.
+enum DedupKey {
+    /// Finding has file + line + category → use stable id hash.
+    Id(String),
+    /// Finding lacks location → use normalized title.
+    Title(String),
+}
+
+/// Produces a [`DedupKey`] for a finding.
+///
+/// Located findings (non-empty `file` and `line > 0`) produce a stable hash id
+/// via [`generate_finding_id`]. Unlocated findings fall back to [`dedup_key`]
+/// on the title.
+fn finding_key(f: &crate::schema::Finding) -> DedupKey {
+    match (f.file.as_deref(), f.line) {
+        (Some(file), Some(line)) if !file.is_empty() => {
+            DedupKey::Id(generate_finding_id(file, line, f.category))
+        }
+        _ => DedupKey::Title(dedup_key(&f.title)),
+    }
 }
 
 impl ConsensusEngine {
@@ -333,11 +372,21 @@ impl ConsensusEngine {
         }
     }
 
-    /// Deduplicates findings across agents using NFKC + Unicode casefold keying.
+    /// Deduplicates findings across agents using a two-tier keying strategy.
     ///
-    /// Ordering contract: findings appear in first-seen order (by agent slice position),
-    /// then sorted by severity DESC (Critical → Info). Within equal severity, first-seen
-    /// order is preserved (stable sort).
+    /// **Located findings** (non-empty `file` and `line > 0`) are keyed by a
+    /// stable 16-hex-char SHA-256 id (`generate_finding_id`), which is
+    /// title-independent and stable across runs even when the LLM rewords the
+    /// finding title. **Unlocated findings** fall back to NFKC + Unicode
+    /// casefold on the title (existing behavior).
+    ///
+    /// A `"id:"` / `"title:"` namespace prefix in the internal key ensures a
+    /// located finding and an unlocated finding with the same title can never
+    /// collide into the same group.
+    ///
+    /// Ordering contract: findings appear in first-seen order (by agent slice
+    /// position), then sorted by severity DESC (Critical → Info). Within equal
+    /// severity, first-seen order is preserved (stable sort).
     fn deduplicate_findings(&self, agents: &[AgentOutput]) -> Vec<DedupFinding> {
         /// Accumulates state for a group of findings that share the same dedup key.
         struct GroupState {
@@ -349,6 +398,14 @@ impl ConsensusEngine {
             detail: String,
             /// Agents that contributed a matching finding, in first-seen order.
             sources: Vec<AgentName>,
+            /// File path from the first-seen finding.
+            file: Option<String>,
+            /// Line number from the first-seen finding.
+            line: Option<u32>,
+            /// Category from the first-seen finding.
+            category: Category,
+            /// Stable id (Some for located, None for title-keyed).
+            id: Option<String>,
         }
 
         // Intentional O(m²) — preserves insertion order without adding indexmap.
@@ -360,8 +417,11 @@ impl ConsensusEngine {
 
         for agent in agents {
             for finding in &agent.findings {
-                let key = dedup_key(&finding.title);
-                if let Some((_, state)) = groups.iter_mut().find(|(k, _)| k == &key) {
+                let (key_str, id) = match finding_key(finding) {
+                    DedupKey::Id(h) => (format!("id:{h}"), Some(h)),
+                    DedupKey::Title(t) => (format!("title:{t}"), None),
+                };
+                if let Some((_, state)) = groups.iter_mut().find(|(k, _)| k == &key_str) {
                     // Promote severity and update detail if this finding is higher
                     if finding.severity > state.severity {
                         state.severity = finding.severity;
@@ -370,12 +430,16 @@ impl ConsensusEngine {
                     state.sources.push(agent.agent);
                 } else {
                     groups.push((
-                        key,
+                        key_str,
                         GroupState {
                             severity: finding.severity,
                             title: finding.title.clone(),
                             detail: finding.detail.clone(),
                             sources: vec![agent.agent],
+                            file: finding.file.clone(),
+                            line: finding.line,
+                            category: finding.category,
+                            id,
                         },
                     ));
                 }
@@ -389,6 +453,10 @@ impl ConsensusEngine {
                 title: state.title,
                 detail: state.detail,
                 sources: state.sources,
+                file: state.file,
+                line: state.line,
+                category: state.category,
+                id: state.id,
             })
             .collect();
 
@@ -1292,7 +1360,10 @@ mod tests {
         let out = ConsensusEngine::default().deduplicate_findings(&[m, b]);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].severity, Severity::Critical);
-        assert_eq!(out[0].sources, vec![AgentName::Melchior, AgentName::Balthasar]);
+        assert_eq!(
+            out[0].sources,
+            vec![AgentName::Melchior, AgentName::Balthasar]
+        );
         assert_eq!(out[0].id.as_deref(), Some("7fb2a28931164f30")); // golden parity
     }
 
@@ -1301,7 +1372,8 @@ mod tests {
     fn test_dedup_falls_back_to_title_when_unlocated() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
         let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
-        m.findings.push(Finding::new(Severity::Warning, "Same Title", "d"));
+        m.findings
+            .push(Finding::new(Severity::Warning, "Same Title", "d"));
         b.findings
             .push(Finding::new(Severity::Warning, "same title", "d"));
         let out = ConsensusEngine::default().deduplicate_findings(&[m, b]);
@@ -1334,9 +1406,8 @@ mod tests {
     #[test]
     fn test_dedup_located_and_unlocated_same_title_do_not_collide() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
-        m.findings.push(
-            Finding::new(Severity::Warning, "T", "d").with_location("x", 1),
-        );
+        m.findings
+            .push(Finding::new(Severity::Warning, "T", "d").with_location("x", 1));
         m.findings.push(Finding::new(Severity::Warning, "T", "d"));
         assert_eq!(
             ConsensusEngine::default().deduplicate_findings(&[m]).len(),
