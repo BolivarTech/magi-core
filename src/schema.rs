@@ -220,9 +220,8 @@ impl Ord for AgentName {
 }
 
 /// A single finding reported by an agent during analysis.
-///
-/// Findings have a severity, title, and detail explanation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Finding {
     /// Severity level of this finding.
     pub severity: Severity,
@@ -230,10 +229,24 @@ pub struct Finding {
     pub title: String,
     /// Detailed explanation of the finding.
     pub detail: String,
+    /// Repo-relative path **as reported by the agent** when it located the
+    /// finding (code-review). `None` otherwise. **Not verified against any
+    /// source** — a hallucinated path is carried verbatim. Run a consumer-side
+    /// diff guard (see ADR 004) before trusting it.
+    #[serde(default, deserialize_with = "crate::finding_id::de_opt_file")]
+    pub file: Option<String>,
+    /// 1-based line number **as reported by the agent**; `None` otherwise.
+    /// Unverified (see `file`). Fail-soft on deserialization.
+    #[serde(default, deserialize_with = "crate::finding_id::de_opt_line")]
+    pub line: Option<u32>,
+    /// Finding category; `Other` when absent/unknown. Fail-soft + normalized.
+    #[serde(default, deserialize_with = "crate::finding_id::de_category")]
+    pub category: Category,
 }
 
 impl Finding {
-    /// Creates a finding with severity, title, and detail.
+    /// Creates a finding with required fields; optional location/category
+    /// default to `None`/`Category::Other`.
     ///
     /// Accepts `&str` or `String` for title and detail via `impl Into<String>`.
     ///
@@ -255,7 +268,32 @@ impl Finding {
             severity,
             title: title.into(),
             detail: detail.into(),
+            file: None,
+            line: None,
+            category: Category::Other,
         }
+    }
+
+    /// Attaches a concrete (agent-reported, unverified) code location.
+    ///
+    /// # Arguments
+    ///
+    /// * `file` - Repo-relative path as reported by the agent. Unverified.
+    /// * `line` - 1-based line number as reported by the agent. Unverified.
+    pub fn with_location(mut self, file: impl Into<String>, line: u32) -> Self {
+        self.file = Some(file.into());
+        self.line = Some(line);
+        self
+    }
+
+    /// Sets the finding category.
+    ///
+    /// # Arguments
+    ///
+    /// * `category` - The [`Category`] to assign to this finding.
+    pub fn with_category(mut self, category: Category) -> Self {
+        self.category = category;
+        self
     }
 
     /// Returns the title after applying the full [`crate::validate::clean_title`] pipeline.
@@ -310,6 +348,7 @@ pub enum Category {
 /// Contains the agent's verdict, confidence, reasoning, and findings.
 /// Unknown JSON fields are silently ignored during deserialization.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct AgentOutput {
     /// Which agent produced this output.
     pub agent: AgentName,
@@ -833,12 +872,30 @@ mod tests {
     #[test]
     fn test_finding_line_fail_soft() {
         let cases = [
-            (r#"{"severity":"info","title":"t","detail":"d","line":42.0}"#, Some(42)),
-            (r#"{"severity":"info","title":"t","detail":"d","line":0}"#, None),
-            (r#"{"severity":"info","title":"t","detail":"d","line":-5}"#, None),
-            (r#"{"severity":"info","title":"t","detail":"d","line":3.7}"#, None),
-            (r#"{"severity":"info","title":"t","detail":"d","line":true}"#, None),
-            (r#"{"severity":"info","title":"t","detail":"d","line":"x"}"#, None),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":42.0}"#,
+                Some(42),
+            ),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":0}"#,
+                None,
+            ),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":-5}"#,
+                None,
+            ),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":3.7}"#,
+                None,
+            ),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":true}"#,
+                None,
+            ),
+            (
+                r#"{"severity":"info","title":"t","detail":"d","line":"x"}"#,
+                None,
+            ),
         ];
         for (j, expected) in cases {
             let f: Finding = serde_json::from_str(j).expect("never errors (fail-soft)");

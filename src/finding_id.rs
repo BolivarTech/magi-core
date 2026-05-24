@@ -10,6 +10,7 @@
 //! vectors in this module's tests).
 
 use crate::schema::Category;
+use serde::{Deserialize, Deserializer};
 use sha2::{Digest, Sha256};
 
 const FINDING_ID_HEX_LEN: usize = 16;
@@ -52,6 +53,54 @@ pub fn generate_finding_id(file: &str, line: u32, category: Category) -> String 
         hex.push_str(&format!("{byte:02x}"));
     }
     hex
+}
+
+/// Fail-soft deserializer for `Finding::file`: JSON string → `Some`; else `None`.
+pub(crate) fn de_opt_file<'de, D>(d: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => Some(s),
+        _ => None,
+    })
+}
+
+/// Fail-soft deserializer for `Finding::line`: positive int or whole float → `Some`;
+/// non-positive, bool, non-whole float, string, null, or out-of-u32 → `None`.
+pub(crate) fn de_opt_line<'de, D>(d: D) -> Result<Option<u32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Number(n) => {
+            if let Some(u) = n.as_u64() {
+                u32::try_from(u).ok().filter(|&x| x > 0)
+            } else if let Some(i) = n.as_i64() {
+                u32::try_from(i).ok().filter(|&x| x > 0)
+            } else if let Some(f) = n.as_f64() {
+                if f.is_finite() && f.fract() == 0.0 && f > 0.0 && f <= u32::MAX as f64 {
+                    Some(f as u32)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    })
+}
+
+/// Fail-soft deserializer for `Finding::category`: JSON string → normalized; else `Other`.
+pub(crate) fn de_category<'de, D>(d: D) -> Result<Category, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(s) => normalize_category(Some(&s)),
+        _ => Category::Other,
+    })
 }
 
 #[cfg(test)]
