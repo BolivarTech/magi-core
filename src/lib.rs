@@ -28,6 +28,7 @@
 pub mod agent;
 pub mod consensus;
 pub mod error;
+pub mod finding_id;
 pub mod orchestrator;
 pub mod prelude;
 mod prompts;
