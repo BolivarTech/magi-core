@@ -800,4 +800,81 @@ mod tests {
         assert_eq!(f.title, "t");
         assert_eq!(f.detail, "d");
     }
+
+    // -- T4b: structured fields on Finding --
+
+    #[test]
+    fn test_finding_new_defaults_optional_fields() {
+        let f = Finding::new(Severity::Warning, "t", "d");
+        assert_eq!(f.file, None);
+        assert_eq!(f.line, None);
+        assert_eq!(f.category, Category::Other);
+    }
+
+    #[test]
+    fn test_finding_with_location_and_category() {
+        let f = Finding::new(Severity::Critical, "t", "d")
+            .with_location("src/x.rs", 42)
+            .with_category(Category::LogicError);
+        assert_eq!(f.file.as_deref(), Some("src/x.rs"));
+        assert_eq!(f.line, Some(42));
+        assert_eq!(f.category, Category::LogicError);
+    }
+
+    #[test]
+    fn test_finding_deserializes_structured_fields() {
+        let j = r#"{"severity":"warning","title":"t","detail":"d","file":"src/x.rs","line":42,"category":"logic-error"}"#;
+        let f: Finding = serde_json::from_str(j).unwrap();
+        assert_eq!(f.file.as_deref(), Some("src/x.rs"));
+        assert_eq!(f.line, Some(42));
+        assert_eq!(f.category, Category::LogicError);
+    }
+
+    #[test]
+    fn test_finding_line_fail_soft() {
+        let cases = [
+            (r#"{"severity":"info","title":"t","detail":"d","line":42.0}"#, Some(42)),
+            (r#"{"severity":"info","title":"t","detail":"d","line":0}"#, None),
+            (r#"{"severity":"info","title":"t","detail":"d","line":-5}"#, None),
+            (r#"{"severity":"info","title":"t","detail":"d","line":3.7}"#, None),
+            (r#"{"severity":"info","title":"t","detail":"d","line":true}"#, None),
+            (r#"{"severity":"info","title":"t","detail":"d","line":"x"}"#, None),
+        ];
+        for (j, expected) in cases {
+            let f: Finding = serde_json::from_str(j).expect("never errors (fail-soft)");
+            assert_eq!(f.line, expected, "input: {j}");
+        }
+    }
+
+    #[test]
+    fn test_finding_file_and_category_fail_soft() {
+        let f: Finding = serde_json::from_str(
+            r#"{"severity":"info","title":"t","detail":"d","file":123,"category":"made-up"}"#,
+        )
+        .unwrap();
+        assert_eq!(f.file, None);
+        assert_eq!(f.category, Category::Other);
+        let f2: Finding = serde_json::from_str(
+            r#"{"severity":"info","title":"t","detail":"d","category":"INJECTION"}"#,
+        )
+        .unwrap();
+        assert_eq!(f2.category, Category::Injection);
+    }
+
+    #[test]
+    fn test_finding_serializes_file_line_null_category_always() {
+        let j = serde_json::to_value(Finding::new(Severity::Info, "t", "d")).unwrap();
+        assert_eq!(j["file"], serde_json::Value::Null);
+        assert_eq!(j["line"], serde_json::Value::Null);
+        assert_eq!(j["category"], serde_json::Value::String("other".into()));
+    }
+
+    #[test]
+    fn test_finding_backward_compat_v0_6_0() {
+        let f: Finding =
+            serde_json::from_str(r#"{"severity":"warning","title":"t","detail":"d"}"#).unwrap();
+        assert_eq!(f.file, None);
+        assert_eq!(f.line, None);
+        assert_eq!(f.category, Category::Other);
+    }
 }
