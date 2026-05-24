@@ -2,8 +2,9 @@
 
 The three `.md` files here (`melchior.md`, `balthasar.md`, `caspar.md`) are
 **byte-for-byte copies** of the Python MAGI reference at
-`MAGI@v2.1.3/skills/magi/agents/*.md`. They are embedded into the crate at
-compile time via `include_str!` in `src/prompts.rs`.
+`MAGI@v3.0.0/skills/magi/agents/*.md` (commit `62cf58019aeab822cd55cbb02e1b8f34a3fd5d81`).
+They are embedded into the crate at compile time via `include_str!` in
+`src/prompts.rs`.
 
 ## Exemption from CLAUDE.local.md §0.2 file-header rule
 
@@ -28,10 +29,13 @@ Rationale:
 
 ## Regeneration
 
-If `MAGI@v2.1.3/skills/magi/agents/*.md` changes upstream:
+When the upstream Python MAGI prompts change:
 
-1. Bump `MAGI_REF_SHA` in `tests/fixtures/gen_magi_ref_prompts.py`.
-2. Re-extract the three files using `git show` (Task 02 step 1).
+1. Bump `MAGI_REF_SHA` in both `tests/fixtures/gen_magi_ref_prompts.py`
+   and `tests/fixtures/extract_magi_ref_prompts.py`.
+2. Run `python tests/fixtures/extract_magi_ref_prompts.py` to re-extract
+   the three files (writes raw bytes, normalizes CRLF→LF).
 3. Run `python tests/fixtures/gen_magi_ref_prompts.py` to regenerate the
    hash fixture.
-4. Commit as `chore: bump MAGI reference prompts to <new-sha>`.
+4. Commit the 6 files together as a dedicated re-pin commit (RE-04):
+   `feat: re-pin agent prompts to MAGI v<version> (<summary>)`.
