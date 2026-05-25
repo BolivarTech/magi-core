@@ -43,21 +43,18 @@ pub(crate) struct OpenAiMessage {
 
 /// Top-level response from the OpenAI Chat Completions endpoint.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // consumed by parse_response in Task 4 Green
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
 }
 
 /// A single completion choice returned by the endpoint.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // consumed by parse_response in Task 4 Green
 struct OpenAiChoice {
     message: OpenAiRespMessage,
 }
 
 /// The assistant message inside a completion choice.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // consumed by parse_response in Task 4 Green
 struct OpenAiRespMessage {
     content: String,
 }
