@@ -1417,4 +1417,17 @@ mod tests {
             2
         );
     }
+
+    #[test]
+    fn test_dedup_treats_zero_line_as_unlocated() {
+        // line 0 is invalid (1-based). `with_location` does not validate, so
+        // `finding_key` must treat a zero line as unlocated (no stable id),
+        // consistent with `de_opt_line` which maps non-positive lines to None.
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings
+            .push(Finding::new(Severity::Warning, "t", "d").with_location("src/x.rs", 0));
+        let out = ConsensusEngine::default().deduplicate_findings(&[m]);
+        assert_eq!(out.len(), 1);
+        assert!(out[0].id.is_none(), "line 0 must be treated as unlocated");
+    }
 }
