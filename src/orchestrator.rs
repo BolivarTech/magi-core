@@ -213,8 +213,6 @@ impl MagiBuilder {
     ///     .build()
     ///     .expect("build");
     /// ```
-    ///
-    /// See `docs/migration-v0.5.md` for cost-control patterns.
     pub fn with_complexity_gate<F>(mut self, predicate: F) -> Self
     where
         F: Fn(&str, &Mode) -> bool + Send + Sync + 'static,
@@ -292,8 +290,7 @@ impl MagiBuilder {
     /// timeout per agent (one for the first attempt + one for the retry,
     /// each with a fresh `timeout` budget) is unacceptable.
     ///
-    /// Default: retry enabled. See `docs/migration-v0.4.md` and
-    /// `docs/adr/002-retry-on-schema-error.md`.
+    /// Default: retry enabled.
     pub fn with_retry_disabled(mut self) -> Self {
         self.config.retry_on_schema_error = false;
         self
@@ -508,7 +505,7 @@ impl Magi {
     /// - [`MagiError::InputTooLarge`] if `content.len()` exceeds `max_input_len`.
     /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
     /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-64
-    ///   per call; fastrand effective state ~64 bits; see ADR 001 §Decision: Nonce RNG choice).
+    ///   per call; fastrand effective state ~64 bits).
     ///
     /// # Concurrency
     ///
@@ -606,7 +603,7 @@ impl Magi {
     /// every running task to prevent wasted LLM API quota.
     ///
     /// Returns `MagiError::InsufficientAgents` if fewer than the consensus
-    /// engine's required minimum (typically 2) succeed. See ADR 002.
+    /// engine's required minimum (typically 2) succeed.
     async fn dispatch_with_retry(
         &self,
         agents: Vec<Agent>,
@@ -712,8 +709,6 @@ impl Magi {
 /// even on schema/parse errors. The first error becomes the failure reason
 /// without the `retry-failed:` prefix. Used by
 /// [`MagiBuilder::with_retry_disabled`] for latency-sensitive deployments.
-///
-/// See `docs/adr/002-retry-on-schema-error.md`.
 pub(crate) async fn dispatch_one_agent(
     agent: Agent,
     user_prompt: String,

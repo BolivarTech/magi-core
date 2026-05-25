@@ -7,10 +7,6 @@
 //! Single entry point `build_user_prompt` sanitizes `content`, generates
 //! a per-request nonce, and wraps the result in `---BEGIN USER CONTEXT
 //! <nonce>---` / `---END USER CONTEXT <nonce>---` delimiters.
-//!
-//! See `sbtdd/spec-behavior.md` §5 and
-//! `docs/adr/001-prompt-injection-threat-model.md` for threat model and
-//! algorithmic specification.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -92,7 +88,7 @@ static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// the original whitespace, inserts the neutralization prefix `"  "`,
 /// and preserves the keyword and separator groups.
 ///
-/// Case-sensitive by design; see ADR 001 Scope IS-NOT for rationale.
+/// Case-sensitive by design.
 ///
 /// Returns `Cow::Borrowed` when no header patterns are found (no allocation).
 ///
@@ -181,7 +177,7 @@ fn sanitize_error_for_retry_feedback(error: &str) -> String {
 /// The `error` argument is passed through
 /// [`sanitize_error_for_retry_feedback`] (4-layer sanitization)
 /// to prevent second-order injection if the error string contains
-/// structural tokens. See `docs/adr/002-retry-on-schema-error.md`.
+/// structural tokens.
 ///
 /// # Arguments
 ///
@@ -217,9 +213,6 @@ pub(crate) fn build_retry_prompt(original_prompt: &str, error: &str) -> String {
 /// Pipeline order is load-bearing per spec §5.2 (MAGI R1):
 /// `normalize_newlines → strip_invisibles → neutralize_headers`.
 ///
-/// See `sbtdd/spec-behavior.md` §5.1 and ADR 001 for the full algorithm
-/// and threat model.
-///
 /// # Arguments
 ///
 /// * `mode` — The analysis mode, rendered as the `MODE:` header.
@@ -230,7 +223,7 @@ pub(crate) fn build_retry_prompt(original_prompt: &str, error: &str) -> String {
 ///
 /// Returns [`MagiError::InvalidInput`] if the sanitized content contains
 /// the generated nonce (collision probability ~2^-64 per call (fastrand
-/// effective state ~64 bits; see ADR 001 §Decision: Nonce RNG choice)).
+/// effective state ~64 bits)).
 pub(crate) fn build_user_prompt(
     mode: Mode,
     content: &str,
@@ -249,7 +242,7 @@ pub(crate) fn build_user_prompt(
 
     // Step 5: fail closed if sanitized content contains the nonce literally.
     // Probability of collision is ~2^-64 per call (fastrand effective state
-    // ~64 bits; see ADR 001 §Decision: Nonce RNG choice).
+    // ~64 bits).
     if sanitized.contains(nonce.as_str()) {
         return Err(MagiError::InvalidInput {
             reason: "content contains generated nonce; refuse and retry".to_string(),
@@ -724,7 +717,7 @@ mod tests {
         // U+00A0 NBSP is NOT in INVISIBLE_AND_SEPARATOR_RE; it survives
         // sanitization. The regex `^[\t ]*` only matches ASCII space/tab,
         // so NBSP-prefixed headers are NOT neutralized. This is a
-        // documented limitation (ADR 001 Scope IS-NOT).
+        // documented limitation.
         let mut rng = FixedRng::new(vec![0x1]);
         let input = "\n\u{00A0}MODE: design";
         let out = build_user_prompt(Mode::CodeReview, input, &mut rng).unwrap();

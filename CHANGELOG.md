@@ -26,7 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 First stable release under SemVer. Closes parity with Python MAGI v3.0.0
 (structured findings + agent finding-calibration prompts) and freezes the
-public API. See `docs/migration-v1.0.md` for the upgrade guide.
+public API.
 
 ### Added
 
@@ -63,15 +63,15 @@ public API. See `docs/migration-v1.0.md` for the upgrade guide.
 - `Finding.file` / `line` and `DedupFinding.id` are **agent-reported and NOT
   verified** against any source. The diff-grounded hallucination guard (Python
   MAGI v3.0.0 `finding_validation.py`) is deliberately a consumer concern, not a
-  library feature (see ADR 004). Consumers building review tooling must validate
+  library feature. Consumers building review tooling must validate
   located findings against their own diff before trusting them.
 
 ### Notes
 
 - New runtime dependency: `sha2` (promoted from dev-dependency) for stable
   finding identity.
-- API stability policy (ADR 005): 1.x minors add providers (Gemini, OpenAI) and
-  fields additively; `2.0.0` is reserved for the next contract break.
+- API stability policy: 1.x minors add providers and fields additively;
+  `2.0.0` is reserved for the next contract break.
 
 ## [0.6.0] - 2026-05-21
 
@@ -219,17 +219,13 @@ predicate's side effects).
   the retry layer.
 - **Cargo feature `test-utils`** exposing
   `magi_core::test_support::RoutingMockProvider` for downstream
-  integration tests. Stable only within the v0.4.x line — see
-  `docs/migration-v0.4.md`.
+  integration tests. Stable only within the v0.4.x line.
 - **`examples/basic_analysis.rs`**: Windows console UTF-8 hardening
   (`setup_console_encoding` calls `SetConsoleOutputCP(CP_UTF8)` at
   startup). Failed calls surface a stderr warning. Compile-time guard
   test verifies the cfg-gating on both platforms.
 - **`examples/basic_analysis.rs`**: when `--model` is omitted, uses
   `default_model_for_mode(mode)` (Python v2.2.3 parity).
-- **ADR 002** `docs/adr/002-retry-on-schema-error.md` — retry mechanic,
-  two-layer error sanitization, alternatives considered.
-- **Migration guide** `docs/migration-v0.4.md`.
 
 ### Changed
 
@@ -278,9 +274,7 @@ predicate's side effects).
 
 ### Documentation
 
-- New ADR: `docs/adr/002-retry-on-schema-error.md`.
-- New guide: `docs/migration-v0.4.md`.
-- 19 new BDDs in `sbtdd/spec-behavior.md` (BDD-01..BDD-19) covering
+- 19 new BDDs (BDD-01..BDD-19) covering
   prompt SHA, default model, retry FSM (success / fail / no-retry on
   provider errors), telemetry serialization, backward-compat, anti
   injection invariants, AgentName Ord, Windows hardening.
@@ -316,9 +310,7 @@ the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
 
 - **Prompt architecture** consolidated from 9 mode-specific files to 3
   mode-agnostic prompts (one per agent). The `Mode` is now injected via
-  the `user_prompt`, not the `system_prompt`. See
-  `docs/migration-v0.3.md` and `sbtdd/spec-behavior.md` for the full
-  change.
+  the `user_prompt`, not the `system_prompt`.
 - **`MagiBuilder::with_custom_prompt(agent, mode, prompt)`** deprecated
   in favor of `with_custom_prompt_for_mode(agent, mode, prompt)`. A shim
   remains in place through v0.3.x; it will be removed in v0.4.0.
@@ -326,8 +318,7 @@ the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
   resolves the system prompt via `lookup_prompt` and passes it to
   `Agent::execute` directly.
 - **`user_prompt` format** changed. The payload sent to the LLM now
-  follows the defense-in-depth pipeline from
-  `docs/adr/001-prompt-injection-threat-model.md`:
+  follows the defense-in-depth pipeline:
   ```
   MODE: <mode>
   ---BEGIN USER CONTEXT <32-hex-nonce>---
@@ -345,8 +336,6 @@ the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
   override.
 - **`MagiBuilder::with_custom_prompt_all_modes`** — mode-agnostic override
   (lookup order: per-mode → all-modes → embedded default).
-- **`docs/adr/001-prompt-injection-threat-model.md`** — threat model and
-  defense rationale for the prompt-injection hardening.
 - **`MagiError::InvalidInput { reason }`** — returned from
   `build_user_prompt` when sanitized content contains the generated
   nonce (fail-closed; probability ~2^-128).
@@ -356,7 +345,7 @@ the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
 ### Security considerations (MAGI R3 W8)
 
 The following limitations are **known and accepted** per the threat model
-in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
+(Scope IS-NOT section):
 
 - **Case-sensitive header matching.** `mode:`, `Mode:`, `MoDe:` are NOT
   neutralized by `neutralize_headers`. Only exact uppercase `MODE:`,
@@ -366,7 +355,7 @@ in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
 - **Non-ASCII whitespace.** U+00A0 (NBSP), U+3000 (Ideographic Space),
   and other non-ASCII whitespace characters before a header token are NOT
   absorbed by the regex — they may enable a bypass. Documented as an
-  accepted gap in ADR 001; `INVISIBLE_AND_SEPARATOR_RE` omits them.
+  accepted gap; `INVISIBLE_AND_SEPARATOR_RE` omits them.
   Consumers must pre-filter if needed.
 - **Nonce entropy ~64 bits.** `fastrand` has an effective state size of
   ~64 bits (not 128). The effective nonce collision probability is
@@ -427,9 +416,9 @@ in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
 
 - **`max_input_len` default raised from 1 MB to 4 MB.** Consumers that expose
   `analyze()` to untrusted input should explicitly lower this via
-  `MagiBuilder::with_max_input_len(1_048_576)` or similar. See `docs/migration-v0.2.md`
-  for the allocation-envelope analysis (peak ≈ 5× content size during the 3-agent
-  parallel dispatch; 4 MB default produces ~20 MB peak).
+  `MagiBuilder::with_max_input_len(1_048_576)` or similar. The allocation
+  envelope is peak ≈ 5× content size during the 3-agent parallel dispatch;
+  4 MB default produces ~20 MB peak.
 - **`Validator::validate_mut` silently rewrites `Finding.title` in place.** The
   orchestrator pipeline now uses `validate_mut`, so `MagiReport.agents[i].findings[j].title`
   reflects the *cleaned* form (NFKC-ready, invisible-char-stripped) rather than
@@ -459,8 +448,7 @@ in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
   **different character coverage** than v0.1.x — it now strips the Python
   MAGI `_ZERO_WIDTH_RE` set (U+200B-U+200F, U+2028-U+202F, U+2060-U+206F,
   U+FEFF, U+00AD) instead of the v0.1.x `ZERO_WIDTH_PATTERN` set (which
-  covered Arabic/Syriac/Mongolian format marks). See
-  `docs/migration-v0.2.md` for the full comparison. The method will be
+  covered Arabic/Syriac/Mongolian format marks). The method will be
   removed in v0.3.0.
 
 ### Dependencies
@@ -472,8 +460,7 @@ in `docs/adr/001-prompt-injection-threat-model.md` (Scope IS-NOT section):
 ### Not included (deferred to v0.3.0)
 
 - **Prompt architecture consolidation** (9 prompt files → 3 mode-agnostic +
-  prompt-injection hardening). Tracked in
-  `planning/claude-plan-tdd-v0.3-prompts.md`.
+  prompt-injection hardening).
 
 ## [0.1.2] - 2026-04-05
 

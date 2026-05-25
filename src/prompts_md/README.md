@@ -20,7 +20,7 @@ The three prompt files in this directory are **exempt** from this rule.
 Rationale:
 
 1. They are **data**, not Rust source code.
-2. RNF-04 in `sbtdd/spec-behavior.md` mandates byte-for-byte parity with
+2. RNF-04 mandates byte-for-byte parity with
    the Python reference; any project header would break parity and change
    the embedded SHA-256 that `test_prompts_match_python_reference_sha256`
    verifies in CI.

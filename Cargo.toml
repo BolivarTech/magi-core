@@ -29,7 +29,7 @@ sha2 = "0.10"
 claude-api = ["dep:reqwest"]
 claude-cli = []
 # v0.4.0: exposes RoutingMockProvider for downstream integration tests.
-# Stable only within v0.4.x — see docs/migration-v0.4.md.
+# Stable only within v0.4.x.
 test-utils = []
 
 [dev-dependencies]

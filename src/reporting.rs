@@ -226,8 +226,7 @@ pub struct MagiReport {
     /// - `retried_agents - failed_agents.keys()` → "retry recovered"
     /// - `retried_agents ∩ failed_agents.keys()` → "retry also failed"
     ///
-    /// Python parity: `run_magi.py:485, 631-632` (v2.2.0 telemetry). See
-    /// `docs/adr/002-retry-on-schema-error.md`.
+    /// Python parity: `run_magi.py:485, 631-632` (v2.2.0 telemetry).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub retried_agents: BTreeSet<AgentName>,
 }

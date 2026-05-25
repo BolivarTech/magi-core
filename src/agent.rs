@@ -303,8 +303,7 @@ impl AgentFactory {
         note = "create_agents does NOT apply overrides set via \
                 MagiBuilder::with_custom_prompt_for_mode / with_custom_prompt_all_modes. \
                 If you need overrides, call create_agents_with_prompts(mode, &overrides) directly, \
-                or (preferred) use MagiBuilder::build() which wires overrides automatically. \
-                See docs/migration-v0.3.md §3 for the correct upgrade path."
+                or (preferred) use MagiBuilder::build() which wires overrides automatically."
     )]
     pub fn create_agents(&self, mode: Mode) -> Vec<Agent> {
         let names = [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar];

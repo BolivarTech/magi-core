@@ -34,6 +34,9 @@ scripts/
 run-tests.py
 prd.json
 docs/superpowers/
+# Internal dev docs — local-only (ADRs, migration guides, proposals).
+# Only docs/MAGI-System-Documentation.md stays public/tracked.
+dev-docs/
 
 # Session runtime (gitignored per CLAUDE.local.md §2.2)
 .claude/session-state.json

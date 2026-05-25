@@ -7,7 +7,6 @@
 //!
 //! **Stability:** the `test-utils` feature is stable only within the v0.4.x
 //! line. Future versions may rename, restructure, or remove this module.
-//! See `docs/migration-v0.4.md`.
 
 use std::collections::HashMap;
 use std::sync::Mutex;

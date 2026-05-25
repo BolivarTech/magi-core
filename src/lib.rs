@@ -38,7 +38,6 @@ pub mod reporting;
 pub mod schema;
 /// Test-only support (RoutingMockProvider). Gated by `test-utils` feature
 /// for downstream integration tests; always available in-tree under `cfg(test)`.
-/// See `docs/migration-v0.4.md` for stability contract.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_support;
 mod user_prompt;

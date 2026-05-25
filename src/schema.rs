@@ -232,7 +232,7 @@ pub struct Finding {
     /// Repo-relative path **as reported by the agent** when it located the
     /// finding (code-review). `None` otherwise. **Not verified against any
     /// source** — a hallucinated path is carried verbatim. Run a consumer-side
-    /// diff guard (see ADR 004) before trusting it.
+    /// diff guard before trusting it.
     #[serde(default, deserialize_with = "crate::finding_id::de_opt_file")]
     pub file: Option<String>,
     /// 1-based line number **as reported by the agent**; `None` otherwise.
