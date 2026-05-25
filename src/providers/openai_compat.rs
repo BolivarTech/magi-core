@@ -25,20 +25,49 @@ impl fmt::Debug for OpenAiCompatibleProvider {
 }
 
 impl OpenAiCompatibleProvider {
+    /// Creates a provider for any OpenAI-compatible endpoint. `base_url` is
+    /// validated eagerly (`reqwest::Url`, scheme restricted to http/https) and
+    /// normalized (trailing `/` stripped); an invalid URL or scheme returns
+    /// `ProviderError::Network`. `api_key = None` omits the `Authorization`
+    /// header (e.g., Ollama).
     pub fn new(
-        _base_url: impl Into<String>,
-        _model: impl Into<String>,
-        _api_key: Option<String>,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        api_key: Option<String>,
     ) -> Result<Self, ProviderError> {
-        todo!("Task 1 Green")
+        let base_url = base_url.into();
+        let parsed = reqwest::Url::parse(&base_url).map_err(|e| ProviderError::Network {
+            message: format!("invalid base_url: {e}"),
+        })?;
+        if !matches!(parsed.scheme(), "http" | "https") {
+            return Err(ProviderError::Network {
+                message: format!(
+                    "invalid base_url scheme: {} (expected http/https)",
+                    parsed.scheme()
+                ),
+            });
+        }
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(|e| ProviderError::Network {
+                message: format!("failed to build HTTP client: {e}"),
+            })?;
+        Ok(Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            model: model.into(),
+            api_key,
+        })
     }
 
+    /// Provider name for diagnostics/telemetry.
     pub fn name(&self) -> &str {
-        todo!("Task 1 Green")
+        "openai-compat"
     }
 
+    /// Configured model identifier (pass-through; no alias resolution).
     pub fn model(&self) -> &str {
-        todo!("Task 1 Green")
+        &self.model
     }
 }
 
