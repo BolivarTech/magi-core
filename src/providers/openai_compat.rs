@@ -196,8 +196,16 @@ impl OpenAiCompatibleProvider {
     /// 401 / 403 → [`ProviderError::Auth`]; all other codes →
     /// [`ProviderError::Http`] (preserving `status` and `body`).
     #[allow(dead_code)] // consumed by complete() in Task 6
-    pub(crate) fn map_status_to_error(_status: u16, _body: &str) -> ProviderError {
-        todo!("Task 5 Green")
+    pub(crate) fn map_status_to_error(status: u16, body: &str) -> ProviderError {
+        match status {
+            401 | 403 => ProviderError::Auth {
+                message: body.to_string(),
+            },
+            _ => ProviderError::Http {
+                status,
+                body: body.to_string(),
+            },
+        }
     }
 
     /// Builds the JSON request body for the Chat Completions endpoint.
