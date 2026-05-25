@@ -16,7 +16,30 @@
 //! dependency (shared with `claude-api`).
 
 use crate::error::ProviderError;
+use crate::provider::CompletionConfig;
+use serde::Serialize;
 use std::fmt;
+
+/// HTTP request body for the OpenAI Chat Completions endpoint
+/// (`POST /chat/completions`). Non-streaming; no `stream` field.
+///
+/// `pub(crate)` — internal HTTP plumbing, not part of the public contract.
+#[derive(Debug, Serialize)]
+pub(crate) struct OpenAiRequest {
+    pub(crate) model: String,
+    pub(crate) messages: Vec<OpenAiMessage>,
+    pub(crate) max_tokens: u32,
+    pub(crate) temperature: f64,
+}
+
+/// A single message in the OpenAI Chat Completions `messages` array.
+///
+/// `pub(crate)` — internal HTTP plumbing, not part of the public contract.
+#[derive(Debug, Serialize)]
+pub(crate) struct OpenAiMessage {
+    pub(crate) role: String,
+    pub(crate) content: String,
+}
 
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
 /// format.
@@ -107,6 +130,23 @@ impl OpenAiCompatibleProvider {
     pub fn model(&self) -> &str {
         &self.model
     }
+
+    /// Builds the JSON request body for the Chat Completions endpoint.
+    ///
+    /// Constructs a non-streaming [`OpenAiRequest`] with a two-message
+    /// conversation: a `system` message followed by a `user` message.
+    /// Token limit and temperature are taken from `config`.
+    ///
+    /// `pub(crate)` — consumed by `complete()` in Task 6.
+    #[allow(dead_code)] // consumed by complete() in Task 6
+    pub(crate) fn build_request_body(
+        &self,
+        _system_prompt: &str,
+        _user_prompt: &str,
+        _config: &CompletionConfig,
+    ) -> OpenAiRequest {
+        todo!("Task 2 Green")
+    }
 }
 
 #[cfg(test)]
@@ -153,5 +193,43 @@ mod tests {
             !dbg.contains("sk-super-secret"),
             "Debug must not leak key, got: {dbg}"
         );
+    }
+
+    #[test]
+    fn test_build_request_body_shape() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "phi4-mini", None).unwrap();
+        let cfg = CompletionConfig::default();
+        let body = p.build_request_body("S", "U", &cfg);
+        assert_eq!(body.model, "phi4-mini");
+        assert_eq!(body.max_tokens, 4096);
+        assert!((body.temperature - 0.0).abs() < f64::EPSILON);
+        assert_eq!(body.messages.len(), 2);
+        assert_eq!(body.messages[0].role, "system");
+        assert_eq!(body.messages[0].content, "S");
+        assert_eq!(body.messages[1].role, "user");
+        assert_eq!(body.messages[1].content, "U");
+    }
+
+    #[test]
+    fn test_build_request_body_has_no_stream_field() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        let body = p.build_request_body("S", "U", &CompletionConfig::default());
+        let json = serde_json::to_string(&body).unwrap();
+        assert!(
+            !json.contains("stream"),
+            "request must not carry a stream field"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)] // CompletionConfig is #[non_exhaustive]; struct literal unavailable
+    fn test_build_request_body_carries_config_values() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        let mut cfg = CompletionConfig::default();
+        cfg.max_tokens = 256;
+        cfg.temperature = 0.7;
+        let body = p.build_request_body("S", "U", &cfg);
+        assert_eq!(body.max_tokens, 256);
+        assert!((body.temperature - 0.7).abs() < f64::EPSILON);
     }
 }
