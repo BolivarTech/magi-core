@@ -407,4 +407,14 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_usable_as_dyn_llm_provider() {
+        use crate::provider::LlmProvider;
+        use std::sync::Arc;
+        let p: Arc<dyn LlmProvider> =
+            Arc::new(OpenAiCompatibleProvider::new("http://h/v1", "phi4-mini", None).unwrap());
+        assert_eq!(p.name(), "openai-compat");
+        assert_eq!(p.model(), "phi4-mini");
+    }
 }
