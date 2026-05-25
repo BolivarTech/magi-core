@@ -179,8 +179,19 @@ impl OpenAiCompatibleProvider {
     /// `status: 0` is never a real HTTP status, marks a parse/contract failure,
     /// and is non-retryable per `is_retryable`.
     #[allow(dead_code)] // consumed by complete() in Task 6
-    pub(crate) fn parse_response(_body: &str) -> Result<String, ProviderError> {
-        todo!("Task 4 Green")
+    pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
+        let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
+            status: 0,
+            body: format!("failed to parse response: {e}"),
+        })?;
+        resp.choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content)
+            .ok_or_else(|| ProviderError::Http {
+                status: 0,
+                body: "no choices in response".to_string(),
+            })
     }
 
     /// Builds the JSON request body for the Chat Completions endpoint.
