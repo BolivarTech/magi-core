@@ -10,24 +10,14 @@ Usage:
 """
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
-MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI-Claude"))
-MAGI_REF_SHA = "62cf58019aeab822cd55cbb02e1b8f34a3fd5d81"
-AGENTS = ("melchior", "balthasar", "caspar")
+from _magi_ref import AGENTS, MAGI_PATH, MAGI_REF_SHA, read_blob
+
+# `MAGI_REF_SHA`/`MAGI_PATH`/`AGENTS`/`read_blob` live in `_magi_ref.py` (single
+# source of truth — re-pin there).
 DEST_DIR = Path(__file__).resolve().parents[2] / "src" / "prompts_md"
-
-
-def read_blob(repo: Path, ref: str, rel_path: str) -> bytes:
-    result = subprocess.run(
-        ["git", "-C", str(repo), "show", f"{ref}:{rel_path}"],
-        check=True,
-        capture_output=True,
-    )
-    return result.stdout
 
 
 def main() -> int:

@@ -10,34 +10,17 @@ Usage:
 from __future__ import annotations
 
 import hashlib
-import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-MAGI_PATH = Path(os.environ.get("MAGI_PATH", r"D:\jbolivarg\PythonProjects\MAGI-Claude"))
-# Pinned to commit SHA (MAGI R2 I4) — tags may move, commits don't.
-# This is the release commit for Python MAGI v3.0.0. The v3.0.0 prompt
-# update added "Finding calibration" sections (per-mode guidance on
-# finding severity thresholds) and structured file/line/category fields
-# in the finding schema. The seven top-level keys are unchanged from v2.1.4.
-# Pre-write SHA existence check (added v0.4.0, MAGI R1 W4) errors if the
-# pinned commit is missing from the local MAGI checkout. See
-# docs/migration-v0.4.md.
-MAGI_REF_SHA = "62cf58019aeab822cd55cbb02e1b8f34a3fd5d81"
-AGENTS = ("melchior", "balthasar", "caspar")
+from _magi_ref import AGENTS, MAGI_PATH, MAGI_REF_SHA, read_blob
+
+# `MAGI_REF_SHA`/`MAGI_PATH`/`AGENTS`/`read_blob` live in `_magi_ref.py` (single
+# source of truth — re-pin there). Pre-write SHA existence check (v0.4.0, MAGI R1
+# W4) below errors if the pinned commit is missing from the local MAGI checkout.
 OUT = Path(__file__).parent / "magi_ref_prompts.sha256"
-
-
-def read_blob(repo: Path, ref: str, rel_path: str) -> bytes:
-    """Read a file's bytes at a specific ref via `git show`, no checkout."""
-    result = subprocess.run(
-        ["git", "-C", str(repo), "show", f"{ref}:{rel_path}"],
-        check=True,
-        capture_output=True,
-    )
-    return result.stdout
 
 
 def verify_sha_exists(repo: Path, ref: str) -> bool:
