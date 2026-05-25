@@ -4,6 +4,24 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-05-25
+
+### Fixed
+
+- **`finding_key` rejects a non-positive `line`.** A finding built with
+  `Finding::new(...).with_location(file, 0)` now deduplicates by title (no stable
+  `id`) instead of producing an `id` over an invalid 1-based line. This aligns the
+  `with_location` builder path with `de_opt_line`, which already maps non-positive
+  lines to `None`. Only affects the degenerate `line == 0` case set directly via
+  the builder; the deserialize path was already correct.
+
+### Internal
+
+- Deduplicated `MAGI_REF_SHA` (and `MAGI_PATH`, the agent set, and the `git show`
+  blob reader) into a single `tests/fixtures/_magi_ref.py` imported by both
+  `gen_` and `extract_magi_ref_prompts.py` — re-pinning the reference prompts now
+  edits one file. No effect on the published crate.
+
 ## [1.0.0] - 2026-05-24
 
 First stable release under SemVer. Closes parity with Python MAGI v3.0.0
