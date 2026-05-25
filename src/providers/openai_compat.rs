@@ -191,6 +191,15 @@ impl OpenAiCompatibleProvider {
             })
     }
 
+    /// Maps an HTTP status code to a [`ProviderError`].
+    ///
+    /// 401 / 403 → [`ProviderError::Auth`]; all other codes →
+    /// [`ProviderError::Http`] (preserving `status` and `body`).
+    #[allow(dead_code)] // consumed by complete() in Task 6
+    pub(crate) fn map_status_to_error(_status: u16, _body: &str) -> ProviderError {
+        todo!("Task 5 Green")
+    }
+
     /// Builds the JSON request body for the Chat Completions endpoint.
     ///
     /// Constructs a non-streaming [`OpenAiRequest`] with a two-message
@@ -364,5 +373,30 @@ mod tests {
             OpenAiCompatibleProvider::parse_response("not json"),
             Err(ProviderError::Http { status: 0, .. })
         ));
+    }
+
+    #[test]
+    fn test_map_status_401_403_to_auth() {
+        assert!(matches!(
+            OpenAiCompatibleProvider::map_status_to_error(401, "x"),
+            ProviderError::Auth { .. }
+        ));
+        assert!(matches!(
+            OpenAiCompatibleProvider::map_status_to_error(403, "x"),
+            ProviderError::Auth { .. }
+        ));
+    }
+
+    #[test]
+    fn test_map_status_429_500_404_to_http() {
+        for s in [429u16, 500, 404] {
+            match OpenAiCompatibleProvider::map_status_to_error(s, "b") {
+                ProviderError::Http { status, body } => {
+                    assert_eq!(status, s);
+                    assert_eq!(body, "b");
+                }
+                other => panic!("expected Http for {s}, got {other}"),
+            }
+        }
     }
 }
