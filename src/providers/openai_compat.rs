@@ -141,11 +141,25 @@ impl OpenAiCompatibleProvider {
     #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn build_request_body(
         &self,
-        _system_prompt: &str,
-        _user_prompt: &str,
-        _config: &CompletionConfig,
+        system_prompt: &str,
+        user_prompt: &str,
+        config: &CompletionConfig,
     ) -> OpenAiRequest {
-        todo!("Task 2 Green")
+        OpenAiRequest {
+            model: self.model.clone(),
+            messages: vec![
+                OpenAiMessage {
+                    role: "system".to_string(),
+                    content: system_prompt.to_string(),
+                },
+                OpenAiMessage {
+                    role: "user".to_string(),
+                    content: user_prompt.to_string(),
+                },
+            ],
+            max_tokens: config.max_tokens,
+            temperature: config.temperature,
+        }
     }
 }
 
