@@ -28,6 +28,7 @@ sha2 = "0.10"
 [features]
 claude-api = ["dep:reqwest"]
 claude-cli = []
+openai-compat = ["dep:reqwest"]
 # v0.4.0: exposes RoutingMockProvider for downstream integration tests.
 # Stable only within v0.4.x.
 test-utils = []

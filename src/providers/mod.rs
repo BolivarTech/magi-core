@@ -11,3 +11,6 @@ pub mod claude;
 
 #[cfg(feature = "claude-cli")]
 pub mod claude_cli;
+
+#[cfg(feature = "openai-compat")]
+pub mod openai_compat;
