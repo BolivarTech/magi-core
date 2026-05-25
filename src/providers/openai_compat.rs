@@ -138,7 +138,9 @@ impl OpenAiCompatibleProvider {
     /// is `"Bearer <key>"`.
     #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn auth_header(&self) -> Option<(&'static str, String)> {
-        todo!("Task 3 Green")
+        self.api_key
+            .as_ref()
+            .map(|k| ("Authorization", format!("Bearer {k}")))
     }
 
     /// Constructs the full Chat Completions endpoint URL by appending
@@ -146,7 +148,7 @@ impl OpenAiCompatibleProvider {
     /// construction time).
     #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn endpoint_url(&self) -> String {
-        todo!("Task 3 Green")
+        format!("{}/chat/completions", self.base_url)
     }
 
     /// Builds the JSON request body for the Chat Completions endpoint.
