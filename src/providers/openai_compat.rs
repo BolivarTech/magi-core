@@ -2,9 +2,47 @@
 // Version: 1.0.0
 // Date: 2026-05-25
 
+//! OpenAI Chat Completions-compatible provider.
+//!
+//! Implements [`OpenAiCompatibleProvider`], which speaks the OpenAI Chat
+//! Completions wire format (`POST /chat/completions`). A single configurable
+//! `base_url` makes the provider work with:
+//!
+//! - **OpenAI cloud** (`https://api.openai.com/v1`) — pass `api_key`.
+//! - **Ollama** (`http://localhost:11434/v1`) — `api_key = None`.
+//! - **LocalAI / vLLM / LM Studio** — any http/https base URL.
+//!
+//! Feature-gated behind `openai-compat`; pulls in `reqwest` as an optional
+//! dependency (shared with `claude-api`).
+
 use crate::error::ProviderError;
 use std::fmt;
 
+/// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
+/// format.
+///
+/// Uses `reqwest::Client` for connection pooling — a single client is created
+/// at construction time and reused across all requests.
+///
+/// Feature-gated behind `openai-compat`.
+///
+/// # Examples
+///
+/// ```no_run
+/// use magi_core::providers::openai_compat::OpenAiCompatibleProvider;
+///
+/// // Local Ollama (no API key)
+/// let local = OpenAiCompatibleProvider::new("http://localhost:11434/v1", "phi4-mini", None)
+///     .expect("valid url");
+///
+/// // OpenAI cloud
+/// let cloud = OpenAiCompatibleProvider::new(
+///     "https://api.openai.com/v1",
+///     "gpt-4o",
+///     Some("sk-...".into()),
+/// )
+/// .expect("valid url");
+/// ```
 pub struct OpenAiCompatibleProvider {
     #[allow(dead_code)] // used by complete() in Task 6
     client: reqwest::Client,
