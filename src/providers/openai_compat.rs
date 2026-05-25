@@ -17,7 +17,7 @@
 
 use crate::error::ProviderError;
 use crate::provider::CompletionConfig;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// HTTP request body for the OpenAI Chat Completions endpoint
@@ -39,6 +39,27 @@ pub(crate) struct OpenAiRequest {
 pub(crate) struct OpenAiMessage {
     pub(crate) role: String,
     pub(crate) content: String,
+}
+
+/// Top-level response from the OpenAI Chat Completions endpoint.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // consumed by parse_response in Task 4 Green
+struct OpenAiResponse {
+    choices: Vec<OpenAiChoice>,
+}
+
+/// A single completion choice returned by the endpoint.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // consumed by parse_response in Task 4 Green
+struct OpenAiChoice {
+    message: OpenAiRespMessage,
+}
+
+/// The assistant message inside a completion choice.
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // consumed by parse_response in Task 4 Green
+struct OpenAiRespMessage {
+    content: String,
 }
 
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
@@ -149,6 +170,17 @@ impl OpenAiCompatibleProvider {
     #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn endpoint_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
+    }
+
+    /// Extracts `choices[0].message.content` from the raw response body.
+    ///
+    /// A serde failure or an empty `choices` array maps to
+    /// `ProviderError::Http { status: 0, .. }` — a deliberate sentinel:
+    /// `status: 0` is never a real HTTP status, marks a parse/contract failure,
+    /// and is non-retryable per `is_retryable`.
+    #[allow(dead_code)] // consumed by complete() in Task 6
+    pub(crate) fn parse_response(_body: &str) -> Result<String, ProviderError> {
+        todo!("Task 4 Green")
     }
 
     /// Builds the JSON request body for the Chat Completions endpoint.
@@ -292,5 +324,37 @@ mod tests {
     fn test_endpoint_url_normalizes_trailing_slash() {
         let p = OpenAiCompatibleProvider::new("http://h/v1/", "m", None).unwrap();
         assert_eq!(p.endpoint_url(), "http://h/v1/chat/completions");
+    }
+
+    #[test]
+    fn test_parse_response_extracts_content() {
+        let json = r#"{"choices":[{"message":{"role":"assistant","content":"hola"}}]}"#;
+        assert_eq!(
+            OpenAiCompatibleProvider::parse_response(json).unwrap(),
+            "hola"
+        );
+    }
+
+    #[test]
+    fn test_parse_response_takes_first_choice() {
+        let json = r#"{"choices":[{"message":{"content":"a"}},{"message":{"content":"b"}}]}"#;
+        assert_eq!(OpenAiCompatibleProvider::parse_response(json).unwrap(), "a");
+    }
+
+    #[test]
+    fn test_parse_response_empty_choices_is_http_zero() {
+        let json = r#"{"choices":[]}"#;
+        assert!(matches!(
+            OpenAiCompatibleProvider::parse_response(json),
+            Err(ProviderError::Http { status: 0, .. })
+        ));
+    }
+
+    #[test]
+    fn test_parse_response_bad_json_is_http_zero() {
+        assert!(matches!(
+            OpenAiCompatibleProvider::parse_response("not json"),
+            Err(ProviderError::Http { status: 0, .. })
+        ));
     }
 }
