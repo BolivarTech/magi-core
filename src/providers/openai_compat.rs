@@ -131,6 +131,24 @@ impl OpenAiCompatibleProvider {
         &self.model
     }
 
+    /// Returns the `Authorization` header tuple when an API key is configured,
+    /// or `None` for keyless endpoints (e.g., local Ollama).
+    ///
+    /// The first element is the static header name `"Authorization"`; the second
+    /// is `"Bearer <key>"`.
+    #[allow(dead_code)] // consumed by complete() in Task 6
+    pub(crate) fn auth_header(&self) -> Option<(&'static str, String)> {
+        todo!("Task 3 Green")
+    }
+
+    /// Constructs the full Chat Completions endpoint URL by appending
+    /// `/chat/completions` to `base_url` (trailing slashes already stripped at
+    /// construction time).
+    #[allow(dead_code)] // consumed by complete() in Task 6
+    pub(crate) fn endpoint_url(&self) -> String {
+        todo!("Task 3 Green")
+    }
+
     /// Builds the JSON request body for the Chat Completions endpoint.
     ///
     /// Constructs a non-streaming [`OpenAiRequest`] with a two-message
@@ -245,5 +263,32 @@ mod tests {
         let body = p.build_request_body("S", "U", &cfg);
         assert_eq!(body.max_tokens, 256);
         assert!((body.temperature - 0.7).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_auth_header_some_when_key_present() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", Some("sk-x".into())).unwrap();
+        assert_eq!(
+            p.auth_header(),
+            Some(("Authorization", "Bearer sk-x".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_auth_header_none_when_key_absent() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        assert_eq!(p.auth_header(), None);
+    }
+
+    #[test]
+    fn test_endpoint_url_appends_chat_completions() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        assert_eq!(p.endpoint_url(), "http://h/v1/chat/completions");
+    }
+
+    #[test]
+    fn test_endpoint_url_normalizes_trailing_slash() {
+        let p = OpenAiCompatibleProvider::new("http://h/v1/", "m", None).unwrap();
+        assert_eq!(p.endpoint_url(), "http://h/v1/chat/completions");
     }
 }
