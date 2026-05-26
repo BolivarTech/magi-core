@@ -85,11 +85,9 @@ struct OpenAiRespMessage {
 /// .expect("valid url");
 /// ```
 pub struct OpenAiCompatibleProvider {
-    #[allow(dead_code)] // used by complete() in Task 6
     client: reqwest::Client,
     base_url: String,
     model: String,
-    #[allow(dead_code)] // used by auth_header()/complete() in Tasks 3/6
     api_key: Option<String>,
 }
 
@@ -154,7 +152,6 @@ impl OpenAiCompatibleProvider {
     ///
     /// The first element is the static header name `"Authorization"`; the second
     /// is `"Bearer <key>"`.
-    #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn auth_header(&self) -> Option<(&'static str, String)> {
         self.api_key
             .as_ref()
@@ -164,7 +161,6 @@ impl OpenAiCompatibleProvider {
     /// Constructs the full Chat Completions endpoint URL by appending
     /// `/chat/completions` to `base_url` (trailing slashes already stripped at
     /// construction time).
-    #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn endpoint_url(&self) -> String {
         format!("{}/chat/completions", self.base_url)
     }
@@ -175,7 +171,6 @@ impl OpenAiCompatibleProvider {
     /// `ProviderError::Http { status: 0, .. }` — a deliberate sentinel:
     /// `status: 0` is never a real HTTP status, marks a parse/contract failure,
     /// and is non-retryable per `is_retryable`.
-    #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
         let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
             status: 0,
@@ -195,7 +190,6 @@ impl OpenAiCompatibleProvider {
     ///
     /// 401 / 403 → [`ProviderError::Auth`]; all other codes →
     /// [`ProviderError::Http`] (preserving `status` and `body`).
-    #[allow(dead_code)] // consumed by complete() in Task 6
     pub(crate) fn map_status_to_error(status: u16, body: &str) -> ProviderError {
         match status {
             401 | 403 => ProviderError::Auth {
@@ -214,8 +208,7 @@ impl OpenAiCompatibleProvider {
     /// conversation: a `system` message followed by a `user` message.
     /// Token limit and temperature are taken from `config`.
     ///
-    /// `pub(crate)` — consumed by `complete()` in Task 6.
-    #[allow(dead_code)] // consumed by complete() in Task 6
+    /// `pub(crate)` — consumed by `complete()`.
     pub(crate) fn build_request_body(
         &self,
         system_prompt: &str,
@@ -237,6 +230,65 @@ impl OpenAiCompatibleProvider {
             max_tokens: config.max_tokens,
             temperature: config.temperature,
         }
+    }
+}
+
+use crate::provider::LlmProvider;
+
+#[async_trait::async_trait]
+impl LlmProvider for OpenAiCompatibleProvider {
+    /// Sends a chat completion request to the configured endpoint and returns
+    /// the assistant's reply.
+    ///
+    /// # Errors
+    /// - `Timeout` if the request times out (note: the client sets no internal
+    ///   timeout; the orchestrator's per-agent `with_timeout` bounds hangs).
+    /// - `Network` on connection failures (and on a malformed `base_url`/client).
+    /// - `Auth` on 401/403; `Http` on other non-2xx; `Http { status: 0 }` on a
+    ///   malformed response body.
+    async fn complete(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        config: &CompletionConfig,
+    ) -> Result<String, ProviderError> {
+        let body = self.build_request_body(system_prompt, user_prompt, config);
+        let mut req = self
+            .client
+            .post(self.endpoint_url())
+            .header("content-type", "application/json")
+            .json(&body);
+        if let Some((name, value)) = self.auth_header() {
+            req = req.header(name, value);
+        }
+        let response = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                ProviderError::Timeout {
+                    message: e.to_string(),
+                }
+            } else {
+                ProviderError::Network {
+                    message: e.to_string(),
+                }
+            }
+        })?;
+        let status = response.status().as_u16();
+        if !(200..300).contains(&status) {
+            let response_body = response.text().await.unwrap_or_default();
+            return Err(Self::map_status_to_error(status, &response_body));
+        }
+        let response_body = response.text().await.map_err(|e| ProviderError::Network {
+            message: format!("failed to read response body: {e}"),
+        })?;
+        Self::parse_response(&response_body)
+    }
+
+    fn name(&self) -> &str {
+        "openai-compat"
+    }
+
+    fn model(&self) -> &str {
+        &self.model
     }
 }
 
