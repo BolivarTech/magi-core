@@ -35,7 +35,7 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
 - **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v3.0.0` (finding calibration), verified via SHA-256 fixture in CI
-- **Feature-gated providers** — `claude-api` (HTTP) and `claude-cli` (subprocess) ship as optional features
+- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), and `openai-compat` (OpenAI Chat Completions — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server) ship as optional features
 - **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
 - **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
 
@@ -261,8 +261,9 @@ user_prompt   (sanitization pipeline + nonce-delimited payload construction)
 agent         (Agent struct, AgentFactory — no Mode parameter as of v0.3)
 orchestrator  (Magi, MagiBuilder — composes everything)
 providers/
-  claude      [feature: claude-api]  — HTTP via reqwest
-  claude_cli  [feature: claude-cli]  — subprocess via tokio::process
+  claude          [feature: claude-api]      — HTTP via reqwest
+  claude_cli      [feature: claude-cli]      — subprocess via tokio::process
+  openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + Ollama/LocalAI/vLLM/LM Studio)
 ```
 
 ### Prompt Injection Defense
@@ -357,11 +358,12 @@ values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
 
 ## Feature Flags
 
-| Feature       | Default | Description                          |
-|---------------|---------|--------------------------------------|
-| `claude-api`  | off     | HTTP provider via `reqwest`          |
-| `claude-cli`  | off     | Subprocess provider via `tokio::process` |
-| `test-utils`  | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
+| Feature          | Default | Description                          |
+|------------------|---------|--------------------------------------|
+| `claude-api`     | off     | HTTP provider via `reqwest`          |
+| `claude-cli`     | off     | Subprocess provider via `tokio::process` |
+| `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
+| `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
 no optional features enabled.

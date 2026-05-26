@@ -4,6 +4,23 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-25
+
+### Added
+
+- **`OpenAiCompatibleProvider`** (feature `openai-compat`): one provider for OpenAI
+  cloud and any OpenAI-compatible local server (Ollama, LocalAI, vLLM, LM Studio,
+  llama.cpp-server) via a configurable `base_url`. Pass-through model, optional
+  bearer auth, errors mapped to existing `ProviderError` variants. Re-exported in
+  the prelude. `basic_analysis` gains `--provider openai-compat --base-url`.
+
+### Notes
+
+- The provider uses `max_tokens` (broad compat with local servers); OpenAI
+  reasoning models (o1/o3) that require `max_completion_tokens` are not supported.
+- The `reqwest::Client` sets no internal timeout; bound request duration via the
+  orchestrator's per-agent timeout.
+
 ## [1.0.1] - 2026-05-25
 
 ### Fixed
