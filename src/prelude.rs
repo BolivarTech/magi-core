@@ -45,6 +45,9 @@ pub use crate::providers::claude::ClaudeProvider;
 #[cfg(feature = "claude-cli")]
 pub use crate::providers::claude_cli::ClaudeCliProvider;
 
+#[cfg(feature = "openai-compat")]
+pub use crate::providers::openai_compat::OpenAiCompatibleProvider;
+
 #[cfg(test)]
 mod tests {
     /// Prelude re-exports Magi, Mode, MagiReport, LlmProvider, CompletionConfig, etc.
