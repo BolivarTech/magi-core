@@ -168,4 +168,12 @@ mod tests {
         use crate::prelude::MagiBuilder;
         fn _takes_builder(_b: MagiBuilder) {}
     }
+
+    /// Crate compiles with openai-compat feature; provider reachable via prelude.
+    #[cfg(feature = "openai-compat")]
+    #[test]
+    fn test_crate_compiles_with_openai_compat_feature() {
+        use crate::prelude::OpenAiCompatibleProvider;
+        fn _takes_provider(_p: &OpenAiCompatibleProvider) {}
+    }
 }
