@@ -17,6 +17,16 @@
 //! cargo run --example basic_analysis --features claude-api -- \
 //!   --provider api --api-key sk-... --input "fn main() {}"
 //!
+//! # Using OpenAI-compatible provider (e.g. local Ollama):
+//! cargo run --example basic_analysis --features openai-compat -- \
+//!   --provider openai-compat --base-url http://127.0.0.1:11434/v1 \
+//!   --model phi4-mini --timeout 300 --input "fn main() {}"
+//!
+//! # OpenAI-compatible provider — dead port (connection refused, fast failure):
+//! cargo run --example basic_analysis --features openai-compat -- \
+//!   --provider openai-compat --base-url http://127.0.0.1:9/v1 \
+//!   --model phi4-mini --input "fn main() {}"
+//!
 //! # Specify mode and model:
 //! cargo run --example basic_analysis --features claude-cli -- \
 //!   --mode design --model opus --input "Propose a caching layer"
@@ -89,10 +99,11 @@ fn print_usage() {
         "Usage: basic_analysis [OPTIONS]
 
 Options:
-  --provider <name>   Provider to use: \"cli\" (default) or \"api\"
+  --provider <name>   Provider to use: \"cli\" (default), \"api\", or \"openai-compat\"
   --model <model>     Model alias or identifier (default: \"sonnet\")
   --mode <mode>       Analysis mode: \"code-review\" (default), \"design\", \"analysis\"
-  --api-key <key>     API key for the API provider (required with --provider api)
+  --api-key <key>     API key (required with --provider api; optional for openai-compat)
+  --base-url <url>    Base URL for OpenAI-compatible endpoint (required with --provider openai-compat)
   --input <text>      Content to analyze (reads from stdin if omitted)
   --timeout <secs>    Timeout per agent in seconds (default: 120)
   --json              Output the full MagiReport as JSON
@@ -112,32 +123,56 @@ fn parse_mode(s: &str) -> Result<Mode, String> {
     }
 }
 
+/// Provider-construction inputs from CLI flags. Each provider reads the subset
+/// it needs; stable signature as providers are added.
+#[allow(dead_code)]
+struct ProviderArgs<'a> {
+    model: &'a str,
+    api_key: Option<&'a str>,
+    base_url: Option<&'a str>,
+}
+
 /// Creates the LLM provider based on CLI arguments.
 ///
 /// The provider selection is feature-gated at compile time.
 #[allow(unused_variables)]
 fn create_provider(
     provider_name: &str,
-    model: &str,
-    api_key: Option<&str>,
+    args: ProviderArgs<'_>,
 ) -> Result<Arc<dyn LlmProvider>, Box<dyn std::error::Error>> {
     match provider_name {
         #[cfg(feature = "claude-cli")]
-        "cli" => Ok(Arc::new(ClaudeCliProvider::new(model)?)),
-
+        "cli" => Ok(Arc::new(ClaudeCliProvider::new(args.model)?)),
         #[cfg(not(feature = "claude-cli"))]
         "cli" => Err("CLI provider not available. Recompile with: --features claude-cli".into()),
 
         #[cfg(feature = "claude-api")]
         "api" => {
-            let key = api_key.ok_or("--api-key is required when using --provider api")?;
-            Ok(Arc::new(ClaudeProvider::new(key, model)?))
+            let key = args
+                .api_key
+                .ok_or("--api-key is required when using --provider api")?;
+            Ok(Arc::new(ClaudeProvider::new(key, args.model)?))
         }
-
         #[cfg(not(feature = "claude-api"))]
         "api" => Err("API provider not available. Recompile with: --features claude-api".into()),
 
-        other => Err(format!("Unknown provider: {other}. Use: cli, api").into()),
+        #[cfg(feature = "openai-compat")]
+        "openai-compat" => {
+            let base_url = args
+                .base_url
+                .ok_or("--base-url is required when using --provider openai-compat")?;
+            Ok(Arc::new(OpenAiCompatibleProvider::new(
+                base_url,
+                args.model,
+                args.api_key.map(|k| k.to_string()),
+            )?))
+        }
+        #[cfg(not(feature = "openai-compat"))]
+        "openai-compat" => Err(
+            "openai-compat provider not available. Recompile with: --features openai-compat".into(),
+        ),
+
+        other => Err(format!("Unknown provider: {other}. Use: cli, api, openai-compat").into()),
     }
 }
 
@@ -165,6 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut model: Option<String> = None;
     let mut mode_str = "code-review".to_string();
     let mut api_key: Option<String> = None;
+    let mut base_url: Option<String> = None;
     let mut input: Option<String> = None;
     let mut timeout_secs: u64 = 120;
     let mut json_output = false;
@@ -193,6 +229,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--api-key" => {
                 i += 1;
                 api_key = Some(args.get(i).ok_or("--api-key requires a value")?.clone());
+            }
+            "--base-url" => {
+                i += 1;
+                base_url = Some(args.get(i).ok_or("--base-url requires a value")?.clone());
             }
             "--input" => {
                 i += 1;
@@ -224,7 +264,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = model.unwrap_or_else(|| default_model_for_mode(mode).to_string());
 
     // Create the provider
-    let provider = create_provider(&provider_name, &model, api_key.as_deref())?;
+    let provider = create_provider(
+        &provider_name,
+        ProviderArgs {
+            model: &model,
+            api_key: api_key.as_deref(),
+            base_url: base_url.as_deref(),
+        },
+    )?;
 
     // Build the Magi orchestrator with timeout configuration
     let magi = Magi::builder(provider)
