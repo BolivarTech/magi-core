@@ -40,3 +40,8 @@ dev-docs/
 
 # Session runtime (gitignored per CLAUDE.local.md §2.2)
 .claude/session-state.json
+
+# graphify — knowledge graph IS tracked (team setup); only local-machine
+# artefacts are excluded (cost log + pinned interpreter path).
+graphify-out/cost.json
+graphify-out/.graphify_python

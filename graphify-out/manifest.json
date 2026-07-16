@@ -1,0 +1,162 @@
+{
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\examples\\basic_analysis.rs": {
+    "mtime": 1779757051.4273279,
+    "ast_hash": "0b1829db777567d73e42b001841ea2b5",
+    "semantic_hash": "0b1829db777567d73e42b001841ea2b5"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\agent.rs": {
+    "mtime": 1779739163.8456151,
+    "ast_hash": "ec7514d19580b1b9a706e846904f6992",
+    "semantic_hash": "ec7514d19580b1b9a706e846904f6992"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\consensus.rs": {
+    "mtime": 1779668836.726672,
+    "ast_hash": "2df93368b1ef1f9a7445d679d134d748",
+    "semantic_hash": "2df93368b1ef1f9a7445d679d134d748"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\error.rs": {
+    "mtime": 1778922987.1484034,
+    "ast_hash": "491df27975d909a7c47409c2533f8b35",
+    "semantic_hash": "491df27975d909a7c47409c2533f8b35"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\finding_id.rs": {
+    "mtime": 1779665851.4686918,
+    "ast_hash": "edbb2cba7b0880aa889b8bd32b9be9cf",
+    "semantic_hash": "edbb2cba7b0880aa889b8bd32b9be9cf"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\lib.rs": {
+    "mtime": 1779739176.4522517,
+    "ast_hash": "9b188bce3b92a84352f521ba45adc5ca",
+    "semantic_hash": "9b188bce3b92a84352f521ba45adc5ca"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\orchestrator.rs": {
+    "mtime": 1779739431.9825017,
+    "ast_hash": "0757a9e53504dd486b601d60681e6c9a",
+    "semantic_hash": "0757a9e53504dd486b601d60681e6c9a"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prelude.rs": {
+    "mtime": 1779757051.4293275,
+    "ast_hash": "a455e01c2a02f11d4563941e295ab3dc",
+    "semantic_hash": "a455e01c2a02f11d4563941e295ab3dc"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\provider.rs": {
+    "mtime": 1778916730.3009877,
+    "ast_hash": "5b035a1ef6fef66d1ef824575cfd0cdf",
+    "semantic_hash": "5b035a1ef6fef66d1ef824575cfd0cdf"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\reporting.rs": {
+    "mtime": 1779739253.2992716,
+    "ast_hash": "e1e775b6f3d12d43df70931c4ff99015",
+    "semantic_hash": "e1e775b6f3d12d43df70931c4ff99015"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\schema.rs": {
+    "mtime": 1779739442.1582882,
+    "ast_hash": "691def52a7a3e6e3880856307ef67508",
+    "semantic_hash": "691def52a7a3e6e3880856307ef67508"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\test_support.rs": {
+    "mtime": 1779739264.4578488,
+    "ast_hash": "bcd838ab4da05726eb5634c53c7eb5b8",
+    "semantic_hash": "bcd838ab4da05726eb5634c53c7eb5b8"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\user_prompt.rs": {
+    "mtime": 1779739501.7326865,
+    "ast_hash": "b10ebfe49f82bb379897666c5ba29f01",
+    "semantic_hash": "b10ebfe49f82bb379897666c5ba29f01"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\validate.rs": {
+    "mtime": 1779665851.4766939,
+    "ast_hash": "ea1b9a13dde19f1ca91e2d369398267a",
+    "semantic_hash": "ea1b9a13dde19f1ca91e2d369398267a"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prompts\\mod.rs": {
+    "mtime": 1779665851.470723,
+    "ast_hash": "e65398a60d1c38d479f6e82a035c821b",
+    "semantic_hash": "e65398a60d1c38d479f6e82a035c821b"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\providers\\claude.rs": {
+    "mtime": 1779665851.4746974,
+    "ast_hash": "c30e1425578f35ddd99feabb3e94d09b",
+    "semantic_hash": "c30e1425578f35ddd99feabb3e94d09b"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\providers\\claude_cli.rs": {
+    "mtime": 1776627688.3865838,
+    "ast_hash": "492410f12bf809635576c50d033d364c",
+    "semantic_hash": "492410f12bf809635576c50d033d364c"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\providers\\mod.rs": {
+    "mtime": 1779757051.4303274,
+    "ast_hash": "a034a12fd9d5f2e3aefe6c2ebb1fafe0",
+    "semantic_hash": "a034a12fd9d5f2e3aefe6c2ebb1fafe0"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\providers\\openai_compat.rs": {
+    "mtime": 1779757051.4313278,
+    "ast_hash": "40fa42870a201596718a97ac14869b60",
+    "semantic_hash": "40fa42870a201596718a97ac14869b60"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\tests\\fixtures\\extract_magi_ref_prompts.py": {
+    "mtime": 1779668836.7286732,
+    "ast_hash": "e0f66fc730d7d40a46de2b51c33177f1",
+    "semantic_hash": "e0f66fc730d7d40a46de2b51c33177f1"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\tests\\fixtures\\gen_magi_ref_prompts.py": {
+    "mtime": 1779668836.729671,
+    "ast_hash": "90e32a807b1b6608382f30f72bfd72b0",
+    "semantic_hash": "90e32a807b1b6608382f30f72bfd72b0"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\tests\\fixtures\\magi_report_v0_3_1.json": {
+    "mtime": 1778916730.3069892,
+    "ast_hash": "f6828b567919f7218c0f066a46988536",
+    "semantic_hash": "f6828b567919f7218c0f066a46988536"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\tests\\fixtures\\_magi_ref.py": {
+    "mtime": 1779668836.7276733,
+    "ast_hash": "267b65a3c68af753b511ed8ca0c36880",
+    "semantic_hash": "267b65a3c68af753b511ed8ca0c36880"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\CHANGELOG.md": {
+    "mtime": 1779757051.4233284,
+    "ast_hash": "937248e760450ed33d4d0fd1b12ec0d8",
+    "semantic_hash": "937248e760450ed33d4d0fd1b12ec0d8"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\README.md": {
+    "mtime": 1779757051.4263291,
+    "ast_hash": "c8bd41aa72873c81f94ed8c1926c396d",
+    "semantic_hash": "c8bd41aa72873c81f94ed8c1926c396d"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\.github\\workflows\\ci.yml": {
+    "mtime": 1779427351.3139608,
+    "ast_hash": "c86acafa6960dea313e4aa599d7b6404",
+    "semantic_hash": "c86acafa6960dea313e4aa599d7b6404"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\.github\\workflows\\release.yml": {
+    "mtime": 1779427364.2192185,
+    "ast_hash": "f924b0f54b2a6ca28abd414072e0a6ae",
+    "semantic_hash": "f924b0f54b2a6ca28abd414072e0a6ae"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\docs\\MAGI-System-Documentation.md": {
+    "mtime": 1779666184.7592757,
+    "ast_hash": "19712bd3194278b7f12b23e6359cdfbf",
+    "semantic_hash": "19712bd3194278b7f12b23e6359cdfbf"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prompts_md\\balthasar.md": {
+    "mtime": 1779668257.588168,
+    "ast_hash": "dd4e0526e723b9ee53d74717ee0aa43a",
+    "semantic_hash": "dd4e0526e723b9ee53d74717ee0aa43a"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prompts_md\\caspar.md": {
+    "mtime": 1779668257.629666,
+    "ast_hash": "50e40f202428003c103644e6e79c963b",
+    "semantic_hash": "50e40f202428003c103644e6e79c963b"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prompts_md\\melchior.md": {
+    "mtime": 1779668257.5481508,
+    "ast_hash": "c9c1c8fa02bcd64ffe01cf491018b6e1",
+    "semantic_hash": "c9c1c8fa02bcd64ffe01cf491018b6e1"
+  },
+  "D:\\jbolivarg\\RustProjects\\MAGI-Core\\src\\prompts_md\\README.md": {
+    "mtime": 1779740433.5409162,
+    "ast_hash": "54d753b72dc07a290e2650fb2f2a0796",
+    "semantic_hash": "54d753b72dc07a290e2650fb2f2a0796"
+  }
+}
