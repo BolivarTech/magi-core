@@ -13,10 +13,11 @@ instead of the reference's `"approve"` — fabrication-echo hardening: a model
 that echoes the example verbatim must not fabricate a clean `approve` in the
 adversarial seat (an echoed `conditional` surfaces as `GO WITH CAVEATS`,
 visible). This matches the Python MAGI plugin's own prompts from v5.1.0
-onward. The delta is pinned by
-`prompts::tests::test_worked_examples_do_not_ship_an_approve_verdict`, and
-the hash fixture (`tests/fixtures/magi_ref_prompts.sha256`) hashes the local
-files carrying it. Everything else remains byte-identical to the reference.
+onward. The delta is declared once in `tests/fixtures/_magi_ref.py`
+(`DIVERGENCES`), applied automatically by both the extractor and the hash
+generator, and pinned by
+`prompts::tests::test_worked_examples_do_not_ship_an_approve_verdict`.
+Everything else remains byte-identical to the reference.
 
 ## Exemption from CLAUDE.local.md §0.2 file-header rule
 
@@ -43,20 +44,19 @@ Rationale:
 
 When the upstream Python MAGI prompts change:
 
-1. Bump `MAGI_REF_SHA` in both `tests/fixtures/gen_magi_ref_prompts.py`
-   and `tests/fixtures/extract_magi_ref_prompts.py`.
+1. Bump `MAGI_REF_SHA` in `tests/fixtures/_magi_ref.py` (single source of
+   truth — both scripts import it). If the new reference already carries a
+   declared divergence (Python v5.1.0+ carries the `conditional` example),
+   remove the corresponding `DIVERGENCES` entry there.
 2. Run `python tests/fixtures/extract_magi_ref_prompts.py` to re-extract
-   the three files (writes raw bytes, normalizes CRLF→LF).
-3. **Re-apply the local divergence** (worked-example verdict →
-   `conditional`) unless the new reference already carries it (Python
-   v5.1.0+ does). The property test
-   `test_worked_examples_do_not_ship_an_approve_verdict` fails the build if
-   this step is forgotten.
-4. Run `python tests/fixtures/gen_magi_ref_prompts.py` to regenerate the
-   hash fixture, then re-hash against the **local** files if a divergence
-   was re-applied (see the fixture header). **Warning:** the generator
-   rewrites the fixture from the reference blobs and drops the divergence
-   comment block — restore the block and the local hashes manually; the
-   SHA test fails loudly until you do.
+   the three files (writes raw bytes, normalizes CRLF→LF, **applies the
+   declared divergences automatically**).
+3. Run `python tests/fixtures/gen_magi_ref_prompts.py` to regenerate the
+   hash fixture (hashes reference-blobs-plus-divergences and emits the
+   divergence comment block automatically — no manual fixture editing).
+4. Both scripts fail loudly if a divergence's occurrence count no longer
+   matches the reference (re-audit `DIVERGENCES` in `_magi_ref.py`); the
+   property test `test_worked_examples_do_not_ship_an_approve_verdict`
+   independently fails the build if an `approve` example slips through.
 5. Commit the files together as a dedicated re-pin commit (RE-04):
    `feat: re-pin agent prompts to MAGI v<version> (<summary>)`.

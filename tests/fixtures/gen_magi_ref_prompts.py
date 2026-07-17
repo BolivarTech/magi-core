@@ -15,7 +15,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _magi_ref import AGENTS, MAGI_PATH, MAGI_REF_SHA, read_blob
+from _magi_ref import (
+    AGENTS,
+    DIVERGENCE_BLOCK,
+    MAGI_PATH,
+    MAGI_REF_SHA,
+    apply_divergences,
+    read_blob,
+)
 
 # `MAGI_REF_SHA`/`MAGI_PATH`/`AGENTS`/`read_blob` live in `_magi_ref.py` (single
 # source of truth — re-pin there). Pre-write SHA existence check (v0.4.0, MAGI R1
@@ -50,6 +57,7 @@ def main() -> int:
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     lines = [f"# Generated from MAGI@{MAGI_REF_SHA} on {today}"]
+    lines.extend(DIVERGENCE_BLOCK)
     for agent in AGENTS:
         rel_path = f"skills/magi/agents/{agent}.md"
         try:
@@ -59,6 +67,9 @@ def main() -> int:
                 f"error reading {rel_path} at {MAGI_REF_SHA}: {e.stderr.decode()}",
                 file=sys.stderr,
             )
+            return 1
+        blob = apply_divergences(blob, rel_path)
+        if blob is None:
             return 1
         digest = hashlib.sha256(blob).hexdigest()
         lines.append(f"{digest}  {agent}.md")
