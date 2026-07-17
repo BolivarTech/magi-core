@@ -54,6 +54,9 @@ When the upstream Python MAGI prompts change:
    this step is forgotten.
 4. Run `python tests/fixtures/gen_magi_ref_prompts.py` to regenerate the
    hash fixture, then re-hash against the **local** files if a divergence
-   was re-applied (see the fixture header).
+   was re-applied (see the fixture header). **Warning:** the generator
+   rewrites the fixture from the reference blobs and drops the divergence
+   comment block — restore the block and the local hashes manually; the
+   SHA test fails loudly until you do.
 5. Commit the files together as a dedicated re-pin commit (RE-04):
    `feat: re-pin agent prompts to MAGI v<version> (<summary>)`.
