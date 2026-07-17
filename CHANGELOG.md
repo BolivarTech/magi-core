@@ -4,6 +4,29 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-17
+
+### Fixed
+
+- **Fabrication-echo hardening (F0).** The worked example embedded in each of the
+  three agent prompts carried `"verdict": "approve"`; a model echoing the example
+  verbatim could fabricate a clean `approve` in the adversarial (Caspar) seat —
+  the worst silent failure the consensus can produce. The example now uses
+  `"conditional"` (an echo surfaces as `GO WITH CAVEATS`, visible), matching the
+  Python MAGI plugin's prompts from v5.1.0 onward. Pinned by a
+  whitespace-normalized property test. This degrades the residual's severity; the
+  durable fix (verdict sentinel) is scheduled as its own release.
+
+### Changed
+
+- Prompt re-pin tooling: local divergences from the pinned Python reference are
+  now declared once (`tests/fixtures/_magi_ref.py::DIVERGENCES`) and applied
+  automatically by both the extractor and the hash-fixture generator, with a
+  fail-loud occurrence check — re-pinning is a single command again. The parity
+  test was renamed to `test_prompts_match_pinned_reference_sha256`.
+- `clippy` 1.97 `unnecessary_sort_by` lint fixed in the consensus engine
+  (behavior-preserving; stable severity ordering retained).
+
 ## [1.1.0] - 2026-05-25
 
 ### Added
