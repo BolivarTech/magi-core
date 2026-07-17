@@ -1,4 +1,10 @@
 # Generated from MAGI@62cf58019aeab822cd55cbb02e1b8f34a3fd5d81 on 2026-05-24
-13b9819d9a9e681afbdcb7870647e64f9205d9b7ff87c1695fca562ce99d4518  melchior.md
-5a7377d6a0cd0047d1936e6496be34d88880955b87a014c470f271a0f85205dc  balthasar.md
-2b4f31a9180d565a62b67f949ef0a24cc2f2e4f3279e27ad82c8d16cd304a945  caspar.md
+# Local divergence (F0, 2026-07-16): the worked example's verdict value is
+# "conditional" instead of the reference's "approve" — fabrication-echo
+# hardening (an echoed example must not fabricate a clean approve in the
+# adversarial seat). Matches Python MAGI v5.1.0+ prompts. Hashes below are
+# of the Rust prompts_md files carrying that single delta; everything else
+# remains byte-identical to the pinned reference.
+866b996102916c25113ebb6c5529e88e2b904c43bbc08ccec93606d8fb70b393  melchior.md
+7483ecccf8a51014143ed4ddb4c90a488d608027d1d1b42f417423672a891fdb  balthasar.md
+f845c6f909359b992a19c819e146e421e52fb26ad73fa88df95c4b32c6cc505a  caspar.md

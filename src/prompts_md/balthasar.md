@@ -108,7 +108,7 @@ Respond with ONLY a JSON object. No markdown fences, no preamble, no text outsid
 
 Example structure:
 
-{"agent": "balthasar", "verdict": "approve", "confidence": 0.85, "summary": "One-line verdict", "reasoning": "Your practical analysis", "findings": [{"severity": "warning", "title": "Short title", "detail": "Practical explanation with context", "file": "src/x.py", "line": 42, "category": "logic-error"}], "recommendation": "What you recommend"}
+{"agent": "balthasar", "verdict": "conditional", "confidence": 0.85, "summary": "One-line verdict", "reasoning": "Your practical analysis", "findings": [{"severity": "warning", "title": "Short title", "detail": "Practical explanation with context", "file": "src/x.py", "line": 42, "category": "logic-error"}], "recommendation": "What you recommend"}
 
 Valid values:
 - verdict: "approve", "reject", or "conditional"
