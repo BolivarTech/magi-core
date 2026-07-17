@@ -42,6 +42,8 @@ dev-docs/
 .claude/session-state.json
 
 # graphify — knowledge graph IS tracked (team setup); only local-machine
-# artefacts are excluded (cost log + pinned interpreter path).
+# artefacts are excluded (cost log, pinned interpreter path, dated
+# curated-graph backups the rebuild hook writes).
 graphify-out/cost.json
 graphify-out/.graphify_python
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
