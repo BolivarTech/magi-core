@@ -118,6 +118,31 @@ mod tests {
             "caspar missing override"
         );
     }
+
+    /// F0 fabrication-echo hardening: the worked example embedded in each
+    /// prompt must never carry an `approve` verdict. A model that echoes the
+    /// example verbatim would otherwise fabricate a clean `approve` in the
+    /// adversarial seat — the worst silent failure the system can produce.
+    /// The example uses `conditional` instead (echo → GO WITH CAVEATS,
+    /// visible), matching the Python MAGI plugin's v5.1.0+ prompts.
+    #[test]
+    fn test_worked_examples_do_not_ship_an_approve_verdict() {
+        let prompts = [
+            ("melchior.md", include_str!("../prompts_md/melchior.md")),
+            ("balthasar.md", include_str!("../prompts_md/balthasar.md")),
+            ("caspar.md", include_str!("../prompts_md/caspar.md")),
+        ];
+        for (name, p) in prompts {
+            assert!(
+                !p.contains(r#""verdict": "approve""#),
+                "{name}: worked example carries an echo-fabricable approve verdict"
+            );
+            assert!(
+                p.contains(r#""verdict": "conditional""#),
+                "{name}: worked example must use the conditional verdict"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
