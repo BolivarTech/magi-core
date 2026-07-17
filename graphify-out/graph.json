@@ -52,14 +52,194 @@
   },
   "nodes": [
     {
+      "label": "mod.rs",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "src_prompts_mod",
+      "community": 18,
+      "norm_label": "mod.rs"
+    },
+    {
+      "label": "melchior_prompt()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L21",
+      "_origin": "ast",
+      "id": "src_prompts_mod_melchior_prompt",
+      "community": 18,
+      "norm_label": "melchior_prompt()"
+    },
+    {
+      "label": "balthasar_prompt()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L35",
+      "_origin": "ast",
+      "id": "src_prompts_mod_balthasar_prompt",
+      "community": 18,
+      "norm_label": "balthasar_prompt()"
+    },
+    {
+      "label": "caspar_prompt()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L49",
+      "_origin": "ast",
+      "id": "src_prompts_mod_caspar_prompt",
+      "community": 18,
+      "norm_label": "caspar_prompt()"
+    },
+    {
+      "label": "embedded_prompt_for()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L61",
+      "_origin": "ast",
+      "id": "src_prompts_mod_embedded_prompt_for",
+      "community": 18,
+      "norm_label": "embedded_prompt_for()"
+    },
+    {
+      "label": "AgentName",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "agentname",
+      "community": 2,
+      "norm_label": "agentname"
+    },
+    {
+      "label": "lookup_prompt()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "_origin": "ast",
+      "id": "src_prompts_mod_lookup_prompt",
+      "community": 2,
+      "norm_label": "lookup_prompt()"
+    },
+    {
+      "label": "Mode",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "mode",
+      "community": 2,
+      "norm_label": "mode"
+    },
+    {
+      "label": "BTreeMap",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "btreemap",
+      "community": 2,
+      "norm_label": "btreemap"
+    },
+    {
+      "label": "Option",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "option",
+      "community": 2,
+      "norm_label": "option"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "string",
+      "community": 2,
+      "norm_label": "string"
+    },
+    {
+      "label": "test_v3_prompts_contain_calibration_markers()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L104",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_v3_prompts_contain_calibration_markers",
+      "community": 18,
+      "norm_label": "test_v3_prompts_contain_calibration_markers()"
+    },
+    {
+      "label": "test_worked_examples_do_not_ship_an_approve_verdict()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L129",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_worked_examples_do_not_ship_an_approve_verdict",
+      "community": 18,
+      "norm_label": "test_worked_examples_do_not_ship_an_approve_verdict()"
+    },
+    {
+      "label": "test_melchior_prompt_is_non_empty()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L158",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_melchior_prompt_is_non_empty",
+      "community": 18,
+      "norm_label": "test_melchior_prompt_is_non_empty()"
+    },
+    {
+      "label": "test_balthasar_prompt_is_non_empty()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L163",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_balthasar_prompt_is_non_empty",
+      "community": 18,
+      "norm_label": "test_balthasar_prompt_is_non_empty()"
+    },
+    {
+      "label": "test_caspar_prompt_is_non_empty()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L168",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_caspar_prompt_is_non_empty",
+      "community": 18,
+      "norm_label": "test_caspar_prompt_is_non_empty()"
+    },
+    {
+      "label": "test_three_prompts_are_distinct()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L173",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_three_prompts_are_distinct",
+      "community": 18,
+      "norm_label": "test_three_prompts_are_distinct()"
+    },
+    {
+      "label": "test_prompts_match_pinned_reference_sha256()",
+      "file_type": "code",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L183",
+      "_origin": "ast",
+      "id": "src_prompts_mod_test_prompts_match_pinned_reference_sha256",
+      "community": 18,
+      "norm_label": "test_prompts_match_pinned_reference_sha256()"
+    },
+    {
       "label": "README.md",
       "file_type": "document",
       "source_file": "src/prompts_md/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_prompts_md_readme",
       "community": 20,
-      "norm_label": "readme.md"
+      "norm_label": "readme.md",
+      "id": "src_prompts_md_readme"
     },
     {
       "label": "`src/prompts_md/` \u2014 Embedded prompt data",
@@ -67,9 +247,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data",
       "community": 20,
-      "norm_label": "`src/prompts_md/` \u2014 embedded prompt data"
+      "norm_label": "`src/prompts_md/` \u2014 embedded prompt data",
+      "id": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data"
     },
     {
       "label": "Local divergence from the pinned reference (F0, 2026-07-16)",
@@ -77,9 +257,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L9",
       "_origin": "ast",
-      "id": "src_prompts_md_readme_local_divergence_from_the_pinned_reference_f0_2026_07_16",
       "community": 20,
-      "norm_label": "local divergence from the pinned reference (f0, 2026-07-16)"
+      "norm_label": "local divergence from the pinned reference (f0, 2026-07-16)",
+      "id": "src_prompts_md_readme_local_divergence_from_the_pinned_reference_f0_2026_07_16"
     },
     {
       "label": "Exemption from CLAUDE.local.md \u00a70.2 file-header rule",
@@ -87,9 +267,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L21",
       "_origin": "ast",
-      "id": "src_prompts_md_readme_exemption_from_claude_local_md_0_2_file_header_rule",
       "community": 20,
-      "norm_label": "exemption from claude.local.md \u00a70.2 file-header rule"
+      "norm_label": "exemption from claude.local.md \u00a70.2 file-header rule",
+      "id": "src_prompts_md_readme_exemption_from_claude_local_md_0_2_file_header_rule"
     },
     {
       "label": "Regeneration",
@@ -97,9 +277,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L42",
       "_origin": "ast",
-      "id": "src_prompts_md_readme_regeneration",
       "community": 20,
-      "norm_label": "regeneration"
+      "norm_label": "regeneration",
+      "id": "src_prompts_md_readme_regeneration"
     },
     {
       "label": "balthasar.md",
@@ -460,186 +640,6 @@
       "community": 16,
       "norm_label": "output format",
       "id": "src_prompts_md_melchior_output_format"
-    },
-    {
-      "label": "mod.rs",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "mod.rs",
-      "id": "src_prompts_mod"
-    },
-    {
-      "label": "melchior_prompt()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L21",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "melchior_prompt()",
-      "id": "src_prompts_mod_melchior_prompt"
-    },
-    {
-      "label": "balthasar_prompt()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L35",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "balthasar_prompt()",
-      "id": "src_prompts_mod_balthasar_prompt"
-    },
-    {
-      "label": "caspar_prompt()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L49",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "caspar_prompt()",
-      "id": "src_prompts_mod_caspar_prompt"
-    },
-    {
-      "label": "embedded_prompt_for()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L61",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "embedded_prompt_for()",
-      "id": "src_prompts_mod_embedded_prompt_for"
-    },
-    {
-      "label": "AgentName",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "agentname",
-      "id": "agentname"
-    },
-    {
-      "label": "lookup_prompt()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "lookup_prompt()",
-      "id": "src_prompts_mod_lookup_prompt"
-    },
-    {
-      "label": "Mode",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "mode",
-      "id": "mode"
-    },
-    {
-      "label": "BTreeMap",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "btreemap",
-      "id": "btreemap"
-    },
-    {
-      "label": "Option",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "option",
-      "id": "option"
-    },
-    {
-      "label": "String",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 2,
-      "norm_label": "string",
-      "id": "string"
-    },
-    {
-      "label": "test_v3_prompts_contain_calibration_markers()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L104",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_v3_prompts_contain_calibration_markers()",
-      "id": "src_prompts_mod_test_v3_prompts_contain_calibration_markers"
-    },
-    {
-      "label": "test_worked_examples_do_not_ship_an_approve_verdict()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L129",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_worked_examples_do_not_ship_an_approve_verdict()",
-      "id": "src_prompts_mod_test_worked_examples_do_not_ship_an_approve_verdict"
-    },
-    {
-      "label": "test_melchior_prompt_is_non_empty()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L153",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_melchior_prompt_is_non_empty()",
-      "id": "src_prompts_mod_test_melchior_prompt_is_non_empty"
-    },
-    {
-      "label": "test_balthasar_prompt_is_non_empty()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L158",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_balthasar_prompt_is_non_empty()",
-      "id": "src_prompts_mod_test_balthasar_prompt_is_non_empty"
-    },
-    {
-      "label": "test_caspar_prompt_is_non_empty()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L163",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_caspar_prompt_is_non_empty()",
-      "id": "src_prompts_mod_test_caspar_prompt_is_non_empty"
-    },
-    {
-      "label": "test_three_prompts_are_distinct()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L168",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_three_prompts_are_distinct()",
-      "id": "src_prompts_mod_test_three_prompts_are_distinct"
-    },
-    {
-      "label": "test_prompts_match_python_reference_sha256()",
-      "file_type": "code",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L175",
-      "_origin": "ast",
-      "community": 18,
-      "norm_label": "test_prompts_match_python_reference_sha256()",
-      "id": "src_prompts_mod_test_prompts_match_python_reference_sha256"
     },
     {
       "label": "consensus.rs",
@@ -8113,6 +8113,456 @@
   ],
   "links": [
     {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L5",
+      "weight": 1.0,
+      "context": "import",
+      "source": "src_prompts_mod",
+      "target": "btreemap",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L35",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_balthasar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L49",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_caspar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L61",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_embedded_prompt_for",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_lookup_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L21",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_melchior_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L163",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_balthasar_prompt_is_non_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L168",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_caspar_prompt_is_non_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L158",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_melchior_prompt_is_non_empty",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L183",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_prompts_match_pinned_reference_sha256",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L173",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_three_prompts_are_distinct",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L104",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_v3_prompts_contain_calibration_markers",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L129",
+      "weight": 1.0,
+      "source": "src_prompts_mod",
+      "target": "src_prompts_mod_test_worked_examples_do_not_ship_an_approve_verdict",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "source": "src_prompts_mod_embedded_prompt_for",
+      "target": "src_prompts_mod_melchior_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L198",
+      "weight": 1.0,
+      "source": "src_prompts_mod_test_prompts_match_pinned_reference_sha256",
+      "target": "src_prompts_mod_melchior_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L64",
+      "weight": 1.0,
+      "source": "src_prompts_mod_embedded_prompt_for",
+      "target": "src_prompts_mod_balthasar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L199",
+      "weight": 1.0,
+      "source": "src_prompts_mod_test_prompts_match_pinned_reference_sha256",
+      "target": "src_prompts_mod_balthasar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L65",
+      "weight": 1.0,
+      "source": "src_prompts_mod_embedded_prompt_for",
+      "target": "src_prompts_mod_caspar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L200",
+      "weight": 1.0,
+      "source": "src_prompts_mod_test_prompts_match_pinned_reference_sha256",
+      "target": "src_prompts_mod_caspar_prompt",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L61",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "src_prompts_mod_embedded_prompt_for",
+      "target": "agentname",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L96",
+      "weight": 1.0,
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "src_prompts_mod_embedded_prompt_for",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L92",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_condition",
+      "target": "agentname"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L48",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "confidence_score": 1.0,
+      "source": "src_consensus_consensusresult",
+      "target": "agentname"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L62",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dedupfinding",
+      "target": "agentname"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L81",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dissent",
+      "target": "agentname"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L484",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_consensus_make_output",
+      "target": "agentname"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "agentname",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "src/orchestrator.rs",
+      "source_location": "L2575",
+      "weight": 1.0,
+      "source": "src_orchestrator_test_lookup_prompt_falls_back_to_embedded_default_when_no_override",
+      "target": "src_prompts_mod_lookup_prompt"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "btreemap",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "mode",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/prompts/mod.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "src_prompts_mod_lookup_prompt",
+      "target": "string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import",
+      "confidence_score": 1.0,
+      "source": "src_consensus",
+      "target": "btreemap"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L48",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_consensusresult",
+      "target": "btreemap"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L74",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dedupfinding",
+      "target": "option"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L94",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_condition",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L346",
+      "weight": 1.0,
+      "context": "return_type",
+      "confidence_score": 1.0,
+      "source": "src_consensus_consensusengine_classify",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L48",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "confidence_score": 1.0,
+      "source": "src_consensus_consensusresult",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L139",
+      "weight": 1.0,
+      "context": "return_type",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dedup_key",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L74",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dedupfinding",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L151",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dedupkey",
+      "target": "string"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/consensus.rs",
+      "source_location": "L85",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_consensus_dissent",
+      "target": "string"
+    },
+    {
       "relation": "conceptually_related_to",
       "confidence": "INFERRED",
       "confidence_score": 0.75,
@@ -8128,9 +8578,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_prompts_md_readme",
-      "target": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data",
-      "confidence_score": 1.0
+      "target": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data"
     },
     {
       "relation": "contains",
@@ -8138,9 +8588,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L21",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data",
-      "target": "src_prompts_md_readme_exemption_from_claude_local_md_0_2_file_header_rule",
-      "confidence_score": 1.0
+      "target": "src_prompts_md_readme_exemption_from_claude_local_md_0_2_file_header_rule"
     },
     {
       "relation": "contains",
@@ -8148,9 +8598,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L9",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data",
-      "target": "src_prompts_md_readme_local_divergence_from_the_pinned_reference_f0_2026_07_16",
-      "confidence_score": 1.0
+      "target": "src_prompts_md_readme_local_divergence_from_the_pinned_reference_f0_2026_07_16"
     },
     {
       "relation": "contains",
@@ -8158,9 +8608,9 @@
       "source_file": "src/prompts_md/README.md",
       "source_location": "L42",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "src_prompts_md_readme_src_prompts_md_embedded_prompt_data",
-      "target": "src_prompts_md_readme_regeneration",
-      "confidence_score": 1.0
+      "target": "src_prompts_md_readme_regeneration"
     },
     {
       "relation": "contains",
@@ -8491,456 +8941,6 @@
       "confidence_score": 1.0,
       "source": "src_prompts_md_melchior_what_you_focus_on",
       "target": "src_prompts_md_melchior_in_design_mode"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L5",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "btreemap"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L35",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_balthasar_prompt"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L49",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_caspar_prompt"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L61",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_embedded_prompt_for"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_lookup_prompt"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L21",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_melchior_prompt"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L158",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_balthasar_prompt_is_non_empty"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L163",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_caspar_prompt_is_non_empty"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L153",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_melchior_prompt_is_non_empty"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L175",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_prompts_match_python_reference_sha256"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L168",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_three_prompts_are_distinct"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L104",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_v3_prompts_contain_calibration_markers"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L129",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod",
-      "target": "src_prompts_mod_test_worked_examples_do_not_ship_an_approve_verdict"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L63",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_embedded_prompt_for",
-      "target": "src_prompts_mod_melchior_prompt"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L190",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_test_prompts_match_python_reference_sha256",
-      "target": "src_prompts_mod_melchior_prompt"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L64",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_embedded_prompt_for",
-      "target": "src_prompts_mod_balthasar_prompt"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L191",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_test_prompts_match_python_reference_sha256",
-      "target": "src_prompts_mod_balthasar_prompt"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L65",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_embedded_prompt_for",
-      "target": "src_prompts_mod_caspar_prompt"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L192",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_test_prompts_match_python_reference_sha256",
-      "target": "src_prompts_mod_caspar_prompt"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L61",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_embedded_prompt_for",
-      "target": "agentname"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L96",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "src_prompts_mod_embedded_prompt_for"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L92",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_condition",
-      "target": "agentname"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L48",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_consensus_consensusresult",
-      "target": "agentname"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L62",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dedupfinding",
-      "target": "agentname"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L81",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dissent",
-      "target": "agentname"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L484",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_consensus_make_output",
-      "target": "agentname"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "agentname"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "INFERRED",
-      "confidence_score": 0.8,
-      "source_file": "src/orchestrator.rs",
-      "source_location": "L2575",
-      "weight": 1.0,
-      "source": "src_orchestrator_test_lookup_prompt_falls_back_to_embedded_default_when_no_override",
-      "target": "src_prompts_mod_lookup_prompt"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "btreemap"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "mode"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "option"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/prompts/mod.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_prompts_mod_lookup_prompt",
-      "target": "string"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L6",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "src_consensus",
-      "target": "btreemap"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L48",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_consensusresult",
-      "target": "btreemap"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L74",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dedupfinding",
-      "target": "option"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L94",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_condition",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L346",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "src_consensus_consensusengine_classify",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L48",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_consensus_consensusresult",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L139",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dedup_key",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L74",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dedupfinding",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L151",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dedupkey",
-      "target": "string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/consensus.rs",
-      "source_location": "L85",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_consensus_dissent",
-      "target": "string"
     },
     {
       "relation": "imports_from",
@@ -28159,5 +28159,5 @@
       "source_file": "src/provider.rs"
     }
   ],
-  "built_at_commit": "af12e728350ce208499a826e14aa274cb7a8bf33"
+  "built_at_commit": "8740f5e7e7c64971e4877e687e5932ce17a9f47c"
 }

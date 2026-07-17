@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-07-16)
 
 ## Corpus Check
-- 30 files · ~58,545 words
+- 30 files · ~59,211 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `af12e728`
+- Built from commit: `8740f5e7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -147,7 +147,7 @@ Nodes (8): test_agent_name_btreeset_orders_alphabetically(), test_agent_name_usa
 
 ### Community 18 - "mod.rs"
 Cohesion: 0.26
-Nodes (5): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), melchior_prompt(), test_prompts_match_python_reference_sha256()
+Nodes (5): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), melchior_prompt(), test_prompts_match_pinned_reference_sha256()
 
 ### Community 19 - "RoutingMockProvider"
 Cohesion: 0.37
