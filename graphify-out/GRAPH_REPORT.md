@@ -1,16 +1,16 @@
 # Graph Report - MAGI-Core  (2026-07-16)
 
 ## Corpus Check
-- 30 files · ~59,211 words
+- 30 files · ~59,177 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 852 nodes · 1898 edges · 30 communities (27 shown, 3 thin omitted)
+- 905 nodes · 1951 edges · 39 communities (38 shown, 1 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 17 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8740f5e7`
+- Built from commit: `bd23a6e1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -41,7 +41,16 @@
 - AgentOutput
 - magi_report_v0_3_1.json fixture
 - make_output
+- [0.5.0] - 2026-05-16
 - Release workflow (publish to crates.io)
+- [0.2.0] - 2026-04-18
+- [0.4.0] - 2026-05-16
+- [0.3.0] - 2026-04-18
+- [0.6.0] - 2026-05-21
+- [1.0.0] - 2026-05-24
+- [0.3.1] - 2026-04-19
+- [1.0.1] - 2026-05-25
+- [1.1.1] - 2026-07-17
 
 ## God Nodes (most connected - your core abstractions)
 1. `make_consensus()` - 30 edges
@@ -75,7 +84,7 @@
 - **Agent dispatch, parse and validate** — src_orchestrator_dispatch_one_agent, src_orchestrator_parse_and_validate, src_orchestrator_parse_agent_response, src_orchestrator_embedded_verdict_object, src_validate_validator [EXTRACTED 0.85]
 - **LlmProvider implementors** — src_providers_claude_claudeprovider, src_providers_claude_cli_claudecliprovider, src_providers_openai_compat_openaicompatibleprovider, src_provider_llmprovider [EXTRACTED 1.00]
 
-## Communities (30 total, 3 thin omitted)
+## Communities (39 total, 1 thin omitted)
 
 ### Community 0 - "orchestrator.rs"
 Cohesion: 0.05
@@ -83,7 +92,7 @@ Nodes (84): basic_analysis example, AbortGuard (RAII task abort), CapturingMockP
 
 ### Community 1 - "reporting.rs"
 Cohesion: 0.08
-Nodes (56): Magi::analyze, fit_content (ASCII banner truncation), MagiReport, make_agent(), make_consensus(), ReportConfig, ReportError, ReportFormatter (+48 more)
+Nodes (54): fit_content (ASCII banner truncation), make_agent(), make_consensus(), ReportConfig, ReportError, ReportFormatter, test_agent_display_fallback_to_agent_name_methods(), test_agent_line_format() (+46 more)
 
 ### Community 2 - "consensus.rs"
 Cohesion: 0.08
@@ -99,7 +108,7 @@ Nodes (3): de_opt_line (fail-soft line), Finding, test_finding_with_location_and
 
 ### Community 5 - ".new"
 Cohesion: 0.12
-Nodes (20): Agent, AgentFactory, CURRENT_AGENT_IDENTITY task-local, MockProvider, test_agent_accessors(), test_agent_execute_delegates_to_provider(), test_agent_factory_creates_agents_in_order(), test_agent_factory_creates_three_agents() (+12 more)
+Nodes (19): Agent, AgentFactory, MockProvider, test_agent_accessors(), test_agent_execute_delegates_to_provider(), test_agent_factory_creates_agents_in_order(), test_agent_factory_creates_three_agents(), test_agent_factory_creates_three_agents_for_all_modes() (+11 more)
 
 ### Community 6 - "provider.rs"
 Cohesion: 0.15
@@ -150,8 +159,8 @@ Cohesion: 0.26
 Nodes (5): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), melchior_prompt(), test_prompts_match_pinned_reference_sha256()
 
 ### Community 19 - "RoutingMockProvider"
-Cohesion: 0.37
-Nodes (5): RoutingMockProvider, test_routing_mock_provider_can_inject_provider_errors(), test_routing_mock_provider_exhausted_sequence_errors(), test_routing_mock_provider_fails_when_no_task_local_scope(), test_routing_mock_provider_routes_by_task_local_identity()
+Cohesion: 0.33
+Nodes (6): CURRENT_AGENT_IDENTITY task-local, RoutingMockProvider, test_routing_mock_provider_can_inject_provider_errors(), test_routing_mock_provider_exhausted_sequence_errors(), test_routing_mock_provider_fails_when_no_task_local_scope(), test_routing_mock_provider_routes_by_task_local_identity()
 
 ### Community 20 - "MAGI System Technical Documentation"
 Cohesion: 0.20
@@ -161,37 +170,81 @@ Nodes (9): Voting rules + confidence formula, Evangelion MAGI origin (Naoko Akag
 Cohesion: 0.24
 Nodes (6): de_category(), generate_finding_id (SHA-256), normalize_category(), normalize_path, test_generate_finding_id_shape(), Category
 
+### Community 23 - ".cmp"
+Cohesion: 0.33
+Nodes (3): AgentName, Mode, Severity
+
 ### Community 24 - "basic_analysis.rs"
 Cohesion: 0.39
 Nodes (8): create_provider(), main(), parse_mode(), print_usage(), ProviderArgs, read_input(), setup_console_encoding(), test_setup_console_encoding_runs_without_panic()
 
 ### Community 25 - "AgentOutput"
 Cohesion: 0.28
-Nodes (3): AgentOutput, Mode, Verdict
+Nodes (4): Magi::analyze, MagiReport, AgentOutput, Verdict
 
 ### Community 27 - "make_output"
 Cohesion: 0.33
 Nodes (6): make_output(), test_agent_output_conditional_is_not_dissenting_from_approve_majority(), test_agent_output_effective_verdict_maps_conditional_to_approve(), test_agent_output_empty_findings_valid(), test_agent_output_is_dissenting_when_verdict_differs_from_majority(), test_agent_output_is_not_dissenting_when_verdict_matches_majority()
 
+### Community 28 - "[0.5.0] - 2026-05-16"
+Cohesion: 0.25
+Nodes (8): [0.5.0] - 2026-05-16, Added, Backward compatibility, Changed (breaking), Documentation, Performance, Pre-merge gates (CLAUDE.local.md §6), Test count
+
+### Community 29 - "Release workflow (publish to crates.io)"
+Cohesion: 0.25
+Nodes (7): [0.1.2] - 2026-04-05, [1.1.0] - 2026-05-25, Added, Changelog, Notes, CI workflow (test/clippy/fmt/audit/doc), Release workflow (publish to crates.io)
+
+### Community 30 - "[0.2.0] - 2026-04-18"
+Cohesion: 0.29
+Nodes (7): [0.2.0] - 2026-04-18, Added, Changed (breaking), Dependencies, Deprecated, Not included (deferred to v0.3.0), Security considerations
+
+### Community 32 - "[0.4.0] - 2026-05-16"
+Cohesion: 0.29
+Nodes (7): [0.4.0] - 2026-05-16, Added, Backward compatibility, Changed, Documentation, Performance, Test count
+
+### Community 33 - "[0.3.0] - 2026-04-18"
+Cohesion: 0.33
+Nodes (6): [0.3.0] - 2026-04-18, Added, Changed (breaking), Dependencies, Not included (deferred beyond v0.3.0), Security considerations (MAGI R3 W8)
+
+### Community 34 - "[0.6.0] - 2026-05-21"
+Cohesion: 0.33
+Nodes (6): [0.6.0] - 2026-05-21, Backward compatibility, Changed, Pre-merge gates (CLAUDE.local.md §6), Security, Test count
+
+### Community 35 - "[1.0.0] - 2026-05-24"
+Cohesion: 0.40
+Nodes (5): [1.0.0] - 2026-05-24, Added, Changed (breaking), Notes, Security
+
+### Community 36 - "[0.3.1] - 2026-04-19"
+Cohesion: 0.67
+Nodes (3): [0.3.1] - 2026-04-19, Fixed, Yanked
+
+### Community 37 - "[1.0.1] - 2026-05-25"
+Cohesion: 0.67
+Nodes (3): [1.0.1] - 2026-05-25, Fixed, Internal
+
+### Community 38 - "[1.1.1] - 2026-07-17"
+Cohesion: 0.67
+Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
+
 ## Knowledge Gaps
-- **70 isolated node(s):** `Local divergence from the pinned reference (F0, 2026-07-16)`, `Exemption from CLAUDE.local.md §0.2 file-header rule`, `Regeneration`, `Your role`, `Input format` (+65 more)
+- **112 isolated node(s):** `Fixed`, `Changed`, `Added`, `Notes`, `Fixed` (+107 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **3 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Magi::analyze` connect `reporting.rs` to `orchestrator.rs`, `consensus.rs`, `user_prompt.rs`, `.new`?**
-  _High betweenness centrality (0.243) - this node is a cross-community bridge._
+- **Why does `Magi::analyze` connect `AgentOutput` to `orchestrator.rs`, `reporting.rs`, `consensus.rs`, `.new`, `user_prompt.rs`?**
+  _High betweenness centrality (0.216) - this node is a cross-community bridge._
 - **Why does `dispatch_one_agent (retry FSM)` connect `orchestrator.rs` to `user_prompt.rs`, `.new`, `provider.rs`?**
-  _High betweenness centrality (0.217) - this node is a cross-community bridge._
+  _High betweenness centrality (0.192) - this node is a cross-community bridge._
 - **Why does `LlmProvider trait` connect `provider.rs` to `orchestrator.rs`, `.new`, `openai_compat.rs`, `claude.rs`, `claude_cli.rs`, `RoutingMockProvider`?**
-  _High betweenness centrality (0.209) - this node is a cross-community bridge._
+  _High betweenness centrality (0.185) - this node is a cross-community bridge._
 - **Are the 3 inferred relationships involving `build_user_prompt (injection defense)` (e.g. with `dispatch_one_agent (retry FSM)` and `.analyze()`) actually correct?**
   _`build_user_prompt (injection defense)` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `Local divergence from the pinned reference (F0, 2026-07-16)`, `Exemption from CLAUDE.local.md §0.2 file-header rule`, `Regeneration` to the rest of the system?**
-  _75 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **What connects `Fixed`, `Changed`, `Added` to the rest of the system?**
+  _117 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.05292353823088456 - nodes in this community are weakly interconnected._
 - **Should `reporting.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.07879746835443038 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08191808191808192 - nodes in this community are weakly interconnected._
