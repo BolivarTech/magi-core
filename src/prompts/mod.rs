@@ -176,8 +176,11 @@ mod tests_v0_3 {
         assert_ne!(melchior_prompt(), caspar_prompt());
     }
 
+    /// The fixture is generated from the pinned Python reference blobs with
+    /// the declared local divergences applied (`DIVERGENCES` in
+    /// `tests/fixtures/_magi_ref.py`) — see the fixture header.
     #[test]
-    fn test_prompts_match_python_reference_sha256() {
+    fn test_prompts_match_pinned_reference_sha256() {
         use sha2::{Digest, Sha256};
 
         let fixture = include_str!("../../tests/fixtures/magi_ref_prompts.sha256");
