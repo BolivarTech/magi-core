@@ -465,7 +465,7 @@ impl ConsensusEngine {
 
         // Sort by severity descending (Critical first); stable to preserve first-seen
         // order within equal severity groups.
-        result.sort_by(|a, b| b.severity.cmp(&a.severity));
+        result.sort_by_key(|f| std::cmp::Reverse(f.severity));
         result
     }
 }
