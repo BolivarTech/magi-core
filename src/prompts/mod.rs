@@ -133,12 +133,17 @@ mod tests {
             ("caspar.md", include_str!("../prompts_md/caspar.md")),
         ];
         for (name, p) in prompts {
+            // Whitespace-normalized so a re-pinned prompt cannot evade the
+            // check via `"verdict":"approve"` / `"verdict" : "approve"`
+            // spellings (during a re-pin the SHA fixture is regenerated too,
+            // leaving this property test as the only guard).
+            let flat: String = p.chars().filter(|c| !c.is_whitespace()).collect();
             assert!(
-                !p.contains(r#""verdict": "approve""#),
+                !flat.contains(r#""verdict":"approve""#),
                 "{name}: worked example carries an echo-fabricable approve verdict"
             );
             assert!(
-                p.contains(r#""verdict": "conditional""#),
+                flat.contains(r#""verdict":"conditional""#),
                 "{name}: worked example must use the conditional verdict"
             );
         }
@@ -197,7 +202,8 @@ mod tests_v0_3 {
             let actual_hash = format!("{:x}", Sha256::digest(content.as_bytes()));
             assert_eq!(
                 &actual_hash, expected_hash,
-                "{filename} content drifted from Python reference"
+                "{filename} content drifted from the pinned reference (see the \
+                 fixture header for the documented local divergence)"
             );
         }
     }
