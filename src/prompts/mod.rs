@@ -2,6 +2,15 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+//! Compile-time embedded system prompts for the three agents.
+//!
+//! **Crate-internal.** `lib.rs` declares `mod prompts;` (private), so nothing
+//! here is reachable from outside the crate; consumers reach these prompts
+//! through [`crate::agent::Agent`] or override them via the builder's custom
+//! prompt API. That is also why the accessors below carry no doctests: a
+//! doctest is compiled as an *external* crate and therefore cannot call a
+//! private item.
+
 use std::collections::BTreeMap;
 
 use crate::schema::{AgentName, Mode};
@@ -12,12 +21,6 @@ use crate::schema::{AgentName, Mode};
 ///
 /// This prompt is loaded at compile time from `prompts_md/melchior.md` and is
 /// used by [`crate::agent::Agent`] when no custom prompt is configured.
-///
-/// # Example
-/// ```
-/// let prompt = magi_core::prompts::melchior_prompt();
-/// assert!(!prompt.is_empty());
-/// ```
 pub fn melchior_prompt() -> &'static str {
     include_str!("../prompts_md/melchior.md")
 }
@@ -26,12 +29,6 @@ pub fn melchior_prompt() -> &'static str {
 ///
 /// This prompt is loaded at compile time from `prompts_md/balthasar.md` and is
 /// used by [`crate::agent::Agent`] when no custom prompt is configured.
-///
-/// # Example
-/// ```
-/// let prompt = magi_core::prompts::balthasar_prompt();
-/// assert!(!prompt.is_empty());
-/// ```
 pub fn balthasar_prompt() -> &'static str {
     include_str!("../prompts_md/balthasar.md")
 }
@@ -40,12 +37,6 @@ pub fn balthasar_prompt() -> &'static str {
 ///
 /// This prompt is loaded at compile time from `prompts_md/caspar.md` and is
 /// used by [`crate::agent::Agent`] when no custom prompt is configured.
-///
-/// # Example
-/// ```
-/// let prompt = magi_core::prompts::caspar_prompt();
-/// assert!(!prompt.is_empty());
-/// ```
 pub fn caspar_prompt() -> &'static str {
     include_str!("../prompts_md/caspar.md")
 }
