@@ -1,7 +1,7 @@
-# Graph Report - MAGI-Core  (2026-07-16)
+# Graph Report - MAGI-Core  (2026-07-21)
 
 ## Corpus Check
-- 30 files · ~59,177 words
+- 30 files · ~59,203 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `bd23a6e1`
+- Built from commit: `cd0a5a37`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
