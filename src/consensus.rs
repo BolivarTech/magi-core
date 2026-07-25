@@ -22,7 +22,14 @@ pub struct ConsensusConfig {
 }
 
 /// Result of the consensus determination.
+///
+/// # Stability
+///
+/// `#[non_exhaustive]`: an **output** type the crate may enrich (e.g. MS2/MS3
+/// telemetry). Reading fields still works; constructing it by struct-literal
+/// from another crate is no longer possible. See ADR 007.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct ConsensusResult {
     /// Classification label (e.g., "STRONG GO", "GO WITH CAVEATS").
     pub consensus: String,
@@ -75,7 +82,14 @@ pub struct DedupFinding {
 }
 
 /// A dissenting agent's summary and reasoning.
+///
+/// # Stability
+///
+/// `#[non_exhaustive]`: an **output** type the crate may enrich. Reading fields
+/// still works; struct-literal construction from another crate does not. See
+/// ADR 007.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct Dissent {
     /// The dissenting agent.
     pub agent: AgentName,
@@ -86,7 +100,14 @@ pub struct Dissent {
 }
 
 /// A condition extracted from a Conditional-verdict agent.
+///
+/// # Stability
+///
+/// `#[non_exhaustive]`: an **output** type the crate may enrich. Reading fields
+/// still works; struct-literal construction from another crate does not. See
+/// ADR 007.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[non_exhaustive]
 pub struct Condition {
     /// The agent that set the condition.
     pub agent: AgentName,
@@ -508,6 +529,26 @@ mod tests {
         assert_eq!(result.consensus, "STRONG GO");
         assert_eq!(result.consensus_verdict, Verdict::Approve);
         assert!((result.score - 1.0).abs() < 1e-9);
+    }
+
+    /// After `#[non_exhaustive]` (v2.0), reading `ConsensusResult`/`Dissent`/
+    /// `Condition` fields from within the crate still compiles. No-regression:
+    /// the attribute blocks external struct-literal construction, not field
+    /// reads (external construction is verified in design; see ADR 007).
+    #[test]
+    fn test_consensus_result_fields_remain_readable() {
+        let agents = vec![
+            make_output(AgentName::Melchior, Verdict::Approve, 0.9),
+            make_output(AgentName::Balthasar, Verdict::Conditional, 0.8),
+            make_output(AgentName::Caspar, Verdict::Reject, 0.7),
+        ];
+        let engine = ConsensusEngine::new(ConsensusConfig::default());
+        let result = engine.determine(&agents).unwrap();
+        let _ = &result.consensus;
+        let _ = result.confidence;
+        let _ = result.agent_count;
+        let _ = &result.dissent;
+        let _ = &result.conditions;
     }
 
     // -- BDD Scenario 2: mixed 2 approve + 1 reject --

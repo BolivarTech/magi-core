@@ -38,6 +38,13 @@ pub static ZERO_WIDTH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// Serializes as lowercase (`"approve"`, `"reject"`, `"conditional"`).
 /// Display outputs uppercase (`"APPROVE"`, `"REJECT"`, `"CONDITIONAL"`).
+/// # Stability — deliberately CLOSED
+///
+/// `Verdict` does **not** carry `#[non_exhaustive]`, and that is a decision, not
+/// an oversight: it is a closed domain. If it ever grew, we **want** the
+/// compiler to break consumers so they revisit their consensus logic, rather
+/// than have a silent `_ => ...` treat the new case as "anything else". See
+/// ADR 007.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
@@ -88,6 +95,11 @@ impl fmt::Display for Verdict {
 ///
 /// Ordering: `Critical > Warning > Info`.
 /// Serializes as lowercase (`"critical"`, `"warning"`, `"info"`).
+/// # Stability — deliberately CLOSED
+///
+/// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. A new variant
+/// **should** break exhaustive matches so consumers revisit their logic. See
+/// ADR 007.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -146,6 +158,11 @@ impl Ord for Severity {
 /// Analysis mode that determines agent perspectives.
 ///
 /// Serializes as kebab-case (`"code-review"`, `"design"`, `"analysis"`).
+/// # Stability — deliberately CLOSED
+///
+/// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. A new mode
+/// **should** break exhaustive matches so consumers revisit their logic. See
+/// ADR 007.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
@@ -172,6 +189,10 @@ impl fmt::Display for Mode {
 /// Ordering is alphabetical (`Balthasar < Caspar < Melchior`) for
 /// deterministic tiebreaking in consensus.
 /// Serializes as lowercase (`"melchior"`, `"balthasar"`, `"caspar"`).
+/// # Stability — deliberately CLOSED
+///
+/// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. The MAGI trio is
+/// fixed; a new agent **should** break exhaustive matches. See ADR 007.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentName {
