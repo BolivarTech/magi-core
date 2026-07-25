@@ -26,6 +26,7 @@
 //! ```
 
 pub mod agent;
+pub mod backoff;
 pub mod consensus;
 pub mod error;
 pub mod finding_id;
