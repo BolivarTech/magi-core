@@ -175,6 +175,8 @@ impl OpenAiCompatibleProvider {
         let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
             status: 0,
             body: format!("failed to parse response: {e}"),
+            retry_after_raw: vec![],
+            received_at: None,
         })?;
         resp.choices
             .into_iter()
@@ -183,6 +185,8 @@ impl OpenAiCompatibleProvider {
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
                 body: "no choices in response".to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             })
     }
 
@@ -198,6 +202,8 @@ impl OpenAiCompatibleProvider {
             _ => ProviderError::Http {
                 status,
                 body: body.to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             },
         }
     }
@@ -451,7 +457,7 @@ mod tests {
     fn test_map_status_429_500_404_to_http() {
         for s in [429u16, 500, 404] {
             match OpenAiCompatibleProvider::map_status_to_error(s, "b") {
-                ProviderError::Http { status, body } => {
+                ProviderError::Http { status, body, .. } => {
                     assert_eq!(status, s);
                     assert_eq!(body, "b");
                 }

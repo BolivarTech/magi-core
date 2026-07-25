@@ -2,25 +2,87 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use std::time::{Duration, Instant};
 use thiserror::Error;
+
+/// The reason `RetryProvider` deliberately stopped retrying.
+///
+/// Exists so that giving up is **not a silent decision**: the consumer can
+/// distinguish, by `match`, an abandonment of our own from a server error.
+///
+/// # Stability
+///
+/// `#[non_exhaustive]` on the enum **and on its struct-like variants**, in
+/// symmetry with [`ProviderError`] (A1/A2): the enum-level attribute only
+/// enables adding new variants; the per-variant attribute enables adding new
+/// **fields** (e.g. a field on `RetryAfterTooLong`) without breaking. Consumers
+/// use `_ => ...` when matching and `..` when destructuring. See ADR 007.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AbandonReason {
+    /// The server asked to wait longer than we accept (`retry_after_cap`).
+    #[non_exhaustive]
+    RetryAfterTooLong {
+        /// What the server requested.
+        requested: Duration,
+        /// Our limit.
+        cap: Duration,
+    },
+    /// A `Retry-After` was present but could not be interpreted (date form,
+    /// discordant segments, garbage). We do not guess: we give up.
+    #[non_exhaustive]
+    RetryAfterUnintelligible {
+        /// The raw value received, for diagnostics. When an intermediary merged
+        /// repeated headers, this may be a comma-joined string.
+        raw: String,
+    },
+    /// `operation_budget` was exhausted before `max_retries` was consumed.
+    #[non_exhaustive]
+    OperationBudgetExhausted {
+        /// Time elapsed since the first attempt.
+        elapsed: Duration,
+        /// The configured budget.
+        budget: Duration,
+    },
+}
 
 /// Errors originating from LLM provider implementations.
 ///
 /// Each variant represents a distinct failure mode that providers
 /// can encounter when communicating with LLM backends.
+///
+/// # Stability
+///
+/// `#[non_exhaustive]` on the enum **and on its struct-like variants**:
+/// consumers must include a `_ => ...` arm when matching, and use `..` when
+/// destructuring a variant. This allows adding variants and fields in future
+/// minor releases without breaking. See ADR 007.
 #[derive(Debug, Clone, Error)]
+#[non_exhaustive]
 pub enum ProviderError {
     /// HTTP response with a non-success status code.
     #[error("http error {status}: {body}")]
+    #[non_exhaustive]
     Http {
         /// HTTP status code.
         status: u16,
         /// Response body text.
         body: String,
+        /// **Raw** values of the `Retry-After` header, in order of arrival.
+        /// Empty means the server did not send it. It is a `Vec` because HTTP
+        /// allows the header to be **repeated** and the spec (C1) requires
+        /// keeping the **first valid** one, skipping malformed ones — a single
+        /// `String` could not represent that. Interpreting them is
+        /// `RetryProvider`'s job, since only it knows the configured cap.
+        retry_after_raw: Vec<String>,
+        /// Instant at which the response **headers** were received. This is the
+        /// epoch against which a honored `retry_after` is discounted.
+        received_at: Option<Instant>,
     },
 
     /// Network-level failure (DNS, connection refused, etc.).
     #[error("network error: {message}")]
+    #[non_exhaustive]
     Network {
         /// Description of the network failure.
         message: String,
@@ -28,6 +90,7 @@ pub enum ProviderError {
 
     /// Provider did not respond within the allowed time.
     #[error("timeout: {message}")]
+    #[non_exhaustive]
     Timeout {
         /// Description of the timeout condition.
         message: String,
@@ -35,6 +98,7 @@ pub enum ProviderError {
 
     /// Authentication or authorization failure.
     #[error("auth error: {message}")]
+    #[non_exhaustive]
     Auth {
         /// Description of the authentication failure.
         message: String,
@@ -42,6 +106,7 @@ pub enum ProviderError {
 
     /// CLI subprocess provider failed.
     #[error("process error (exit_code={exit_code:?}): {stderr}")]
+    #[non_exhaustive]
     Process {
         /// Exit code of the child process, if available.
         exit_code: Option<i32>,
@@ -52,6 +117,16 @@ pub enum ProviderError {
     /// Detected nested session (e.g., `CLAUDECODE` env var present).
     #[error("nested session detected: cannot launch CLI provider from within an existing session")]
     NestedSession,
+
+    /// `RetryProvider` stopped retrying by its own decision.
+    #[error("retry abandoned after {attempts} attempt(s): {reason:?}")]
+    #[non_exhaustive]
+    RetryAbandoned {
+        /// Why it was abandoned.
+        reason: AbandonReason,
+        /// Attempts made before abandoning.
+        attempts: u32,
+    },
 }
 
 /// Unified error type for the magi-core crate.
@@ -152,6 +227,8 @@ mod tests {
         let err = ProviderError::Http {
             status: 500,
             body: "Internal Server Error".to_string(),
+            retry_after_raw: vec![],
+            received_at: None,
         };
         let display = format!("{err}");
         assert!(
@@ -235,6 +312,58 @@ mod tests {
         let err = ProviderError::NestedSession;
         let display = format!("{err}");
         assert!(!display.is_empty(), "Display should not be empty");
+    }
+
+    // -- v2.0: Http carries Retry-After; RetryAbandoned reports its reason --
+
+    /// Http carries the raw `Retry-After` header values and the receipt instant.
+    #[test]
+    fn test_http_variant_carries_retry_after_and_receipt() {
+        let now = std::time::Instant::now();
+        let err = ProviderError::Http {
+            status: 429,
+            body: "rate limited".to_string(),
+            retry_after_raw: vec!["12".to_string()],
+            received_at: Some(now),
+        };
+        match err {
+            ProviderError::Http {
+                retry_after_raw, ..
+            } => {
+                assert_eq!(retry_after_raw, vec!["12".to_string()]);
+            }
+            _ => panic!("expected Http variant"),
+        }
+    }
+
+    /// RetryAbandoned's Display names the attempt count (budget exhaustion).
+    #[test]
+    fn test_retry_abandoned_reports_budget_exhaustion() {
+        let err = ProviderError::RetryAbandoned {
+            reason: AbandonReason::OperationBudgetExhausted {
+                elapsed: std::time::Duration::from_secs(600),
+                budget: std::time::Duration::from_secs(600),
+            },
+            attempts: 2,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains('2'),
+            "message must name the attempt count: {msg}"
+        );
+    }
+
+    /// RetryAbandoned's Display mentions retry for a too-long `Retry-After`.
+    #[test]
+    fn test_retry_abandoned_reports_retry_after_too_long() {
+        let err = ProviderError::RetryAbandoned {
+            reason: AbandonReason::RetryAfterTooLong {
+                requested: std::time::Duration::from_secs(600),
+                cap: std::time::Duration::from_secs(300),
+            },
+            attempts: 1,
+        };
+        assert!(err.to_string().contains("retry"), "{err}");
     }
 
     // -- MagiError Display tests --

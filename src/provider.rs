@@ -414,6 +414,8 @@ mod tests {
                 Err(ProviderError::Http {
                     status: 500,
                     body: "err".into(),
+                    retry_after_raw: vec![],
+                    received_at: None,
                 }),
                 Ok("ok".into()),
             ],
@@ -435,6 +437,8 @@ mod tests {
                 Err(ProviderError::Http {
                     status: 429,
                     body: "rate limit".into(),
+                    retry_after_raw: vec![],
+                    received_at: None,
                 }),
                 Ok("ok".into()),
             ],
@@ -525,6 +529,8 @@ mod tests {
             vec![Err(ProviderError::Http {
                 status: 403,
                 body: "forbidden".into(),
+                retry_after_raw: vec![],
+                received_at: None,
             })],
         ));
         let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));

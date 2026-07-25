@@ -172,6 +172,8 @@ impl ClaudeProvider {
             serde_json::from_str(body).map_err(|e| ProviderError::Http {
                 status: 0,
                 body: format!("failed to parse response: {e}"),
+                retry_after_raw: vec![],
+                received_at: None,
             })?;
 
         response
@@ -182,6 +184,8 @@ impl ClaudeProvider {
             .ok_or_else(|| ProviderError::Http {
                 status: 0,
                 body: "no text content block in response".to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             })
     }
 
@@ -198,6 +202,8 @@ impl ClaudeProvider {
             _ => ProviderError::Http {
                 status,
                 body: body.to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             },
         }
     }
@@ -382,7 +388,7 @@ mod tests {
     fn test_map_status_500_to_http_error() {
         let err = super::ClaudeProvider::map_status_to_error(500, "server error");
         match err {
-            crate::error::ProviderError::Http { status, body } => {
+            crate::error::ProviderError::Http { status, body, .. } => {
                 assert_eq!(status, 500);
                 assert_eq!(body, "server error");
             }

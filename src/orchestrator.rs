@@ -1838,6 +1838,8 @@ mod tests {
             vec![Err(ProviderError::Http {
                 status: 500,
                 body: "ISE".to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             })],
         ));
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
@@ -1867,6 +1869,8 @@ mod tests {
             vec![Err(ProviderError::Http {
                 status: 429,
                 body: "rate".to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
             })],
         ));
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
