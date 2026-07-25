@@ -118,6 +118,30 @@ pub(crate) fn parse_retry_after(values: &[String], cap: Duration) -> RetryAfter 
     }
 }
 
+/// Failure class for backoff-policy purposes — the discriminant of
+/// [`crate::error::ProviderError`] **without its data**.
+///
+/// Exists because `ProviderError::Http` carries `status` and `body`: there is no
+/// way to write "any `Http`" as a value to configure `RetryConfig::flat_classes`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RetryClass {
+    /// Client-side timeout.
+    Timeout,
+    /// Network failure (DNS, connection refused, reset).
+    Network,
+    /// HTTP response with an error status.
+    Http,
+    /// Authentication failure.
+    Auth,
+    /// CLI subprocess failure.
+    Process,
+    /// Nested session detected.
+    NestedSession,
+    /// Deliberate abandonment of retrying.
+    RetryAbandoned,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

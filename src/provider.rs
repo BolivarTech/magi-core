@@ -2,6 +2,7 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use crate::backoff::RetryClass;
 use crate::error::ProviderError;
 use crate::schema::Mode;
 use std::sync::Arc;
@@ -201,6 +202,28 @@ fn is_retryable(error: &ProviderError) -> bool {
     }
 }
 
+/// Maps a [`ProviderError`] to its [`RetryClass`].
+///
+/// # Compiler-enforced synchronization
+///
+/// The `match` is exhaustive on purpose. `ProviderError` is `#[non_exhaustive]`
+/// for external consumers, but **not within the crate**: adding a variant
+/// **breaks compilation here** until it is mapped. Without this, a new class
+/// would silently fall into the wrong backoff path.
+// Wired into the retry loop in Task 7; unused until then.
+#[allow(dead_code)]
+pub(crate) fn classify(err: &ProviderError) -> RetryClass {
+    match err {
+        ProviderError::Timeout { .. } => RetryClass::Timeout,
+        ProviderError::Network { .. } => RetryClass::Network,
+        ProviderError::Http { .. } => RetryClass::Http,
+        ProviderError::Auth { .. } => RetryClass::Auth,
+        ProviderError::Process { .. } => RetryClass::Process,
+        ProviderError::NestedSession => RetryClass::NestedSession,
+        ProviderError::RetryAbandoned { .. } => RetryClass::RetryAbandoned,
+    }
+}
+
 #[async_trait::async_trait]
 impl LlmProvider for RetryProvider {
     async fn complete(
@@ -246,6 +269,59 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
+
+    /// classify maps every ProviderError variant to its RetryClass.
+    #[test]
+    fn test_classify_maps_every_variant() {
+        assert_eq!(
+            classify(&ProviderError::Timeout {
+                message: "t".into()
+            }),
+            RetryClass::Timeout
+        );
+        assert_eq!(
+            classify(&ProviderError::Network {
+                message: "n".into()
+            }),
+            RetryClass::Network
+        );
+        assert_eq!(
+            classify(&ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None,
+            }),
+            RetryClass::Http
+        );
+        assert_eq!(
+            classify(&ProviderError::Auth {
+                message: "a".into()
+            }),
+            RetryClass::Auth
+        );
+        assert_eq!(
+            classify(&ProviderError::Process {
+                exit_code: Some(1),
+                stderr: "p".into(),
+            }),
+            RetryClass::Process
+        );
+        assert_eq!(
+            classify(&ProviderError::NestedSession),
+            RetryClass::NestedSession
+        );
+        assert_eq!(
+            classify(&ProviderError::RetryAbandoned {
+                reason: crate::error::AbandonReason::OperationBudgetExhausted {
+                    elapsed: Duration::ZERO,
+                    budget: Duration::ZERO,
+                },
+                attempts: 0,
+            }),
+            RetryClass::RetryAbandoned
+        );
+    }
 
     // -- default_model_for_mode tests (T02) --
 
