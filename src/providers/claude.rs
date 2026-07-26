@@ -9,7 +9,7 @@ use crate::provider::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Anthropic API base URL.
 const API_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -217,17 +217,29 @@ impl ClaudeProvider {
     /// `ProviderError` variant.
     ///
     /// - 401 and 403 map to `ProviderError::Auth`.
-    /// - All other non-2xx status codes map to `ProviderError::Http`.
-    pub fn map_status_to_error(status: u16, body: &str) -> ProviderError {
+    /// - All other non-2xx status codes map to `ProviderError::Http`, carrying the
+    ///   raw `Retry-After` header for the retry policy to interpret.
+    ///
+    /// **2.0 breaking change:** gains `retry_after_raw` and `received_at`
+    /// parameters (required by C4/A5). Visibility stays `pub` (reducing it would
+    /// be out of the A1–A7 scope). Callers pass `vec![], None` to preserve 1.x
+    /// behavior. Enumerated in `dev-docs/migration-v2.0.md`.
+    pub fn map_status_to_error(
+        status: u16,
+        body: &str,
+        retry_after_raw: Vec<String>,
+        received_at: Option<Instant>,
+    ) -> ProviderError {
         match status {
+            // 401/403 -> Auth: no header carried.
             401 | 403 => ProviderError::Auth {
                 message: body.to_string(),
             },
             _ => ProviderError::Http {
                 status,
                 body: body.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
+                retry_after_raw,
+                received_at,
             },
         }
     }
@@ -274,10 +286,25 @@ impl LlmProvider for ClaudeProvider {
                 }
             })?;
 
+        // C3.1 epoch: capture the receipt instant (headers arrived) and the raw
+        // `Retry-After` header, in the same place the status is read.
+        let received_at = Instant::now();
         let status = response.status().as_u16();
+        let retry_after_raw: Vec<String> = response
+            .headers()
+            .get_all(reqwest::header::RETRY_AFTER)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .collect();
         if !(200..300).contains(&status) {
             let response_body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_to_error(status, &response_body));
+            return Err(Self::map_status_to_error(
+                status,
+                &response_body,
+                retry_after_raw,
+                Some(received_at),
+            ));
         }
 
         let response_body = response.text().await.map_err(|e| {
@@ -406,21 +433,21 @@ mod tests {
     /// map_status_to_error maps 401 to ProviderError::Auth.
     #[test]
     fn test_map_status_401_to_auth_error() {
-        let err = super::ClaudeProvider::map_status_to_error(401, "unauthorized");
+        let err = super::ClaudeProvider::map_status_to_error(401, "unauthorized", vec![], None);
         assert!(matches!(err, crate::error::ProviderError::Auth { .. }));
     }
 
     /// map_status_to_error maps 403 to ProviderError::Auth.
     #[test]
     fn test_map_status_403_to_auth_error() {
-        let err = super::ClaudeProvider::map_status_to_error(403, "forbidden");
+        let err = super::ClaudeProvider::map_status_to_error(403, "forbidden", vec![], None);
         assert!(matches!(err, crate::error::ProviderError::Auth { .. }));
     }
 
     /// map_status_to_error maps 500 to ProviderError::Http.
     #[test]
     fn test_map_status_500_to_http_error() {
-        let err = super::ClaudeProvider::map_status_to_error(500, "server error");
+        let err = super::ClaudeProvider::map_status_to_error(500, "server error", vec![], None);
         match err {
             crate::error::ProviderError::Http { status, body, .. } => {
                 assert_eq!(status, 500);
@@ -433,11 +460,33 @@ mod tests {
     /// map_status_to_error maps 429 to ProviderError::Http (not Auth).
     #[test]
     fn test_map_status_429_to_http_error() {
-        let err = super::ClaudeProvider::map_status_to_error(429, "rate limited");
+        let err = super::ClaudeProvider::map_status_to_error(429, "rate limited", vec![], None);
         assert!(matches!(
             err,
             crate::error::ProviderError::Http { status: 429, .. }
         ));
+    }
+
+    /// map_status_to_error carries the raw Retry-After header into the Http error.
+    #[test]
+    fn test_claude_map_status_429_carries_retry_after_header() {
+        let err = super::ClaudeProvider::map_status_to_error(
+            429,
+            "rate limited",
+            vec!["12".to_string()],
+            None,
+        );
+        match err {
+            crate::error::ProviderError::Http {
+                status,
+                retry_after_raw,
+                ..
+            } => {
+                assert_eq!(status, 429);
+                assert_eq!(retry_after_raw, vec!["12".to_string()]);
+            }
+            other => panic!("expected Http with header, got: {other:?}"),
+        }
     }
 
     // -- Client reuse --

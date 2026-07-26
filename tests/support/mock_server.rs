@@ -13,6 +13,10 @@ use tokio::task::JoinHandle;
 
 /// Acepta una conexion, escribe status + headers validos y **nunca** el cuerpo.
 /// Fuerza el camino de timeout TOTAL (un connect-timeout no disparia).
+// Cada test de integracion incluye TODO este modulo pero usa un subconjunto; el
+// binario que no usa esta funcion la veria como dead code (mismo motivo que
+// `spawn_429_with_retry_after`).
+#[allow(dead_code)]
 pub async fn spawn_hanging_headers() -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await

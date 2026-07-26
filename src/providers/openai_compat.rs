@@ -19,7 +19,7 @@ use crate::error::ProviderError;
 use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// HTTP request body for the OpenAI Chat Completions endpoint
 /// (`POST /chat/completions`). Non-streaming; no `stream` field.
@@ -211,17 +211,24 @@ impl OpenAiCompatibleProvider {
     /// Maps an HTTP status code to a [`ProviderError`].
     ///
     /// 401 / 403 → [`ProviderError::Auth`]; all other codes →
-    /// [`ProviderError::Http`] (preserving `status` and `body`).
-    pub(crate) fn map_status_to_error(status: u16, body: &str) -> ProviderError {
+    /// [`ProviderError::Http`] (preserving `status`, `body`, and the raw
+    /// `Retry-After` header for the retry policy to interpret).
+    pub(crate) fn map_status_to_error(
+        status: u16,
+        body: &str,
+        retry_after_raw: Vec<String>,
+        received_at: Option<Instant>,
+    ) -> ProviderError {
         match status {
+            // 401/403 -> Auth: no header carried (not a rate-limit path).
             401 | 403 => ProviderError::Auth {
                 message: body.to_string(),
             },
             _ => ProviderError::Http {
                 status,
                 body: body.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
+                retry_after_raw,
+                received_at,
             },
         }
     }
@@ -296,10 +303,28 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 }
             }
         })?;
+        // C3.1 epoch: capture the receipt instant when the HEADERS arrive (the
+        // `send` future resolves on headers; the body is read below), and the raw
+        // `Retry-After`, in the same place the status is read.
+        let received_at = Instant::now();
         let status = response.status().as_u16();
+        // `get_all`, not `get`: HTTP allows repeating the header and C1 requires
+        // keeping the first VALID one, skipping malformed ones.
+        let retry_after_raw: Vec<String> = response
+            .headers()
+            .get_all(reqwest::header::RETRY_AFTER)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(str::to_owned)
+            .collect();
         if !(200..300).contains(&status) {
             let response_body = response.text().await.unwrap_or_default();
-            return Err(Self::map_status_to_error(status, &response_body));
+            return Err(Self::map_status_to_error(
+                status,
+                &response_body,
+                retry_after_raw,
+                Some(received_at),
+            ));
         }
         let response_body = response.text().await.map_err(|e| {
             // The total timeout can fire while reading the body (headers arrive,
@@ -473,11 +498,11 @@ mod tests {
     #[test]
     fn test_map_status_401_403_to_auth() {
         assert!(matches!(
-            OpenAiCompatibleProvider::map_status_to_error(401, "x"),
+            OpenAiCompatibleProvider::map_status_to_error(401, "x", vec![], None),
             ProviderError::Auth { .. }
         ));
         assert!(matches!(
-            OpenAiCompatibleProvider::map_status_to_error(403, "x"),
+            OpenAiCompatibleProvider::map_status_to_error(403, "x", vec![], None),
             ProviderError::Auth { .. }
         ));
     }
@@ -485,7 +510,7 @@ mod tests {
     #[test]
     fn test_map_status_429_500_404_to_http() {
         for s in [429u16, 500, 404] {
-            match OpenAiCompatibleProvider::map_status_to_error(s, "b") {
+            match OpenAiCompatibleProvider::map_status_to_error(s, "b", vec![], None) {
                 ProviderError::Http { status, body, .. } => {
                     assert_eq!(status, s);
                     assert_eq!(body, "b");
