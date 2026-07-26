@@ -11,12 +11,13 @@ use std::sync::Mutex;
 
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
-use crate::error::MagiError;
-#[cfg(test)]
-use crate::error::ProviderError;
+use crate::error::{MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
-use crate::rotation::{AgentRotation, FallbackPool, Lineage, ProviderProbe, RotationConfig};
+use crate::rotation::{
+    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
+    LineageRegistry, ProviderProbe, RotationConfig, RotationEvent, RotationKind, RotationPolicy,
+};
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
 use crate::validate::{ValidationLimits, Validator};
@@ -522,6 +523,16 @@ impl MagiBuilder {
 /// Ensures that if [`Magi::analyze`] is cancelled (e.g., the caller wraps it
 /// in `tokio::time::timeout`), all in-flight agent tasks are aborted instead
 /// of continuing to run in the background and consuming LLM API quota.
+/// The full result of dispatching the trio: successful outputs, failure reasons,
+/// the set of agents that hit the corrective retry, and the per-agent rotation
+/// telemetry (populated for EVERY agent — successful or failed).
+type DispatchOutcome = (
+    Vec<AgentOutput>,
+    BTreeMap<AgentName, String>,
+    std::collections::BTreeSet<AgentName>,
+    BTreeMap<AgentName, AgentRotation>,
+);
+
 struct AbortGuard(Vec<AbortHandle>);
 
 impl Drop for AbortGuard {
@@ -656,14 +667,6 @@ impl Magi {
             .agent_factory
             .create_agents_with_prompts(*mode, &self.overrides);
 
-        // MS2: capture each agent's configured model BEFORE dispatch (the `agents`
-        // vec is moved into `dispatch_with_retry`), so rotation telemetry carries a
-        // record for EVERY agent even when no rotation happens.
-        let agent_models: BTreeMap<AgentName, String> = agents
-            .iter()
-            .map(|a| (a.name(), a.provider_model().to_string()))
-            .collect();
-
         // 4. Build user prompt with sanitization and nonce injection.
         //    Lock is released immediately after prompt construction.
         let prompt = {
@@ -676,7 +679,7 @@ impl Magi {
 
         // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
         //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
-        let (successful, failed_agents, retried_agents) =
+        let (successful, failed_agents, retried_agents, rotations) =
             self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
@@ -688,23 +691,6 @@ impl Magi {
 
         // 8. Build MagiReport
         let degraded = successful.len() < 3;
-        // MS2: rotation telemetry. Without the dispatch FSM (wired in a later task),
-        // every agent gets a present, chain-empty record with `model_used ==
-        // model_configured` — never an absent one.
-        let rotations = agent_models
-            .into_iter()
-            .map(|(agent, model)| {
-                (
-                    agent,
-                    AgentRotation {
-                        model_configured: model.clone(),
-                        model_used: model,
-                        chain: Vec::new(),
-                        ran_unmeasured: false,
-                    },
-                )
-            })
-            .collect();
 
         Ok(MagiReport {
             agents: successful,
@@ -740,14 +726,38 @@ impl Magi {
         &self,
         agents: Vec<Agent>,
         user_prompt: &str,
-    ) -> Result<
-        (
-            Vec<AgentOutput>,
-            BTreeMap<AgentName, String>,
-            std::collections::BTreeSet<AgentName>,
-        ),
-        MagiError,
-    > {
+    ) -> Result<DispatchOutcome, MagiError> {
+        // MS2: rotation is engaged ONLY when a fallback pool was declared. With no
+        // pool (`rotation_config == None`) the dispatch path is byte-identical to
+        // 2.0.x — same FSM, same failure strings, no registry, no endpoint-down
+        // (R11/S1). Each agent's configured model seeds a present, chain-empty
+        // telemetry record so `rotations` is populated on both paths.
+        let agent_models: BTreeMap<AgentName, String> = agents
+            .iter()
+            .map(|a| (a.name(), a.provider_model().to_string()))
+            .collect();
+        match self.rotation_config.clone() {
+            None => {
+                self.dispatch_no_rotation(agents, user_prompt, agent_models)
+                    .await
+            }
+            Some(rotation) => {
+                self.dispatch_with_rotation(agents, user_prompt, agent_models, rotation)
+                    .await
+            }
+        }
+    }
+
+    /// The 2.0.x dispatch path (no rotation): one `tokio::spawn` per agent running
+    /// the original single-shot retry FSM ([`dispatch_one_agent`]). Preserves every
+    /// observable behavior of 2.0.x — this is what a consumer that declares no
+    /// fallbacks gets. `rotations` is filled with default (chain-empty) records.
+    async fn dispatch_no_rotation(
+        &self,
+        agents: Vec<Agent>,
+        user_prompt: &str,
+        agent_models: BTreeMap<AgentName, String>,
+    ) -> Result<DispatchOutcome, MagiError> {
         let timeout = self.config.timeout;
         let completion = self.config.completion.clone();
         let retry_enabled = self.config.retry_on_schema_error;
@@ -809,7 +819,140 @@ impl Magi {
             });
         }
 
-        Ok((successful, failed, retried))
+        let rotations = default_rotations(agent_models);
+        Ok((successful, failed, retried, rotations))
+    }
+
+    /// The MS2 rotation dispatch path. Seeds a per-run [`LineageRegistry`] from the
+    /// trio's declared primary lineages (or a synthetic per-agent lineage when a
+    /// pool is declared but a primary's lineage was not), spawns the rotation FSM
+    /// ([`dispatch_one_agent_rotating`]) per agent, collects the real per-agent
+    /// [`AgentRotation`] chains, and enforces the endpoint-down fast-fail: after
+    /// EVERY agent outcome (success, failure, OR panic/`JoinError`) it consults the
+    /// registry latch and, if set, returns `Err(EndpointDown)` **before** consensus
+    /// — the single source of truth, robust to a panicked latch-holder (R8/W11).
+    async fn dispatch_with_rotation(
+        &self,
+        agents: Vec<Agent>,
+        user_prompt: &str,
+        agent_models: BTreeMap<AgentName, String>,
+        rotation: Arc<RotationConfig>,
+    ) -> Result<DispatchOutcome, MagiError> {
+        let timeout = self.config.timeout;
+        let completion = self.config.completion.clone();
+        let retry_enabled = self.config.retry_on_schema_error;
+        let validator: Arc<Validator> = Arc::clone(&self.validator);
+
+        // Seed the registry with each agent's active (lineage, model). A declared
+        // primary lineage wins; otherwise a synthetic per-agent label keeps the
+        // "one lineage, one mage" invariant well-formed (agent names are distinct)
+        // and lets an un-declared primary still rotate into the pool.
+        let mut initial: BTreeMap<AgentName, ActiveEntry> = BTreeMap::new();
+        let mut primary_lineages: BTreeMap<AgentName, Lineage> = BTreeMap::new();
+        for (name, model) in &agent_models {
+            let lineage = rotation
+                .primary_lineages
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| Lineage::new(format!("__primary::{}", name.display_name())));
+            initial.insert(
+                *name,
+                ActiveEntry {
+                    lineage: lineage.clone(),
+                    model: model.clone(),
+                },
+            );
+            primary_lineages.insert(*name, lineage);
+        }
+        let registry = Arc::new(LineageRegistry::new(initial));
+
+        // Pre-seed telemetry OUTSIDE any task stack so a panicked agent still has a
+        // present, chain-empty record (W1). A normal return replaces its entry.
+        let mut rotations = default_rotations(agent_models);
+
+        let mut handles = Vec::new();
+        let mut abort_handles = Vec::new();
+        for agent in agents {
+            let name = agent.name();
+            let model_configured = rotations
+                .get(&name)
+                .map(|r| r.model_configured.clone())
+                .unwrap_or_default();
+            let primary_lineage = primary_lineages
+                .get(&name)
+                .cloned()
+                .unwrap_or_else(|| Lineage::new("__primary::unknown"));
+            let user_prompt_cloned = user_prompt.to_string();
+            let config = completion.clone();
+            let validator = Arc::clone(&validator);
+            let registry = Arc::clone(&registry);
+            let rotation = Arc::clone(&rotation);
+            let handle = tokio::spawn(async move {
+                dispatch_one_agent_rotating(
+                    agent,
+                    user_prompt_cloned,
+                    config,
+                    validator,
+                    timeout,
+                    retry_enabled,
+                    registry,
+                    rotation,
+                    primary_lineage,
+                    model_configured,
+                )
+                .await
+            });
+            abort_handles.push(handle.abort_handle());
+            handles.push((name, handle));
+        }
+
+        let _guard = AbortGuard(abort_handles);
+
+        let mut successful = Vec::new();
+        let mut failed = BTreeMap::new();
+        let mut retried = std::collections::BTreeSet::new();
+        for (name, handle) in handles {
+            match handle.await {
+                Ok((Ok(output), agent_rotation, was_retried)) => {
+                    rotations.insert(name, agent_rotation);
+                    successful.push(output);
+                    if was_retried {
+                        retried.insert(name);
+                    }
+                }
+                Ok((Err(reason), agent_rotation, was_retried)) => {
+                    rotations.insert(name, agent_rotation);
+                    failed.insert(name, reason);
+                    if was_retried {
+                        retried.insert(name);
+                    }
+                }
+                Err(join_err) => {
+                    // Panic/abnormal: keep the pre-seed (empty chain — panic never
+                    // rotates, R6). The lineage is already freed by the task's
+                    // `AgentSlotGuard::drop` during unwind (never `mark_succeeded`).
+                    failed.insert(name, format!("panic: {join_err}"));
+                }
+            }
+            // ENDPOINT-DOWN: consult the registry latch after EVERY outcome (success,
+            // failure, OR panic) before ANY further work — the latch, not the error
+            // payload, is the single source of truth, so a panicked latch-holder that
+            // never propagated the signal is still caught (R8/W11).
+            if registry.endpoint_down_signalled().await {
+                let lineages = registry.connection_failed_lineages().await;
+                return Err(MagiError::EndpointDown { lineages });
+            }
+        }
+
+        let min_agents = self.consensus_engine.min_agents();
+        if successful.len() < min_agents {
+            return Err(MagiError::InsufficientAgents {
+                succeeded: successful.len(),
+                required: min_agents,
+            });
+        }
+
+        Ok((successful, failed, retried, rotations))
     }
 
     /// Returns the custom prompt overrides map for inspection in tests.
@@ -906,6 +1049,283 @@ pub(crate) async fn dispatch_one_agent(
     match parse_and_validate(&second_raw, &validator) {
         Ok(output) => (Ok(output), true),
         Err(e) => (Err(format!("retry-failed: {e}")), true),
+    }
+}
+
+/// Builds the default (chain-empty) rotation telemetry for every agent from its
+/// configured model — `model_used == model_configured`, empty chain. Used on the
+/// no-rotation path and as the pre-seed on the rotation path.
+fn default_rotations(
+    agent_models: BTreeMap<AgentName, String>,
+) -> BTreeMap<AgentName, AgentRotation> {
+    agent_models
+        .into_iter()
+        .map(|(agent, model)| {
+            (
+                agent,
+                AgentRotation {
+                    model_configured: model.clone(),
+                    model_used: model,
+                    chain: Vec::new(),
+                    ran_unmeasured: false,
+                },
+            )
+        })
+        .collect()
+}
+
+/// Classifies a surfaced [`ProviderError`] as a connection-level failure for the
+/// endpoint-down fast-fail (R7).
+///
+/// **Only [`ProviderError::Network`]** (connection refused / host unreachable /
+/// DNS) counts as connection evidence. An `Http` (incl. 5xx), a `Timeout`, or a
+/// `RetryAbandoned` condemns the lineage run-wide but is **not** connection
+/// evidence — someone answered, or the model is merely slow.
+///
+/// The exclusion of [`ProviderError::RetryAbandoned`] is deliberate and is NOT a
+/// bug: a truly-down endpoint yields **fast** connection-refused `Network` errors
+/// that exhaust the `RetryProvider`'s retry COUNT (surfacing the last error,
+/// `Network`) well before its time-`operation_budget` abandon path (which is the
+/// only source of `RetryAbandoned`). The budget-abandon path fires on SLOW
+/// failures, which connection-refused is not — so the `Network` branch is the one
+/// that trips endpoint-down. This `match` is exhaustive so a new `ProviderError`
+/// variant forces a conscious classification.
+fn is_connection(err: &ProviderError) -> bool {
+    match err {
+        ProviderError::Network { .. } => true,
+        ProviderError::Http { .. }
+        | ProviderError::Timeout { .. }
+        | ProviderError::Auth { .. }
+        | ProviderError::Process { .. }
+        | ProviderError::NestedSession
+        | ProviderError::RetryAbandoned { .. } => false,
+    }
+}
+
+/// Outcome of a single model attempt (including its own corrective schema retry).
+enum ModelOutcome {
+    /// A valid verdict was committed.
+    Success(AgentOutput),
+    /// Schema/parse failure after the corrective retry (or with retry disabled) —
+    /// mage-local condemnation, then rotate.
+    Schema(String),
+    /// Transport failure (`ProviderError` surfaced by the wrapped provider) or a
+    /// timeout — run-wide condemnation (`connection` per R7), then rotate. `kind`
+    /// distinguishes a plain transport hop from a timeout hop for telemetry.
+    Transport {
+        detail: String,
+        connection: bool,
+        kind: RotationKind,
+    },
+    /// A non-schema, non-transport failure — never rotates; surfaced verbatim.
+    Unexpected(String),
+}
+
+/// Runs ONE model attempt against `provider` with this agent's identity/prompt,
+/// including the single corrective schema retry (same model). Sets `*was_retried`
+/// if the corrective retry fired. Never rotates — the caller decides that from the
+/// returned [`ModelOutcome`].
+#[allow(clippy::too_many_arguments)]
+async fn attempt_model(
+    agent: &Agent,
+    provider: &Arc<dyn LlmProvider>,
+    user_prompt: &str,
+    config: &CompletionConfig,
+    validator: &Validator,
+    timeout: Duration,
+    retry_enabled: bool,
+    was_retried: &mut bool,
+) -> ModelOutcome {
+    // First attempt.
+    let first =
+        tokio::time::timeout(timeout, agent.execute_with(provider, user_prompt, config)).await;
+    let first_raw = match first {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
+        Err(_elapsed) => {
+            return ModelOutcome::Transport {
+                detail: format!("timeout: agent timed out after {timeout:?}"),
+                connection: false,
+                kind: RotationKind::Timeout,
+            };
+        }
+    };
+
+    let first_err = match parse_and_validate(&first_raw, validator) {
+        Ok(output) => return ModelOutcome::Success(output),
+        Err(e) => e,
+    };
+    let is_schema = matches!(
+        first_err,
+        MagiError::Validation(_) | MagiError::Deserialization(_)
+    );
+    if !is_schema {
+        // Not a schema failure and not transport — never rotate.
+        return ModelOutcome::Unexpected(first_err.to_string());
+    }
+    if !retry_enabled {
+        // Retry disabled → a schema failure rotates immediately (R6).
+        return ModelOutcome::Schema(first_err.to_string());
+    }
+
+    // Single corrective retry on the SAME model.
+    *was_retried = true;
+    let retry_prompt = build_retry_prompt(user_prompt, &first_err.to_string());
+    let second =
+        tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
+    let second_raw = match second {
+        Ok(Ok(raw)) => raw,
+        Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
+        Err(_elapsed) => {
+            return ModelOutcome::Transport {
+                detail: format!("retry-failed: timeout after {timeout:?}"),
+                connection: false,
+                kind: RotationKind::Timeout,
+            };
+        }
+    };
+    match parse_and_validate(&second_raw, validator) {
+        Ok(output) => ModelOutcome::Success(output),
+        Err(e) => ModelOutcome::Schema(format!("retry-failed: {e}")),
+    }
+}
+
+/// Maps a surfaced [`ProviderError`] to a transport/timeout [`ModelOutcome`].
+fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
+    let connection = is_connection(&err);
+    let kind = match err {
+        ProviderError::Timeout { .. } => RotationKind::Timeout,
+        _ => RotationKind::Transport,
+    };
+    ModelOutcome::Transport {
+        detail: MagiError::Provider(err).to_string(),
+        connection,
+        kind,
+    }
+}
+
+/// Dispatch a single agent with the MS2 rotation FSM.
+///
+/// Runs the agent's primary model, then — on a **transport** failure (condemned
+/// run-wide) or a **schema** failure surviving its corrective retry (condemned
+/// mage-local) — rotates to the next eligible fallback lineage via
+/// [`LineageRegistry::claim_next`], up to the pool's `max_rotations`. A panic or a
+/// non-schema/non-transport error **never rotates** and is surfaced.
+///
+/// The whole dispatch holds an [`AgentSlotGuard`]: success calls `mark_succeeded`
+/// (the mage keeps its lineage); a normal failure explicitly `release`s then
+/// `mark_released`; a panic/cancellation relies on the guard's `Drop`.
+///
+/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried)` — the
+/// per-agent output plus its real rotation chain (empty when it never rotated).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn dispatch_one_agent_rotating(
+    agent: Agent,
+    user_prompt: String,
+    config: CompletionConfig,
+    validator: Arc<Validator>,
+    timeout: Duration,
+    retry_enabled: bool,
+    registry: Arc<LineageRegistry>,
+    rotation: Arc<RotationConfig>,
+    primary_lineage: Lineage,
+    model_configured: String,
+) -> (Result<AgentOutput, String>, AgentRotation, bool) {
+    let agent_name = agent.name();
+    let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
+
+    let policy = RotationPolicy::new(rotation.pool.to_candidates(), rotation.pool.max_rotations());
+
+    let mut state = AgentRotationState {
+        model_configured: model_configured.clone(),
+        model_used: model_configured.clone(),
+        chain: Vec::new(),
+        used: [model_configured].into_iter().collect(),
+        failed_lineages: std::collections::BTreeSet::new(),
+        window_rejected: BTreeMap::new(),
+        rotations_done: 0,
+        succeeded: false,
+        ran_unmeasured: false,
+    };
+
+    let mut current_provider = agent.provider().clone();
+    let mut current_lineage = primary_lineage;
+    let mut was_retried = false;
+
+    loop {
+        let outcome = attempt_model(
+            &agent,
+            &current_provider,
+            &user_prompt,
+            &config,
+            &validator,
+            timeout,
+            retry_enabled,
+            &mut was_retried,
+        )
+        .await;
+
+        // Success/Unexpected return directly; Schema/Transport yield the
+        // `(kind, detail)` for the rotation hop after applying condemnation.
+        let (kind, detail) = match outcome {
+            ModelOutcome::Success(output) => {
+                state.succeeded = true;
+                guard.mark_succeeded();
+                return (Ok(output), state.to_rotation(), was_retried);
+            }
+            ModelOutcome::Unexpected(detail) => {
+                registry.release(agent_name).await;
+                guard.mark_released();
+                return (Err(detail), state.to_rotation(), was_retried);
+            }
+            ModelOutcome::Schema(detail) => {
+                // Schema failure is mage-local: this mage will not retry this
+                // lineage, but other mages still may.
+                state.failed_lineages.insert(current_lineage.clone());
+                (RotationKind::Schema, detail)
+            }
+            ModelOutcome::Transport {
+                detail,
+                connection,
+                kind,
+            } => {
+                // Transport failure condemns the lineage run-wide (and may trip the
+                // endpoint-down latch, which the collector detects).
+                registry
+                    .register_transport_failure(current_lineage.clone(), connection)
+                    .await;
+                (kind, detail)
+            }
+        };
+
+        // Try to rotate to the next eligible lineage.
+        match registry.claim_next(agent_name, &policy, &mut state).await {
+            Some(cand) => {
+                state.rotations_done += 1;
+                let event = RotationEvent::new(
+                    current_lineage.clone(),
+                    cand.lineage.clone(),
+                    cand.model.clone(),
+                    kind,
+                    detail,
+                );
+                state.chain.push(event);
+                current_provider = rotation.pool.candidate(cand.provider_ix).provider.clone();
+                current_lineage = cand.lineage.clone();
+                state.used.insert(cand.model.clone());
+                state.model_used = cand.model;
+            }
+            None => {
+                // Needed to rotate but found no eligible candidate.
+                registry.release(agent_name).await;
+                guard.mark_released();
+                return (
+                    Err(format!("no_fitting_candidate: {detail}")),
+                    state.to_rotation(),
+                    was_retried,
+                );
+            }
+        }
     }
 }
 

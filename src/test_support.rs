@@ -9,13 +9,18 @@
 //! line. Future versions may rename, restructure, or remove this module.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use async_trait::async_trait;
 
 use crate::agent::CURRENT_AGENT_IDENTITY;
 use crate::error::ProviderError;
+use crate::orchestrator::{Magi, MagiBuilder};
 use crate::provider::{CompletionConfig, LlmProvider};
+use crate::reporting::MagiReport;
+use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
 
 /// Mock provider that routes `complete()` calls to per-agent response
@@ -117,6 +122,319 @@ impl LlmProvider for RoutingMockProvider {
     fn model(&self) -> &str {
         "test"
     }
+}
+
+// ---------------------------------------------------------------------------
+// MS2 rotation test support: ScriptProvider, MockProbe, and thin trio builders.
+// ---------------------------------------------------------------------------
+
+const BAD_JSON: &str = "not json at all";
+
+/// AGENT-AWARE valid verdict body. Reads the `CURRENT_AGENT_IDENTITY` task-local
+/// (set by [`crate::agent::Agent::execute`]/`execute_with`) and emits a verdict
+/// whose `agent` field MATCHES the launched mage — so a shared-pool fallback
+/// serving whichever mage rotated to it produces the correct identity.
+///
+/// `AgentName` is `#[serde(rename_all = "lowercase")]`, so the wire token is
+/// lowercase (`"caspar"`), NOT `display_name()` (`"Caspar"`). We serialize the
+/// enum to get the exact token — a hand-written `"Caspar"` would fail to
+/// deserialize.
+pub fn valid_verdict_for_current_agent() -> String {
+    let who = CURRENT_AGENT_IDENTITY
+        .try_with(|a| *a)
+        .unwrap_or(AgentName::Melchior);
+    let agent = serde_json::to_value(who)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "melchior".into());
+    format!(
+        r#"{{"agent":"{agent}","verdict":"approve","confidence":0.9,"summary":"ok","reasoning":"r","recommendation":"go","findings":[]}}"#
+    )
+}
+
+/// One behavior per attempt index; the last entry repeats for further calls.
+#[derive(Clone)]
+pub enum Beh {
+    /// Return a valid, agent-aware verdict.
+    Ok,
+    /// Surface `ProviderError::Network` (connection-level → counts toward
+    /// endpoint-down).
+    Network,
+    /// Surface `ProviderError::Http { status: 503 }` (transport, NON-connection).
+    Http5xx,
+    /// Panic the task (never rotates — surfaces as a failure).
+    Panic,
+    /// Return unparseable JSON (schema failure → mage-local rotation).
+    BadJson,
+}
+
+/// A provider whose behavior is FIXED per instance and scripted per call index.
+/// The pool assigns a distinct provider per lineage, so "which model ran" equals
+/// "which provider was called" — the [`ScriptProvider::calls`] counter proves a
+/// wrapped `RetryProvider` actually retried before the FSM rotated.
+pub struct ScriptProvider {
+    name: String,
+    model: String,
+    script: Vec<Beh>,
+    calls: AtomicUsize,
+}
+
+impl ScriptProvider {
+    /// Builds a scripted provider (returned as `Arc` for direct use as a
+    /// provider handle). `script` behaviors are consumed by call index; the last
+    /// entry repeats.
+    pub fn new(model: &str, script: Vec<Beh>) -> Arc<Self> {
+        Arc::new(Self {
+            name: format!("mock-{model}"),
+            model: model.into(),
+            script,
+            calls: AtomicUsize::new(0),
+        })
+    }
+
+    /// Number of `complete` calls this provider received.
+    pub fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for ScriptProvider {
+    async fn complete(
+        &self,
+        _s: &str,
+        _u: &str,
+        _c: &CompletionConfig,
+    ) -> Result<String, ProviderError> {
+        let i = self.calls.fetch_add(1, Ordering::SeqCst);
+        let beh = self
+            .script
+            .get(i)
+            .or_else(|| self.script.last())
+            .cloned()
+            .unwrap_or(Beh::Ok);
+        match beh {
+            Beh::Ok => Ok(valid_verdict_for_current_agent()),
+            Beh::BadJson => Ok(BAD_JSON.into()),
+            Beh::Network => Err(ProviderError::Network {
+                message: "connection refused".into(),
+            }),
+            Beh::Http5xx => Err(ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None,
+            }),
+            Beh::Panic => panic!("mock panic"),
+        }
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
+/// An Ollama-like provider that is BOTH an [`LlmProvider`] and a
+/// [`ProviderProbe`], for probe/verify tests (window + digest).
+pub struct MockProbe {
+    name: String,
+    model: String,
+    window: Option<usize>,
+    digest: Option<String>,
+}
+
+impl MockProbe {
+    /// A probe with a fixed digest and a comfortable 200k window.
+    pub fn with_digest(model: &str, d: &str) -> Arc<Self> {
+        Arc::new(Self {
+            name: format!("probe-{model}"),
+            model: model.into(),
+            window: Some(200_000),
+            digest: Some(d.into()),
+        })
+    }
+    /// A probe with a configurable window (`None` = unmeasurable) and a
+    /// model-derived digest.
+    pub fn with_window(model: &str, w: Option<usize>) -> Arc<Self> {
+        Arc::new(Self {
+            name: format!("probe-{model}"),
+            model: model.into(),
+            window: w,
+            digest: Some(format!("sha:{model}")),
+        })
+    }
+}
+
+#[async_trait]
+impl LlmProvider for MockProbe {
+    async fn complete(
+        &self,
+        _s: &str,
+        _u: &str,
+        _c: &CompletionConfig,
+    ) -> Result<String, ProviderError> {
+        Ok(valid_verdict_for_current_agent())
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn model(&self) -> &str {
+        &self.model
+    }
+}
+
+#[async_trait]
+impl ProviderProbe for MockProbe {
+    async fn window(&self) -> Result<Option<usize>, ProviderError> {
+        Ok(self.window)
+    }
+    async fn digest(&self) -> Result<Option<String>, ProviderError> {
+        Ok(self.digest.clone())
+    }
+}
+
+/// A `ScriptProvider` that always succeeds — the default happy provider.
+fn ok(model: &str) -> Arc<ScriptProvider> {
+    ScriptProvider::new(model, vec![Beh::Ok])
+}
+
+/// A trio where Melchior/Balthasar succeed and Caspar uses `caspar`; `pool` is a
+/// list of `(model, lineage)` fallbacks with `max_rotations = 2`.
+pub fn build_trio_with_caspar(
+    caspar: Arc<dyn LlmProvider>,
+    pool: Vec<(&'static str, &'static str)>,
+) -> Magi {
+    let mut pb = FallbackPool::builder().max_rotations(2);
+    for (model, lin) in pool {
+        pb = pb.push(ScriptProvider::new(model, vec![Beh::Ok]), Lineage::new(lin));
+    }
+    MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ok("m-alibaba"),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ok("m-moonshot"),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar, Lineage::new("deepseek"))
+        .with_fallback_pool(pb.build())
+        .build()
+        .unwrap()
+}
+
+/// Caspar's deepseek primary returns `BadJson` on both attempt and corrective
+/// retry → schema fail (mage-local) → rotate to the pool. deepseek is never
+/// condemned run-wide (schema ≠ transport), which the S4 test asserts.
+pub fn build_schema_local_case() -> Magi {
+    build_trio_with_caspar(
+        ScriptProvider::new("deepseek", vec![Beh::BadJson]),
+        vec![("glm", "zhipu")],
+    )
+}
+
+/// Melchior + Caspar both transport-fail with `Http 5xx` (NON-connection, so the
+/// endpoint-down latch never fires — that is S13's job). Only ONE free fallback
+/// lineage (`zhipu`) exists → exactly one of them reserves it, the other gets
+/// `no_fitting_candidate`. Diversity is preserved (never a duplicated lineage).
+pub fn build_two_failing_with_single_free_fallback() -> Magi {
+    MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("m-alibaba", vec![Beh::Http5xx]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ok("m-moonshot"),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("m-deepseek", vec![Beh::Http5xx]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(ok("glm"), Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap()
+}
+
+/// Melchior + Caspar Network-fail (connection) with an EMPTY pool → the
+/// endpoint-down latch fires at the 2nd distinct connection lineage (S13).
+pub fn build_two_network_failing_no_fallback() -> Magi {
+    MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("m-alibaba", vec![Beh::Network]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ok("m-moonshot"),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("m-deepseek", vec![Beh::Network]),
+            Lineage::new("deepseek"),
+        )
+        // Empty pool → rotation is engaged (registry built) but there is nothing
+        // to rotate to; the connection failures still trip endpoint-down.
+        .with_fallback_pool(FallbackPool::builder().build())
+        .build()
+        .unwrap()
+}
+
+/// Melchior + Caspar `Http 5xx` (NON-connection) with TWO free local fallbacks →
+/// both rotate successfully, no endpoint-down (S14).
+pub fn build_two_5xx_with_local_fallbacks() -> Magi {
+    MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("m-alibaba", vec![Beh::Http5xx]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ok("m-moonshot"),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("m-deepseek", vec![Beh::Http5xx]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(ok("glm"), Lineage::new("zhipu"))
+                .push(ok("minimax"), Lineage::new("minimax-lin"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap()
+}
+
+/// Reads the run-wide condemned lineages from telemetry: a lineage is
+/// run-condemned iff some agent left it via a TRANSPORT/TIMEOUT hop (schema hops
+/// are mage-local, so they never appear here).
+pub fn report_run_failed(report: &MagiReport) -> std::collections::BTreeSet<Lineage> {
+    report
+        .rotations
+        .values()
+        .flat_map(|r| r.chain.iter())
+        .filter(|e| matches!(e.kind(), RotationKind::Transport | RotationKind::Timeout))
+        .map(|e| e.from().clone())
+        .collect()
 }
 
 #[cfg(test)]

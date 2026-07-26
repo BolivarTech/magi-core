@@ -266,8 +266,6 @@ impl LineageRegistry {
 }
 
 /// Maximum length, in Unicode scalar values, of a [`RotationEvent`]'s `detail`.
-// Consumed by `RotationEvent::new`, which the FSM (Task 8) calls; allow removed there.
-#[allow(dead_code)]
 const MAX_ROTATION_DETAIL_CHARS: usize = 256;
 
 /// Why a mage left a model — the cause that triggered a rotation hop. Connection
@@ -314,8 +312,6 @@ impl RotationEvent {
     /// stripped via `clean_title`) and **truncating** it to
     /// [`MAX_ROTATION_DETAIL_CHARS`] on a char boundary. `detail` may carry an
     /// untrusted error body, so this bounds every telemetry record.
-    // Consumed by the rotation FSM (Task 8); allow removed there.
-    #[allow(dead_code)]
     pub(crate) fn new(
         from: Lineage,
         to: Lineage,
@@ -372,8 +368,6 @@ impl AgentRotationState {
     /// state — the FSM's single sink, so a panicked or first-try mage still yields
     /// a present, chain-empty record (never an absent one). Maps the four shared
     /// fields 1:1.
-    // Consumed by the rotation FSM / collector (Task 8/9); allow removed there.
-    #[allow(dead_code)]
     pub(crate) fn to_rotation(&self) -> AgentRotation {
         AgentRotation {
             model_configured: self.model_configured.clone(),
@@ -462,17 +456,12 @@ impl LineageRegistry {
 /// turn a would-be success into an honest `InsufficientAgents`, never an incorrect
 /// verdict. The common paths (success/normal-failure via `mark_released`,
 /// panic/cancellation via the uncontended `try_lock`) have no gap.
-// Forward reference: exercised by the tests below and CONSUMED by
-// `dispatch_one_agent` (Task 8). Until that caller lands, the non-test lib build
-// sees it as unused — this `allow` documents that and is REMOVED in Task 8.
-#[allow(dead_code)]
 pub(crate) struct AgentSlotGuard {
     reg: Arc<LineageRegistry>,
     agent: AgentName,
     succeeded: bool,
     released: bool,
 }
-#[allow(dead_code)]
 impl AgentSlotGuard {
     pub(crate) fn new(reg: Arc<LineageRegistry>, agent: AgentName) -> Self {
         Self {
@@ -553,17 +542,11 @@ pub const DEFAULT_MAX_ROTATIONS: u32 = 2;
 /// Immutable, encapsulated fallback pool shared run-wide (R3.1). Built via
 /// [`FallbackPool::builder`]; construction is infallible (an empty pool is valid,
 /// duplicate lineages only warn — G2).
-// Forward reference: `max_rotations` and the `pub(crate)` accessors below are
-// CONSUMED by `MagiBuilder::with_fallback_pool` (Task 7), `dispatch_one_agent`
-// (Task 8), and `RotationPolicy::new` from the pool (Task 11). Until those land,
-// the non-test lib build sees them unused — the `allow`s are REMOVED there.
-#[allow(dead_code)]
 pub struct FallbackPool {
     candidates: Vec<FallbackCandidate>,
     max_rotations: u32,
 }
 
-#[allow(dead_code)]
 impl FallbackPool {
     /// Starts a [`FallbackPoolBuilder`] seeded with [`DEFAULT_MAX_ROTATIONS`].
     pub fn builder() -> FallbackPoolBuilder {
@@ -666,11 +649,11 @@ impl FallbackPoolBuilder {
 /// Run-wide rotation configuration assembled by the builder: the trio's declared
 /// primary lineages (+ any declared primary probes) and the shared fallback pool.
 /// `None` on the orchestrator means rotation is disabled (2.0.x behavior).
-// Forward reference: consumed by `analyze`/`dispatch_one_agent` (Task 8) and the
-// preflight (Task 11). `allow` removed once those wire it in.
-#[allow(dead_code)]
 pub(crate) struct RotationConfig {
     pub(crate) primary_lineages: BTreeMap<AgentName, Lineage>,
+    /// Declared primary probes — consumed by the Task 11 preflight; unused until
+    /// then, so this one field keeps a forward-reference `allow`.
+    #[allow(dead_code)]
     pub(crate) primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
     pub(crate) pool: FallbackPool,
 }

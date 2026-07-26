@@ -132,6 +132,37 @@ impl Agent {
             .await
     }
 
+    /// Executes against an EXPLICIT provider (a rotation fallback, MS2) using
+    /// **this agent's identity and system prompt**.
+    ///
+    /// Identical to [`execute`](Agent::execute) except the provider is supplied
+    /// by the caller instead of being the agent's own. The rotation FSM uses it
+    /// to run a shared-pool fallback while keeping the launched mage's identity
+    /// (`CURRENT_AGENT_IDENTITY`) and role prompt — so a fallback serving
+    /// whichever mage rotated to it still produces the correct verdict.
+    ///
+    /// # Errors
+    /// Returns `ProviderError` on LLM communication failure.
+    pub(crate) async fn execute_with(
+        &self,
+        provider: &Arc<dyn LlmProvider>,
+        user_prompt: &str,
+        config: &CompletionConfig,
+    ) -> Result<String, ProviderError> {
+        CURRENT_AGENT_IDENTITY
+            .scope(
+                self.name,
+                provider.complete(&self.system_prompt, user_prompt, config),
+            )
+            .await
+    }
+
+    /// Returns a handle to this agent's primary provider (for the rotation FSM's
+    /// first attempt, before any rotation).
+    pub(crate) fn provider(&self) -> &Arc<dyn LlmProvider> {
+        &self.provider
+    }
+
     /// Returns the agent's name.
     pub fn name(&self) -> AgentName {
         self.name
