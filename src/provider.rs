@@ -183,6 +183,12 @@ pub struct RetryConfig {
     /// Ceiling for our own backoff. Mandatory: there is no "no ceiling".
     pub cap: Duration,
     /// Maximum `Retry-After` we accept obeying; exceeding it abandons.
+    ///
+    /// The `Retry-After` header is parsed in **whole seconds** (RFC 7231
+    /// delta-seconds), so this cap is compared at whole-second granularity: a
+    /// **sub-second** `retry_after_cap` (e.g. 500 ms) rounds down to 0 s, which
+    /// makes **every** positive `Retry-After` (>= 1 s) exceed it and abandon.
+    /// Use whole-second values; `ZERO` is the explicit "ignore the header" opt-out.
     pub retry_after_cap: Duration,
     /// Hard cap on the total retry time. `Duration::MAX` disables it.
     ///
