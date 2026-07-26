@@ -13,10 +13,6 @@ use std::time::Duration;
 /// `pub(crate)`: returned by `parse_retry_after`, which is itself `pub(crate)`,
 /// so it is never exposed on the public surface (no `#[non_exhaustive]` needed —
 /// in-crate the exhaustive `match` is what we want).
-// No consumer yet: the retry loop (Task 7) is the first to `match` on this and
-// call `parse_retry_after`. `#[allow(dead_code)]` instead of fabricating a fake
-// caller (forbidden by CLAUDE.local.md §6.1.8 / spec R8).
-#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RetryAfter {
     /// No header, or the header explicitly means "use our own formula"
@@ -53,8 +49,6 @@ pub(crate) enum RetryAfter {
 /// fall back to a formula, `Honor(Duration)` to wait exactly that long, `TooLong`
 /// if the server asked for more than `cap`, or `Unintelligible` if a header was
 /// present but could not be parsed.
-// Wired into the retry loop in Task 7; unused until then (see the enum note).
-#[allow(dead_code)]
 pub(crate) fn parse_retry_after(values: &[String], cap: Duration) -> RetryAfter {
     if cap.is_zero() {
         return RetryAfter::Absent;
@@ -187,8 +181,6 @@ pub const RETRY_AFTER_JITTER: Duration = Duration::from_secs(1);
 /// # Returns
 /// A `Duration` in `[0, cap]` (or `[retry_after, retry_after + JITTER]` when the
 /// server is honored). **Never panics, never overflows** (saturating arithmetic).
-// Wired into the retry loop in Task 7; unused until then.
-#[allow(dead_code)]
 pub(crate) fn next_backoff(
     attempt: u32,
     class: RetryClass,
@@ -233,8 +225,6 @@ pub(crate) fn next_backoff(
 /// **before** the `clamp`, because `f64::clamp` **returns `NaN` for `NaN`** —
 /// clamping alone is not enough, and a `Duration` scaled by `NaN` is garbage or
 /// a panic.
-// Only called by `next_backoff` (wired in Task 7) and the tests.
-#[allow(dead_code)]
 fn sanitize(v: f64) -> f64 {
     if !v.is_finite() {
         return 0.0;

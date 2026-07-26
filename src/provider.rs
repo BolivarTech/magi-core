@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::backoff::RetryClass;
-use crate::error::ProviderError;
+use crate::error::{AbandonReason, ProviderError};
 use crate::schema::Mode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -286,20 +286,24 @@ impl RetryProvider {
 /// Retryable errors:
 /// - `Timeout`: Provider did not respond in time.
 /// - `Network`: DNS, connection refused, etc.
-/// - `Http` with status 500 (server error) or 429 (rate limit).
+/// - `Http` with a transient status (408, 429, 500, 502, 503, 504). The three
+///   new 5xx cover local server cold-start; 408 is a server-side request timeout.
 ///
 /// Non-retryable errors:
 /// - `Auth`: Invalid credentials won't become valid on retry.
 /// - `Process`: CLI subprocess failure.
 /// - `NestedSession`: Structural environment issue.
-/// - `Http` with other status codes (e.g., 400, 403, 404).
+/// - `Http` with any other status code (e.g., 400, 403, 404).
 fn is_retryable(error: &ProviderError) -> bool {
     match error {
         ProviderError::Timeout { .. } | ProviderError::Network { .. } => true,
-        ProviderError::Http { status, .. } => *status == 500 || *status == 429,
+        ProviderError::Http { status, .. } => TRANSIENT_STATUSES.contains(status),
         _ => false,
     }
 }
+
+/// HTTP statuses considered transient (worth retrying).
+const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504];
 
 /// Maps a [`ProviderError`] to its [`RetryClass`].
 ///
@@ -309,8 +313,6 @@ fn is_retryable(error: &ProviderError) -> bool {
 /// for external consumers, but **not within the crate**: adding a variant
 /// **breaks compilation here** until it is mapped. Without this, a new class
 /// would silently fall into the wrong backoff path.
-// Wired into the retry loop in Task 7; unused until then.
-#[allow(dead_code)]
 pub(crate) fn classify(err: &ProviderError) -> RetryClass {
     match err {
         ProviderError::Timeout { .. } => RetryClass::Timeout,
@@ -331,26 +333,125 @@ impl LlmProvider for RetryProvider {
         user_prompt: &str,
         config: &CompletionConfig,
     ) -> Result<String, ProviderError> {
-        let mut last_error = None;
-        let mut delay = self.config.base_delay;
+        let started = std::time::Instant::now();
+        let mut last_error: Option<ProviderError> = None;
+
         for attempt in 0..=self.config.max_retries {
-            match self
+            // Reactive budget check, before each new attempt.
+            if attempt > 0 {
+                let elapsed = started.elapsed();
+                if elapsed >= self.config.operation_budget {
+                    // If the budget is exhausted already on the first check, a
+                    // single attempt consumed it whole: almost always
+                    // `operation_budget < provider timeout`. Detected by SYMPTOM,
+                    // not by comparing config: the `LlmProvider` trait does not
+                    // expose the wrapped timeout, so a construction-time comparison
+                    // would be unreachable code.
+                    if attempt == 1 {
+                        tracing::warn!(
+                            target: "magi_core::retry",
+                            ?elapsed,
+                            budget = ?self.config.operation_budget,
+                            "operation_budget exhausted by a SINGLE attempt: no retry will ever happen. Is the budget smaller than the provider timeout?"
+                        );
+                    }
+                    tracing::warn!(
+                        target: "magi_core::retry",
+                        ?elapsed,
+                        budget = ?self.config.operation_budget,
+                        attempts = attempt,
+                        "operation budget exhausted; abandoning retries"
+                    );
+                    return Err(ProviderError::RetryAbandoned {
+                        reason: AbandonReason::OperationBudgetExhausted {
+                            elapsed,
+                            budget: self.config.operation_budget,
+                        },
+                        attempts: attempt,
+                    });
+                }
+            }
+
+            let err = match self
                 .inner
                 .complete(system_prompt, user_prompt, config)
                 .await
             {
                 Ok(response) => return Ok(response),
-                Err(err) => {
-                    if !is_retryable(&err) || attempt == self.config.max_retries {
-                        return Err(err);
-                    }
-                    last_error = Some(err);
-                    tokio::time::sleep(delay).await;
-                    delay = delay.saturating_mul(2);
-                }
+                Err(e) => e,
+            };
+
+            if !is_retryable(&err) || attempt == self.config.max_retries {
+                return Err(err);
             }
+
+            // Interpret the Retry-After HERE: the only point that knows the
+            // configured cap. A present but non-honorable header ABANDONS.
+            let retry_after = match &err {
+                ProviderError::Http {
+                    retry_after_raw,
+                    received_at,
+                    ..
+                } => match crate::backoff::parse_retry_after(
+                    retry_after_raw.as_slice(),
+                    self.config.retry_after_cap,
+                ) {
+                    crate::backoff::RetryAfter::Absent => None,
+                    crate::backoff::RetryAfter::Honor(asked) => {
+                        // C3.1: discount the time elapsed since the headers were
+                        // received, with SATURATING subtraction (never negative).
+                        Some(match received_at {
+                            Some(t) => asked.saturating_sub(t.elapsed()),
+                            None => asked,
+                        })
+                    }
+                    crate::backoff::RetryAfter::TooLong { requested } => {
+                        return Err(ProviderError::RetryAbandoned {
+                            reason: AbandonReason::RetryAfterTooLong {
+                                requested,
+                                cap: self.config.retry_after_cap,
+                            },
+                            attempts: attempt + 1,
+                        });
+                    }
+                    crate::backoff::RetryAfter::Unintelligible { raw } => {
+                        return Err(ProviderError::RetryAbandoned {
+                            reason: AbandonReason::RetryAfterUnintelligible { raw },
+                            attempts: attempt + 1,
+                        });
+                    }
+                },
+                _ => None,
+            };
+
+            let mut rand = || fastrand::f64();
+            let wait = crate::backoff::next_backoff(
+                attempt,
+                classify(&err),
+                self.config.base_delay,
+                self.config.cap,
+                &self.config.flat_classes,
+                retry_after,
+                &mut rand,
+            );
+
+            last_error = Some(err);
+            tokio::time::sleep(wait).await;
         }
-        Err(last_error.expect("at least one attempt must have been made"))
+
+        // Unreachable by construction: the loop is only left AFTER at least one
+        // failed attempt, and every failure assigns `last_error`. The
+        // `debug_assert!` makes it visible in dev if someone restructures the
+        // loop; in release it degrades to an honest error rather than panicking,
+        // because a library must not tear down the consumer's process for its own
+        // bug (§Error handling: `panic!` only for the unrecoverable).
+        debug_assert!(
+            last_error.is_some(),
+            "the loop exited without recording any error: check the exit condition"
+        );
+        Err(last_error.unwrap_or(ProviderError::Network {
+            message: "retry loop ended without an attempt".to_string(),
+        }))
     }
 
     fn name(&self) -> &str {
@@ -366,8 +467,348 @@ impl LlmProvider for RetryProvider {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::Duration;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    // -- Test providers for the retry loop (Task 7) --
+
+    /// Always fails with the given error. Counts invocations.
+    struct FailingProvider {
+        error: ProviderError,
+        calls: AtomicUsize,
+    }
+
+    impl FailingProvider {
+        fn new(error: ProviderError) -> Self {
+            Self {
+                error,
+                calls: AtomicUsize::new(0),
+            }
+        }
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for FailingProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(self.error.clone())
+        }
+        fn name(&self) -> &str {
+            "failing"
+        }
+        fn model(&self) -> &str {
+            "failing"
+        }
+    }
+
+    /// Like `FailingProvider`, but **delays** before failing: used to exhaust the
+    /// `operation_budget` with a controlled number of attempts. Also records the
+    /// peak concurrency observed (deterministic, no timing asserts).
+    struct SlowFailingProvider {
+        delay: Duration,
+        calls: AtomicUsize,
+        in_flight: AtomicUsize,
+        peak_in_flight: AtomicUsize,
+    }
+
+    impl SlowFailingProvider {
+        fn new(delay: Duration) -> Self {
+            Self {
+                delay,
+                calls: AtomicUsize::new(0),
+                in_flight: AtomicUsize::new(0),
+                peak_in_flight: AtomicUsize::new(0),
+            }
+        }
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+        fn peak_in_flight(&self) -> usize {
+            self.peak_in_flight.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for SlowFailingProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak_in_flight.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(self.delay).await;
+            self.in_flight.fetch_sub(1, Ordering::SeqCst);
+            Err(ProviderError::Network {
+                message: "slow fail".to_string(),
+            })
+        }
+        fn name(&self) -> &str {
+            "slow-failing"
+        }
+        fn model(&self) -> &str {
+            "slow-failing"
+        }
+    }
+
+    /// Returns a 429 with the given `Retry-After` headers and, after `fail_times`
+    /// failures, responds with success. The only one that exercises C1/C3.
+    struct RetryAfterProvider {
+        headers: Vec<String>,
+        fail_times: usize,
+        calls: AtomicUsize,
+    }
+
+    impl RetryAfterProvider {
+        fn new(headers: Vec<String>, fail_times: usize) -> Self {
+            Self {
+                headers,
+                fail_times,
+                calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for RetryAfterProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            if n >= self.fail_times {
+                return Ok("ok".to_string());
+            }
+            Err(ProviderError::Http {
+                status: 429,
+                body: String::new(),
+                retry_after_raw: self.headers.clone(),
+                received_at: Some(Instant::now()),
+            })
+        }
+        fn name(&self) -> &str {
+            "retry-after"
+        }
+        fn model(&self) -> &str {
+            "retry-after"
+        }
+    }
+
+    #[test]
+    fn test_is_retryable_covers_the_eight_transient_cases() {
+        for status in [408u16, 429, 500, 502, 503, 504] {
+            assert!(
+                is_retryable(&ProviderError::Http {
+                    status,
+                    body: String::new(),
+                    retry_after_raw: vec![],
+                    received_at: None
+                }),
+                "status {status} must be transient"
+            );
+        }
+        assert!(is_retryable(&ProviderError::Timeout {
+            message: String::new()
+        }));
+        assert!(is_retryable(&ProviderError::Network {
+            message: String::new()
+        }));
+    }
+
+    #[test]
+    fn test_is_retryable_rejects_non_transient() {
+        for status in [400u16, 403, 404] {
+            assert!(!is_retryable(&ProviderError::Http {
+                status,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None
+            }));
+        }
+        assert!(!is_retryable(&ProviderError::Auth {
+            message: String::new()
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_max_retries_zero_does_not_retry() {
+        let inner = Arc::new(FailingProvider::new(ProviderError::Network {
+            message: "fail".into(),
+        }));
+        let p = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                max_retries: 0,
+                ..Default::default()
+            },
+        );
+        let _ = p.complete("s", "u", &CompletionConfig::default()).await;
+        assert_eq!(inner.calls(), 1, "only the initial request");
+    }
+
+    #[tokio::test]
+    async fn test_base_zero_with_three_retries_emits_exactly_four_requests() {
+        // S2 / B7 end-to-end: `base_delay = 0` does not sleep, but the burst is
+        // BOUNDED to `max_retries + 1`.
+        let inner = Arc::new(FailingProvider::new(ProviderError::Network {
+            message: "fail".into(),
+        }));
+        let p = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                base_delay: Duration::ZERO,
+                max_retries: 3,
+                ..Default::default()
+            },
+        );
+        let _ = p.complete("s", "u", &CompletionConfig::default()).await;
+        assert_eq!(inner.calls(), 4, "1 initial + 3 retries, no infinite loop");
+    }
+
+    #[tokio::test]
+    async fn test_budget_exhaustion_abandons_with_typed_reason() {
+        let inner = Arc::new(SlowFailingProvider::new(Duration::from_millis(50)));
+        let p = RetryProvider::with_config(
+            inner,
+            RetryConfig {
+                operation_budget: Duration::from_millis(10),
+                base_delay: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+        let err = p
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::OperationBudgetExhausted { .. },
+                    ..
+                }
+            ),
+            "expected budget abandonment, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retry_after_beyond_cap_abandons_with_typed_reason() {
+        let inner = Arc::new(RetryAfterProvider::new(vec!["600".to_string()], 1));
+        let p = RetryProvider::new(inner);
+        let err = p
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::RetryAfterTooLong { .. },
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_single_attempt_budget_exhaustion_is_announced() {
+        // Budget smaller than one attempt's duration: NEVER a retry.
+        let inner = Arc::new(SlowFailingProvider::new(Duration::from_millis(80)));
+        let provider = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                operation_budget: Duration::from_millis(10),
+                ..Default::default()
+            },
+        );
+        let err = provider
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            inner.calls(),
+            1,
+            "one attempt: the budget cuts before the second"
+        );
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::OperationBudgetExhausted { .. },
+                    attempts: 1,
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_operation_budget_zero_yields_single_attempt() {
+        // E3.1 exact edge: `operation_budget = ZERO` -> `elapsed >= 0` is met on
+        // the first check -> ZERO retries, behaves like `max_retries = 0`.
+        let inner = Arc::new(FailingProvider::new(ProviderError::Network {
+            message: "x".into(),
+        }));
+        let provider = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                operation_budget: Duration::ZERO,
+                ..Default::default()
+            },
+        );
+        let _ = provider
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert_eq!(inner.calls(), 1, "budget ZERO: one attempt, no retries");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn test_shared_provider_does_not_serialize_callers() {
+        // Three concurrent tasks over ONE shared RetryProvider behind Arc. A peak
+        // `>= 2` proves it did NOT serialize callers (an internal mutex would give
+        // peak 1). Not a formal proof of no interior mutability (R10 is structural,
+        // held by type review); asserted `>= 2` (robust) not `== 3`.
+        let inner_probe = Arc::new(SlowFailingProvider::new(Duration::from_millis(50)));
+        let provider = Arc::new(RetryProvider::with_config(
+            Arc::clone(&inner_probe) as Arc<dyn LlmProvider>,
+            RetryConfig {
+                max_retries: 0,
+                ..Default::default()
+            },
+        ));
+
+        let mut handles = Vec::new();
+        for _ in 0..3 {
+            let p = Arc::clone(&provider);
+            handles.push(tokio::spawn(async move {
+                let _ = p.complete("s", "u", &CompletionConfig::default()).await;
+            }));
+        }
+        for h in handles {
+            h.await.expect("task joined");
+        }
+
+        assert!(
+            inner_probe.peak_in_flight() >= 2,
+            "the shared provider serialized callers: concurrency peak = {}",
+            inner_probe.peak_in_flight()
+        );
+    }
 
     #[test]
     fn test_retry_config_defaults() {
