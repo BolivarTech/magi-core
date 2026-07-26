@@ -93,6 +93,7 @@ impl fmt::Display for Lineage {
 /// is the candidate's model-id (from `provider.model()`). No `is_cloud`: the
 /// digest verify is fail-open on an unresolvable digest, so provider kind is
 /// irrelevant to eligibility.
+#[derive(Clone)]
 pub struct Candidate {
     pub provider_ix: usize,
     pub lineage: Lineage,
@@ -285,25 +286,76 @@ pub struct AgentRotationState {
 
 impl LineageRegistry {
     /// Reserve the next eligible fallback for `agent`, committing it under the
-    /// lock. RED STUB (Task 4): real read-decide-commit lands in the Green step.
+    /// single lock (read-decide-commit).
+    ///
+    /// Postcondition: `Some` → the mage's `active` entry was **replaced** by the
+    /// chosen candidate; `None` → the registry is left **intact**. `window_rejected`
+    /// is cleared at entry so a dynamic rejection is re-evaluated on the next call.
+    /// The digest re-propose loop (fail-open, R5a) replaces this body in a later
+    /// task with the same signature and postcondition.
     pub async fn claim_next(
         &self,
-        _agent: AgentName,
-        _policy: &RotationPolicy,
-        _state: &mut AgentRotationState,
+        agent: AgentName,
+        policy: &RotationPolicy,
+        state: &mut AgentRotationState,
     ) -> Option<Candidate> {
-        None
+        let mut g = self.lock.lock().await;
+        state.window_rejected.clear();
+        let in_play: BTreeSet<Lineage> = g
+            .active
+            .iter()
+            .filter(|(a, _)| **a != agent)
+            .map(|(_, e)| e.lineage.clone())
+            .collect();
+        let chosen = policy
+            .next_model(
+                &state.failed_lineages,
+                &g.run_failed,
+                &in_play,
+                &state.used,
+                &state.window_rejected,
+                state.rotations_done,
+            )?
+            .clone();
+        g.active.insert(
+            agent,
+            ActiveEntry {
+                lineage: chosen.lineage.clone(),
+                model: chosen.model.clone(),
+            },
+        );
+        Some(chosen)
     }
 }
 
-/// RAII guard that releases a mage's lineage slot on drop unless the mage
-/// succeeded. (Cancellation-safe cleanup — real `Drop` logic in the Green step.)
+/// RAII guard that releases a mage's lineage slot on drop **unless** the mage
+/// succeeded or was already released explicitly.
+///
+/// This is the cancellation-safe cleanup: an explicit `release()` call in the
+/// exit branches does NOT run when the task future is dropped mid-`await`
+/// (cancellation), but a `Drop` impl DOES — so the guard covers success-skip,
+/// normal failure, panic-unwind, AND cancellation-drop. `release` is async and
+/// `Drop` is sync, so drop does a best-effort synchronous release via the
+/// registry mutex's `try_lock`; if contended, it detaches the cleanup on the
+/// current runtime handle. `remove` is idempotent and keyed by `agent`, so a
+/// redundant release is harmless and never touches another mage's slot.
+///
+/// Contended-drop nuance (documented, NOT a defect): on the detached-spawn path
+/// the slot frees a scheduling tick later; in a pool-exhausted scenario that can
+/// turn a would-be success into an honest `InsufficientAgents`, never an incorrect
+/// verdict. The common paths (success/normal-failure via `mark_released`,
+/// panic/cancellation via the uncontended `try_lock`) have no gap.
+// Forward reference: exercised by the tests below and CONSUMED by
+// `dispatch_one_agent` (Task 8). Until that caller lands, the non-test lib build
+// sees it as unused — this `allow` documents that and is REMOVED in Task 8.
+#[allow(dead_code)]
 pub(crate) struct AgentSlotGuard {
     reg: Arc<LineageRegistry>,
     agent: AgentName,
     succeeded: bool,
     released: bool,
 }
+#[allow(dead_code)]
 impl AgentSlotGuard {
     pub(crate) fn new(reg: Arc<LineageRegistry>, agent: AgentName) -> Self {
         Self {
@@ -325,8 +377,32 @@ impl AgentSlotGuard {
 }
 impl Drop for AgentSlotGuard {
     fn drop(&mut self) {
-        // RED STUB: real best-effort release lands in the Green step.
-        let _ = (&self.reg, self.agent, self.succeeded, self.released);
+        // Success or an explicit release already handled it → nothing to do.
+        if self.succeeded || self.released {
+            return;
+        }
+        let agent = self.agent;
+        // Fast path: uncontended (the unwinding/cancelled task holds no registry lock).
+        if let Ok(mut g) = self.reg.lock.try_lock() {
+            g.active.remove(&agent);
+            return;
+        }
+        // Contended: `Drop` is sync and `release` is async, so detach the cleanup on
+        // the current runtime. `remove` is idempotent and keyed by `agent`.
+        if let Ok(h) = tokio::runtime::Handle::try_current() {
+            let reg = self.reg.clone();
+            h.spawn(async move {
+                reg.release(agent).await;
+            });
+        } else {
+            // No runtime to schedule on (e.g. runtime shutting down). Benign: the
+            // per-run registry is being torn down anyway, so the slot has no observer.
+            tracing::warn!(
+                agent = agent.display_name(),
+                "AgentSlotGuard: could not schedule lineage release on drop (no runtime); \
+                 slot left to registry teardown"
+            );
+        }
     }
 }
 
@@ -618,8 +694,10 @@ mod tests {
                 .await
                 .is_none()
         );
+        // Registry intact: Caspar still holds "d". Query with a DIFFERENT exclude
+        // (Melchior) so Caspar's lineage is visible (`in_play` excludes its argument).
         assert!(
-            r.lineages_in_play(AgentName::Caspar)
+            r.lineages_in_play(AgentName::Melchior)
                 .await
                 .contains(&Lineage::from("d"))
         ); // intact
@@ -758,6 +836,21 @@ mod tests {
         assert!(
             released,
             "contended Drop must release the slot via the detached spawn once the lock frees"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_slot_guard_mark_released_suppresses_drop() {
+        // `mark_released` signals the slot was already released explicitly → Drop skips.
+        let r = reg();
+        {
+            let mut g = AgentSlotGuard::new(r.clone(), AgentName::Melchior);
+            g.mark_released();
+        } // drop is a no-op (released) — we did NOT actually release here, so "a" stays in play
+        assert!(
+            r.lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a"))
         );
     }
 }
