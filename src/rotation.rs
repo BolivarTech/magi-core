@@ -11,6 +11,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use tokio::sync::Mutex;
+
 use crate::schema::AgentName;
 
 /// A declared model-family lineage label (e.g. `"alibaba"`, `"deepseek"`).
@@ -161,29 +163,99 @@ pub struct ActiveEntry {
     pub model: String,
 }
 
-/// Shared run-wide rotation state behind a single lock (implemented in the Green
-/// step). RED STUB: methods return defaults so the tests compile and fail.
-pub struct LineageRegistry {}
+/// Mutable run-wide rotation state, guarded by the registry's single lock.
+struct RegistryInner {
+    active: BTreeMap<AgentName, ActiveEntry>,
+    run_failed: BTreeSet<Lineage>,
+    connection_failed: BTreeSet<Lineage>,
+    endpoint_down_signalled: bool,
+}
+
+/// Shared run-wide rotation state behind **a single** `tokio::sync::Mutex`.
+///
+/// # Concurrency invariants
+///
+/// There is exactly ONE lock, and it is **never held across an `await`** (every
+/// method locks, does synchronous work, and drops the guard). Therefore deadlock
+/// is impossible by construction and there is no second lock to order against.
+/// `register_transport_failure` registers a condemned lineage and decides the
+/// endpoint-down latch **atomically under the lock** — reading the count in a
+/// separate call would be a TOCTOU race.
+pub struct LineageRegistry {
+    lock: Mutex<RegistryInner>,
+}
 
 impl LineageRegistry {
-    pub fn new(_initial: BTreeMap<AgentName, ActiveEntry>) -> Self {
-        Self {}
+    /// Builds a registry seeded with the trio's active `(lineage, model)` entries.
+    pub fn new(initial: BTreeMap<AgentName, ActiveEntry>) -> Self {
+        Self {
+            lock: Mutex::new(RegistryInner {
+                active: initial,
+                run_failed: BTreeSet::new(),
+                connection_failed: BTreeSet::new(),
+                endpoint_down_signalled: false,
+            }),
+        }
     }
-    pub async fn lineages_in_play(&self, _exclude: AgentName) -> BTreeSet<Lineage> {
-        BTreeSet::new()
+
+    /// Snapshot of the lineages held by every OTHER live mage (excludes `exclude`).
+    pub async fn lineages_in_play(&self, exclude: AgentName) -> BTreeSet<Lineage> {
+        let g = self.lock.lock().await;
+        g.active
+            .iter()
+            .filter(|(a, _)| **a != exclude)
+            .map(|(_, e)| e.lineage.clone())
+            .collect()
     }
+
+    /// Snapshot copy of the run-wide condemned lineages.
     pub async fn run_failed_lineages(&self) -> BTreeSet<Lineage> {
-        BTreeSet::new()
+        self.lock.lock().await.run_failed.clone()
     }
+
+    /// Connection-level condemned lineages — used to populate `EndpointDown`.
     pub async fn connection_failed_lineages(&self) -> Vec<Lineage> {
-        Vec::new()
+        self.lock
+            .lock()
+            .await
+            .connection_failed
+            .iter()
+            .cloned()
+            .collect()
     }
-    pub async fn register_transport_failure(&self, _lineage: Lineage, _connection: bool) -> bool {
-        false
+
+    /// Condemns `lineage` run-wide and, atomically, decides the endpoint-down
+    /// fast-fail. Returns `true` for **exactly one** caller — the one whose
+    /// connection failure crosses [`ENDPOINT_DOWN_LINEAGE_THRESHOLD`] distinct
+    /// connection lineages (the latch fires once). A non-connection failure
+    /// (`connection = false`, e.g. `Http 5xx`/timeout) condemns but never counts
+    /// toward the latch and always returns `false`.
+    pub async fn register_transport_failure(&self, lineage: Lineage, connection: bool) -> bool {
+        let mut g = self.lock.lock().await;
+        g.run_failed.insert(lineage.clone());
+        if !connection {
+            return false;
+        }
+        g.connection_failed.insert(lineage);
+        if g.connection_failed.len() < ENDPOINT_DOWN_LINEAGE_THRESHOLD {
+            return false;
+        }
+        if g.endpoint_down_signalled {
+            return false;
+        }
+        g.endpoint_down_signalled = true;
+        true
     }
-    pub async fn release(&self, _agent: AgentName) {}
+
+    /// Releases a mage's active slot. Idempotent — releasing an absent agent is a
+    /// no-op.
+    pub async fn release(&self, agent: AgentName) {
+        self.lock.lock().await.active.remove(&agent);
+    }
+
+    /// `true` iff endpoint-down was already signalled (for lost-signal recovery).
     pub async fn endpoint_down_signalled(&self) -> bool {
-        false
+        self.lock.lock().await.endpoint_down_signalled
     }
 }
 
