@@ -516,6 +516,46 @@ impl ReportFormatter {
         out
     }
 
+    /// Formats the `## Model Rotations` section, or returns an empty string
+    /// when no agent rotated (every `AgentRotation.chain` is empty).
+    ///
+    /// Renders one line per completed rotation hop, in `agents`' `BTreeMap`
+    /// order (i.e. [`AgentName`] order) and then chain order within an agent:
+    ///
+    /// ```text
+    /// ## Model Rotations
+    ///
+    /// ⟲ Caspar rotated: deepseek → glm (transport)
+    /// ```
+    ///
+    /// Returning an empty string when nothing rotated keeps `format_report`'s
+    /// output byte-identical to pre-rotation (2.0.x) reports for the common
+    /// case where no fallback was ever needed.
+    pub fn format_model_rotations(&self, rotations: &BTreeMap<AgentName, AgentRotation>) -> String {
+        let has_rotation = rotations.values().any(|rot| !rot.chain.is_empty());
+        if !has_rotation {
+            return String::new();
+        }
+
+        let mut out = String::new();
+        writeln!(out, "## Model Rotations\n").ok();
+        for (agent, rot) in rotations {
+            for event in &rot.chain {
+                writeln!(
+                    out,
+                    "\u{27F2} {} rotated: {} \u{2192} {} ({})",
+                    agent.display_name(),
+                    event.from(),
+                    event.to(),
+                    event.kind()
+                )
+                .ok();
+            }
+        }
+        writeln!(out).ok();
+        out
+    }
+
     /// Generates the separator line: `+` + `=` * inner + `+`.
     fn format_separator(&self) -> String {
         format!("+{}+", "=".repeat(self.banner_inner))
@@ -635,6 +675,7 @@ impl Default for ReportFormatter {
 mod tests {
     use super::*;
     use crate::consensus::*;
+    use crate::rotation::{Lineage, RotationEvent, RotationKind};
     use crate::schema::*;
 
     /// Helper: build a minimal AgentOutput for testing.
@@ -655,6 +696,88 @@ mod tests {
             findings: vec![],
             recommendation: recommendation.to_string(),
         }
+    }
+
+    #[test]
+    fn test_no_rotation_report_section_is_empty() {
+        // S16
+        let f = ReportFormatter::new();
+        let mut rots = std::collections::BTreeMap::new();
+        rots.insert(
+            AgentName::Caspar,
+            AgentRotation {
+                model_configured: "deepseek".into(),
+                model_used: "deepseek".into(),
+                chain: vec![],
+                ran_unmeasured: false,
+            },
+        );
+        let out = f.format_model_rotations(&rots);
+        assert!(out.is_empty());
+        assert!(!out.contains("## Model Rotations"));
+    }
+
+    #[test]
+    fn test_single_hop_rotation_line_format() {
+        // S15
+        let f = ReportFormatter::new();
+        let mut rots = std::collections::BTreeMap::new();
+        rots.insert(
+            AgentName::Caspar,
+            AgentRotation {
+                model_configured: "deepseek".into(),
+                model_used: "glm".into(),
+                chain: vec![RotationEvent::new(
+                    Lineage::new("deepseek"),
+                    Lineage::new("glm"),
+                    "glm".into(),
+                    RotationKind::Transport,
+                    String::new(),
+                )],
+                ran_unmeasured: false,
+            },
+        );
+        let out = f.format_model_rotations(&rots);
+        assert!(out.contains("## Model Rotations"));
+        assert!(
+            out.contains("\u{27F2} Caspar rotated: deepseek \u{2192} glm (transport)"),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn test_multi_hop_two_lines_in_order() {
+        // S17
+        let f = ReportFormatter::new();
+        let mut rots = std::collections::BTreeMap::new();
+        rots.insert(
+            AgentName::Caspar,
+            AgentRotation {
+                model_configured: "deepseek".into(),
+                model_used: "nemotron".into(),
+                chain: vec![
+                    RotationEvent::new(
+                        Lineage::new("deepseek"),
+                        Lineage::new("gpt-oss"),
+                        "gpt-oss".into(),
+                        RotationKind::Schema,
+                        String::new(),
+                    ),
+                    RotationEvent::new(
+                        Lineage::new("gpt-oss"),
+                        Lineage::new("nemotron"),
+                        "nemotron".into(),
+                        RotationKind::Transport,
+                        String::new(),
+                    ),
+                ],
+                ran_unmeasured: false,
+            },
+        );
+        let out = f.format_model_rotations(&rots);
+        let idx1 = out.find("deepseek \u{2192} gpt-oss").expect("first hop");
+        let idx2 = out.find("gpt-oss \u{2192} nemotron").expect("second hop");
+        assert!(idx1 < idx2, "hops must be in chain order");
     }
 
     /// Helper: build a minimal ConsensusResult for testing.

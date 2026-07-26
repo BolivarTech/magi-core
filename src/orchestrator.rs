@@ -687,7 +687,23 @@ impl Magi {
 
         // 7. Report
         let banner = self.formatter.format_banner(&successful, &consensus);
-        let report = self.formatter.format_report(&successful, &consensus);
+        let report = {
+            let base = self.formatter.format_report(&successful, &consensus);
+            let section = self.formatter.format_model_rotations(&rotations);
+            if section.is_empty() {
+                base
+            } else {
+                // `format_report` emits `banner + "\n"` first (see step "1.
+                // Banner" there); splice the rotations section in right after
+                // that prefix (after the banner, before Key Findings). The
+                // banner is ASCII (52-byte-per-line invariant), so
+                // `banner.len() + 1` is always a valid char boundary.
+                let prefix_len = banner.len() + 1;
+                let (head, tail) = base.split_at(prefix_len);
+                // `section` already ends in a blank line, so no extra `\n` here.
+                format!("{head}{section}{tail}")
+            }
+        };
 
         // 8. Build MagiReport
         let degraded = successful.len() < 3;
@@ -1354,6 +1370,13 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     detail,
                 );
                 state.chain.push(event);
+                tracing::warn!(
+                    agent = agent_name.display_name(),
+                    from = %current_lineage,
+                    to = %cand.lineage,
+                    kind = %kind,
+                    "mage rotated to a new lineage"
+                );
                 current_provider = rotation.pool.candidate(cand.provider_ix).provider.clone();
                 current_lineage = cand.lineage.clone();
                 state.used.insert(cand.model.clone());

@@ -204,6 +204,32 @@ async fn test_two_connection_failures_abort_with_endpoint_down() {
 }
 
 #[tokio::test]
+async fn test_report_shows_and_omits_model_rotations_section() {
+    // S15/S16 at the report level — the `## Model Rotations` section appears in
+    // the human report ONLY when some agent rotated (byte-identity preserved
+    // otherwise, R11).
+    let rotated = build_trio_with_caspar(
+        ScriptProvider::new("deepseek", vec![Beh::BadJson]),
+        vec![("glm", "zhipu")],
+    );
+    let report = rotated.analyze(&Mode::CodeReview, "content").await.unwrap();
+    assert!(
+        report.report.contains("## Model Rotations"),
+        "a rotated run must show the section"
+    );
+
+    let clean = build_trio_with_caspar(
+        ScriptProvider::new("deepseek", vec![Beh::Ok]),
+        vec![("glm", "zhipu")],
+    );
+    let report2 = clean.analyze(&Mode::CodeReview, "content").await.unwrap();
+    assert!(
+        !report2.report.contains("## Model Rotations"),
+        "a no-rotation run must omit the section entirely"
+    );
+}
+
+#[tokio::test]
 async fn test_5xx_condemns_but_does_not_abort_endpoint_down() {
     // S14 — two lineages Http 5xx (NOT connection) + local fallbacks → NO
     // endpoint-down; the mages rotate and the run proceeds.
