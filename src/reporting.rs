@@ -556,6 +556,19 @@ impl ReportFormatter {
         out
     }
 
+    /// Run-level honesty disclosure (R19): when any surviving mage ran on an
+    /// ESTIMATED (unmeasured) context window, returns a one-line note; otherwise
+    /// `""`. The word "estimated" is the auditable signal.
+    pub fn format_estimated_note(&self, estimated: bool) -> String {
+        if estimated {
+            "> Note: at least one surviving model ran on an estimated (unmeasured) \
+             context window.\n\n"
+                .to_string()
+        } else {
+            String::new()
+        }
+    }
+
     /// Generates the separator line: `+` + `=` * inner + `+`.
     fn format_separator(&self) -> String {
         format!("+{}+", "=".repeat(self.banner_inner))

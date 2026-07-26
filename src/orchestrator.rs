@@ -17,7 +17,7 @@ use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::rotation::{
     ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
     LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
-    RotationPolicy, run_preflight,
+    RotationPolicy, digest_collision, run_preflight,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
@@ -505,14 +505,19 @@ impl MagiBuilder {
             .rng_source
             .unwrap_or_else(|| Box::new(FastrandSource) as Box<dyn RngLike + Send>);
 
-        // MS2: rotation is enabled only when a fallback pool is declared. `None`
-        // reproduces 2.0.x behavior exactly.
-        let rotation_config = self.fallback_pool.map(|pool| {
+        // MS2: engage the rotation subsystem when the user declares a fallback pool
+        // OR probing primaries — the latter want window/digest measurement (and the
+        // `ran_unmeasured` honesty flag) even with no pool to rotate into. Declaring
+        // NOTHING reproduces 2.0.x behavior exactly (R11/S1).
+        let engage_rotation = self.fallback_pool.is_some() || !self.primary_probes.is_empty();
+        let rotation_config = engage_rotation.then(|| {
             Arc::new(RotationConfig {
                 primary_lineages: self.agent_lineages,
                 primary_probes: self.primary_probes,
                 strict_context_guard: self.strict_context_guard,
-                pool,
+                pool: self
+                    .fallback_pool
+                    .unwrap_or_else(|| FallbackPool::builder().build()),
             })
         });
 
@@ -702,19 +707,24 @@ impl Magi {
         let banner = self.formatter.format_banner(&successful, &consensus);
         let report = {
             let base = self.formatter.format_report(&successful, &consensus);
-            let section = self.formatter.format_model_rotations(&rotations);
-            if section.is_empty() {
+            // MS2 additive sections spliced after the banner: the rotation trail and
+            // the run-level "estimated" honesty note (R19). Both are empty on a plain
+            // 2.0.x-style run, keeping the output byte-identical (R11).
+            let mut extra = self.formatter.format_model_rotations(&rotations);
+            let estimated = successful
+                .iter()
+                .any(|o| rotations.get(&o.agent).is_some_and(|r| r.ran_unmeasured));
+            extra.push_str(&self.formatter.format_estimated_note(estimated));
+            if extra.is_empty() {
                 base
             } else {
-                // `format_report` emits `banner + "\n"` first (see step "1.
-                // Banner" there); splice the rotations section in right after
-                // that prefix (after the banner, before Key Findings). The
-                // banner is ASCII (52-byte-per-line invariant), so
-                // `banner.len() + 1` is always a valid char boundary.
+                // `format_report` emits `banner + "\n"` first (see step "1. Banner"
+                // there); splice the extra sections right after that prefix (after
+                // the banner, before Key Findings). The banner is ASCII (52-byte-
+                // per-line invariant), so `banner.len() + 1` is a valid char boundary.
                 let prefix_len = banner.len() + 1;
                 let (head, tail) = base.split_at(prefix_len);
-                // `section` already ends in a blank line, so no extra `\n` here.
-                format!("{head}{section}{tail}")
+                format!("{head}{extra}{tail}")
             }
         };
 
@@ -902,6 +912,19 @@ impl Magi {
         // abort. Providers without a probe contribute nothing (no window/digest).
         let capabilities =
             Arc::new(run_preflight(collect_probe_targets(&agent_models, &rotation)).await);
+        // G2: warn (never error) if two primaries resolve to the SAME weights digest
+        // — reduced ensemble diversity, but the run proceeds. Diversity never blocks
+        // the run; only a PROVEN collision during rotation (R5a) rejects a candidate.
+        let trio_digests: Vec<Option<String>> = agent_models
+            .values()
+            .map(|m| capabilities.get(m).and_then(|c| c.digest.clone()))
+            .collect();
+        if digest_collision(&trio_digests).is_some() {
+            tracing::warn!(
+                "two primary mages resolve to the same weights digest \
+                 (reduced ensemble diversity, not fatal)"
+            );
+        }
         // Coarse lower bound on the raw payload (R16): reject only candidates whose
         // measured window is smaller than the prompt itself would need. `chars/4` is
         // the standard rough token estimate — a pre-filter, not precise budgeting.
@@ -1395,6 +1418,13 @@ pub(crate) async fn dispatch_one_agent_rotating(
         let (kind, detail) = match outcome {
             ModelOutcome::Success(output) => {
                 state.succeeded = true;
+                // R19 honesty: the committed model ran on an ESTIMATED window unless
+                // a probe measured an exact one. A model with no capability entry
+                // (non-probing) or a `None` window counts as unmeasured.
+                state.ran_unmeasured = capabilities
+                    .get(&state.model_used)
+                    .and_then(|c| c.window)
+                    .is_none();
                 guard.mark_succeeded();
                 return (Ok(output), state.to_rotation(), was_retried);
             }
