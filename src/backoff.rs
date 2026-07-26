@@ -117,6 +117,11 @@ pub(crate) fn parse_retry_after(values: &[String], cap: Duration) -> RetryAfter 
 ///
 /// Exists because `ProviderError::Http` carries `status` and `body`: there is no
 /// way to write "any `Http`" as a value to configure `RetryConfig::flat_classes`.
+///
+/// Derives `Copy` on purpose: it is a **data-less discriminant** (it mirrors
+/// `ProviderError`'s variants *without* their data). A future variant that needed
+/// to carry data would not belong here — that data lives on `ProviderError`, and
+/// `RetryClass` would still only mirror the discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RetryClass {

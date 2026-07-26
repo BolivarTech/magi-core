@@ -235,6 +235,16 @@ impl RetryConfig {
         if self.cap.is_zero() {
             out.push("cap = 0: every wait is zero, no pause and NO JITTER".to_string());
         }
+        if self.retry_after_cap > self.operation_budget {
+            // The budget is checked reactively (before each attempt), so a honored
+            // `Retry-After` sleep of up to `retry_after_cap` is NOT interrupted. If
+            // that cap exceeds the whole budget, a single honored wait can overrun
+            // the budget by the difference. Legitimate but almost always a mistake.
+            out.push(format!(
+                "retry_after_cap ({:?}) > operation_budget ({:?}): a single honored Retry-After can overrun the budget",
+                self.retry_after_cap, self.operation_budget
+            ));
+        }
         out
     }
 
@@ -415,6 +425,12 @@ impl LlmProvider for RetryProvider {
                         })
                     }
                     crate::backoff::RetryAfter::TooLong { requested } => {
+                        tracing::warn!(
+                            target: "magi_core::retry",
+                            ?requested,
+                            cap = ?self.config.retry_after_cap,
+                            "server asked to wait longer than retry_after_cap; abandoning"
+                        );
                         return Err(ProviderError::RetryAbandoned {
                             reason: AbandonReason::RetryAfterTooLong {
                                 requested,
@@ -424,6 +440,11 @@ impl LlmProvider for RetryProvider {
                         });
                     }
                     crate::backoff::RetryAfter::Unintelligible { raw } => {
+                        tracing::warn!(
+                            target: "magi_core::retry",
+                            raw = %raw,
+                            "Retry-After present but uninterpretable; abandoning"
+                        );
                         return Err(ProviderError::RetryAbandoned {
                             reason: AbandonReason::RetryAfterUnintelligible { raw },
                             attempts: attempt + 1,
@@ -444,6 +465,13 @@ impl LlmProvider for RetryProvider {
                 &mut rand,
             );
 
+            tracing::debug!(
+                target: "magi_core::retry",
+                attempt,
+                ?wait,
+                honored_retry_after = retry_after.is_some(),
+                "transient error; backing off before retry"
+            );
             last_error = Some(err);
             tokio::time::sleep(wait).await;
         }
@@ -866,6 +894,21 @@ mod tests {
         let warnings = cfg.dangerous_settings();
         assert!(
             warnings.iter().any(|w| w.contains("retry_after_cap")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_dangerous_config_is_announced_for_retry_after_cap_over_budget() {
+        // default retry_after_cap (300s) > operation_budget here (100s): a honored
+        // Retry-After can overrun the budget (reactive check does not clamp sleeps).
+        let cfg = RetryConfig {
+            operation_budget: Duration::from_secs(100),
+            ..Default::default()
+        };
+        let warnings = cfg.dangerous_settings();
+        assert!(
+            warnings.iter().any(|w| w.contains("overrun")),
             "{warnings:?}"
         );
     }
