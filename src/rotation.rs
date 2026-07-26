@@ -36,7 +36,7 @@ use crate::schema::AgentName;
 /// assert_eq!(Lineage::new(" alibaba ").as_str(), "alibaba");
 /// assert_eq!(Lineage::new("deepseek"), Lineage::from("deepseek"));
 /// ```
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize)]
 pub struct Lineage(Cow<'static, str>);
 
 impl Lineage {
@@ -263,11 +263,124 @@ impl LineageRegistry {
     }
 }
 
-/// A single completed rotation hop. Fields and the sanitizing constructor are
-/// added in a later task; here it is a placeholder so [`AgentRotationState`]
-/// compiles (an empty `chain` is the common case).
-#[derive(Clone)]
-pub struct RotationEvent {}
+/// Maximum length, in Unicode scalar values, of a [`RotationEvent`]'s `detail`.
+// Consumed by `RotationEvent::new`, which the FSM (Task 8) calls; allow removed there.
+#[allow(dead_code)]
+const MAX_ROTATION_DETAIL_CHARS: usize = 256;
+
+/// Why a mage left a model — the cause that triggered a rotation hop. Connection
+/// and HTTP failures both normalize to `Transport`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RotationKind {
+    /// Transport failure (connection refused, HTTP error, `RetryProvider` exhausted).
+    Transport,
+    /// The model's response failed the verdict schema (after the corrective retry).
+    Schema,
+    /// The attempt timed out.
+    Timeout,
+}
+
+impl fmt::Display for RotationKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            RotationKind::Transport => "transport",
+            RotationKind::Schema => "schema",
+            RotationKind::Timeout => "timeout",
+        })
+    }
+}
+
+/// A single completed rotation hop (`from` → `to`) with its cause and a
+/// human-readable diagnostic `detail`.
+///
+/// Fields are `pub(crate)`: the ONLY construction path is [`RotationEvent::new`],
+/// which sanitizes and length-caps `detail`, so no unsanitized or oversized string
+/// can enter. Read via the accessors; serde serializes the fields directly for JSON.
+#[derive(Clone, serde::Serialize)]
+#[non_exhaustive]
+pub struct RotationEvent {
+    pub(crate) from: Lineage,
+    pub(crate) to: Lineage,
+    pub(crate) model_resolved: String,
+    pub(crate) kind: RotationKind,
+    pub(crate) detail: String,
+}
+
+impl RotationEvent {
+    /// Builds a rotation hop, **sanitizing** `detail` (zero-width / control chars
+    /// stripped via `clean_title`) and **truncating** it to
+    /// [`MAX_ROTATION_DETAIL_CHARS`] on a char boundary. `detail` may carry an
+    /// untrusted error body, so this bounds every telemetry record.
+    // Consumed by the rotation FSM (Task 8); allow removed there.
+    #[allow(dead_code)]
+    pub(crate) fn new(
+        from: Lineage,
+        to: Lineage,
+        model_resolved: String,
+        kind: RotationKind,
+        detail: String,
+    ) -> Self {
+        let cleaned = crate::validate::clean_title(&detail);
+        let detail = cleaned.chars().take(MAX_ROTATION_DETAIL_CHARS).collect();
+        Self {
+            from,
+            to,
+            model_resolved,
+            kind,
+            detail,
+        }
+    }
+    /// The lineage the mage rotated away FROM.
+    pub fn from(&self) -> &Lineage {
+        &self.from
+    }
+    /// The lineage the mage rotated TO.
+    pub fn to(&self) -> &Lineage {
+        &self.to
+    }
+    /// The model-id resolved behind the destination lineage.
+    pub fn model_resolved(&self) -> &str {
+        &self.model_resolved
+    }
+    /// The cause of the hop.
+    pub fn kind(&self) -> RotationKind {
+        self.kind
+    }
+    /// The sanitized, length-capped human-readable diagnostic.
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+/// Per-agent rotation telemetry — populated for EVERY mage (successful OR failed).
+/// `model_used` is the last model attempted; `chain` is the ordered list of hops
+/// (empty when the mage never rotated).
+#[derive(Clone, serde::Serialize)]
+#[non_exhaustive]
+pub struct AgentRotation {
+    pub model_configured: String,
+    pub model_used: String,
+    pub chain: Vec<RotationEvent>,
+    pub ran_unmeasured: bool,
+}
+
+impl AgentRotationState {
+    /// Produces the always-present [`AgentRotation`] telemetry record from this
+    /// state — the FSM's single sink, so a panicked or first-try mage still yields
+    /// a present, chain-empty record (never an absent one). Maps the four shared
+    /// fields 1:1.
+    // Consumed by the rotation FSM / collector (Task 8/9); allow removed there.
+    #[allow(dead_code)]
+    pub(crate) fn to_rotation(&self) -> AgentRotation {
+        AgentRotation {
+            model_configured: self.model_configured.clone(),
+            model_used: self.model_used.clone(),
+            chain: self.chain.clone(),
+            ran_unmeasured: self.ran_unmeasured,
+        }
+    }
+}
 
 /// Per-mage, per-run rotation state — **local to each mage, never shared**.
 ///
@@ -1135,5 +1248,64 @@ mod tests {
         assert_eq!(cands[0].lineage.as_str(), "x");
         assert_eq!(cands[1].provider_ix, 1);
         assert_eq!(cands[1].model, "mb");
+    }
+
+    // ---- Task 6: telemetry types ----
+
+    #[test]
+    fn test_rotation_kind_display() {
+        assert_eq!(RotationKind::Transport.to_string(), "transport");
+        assert_eq!(RotationKind::Schema.to_string(), "schema");
+        assert_eq!(RotationKind::Timeout.to_string(), "timeout");
+    }
+
+    #[test]
+    fn test_agent_rotation_serializes_with_chain() {
+        let ar = AgentRotation {
+            model_configured: "mc".into(),
+            model_used: "mc".into(),
+            chain: vec![],
+            ran_unmeasured: false,
+        };
+        let j = serde_json::to_string(&ar).unwrap();
+        assert!(j.contains("model_used") && j.contains("chain"));
+    }
+
+    #[test]
+    fn test_state_to_rotation_preserves_empty_chain() {
+        // Panicked/first-try agent → present, chain-empty record.
+        let mut s = state("deepseek");
+        s.succeeded = true;
+        let ar = s.to_rotation();
+        assert_eq!(ar.model_configured, "deepseek");
+        assert_eq!(ar.model_used, "deepseek");
+        assert!(ar.chain.is_empty());
+    }
+
+    #[test]
+    fn test_rotation_event_new_sanitizes_detail() {
+        // A zero-width char in `detail` is stripped by clean_title.
+        let ev = RotationEvent::new(
+            Lineage::from("a"),
+            Lineage::from("b"),
+            "mb".into(),
+            RotationKind::Transport,
+            "http\u{200B}503".into(),
+        );
+        assert_eq!(ev.detail(), "http503");
+    }
+
+    #[test]
+    fn test_rotation_event_new_truncates_long_detail() {
+        // A 10 000-char detail comes out ≤256 chars, on a char boundary (no panic).
+        let long = "x".repeat(10_000);
+        let ev = RotationEvent::new(
+            Lineage::from("a"),
+            Lineage::from("b"),
+            "mb".into(),
+            RotationKind::Transport,
+            long,
+        );
+        assert!(ev.detail().chars().count() <= 256);
     }
 }

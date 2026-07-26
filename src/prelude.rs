@@ -42,6 +42,11 @@ pub use crate::agent::{Agent, AgentFactory};
 // Orchestrator
 pub use crate::orchestrator::{DEFAULT_MAX_INPUT_LEN, Magi, MagiBuilder, MagiConfig};
 
+// Rotation (MS2): declare fallbacks/lineages and read rotation telemetry.
+pub use crate::rotation::{
+    AgentRotation, FallbackPool, Lineage, ProviderProbe, RotationEvent, RotationKind,
+};
+
 // Feature-gated providers
 #[cfg(feature = "claude-api")]
 pub use crate::providers::claude::ClaudeProvider;

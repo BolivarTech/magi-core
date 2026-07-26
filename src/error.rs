@@ -207,6 +207,15 @@ pub enum MagiError {
     /// Filesystem I/O error.
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    /// **MS2** — Endpoint-down fast-fail: two distinct lineages failed at the
+    /// connection level, so no endpoint is reachable. The run aborts **before**
+    /// consensus rather than degrade. Additive (enabled by `#[non_exhaustive]`).
+    #[error("endpoint down: no lineage reachable ({lineages:?})")]
+    EndpointDown {
+        /// The connection-failed lineages that tripped the fast-fail.
+        lineages: Vec<crate::rotation::Lineage>,
+    },
 }
 
 impl From<serde_json::Error> for MagiError {
@@ -218,6 +227,18 @@ impl From<serde_json::Error> for MagiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // -- MS2: EndpointDown variant --
+
+    #[test]
+    fn test_endpoint_down_variant_carries_lineages() {
+        use crate::rotation::Lineage;
+        let e = MagiError::EndpointDown {
+            lineages: vec![Lineage::from("a"), Lineage::from("b")],
+        };
+        assert!(matches!(e, MagiError::EndpointDown { .. }));
+        assert!(e.to_string().contains("endpoint")); // Display mentions endpoint-down
+    }
 
     // -- ProviderError Display tests --
 
