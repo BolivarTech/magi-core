@@ -16,6 +16,7 @@ use crate::error::MagiError;
 use crate::error::ProviderError;
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
+use crate::rotation::{AgentRotation, FallbackPool, Lineage, ProviderProbe, RotationConfig};
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
 use crate::validate::{ValidationLimits, Validator};
@@ -130,6 +131,12 @@ pub struct MagiBuilder {
     report_config: ReportConfig,
     rng_source: Option<Box<dyn RngLike + Send>>,
     complexity_gate: Option<ComplexityGate>,
+    /// **MS2** — per-agent declared primary lineage (rotation diversity key).
+    agent_lineages: BTreeMap<AgentName, Lineage>,
+    /// **MS2** — probes declared on probing primaries (`with_probing_agent`).
+    primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
+    /// **MS2** — the shared fallback pool; `None` ⇒ rotation disabled (2.0.x path).
+    fallback_pool: Option<FallbackPool>,
 }
 
 impl MagiBuilder {
@@ -149,7 +156,50 @@ impl MagiBuilder {
             report_config: ReportConfig::default(),
             rng_source: None,
             complexity_gate: None,
+            agent_lineages: BTreeMap::new(),
+            primary_probes: BTreeMap::new(),
+            fallback_pool: None,
         }
+    }
+
+    /// **MS2** — Registers an agent's primary provider AND its declared lineage
+    /// (the rotation diversity key). A `Lineage` is trimmed at construction; an
+    /// empty/blank one is rejected at [`build`](Self::build) (R3.2).
+    pub fn with_agent(
+        mut self,
+        agent: AgentName,
+        provider: Arc<dyn LlmProvider>,
+        lineage: Lineage,
+    ) -> Self {
+        self.agent_providers.insert(agent, provider);
+        self.agent_lineages.insert(agent, lineage);
+        self.primary_probes.remove(&agent); // a plain primary declares no probe
+        self
+    }
+
+    /// **MS2** — Like [`with_agent`](Self::with_agent) but the primary also
+    /// declares a [`ProviderProbe`]: the preflight can then resolve its window and
+    /// digest. `Arc<P>` is coerced to both trait objects (no downcast; `LlmProvider`
+    /// untouched — G4). A down probe never blocks rotation (fail-open).
+    pub fn with_probing_agent<P: LlmProvider + ProviderProbe + 'static>(
+        mut self,
+        agent: AgentName,
+        provider: Arc<P>,
+        lineage: Lineage,
+    ) -> Self {
+        let llm: Arc<dyn LlmProvider> = provider.clone();
+        let probe: Arc<dyn ProviderProbe> = provider;
+        self.agent_providers.insert(agent, llm);
+        self.agent_lineages.insert(agent, lineage);
+        self.primary_probes.insert(agent, probe);
+        self
+    }
+
+    /// **MS2** — Declares the shared fallback pool. Without it, rotation is
+    /// disabled and behavior is identical to 2.0.x.
+    pub fn with_fallback_pool(mut self, pool: FallbackPool) -> Self {
+        self.fallback_pool = Some(pool);
+        self
     }
 
     /// **v0.5.0** — Set a complexity-gate predicate. Called by
@@ -381,6 +431,45 @@ impl MagiBuilder {
     /// # Errors
     /// Returns `MagiError::Io` if `prompts_dir` is set and cannot be read.
     pub fn build(self) -> Result<Magi, MagiError> {
+        // MS2 (R3.2) — VALIDITY: reject empty/blank declared lineages before anything
+        // else. This is malformed input (a `Lineage` is a declared label), distinct
+        // from the G2 diversity warning below; it fires even for a single-provider config.
+        for (agent, lineage) in &self.agent_lineages {
+            if lineage.as_str().is_empty() {
+                return Err(MagiError::InvalidInput {
+                    reason: format!(
+                        "lineage for primary {} must be a non-empty declared label",
+                        agent.display_name()
+                    ),
+                });
+            }
+        }
+        if let Some(pool) = &self.fallback_pool {
+            for (i, fc) in pool.candidates().iter().enumerate() {
+                if fc.lineage.as_str().is_empty() {
+                    return Err(MagiError::InvalidInput {
+                        reason: format!(
+                            "lineage for fallback pool candidate {i} must be a non-empty declared label"
+                        ),
+                    });
+                }
+            }
+        }
+        // MS2 (G2) — DIVERSITY is a warning, never an error: two primaries may share
+        // a lineage (a single-provider industrial user runs fine).
+        {
+            let mut seen = std::collections::BTreeSet::new();
+            for (agent, lineage) in &self.agent_lineages {
+                if !seen.insert(lineage.clone()) {
+                    tracing::warn!(
+                        agent = agent.display_name(),
+                        lineage = lineage.as_str(),
+                        "duplicate primary lineage (reduced rotation diversity, not fatal)"
+                    );
+                }
+            }
+        }
+
         let mut factory = AgentFactory::new(self.default_provider);
         for (name, provider) in self.agent_providers {
             factory = factory.with_provider(name, provider);
@@ -403,6 +492,16 @@ impl MagiBuilder {
             .rng_source
             .unwrap_or_else(|| Box::new(FastrandSource) as Box<dyn RngLike + Send>);
 
+        // MS2: rotation is enabled only when a fallback pool is declared. `None`
+        // reproduces 2.0.x behavior exactly.
+        let rotation_config = self.fallback_pool.map(|pool| {
+            Arc::new(RotationConfig {
+                primary_lineages: self.agent_lineages,
+                primary_probes: self.primary_probes,
+                pool,
+            })
+        });
+
         Ok(Magi {
             config: self.config,
             agent_factory: factory,
@@ -413,6 +512,7 @@ impl MagiBuilder {
             overrides,
             rng_source: Arc::new(Mutex::new(rng_source)),
             complexity_gate: self.complexity_gate,
+            rotation_config,
         })
     }
 }
@@ -466,6 +566,11 @@ pub struct Magi {
     /// the call short-circuits with [`MagiError::SkippedByComplexityGate`]
     /// before any LLM dispatch. Default: `None` (no gate).
     complexity_gate: Option<ComplexityGate>,
+    /// **MS2** — rotation configuration (primaries' lineages/probes + fallback
+    /// pool). `None` ⇒ rotation disabled (2.0.x path). Consumed by `analyze` /
+    /// `dispatch_one_agent` (Task 8); `allow` removed once that wires it in.
+    #[allow(dead_code)]
+    rotation_config: Option<Arc<RotationConfig>>,
 }
 
 impl Magi {
@@ -551,6 +656,14 @@ impl Magi {
             .agent_factory
             .create_agents_with_prompts(*mode, &self.overrides);
 
+        // MS2: capture each agent's configured model BEFORE dispatch (the `agents`
+        // vec is moved into `dispatch_with_retry`), so rotation telemetry carries a
+        // record for EVERY agent even when no rotation happens.
+        let agent_models: BTreeMap<AgentName, String> = agents
+            .iter()
+            .map(|a| (a.name(), a.provider_model().to_string()))
+            .collect();
+
         // 4. Build user prompt with sanitization and nonce injection.
         //    Lock is released immediately after prompt construction.
         let prompt = {
@@ -575,6 +688,24 @@ impl Magi {
 
         // 8. Build MagiReport
         let degraded = successful.len() < 3;
+        // MS2: rotation telemetry. Without the dispatch FSM (wired in a later task),
+        // every agent gets a present, chain-empty record with `model_used ==
+        // model_configured` — never an absent one.
+        let rotations = agent_models
+            .into_iter()
+            .map(|(agent, model)| {
+                (
+                    agent,
+                    AgentRotation {
+                        model_configured: model.clone(),
+                        model_used: model,
+                        chain: Vec::new(),
+                        ran_unmeasured: false,
+                    },
+                )
+            })
+            .collect();
+
         Ok(MagiReport {
             agents: successful,
             consensus,
@@ -583,6 +714,7 @@ impl Magi {
             degraded,
             failed_agents,
             retried_agents,
+            rotations,
         })
     }
 
@@ -1012,6 +1144,113 @@ mod tests {
         fn model(&self) -> &str {
             &self.model
         }
+    }
+
+    // -- Task 7 (MS2): rotation builder API — R3 (declared lineage), R11 (additive) --
+
+    /// S1: a builder without `with_fallback_pool` behaves exactly like 2.0.x — no
+    /// rotation — yet the `rotations` map is populated for the whole trio with empty
+    /// chains and `model_used == model_configured` (non-vacuous: the field is filled,
+    /// not merely an empty map).
+    #[tokio::test]
+    async fn test_no_fallbacks_behaves_like_2_0_x() {
+        let responses = vec![
+            mock_agent_json("melchior", "approve", 0.9),
+            mock_agent_json("balthasar", "approve", 0.85),
+            mock_agent_json("caspar", "approve", 0.95),
+        ];
+        let provider = Arc::new(MockProvider::success("mock", "test-model", responses));
+        let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .build()
+            .expect("build without fallbacks must succeed");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("analyze should succeed");
+        assert_eq!(
+            report.rotations.len(),
+            3,
+            "rotations populated for the whole trio"
+        );
+        for r in report.rotations.values() {
+            assert!(r.chain.is_empty(), "no rotation → empty chain");
+            assert_eq!(
+                r.model_used, r.model_configured,
+                "no rotation → used == configured"
+            );
+        }
+    }
+
+    /// S23: two primaries with the SAME lineage → `build()` succeeds (emits a
+    /// WARNING), never `Err`. Diversity is advisory; a single-provider / duplicate
+    /// config must run (G2).
+    #[test]
+    fn test_same_primary_lineage_warns_not_errors() {
+        let b = MagiBuilder::new(Arc::new(MockProvider::success("d", "dm", vec!["r".into()])))
+            .with_agent(
+                AgentName::Melchior,
+                Arc::new(MockProvider::success("m1", "m", vec!["r".into()])),
+                Lineage::new("same"),
+            )
+            .with_agent(
+                AgentName::Balthasar,
+                Arc::new(MockProvider::success("m2", "m", vec!["r".into()])),
+                Lineage::new("same"),
+            );
+        assert!(
+            b.build().is_ok(),
+            "duplicate-primary-lineage must not block build"
+        );
+    }
+
+    /// S23b (R3.2): a primary whose lineage trims to "" is malformed input →
+    /// `build()` must `Err(InvalidInput)`. Validity, not diversity — runs even for a
+    /// single-provider config.
+    #[test]
+    fn test_empty_primary_lineage_fails_build() {
+        let b = MagiBuilder::new(Arc::new(MockProvider::success("d", "dm", vec!["r".into()])))
+            .with_agent(
+                AgentName::Melchior,
+                Arc::new(MockProvider::success("m1", "m", vec!["r".into()])),
+                Lineage::new("  "),
+            );
+        assert!(
+            matches!(b.build(), Err(MagiError::InvalidInput { .. })),
+            "empty/blank primary lineage is invalid input, rejected at build"
+        );
+    }
+
+    /// S23b (R3.2): a pool candidate with an empty lineage is caught at
+    /// `MagiBuilder::build()` (which sees the pool), not at pool construction.
+    #[test]
+    fn test_empty_pool_lineage_fails_build() {
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::success("f", "fm", vec!["r".into()])),
+                Lineage::new(""),
+            )
+            .build();
+        let b = MagiBuilder::new(Arc::new(MockProvider::success("d", "dm", vec!["r".into()])))
+            .with_agent(
+                AgentName::Melchior,
+                Arc::new(MockProvider::success("m1", "m", vec!["r".into()])),
+                Lineage::new("alibaba"),
+            )
+            .with_agent(
+                AgentName::Balthasar,
+                Arc::new(MockProvider::success("m2", "m", vec!["r".into()])),
+                Lineage::new("moonshot"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                Arc::new(MockProvider::success("m3", "m", vec!["r".into()])),
+                Lineage::new("deepseek"),
+            )
+            .with_fallback_pool(pool);
+        assert!(
+            matches!(b.build(), Err(MagiError::InvalidInput { .. })),
+            "empty/blank pool-candidate lineage is invalid input, rejected at build"
+        );
     }
 
     // -- BDD Scenario 1: successful analysis with 3 unanimous agents --

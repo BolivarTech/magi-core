@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
+use crate::rotation::AgentRotation;
 use crate::schema::{AgentName, AgentOutput, Mode};
 
 /// Error returned by `ReportConfig::new_checked` when validation fails.
@@ -229,6 +230,12 @@ pub struct MagiReport {
     /// Python parity: `run_magi.py:485, 631-632` (v2.2.0 telemetry).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub retried_agents: BTreeSet<AgentName>,
+
+    /// **MS2** — per-agent rotation telemetry, populated for EVERY agent (successful
+    /// or failed). Each entry carries `model_configured`/`model_used` and the ordered
+    /// `chain` of hops (empty when the agent did not rotate). Always present in JSON.
+    #[serde(default)]
+    pub rotations: BTreeMap<AgentName, AgentRotation>,
 }
 
 impl ReportConfig {
@@ -1373,6 +1380,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -1405,6 +1413,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -1427,6 +1436,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -1445,6 +1455,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1471,6 +1482,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: retried,
+            rotations: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1520,6 +1532,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: retried,
+            rotations: BTreeMap::new(),
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -1585,6 +1598,7 @@ mod tests {
             degraded: true,
             failed_agents: BTreeMap::from([(AgentName::Caspar, "timeout".to_string())]),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
 
         assert!(report.degraded);
@@ -2185,6 +2199,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2214,6 +2229,7 @@ mod tests {
             degraded: false,
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

@@ -36,7 +36,9 @@ use crate::schema::AgentName;
 /// assert_eq!(Lineage::new(" alibaba ").as_str(), "alibaba");
 /// assert_eq!(Lineage::new("deepseek"), Lineage::from("deepseek"));
 /// ```
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize)]
+#[derive(
+    Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, serde::Serialize, serde::Deserialize,
+)]
 pub struct Lineage(Cow<'static, str>);
 
 impl Lineage {
@@ -270,7 +272,7 @@ const MAX_ROTATION_DETAIL_CHARS: usize = 256;
 
 /// Why a mage left a model — the cause that triggered a rotation hop. Connection
 /// and HTTP failures both normalize to `Transport`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RotationKind {
     /// Transport failure (connection refused, HTTP error, `RetryProvider` exhausted).
@@ -294,10 +296,10 @@ impl fmt::Display for RotationKind {
 /// A single completed rotation hop (`from` → `to`) with its cause and a
 /// human-readable diagnostic `detail`.
 ///
-/// Fields are `pub(crate)`: the ONLY construction path is [`RotationEvent::new`],
+/// Fields are `pub(crate)`: the ONLY construction path is `RotationEvent::new`,
 /// which sanitizes and length-caps `detail`, so no unsanitized or oversized string
 /// can enter. Read via the accessors; serde serializes the fields directly for JSON.
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct RotationEvent {
     pub(crate) from: Lineage,
@@ -356,7 +358,7 @@ impl RotationEvent {
 /// Per-agent rotation telemetry — populated for EVERY mage (successful OR failed).
 /// `model_used` is the last model attempted; `chain` is the ordered list of hops
 /// (empty when the mage never rotated).
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub struct AgentRotation {
     pub model_configured: String,
@@ -659,6 +661,18 @@ impl FallbackPoolBuilder {
             max_rotations: self.max_rotations,
         }
     }
+}
+
+/// Run-wide rotation configuration assembled by the builder: the trio's declared
+/// primary lineages (+ any declared primary probes) and the shared fallback pool.
+/// `None` on the orchestrator means rotation is disabled (2.0.x behavior).
+// Forward reference: consumed by `analyze`/`dispatch_one_agent` (Task 8) and the
+// preflight (Task 11). `allow` removed once those wire it in.
+#[allow(dead_code)]
+pub(crate) struct RotationConfig {
+    pub(crate) primary_lineages: BTreeMap<AgentName, Lineage>,
+    pub(crate) primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
+    pub(crate) pool: FallbackPool,
 }
 
 #[cfg(test)]
