@@ -134,51 +134,150 @@ pub fn default_model_for_mode(mode: Mode) -> &'static str {
     }
 }
 
+/// Named default values (no magic numbers).
+const DEFAULT_MAX_RETRIES: u32 = 3;
+const DEFAULT_BASE_DELAY: Duration = Duration::from_secs(1);
+const DEFAULT_CAP: Duration = Duration::from_secs(60);
+const DEFAULT_RETRY_AFTER_CAP: Duration = Duration::from_secs(300);
+const DEFAULT_OPERATION_BUDGET: Duration = Duration::from_secs(600);
+
+/// Retry configuration for [`RetryProvider`].
+///
+/// Set **only at construction** and then immutable: there is no public way to
+/// mutate it afterwards, so that the dangerous-configuration warnings cannot be
+/// evaded.
+///
+/// `RetryConfig` is `#[non_exhaustive]`: build it from [`Default`] and then
+/// adjust fields (the struct-literal `RetryConfig { .. }` does not compile
+/// outside the crate — that is the 2.0 migration pattern).
+///
+/// ```
+/// use magi_core::prelude::*;
+/// use std::time::Duration;
+///
+/// let mut cfg = RetryConfig::default();
+/// cfg.max_retries = 5;
+/// cfg.cap = Duration::from_secs(30);
+///
+/// assert_eq!(cfg.max_retries, 5);
+/// assert_eq!(cfg.cap, Duration::from_secs(30));
+/// // The rest of the defaults still apply.
+/// assert_eq!(cfg.base_delay, Duration::from_secs(1));
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct RetryConfig {
+    /// Maximum retries after the first failure.
+    pub max_retries: u32,
+    /// Base wait. `ZERO` disables **both the pause and the jitter** — see warnings.
+    pub base_delay: Duration,
+    /// Ceiling for our own backoff. Mandatory: there is no "no ceiling".
+    pub cap: Duration,
+    /// Maximum `Retry-After` we accept obeying; exceeding it abandons.
+    pub retry_after_cap: Duration,
+    /// Hard cap on the total retry time. `Duration::MAX` disables it.
+    ///
+    /// `Duration::ZERO` is **not** the opt-out: since the check is reactive
+    /// (`elapsed >= budget` before each attempt), a zero budget is already met
+    /// on the first check and yields **zero retries** — it behaves like
+    /// `max_retries = 0`, not "start now". It is legitimate but almost always a
+    /// mistake; unlike the three zeros of F2 it emits no warning of its own
+    /// (covered by the runtime symptom of E3.1). For "no cap" use `Duration::MAX`.
+    pub operation_budget: Duration,
+    /// Classes that use **flat** backoff instead of exponential.
+    pub flat_classes: Vec<RetryClass>,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: DEFAULT_MAX_RETRIES,
+            base_delay: DEFAULT_BASE_DELAY,
+            cap: DEFAULT_CAP,
+            retry_after_cap: DEFAULT_RETRY_AFTER_CAP,
+            operation_budget: DEFAULT_OPERATION_BUDGET,
+            flat_classes: vec![RetryClass::Timeout, RetryClass::Network],
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Returns the detected dangerous combinations, in human-readable text.
+    ///
+    /// **We warn, we do not correct**: bounding the consumer's configuration
+    /// "for their own good" would change behavior silently — exactly the problem
+    /// we want to avoid.
+    pub(crate) fn dangerous_settings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.base_delay.is_zero() {
+            out.push(format!(
+                "base_delay = 0: {} consecutive retries with no pause and NO JITTER",
+                self.max_retries
+            ));
+        }
+        if self.retry_after_cap.is_zero() {
+            // Same principle as the other two zeros: it SILENTLY disables honoring
+            // `Retry-After` entirely — not even an unintelligible header aborts.
+            // Legitimate (it is the explicit opt-out) but almost always a mistake.
+            out.push(
+                "retry_after_cap = 0: the `Retry-After` header is ignored entirely".to_string(),
+            );
+        }
+        if self.cap.is_zero() {
+            out.push("cap = 0: every wait is zero, no pause and NO JITTER".to_string());
+        }
+        out
+    }
+
+    // NOTE: there is no `dangerous_settings_with_timeout`. See the retry loop:
+    // the "budget < timeout" condition is detected by its **runtime symptom**,
+    // not by comparing config (the trait does not expose the wrapped timeout).
+}
+
 /// Opt-in retry wrapper for any `LlmProvider`.
 ///
-/// Wraps an inner provider and retries transient errors (timeout, network,
-/// HTTP 500/429) up to `max_retries` times with exponential backoff starting
-/// from `base_delay`. Non-retryable errors (auth, process, nested session,
-/// other HTTP status codes) are returned immediately.
+/// # Concurrency
+///
+/// Shared across tasks via `Arc` and `complete` takes `&self`: it has **no
+/// interior mutable state** — no RNG, no counters. All per-attempt state lives
+/// on the stack. *Putting the RNG in a field would force a `Mutex` and serialize
+/// concurrent callers exactly where the jitter exists to make them independent.*
 ///
 /// Implements `LlmProvider` itself, making it transparent to consumers.
 pub struct RetryProvider {
     inner: Arc<dyn LlmProvider>,
-    /// Maximum number of retry attempts after the first failure.
-    pub max_retries: u32,
-    /// Delay between retry attempts.
-    pub base_delay: Duration,
+    config: RetryConfig,
 }
 
 impl RetryProvider {
-    /// Creates a new `RetryProvider` with default settings (3 retries, 1s delay).
+    /// Creates a `RetryProvider` with the default configuration.
     ///
     /// # Parameters
     /// - `inner`: The provider to wrap with retry logic.
     pub fn new(inner: Arc<dyn LlmProvider>) -> Self {
-        Self {
-            inner,
-            max_retries: 3,
-            base_delay: Duration::from_secs(1),
-        }
+        Self::with_config(inner, RetryConfig::default())
     }
 
-    /// Creates a new `RetryProvider` with custom retry settings.
+    /// Creates a `RetryProvider` with explicit configuration.
+    ///
+    /// Emits a `tracing` warning if the combination is dangerous (an internal
+    /// `dangerous_settings` check). The warning is emitted **once per
+    /// constructed provider**: since the config is immutable, no `AtomicBool` or
+    /// rate-limit is needed.
     ///
     /// # Parameters
     /// - `inner`: The provider to wrap with retry logic.
-    /// - `max_retries`: Maximum retry attempts after the initial failure.
-    /// - `base_delay`: Initial delay between retries; doubles on each subsequent attempt.
-    pub fn with_config(
-        inner: Arc<dyn LlmProvider>,
-        max_retries: u32,
-        base_delay: Duration,
-    ) -> Self {
-        Self {
-            inner,
-            max_retries,
-            base_delay,
+    /// - `config`: The retry configuration.
+    pub fn with_config(inner: Arc<dyn LlmProvider>, config: RetryConfig) -> Self {
+        for warning in config.dangerous_settings() {
+            tracing::warn!(target: "magi_core::retry", "{warning}");
         }
+        Self { inner, config }
+    }
+
+    /// Read-only access to the effective configuration.
+    pub fn config(&self) -> &RetryConfig {
+        &self.config
     }
 }
 
@@ -233,8 +332,8 @@ impl LlmProvider for RetryProvider {
         config: &CompletionConfig,
     ) -> Result<String, ProviderError> {
         let mut last_error = None;
-        let mut delay = self.base_delay;
-        for attempt in 0..=self.max_retries {
+        let mut delay = self.config.base_delay;
+        for attempt in 0..=self.config.max_retries {
             match self
                 .inner
                 .complete(system_prompt, user_prompt, config)
@@ -242,7 +341,7 @@ impl LlmProvider for RetryProvider {
             {
                 Ok(response) => return Ok(response),
                 Err(err) => {
-                    if !is_retryable(&err) || attempt == self.max_retries {
+                    if !is_retryable(&err) || attempt == self.config.max_retries {
                         return Err(err);
                     }
                     last_error = Some(err);
@@ -269,6 +368,62 @@ mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn test_retry_config_defaults() {
+        let c = RetryConfig::default();
+        assert_eq!(c.max_retries, 3);
+        assert_eq!(c.base_delay, Duration::from_secs(1));
+        assert_eq!(c.cap, Duration::from_secs(60));
+        assert_eq!(c.retry_after_cap, Duration::from_secs(300));
+        assert_eq!(c.operation_budget, Duration::from_secs(600));
+        assert_eq!(
+            c.flat_classes,
+            vec![RetryClass::Timeout, RetryClass::Network]
+        );
+    }
+
+    #[test]
+    fn test_dangerous_config_is_announced_for_zero_base_delay() {
+        let cfg = RetryConfig {
+            base_delay: Duration::ZERO,
+            ..Default::default()
+        };
+        let warnings = cfg.dangerous_settings();
+        assert!(
+            warnings.iter().any(|w| w.contains("base_delay")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_dangerous_config_is_announced_for_zero_cap() {
+        let cfg = RetryConfig {
+            cap: Duration::ZERO,
+            ..Default::default()
+        };
+        let warnings = cfg.dangerous_settings();
+        assert!(warnings.iter().any(|w| w.contains("cap")), "{warnings:?}");
+    }
+
+    #[test]
+    fn test_dangerous_config_is_announced_for_zero_retry_after_cap() {
+        // F2: the THREE zeros that silently disable a protection all warn.
+        let cfg = RetryConfig {
+            retry_after_cap: Duration::ZERO,
+            ..Default::default()
+        };
+        let warnings = cfg.dangerous_settings();
+        assert!(
+            warnings.iter().any(|w| w.contains("retry_after_cap")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn test_default_config_is_silent() {
+        assert!(RetryConfig::default().dangerous_settings().is_empty());
+    }
 
     /// classify maps every ProviderError variant to its RetryClass.
     #[test]
@@ -472,7 +627,14 @@ mod tests {
                 Ok("success".into()),
             ],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
@@ -496,7 +658,14 @@ mod tests {
                 Ok("ok".into()),
             ],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
@@ -519,7 +688,14 @@ mod tests {
                 Ok("ok".into()),
             ],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
@@ -539,7 +715,14 @@ mod tests {
                 Ok("ok".into()),
             ],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
@@ -556,7 +739,14 @@ mod tests {
                 message: "bad key".into(),
             })],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_err());
@@ -574,7 +764,14 @@ mod tests {
                 stderr: "fail".into(),
             })],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_err());
@@ -589,7 +786,14 @@ mod tests {
             "m",
             vec![Err(ProviderError::NestedSession)],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_err());
@@ -609,7 +813,14 @@ mod tests {
                 received_at: None,
             })],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_err());
@@ -635,7 +846,14 @@ mod tests {
             ],
         ));
         // max_retries=2 means 1 initial + 2 retries = 3 total attempts
-        let retry = RetryProvider::with_config(mock.clone(), 2, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 2,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_err());
@@ -659,7 +877,14 @@ mod tests {
                 Ok("recovered".into()),
             ],
         ));
-        let retry = RetryProvider::with_config(mock.clone(), 3, Duration::from_millis(1));
+        let retry = RetryProvider::with_config(
+            mock.clone(),
+            RetryConfig {
+                max_retries: 3,
+                base_delay: Duration::from_millis(1),
+                ..Default::default()
+            },
+        );
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
@@ -672,8 +897,8 @@ mod tests {
     fn test_retry_provider_default_config() {
         let mock = Arc::new(MockProvider::new("p", "m"));
         let retry = RetryProvider::new(mock);
-        assert_eq!(retry.max_retries, 3);
-        assert_eq!(retry.base_delay, Duration::from_secs(1));
+        assert_eq!(retry.config().max_retries, 3);
+        assert_eq!(retry.config().base_delay, Duration::from_secs(1));
     }
 
     #[test]

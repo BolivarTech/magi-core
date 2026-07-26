@@ -11,7 +11,10 @@
 //! ```
 
 // Error types
-pub use crate::error::{MagiError, ProviderError};
+pub use crate::error::{AbandonReason, MagiError, ProviderError};
+
+// Backoff / retry policy
+pub use crate::backoff::RetryClass;
 
 // Domain schema
 pub use crate::schema::{AgentName, AgentOutput, Category, Finding, Mode, Severity, Verdict};
@@ -29,7 +32,8 @@ pub use crate::reporting::{
 
 // Provider trait and config
 pub use crate::provider::{
-    CompletionConfig, LlmProvider, RetryProvider, default_model_for_mode, resolve_claude_alias,
+    CompletionConfig, LlmProvider, RetryConfig, RetryProvider, default_model_for_mode,
+    resolve_claude_alias,
 };
 
 // Agents
