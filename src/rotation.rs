@@ -10,6 +10,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
@@ -259,6 +260,76 @@ impl LineageRegistry {
     }
 }
 
+/// A single completed rotation hop. Fields and the sanitizing constructor are
+/// added in a later task; here it is a placeholder so [`AgentRotationState`]
+/// compiles (an empty `chain` is the common case).
+#[derive(Clone)]
+pub struct RotationEvent {}
+
+/// Per-mage, per-run rotation state — **local to each mage, never shared**.
+///
+/// `used`/`failed_lineages`/`rotations_done` persist across a mage's rotation
+/// attempts; `window_rejected` is cleared at the start of each `claim_next`
+/// (dynamic rejections must be re-evaluated). `succeeded` gates cleanup.
+pub struct AgentRotationState {
+    pub model_configured: String,
+    pub model_used: String,
+    pub chain: Vec<RotationEvent>,
+    pub used: BTreeSet<String>,
+    pub failed_lineages: BTreeSet<Lineage>,
+    pub window_rejected: BTreeMap<String, &'static str>,
+    pub rotations_done: u32,
+    pub succeeded: bool,
+    pub ran_unmeasured: bool,
+}
+
+impl LineageRegistry {
+    /// Reserve the next eligible fallback for `agent`, committing it under the
+    /// lock. RED STUB (Task 4): real read-decide-commit lands in the Green step.
+    pub async fn claim_next(
+        &self,
+        _agent: AgentName,
+        _policy: &RotationPolicy,
+        _state: &mut AgentRotationState,
+    ) -> Option<Candidate> {
+        None
+    }
+}
+
+/// RAII guard that releases a mage's lineage slot on drop unless the mage
+/// succeeded. (Cancellation-safe cleanup — real `Drop` logic in the Green step.)
+pub(crate) struct AgentSlotGuard {
+    reg: Arc<LineageRegistry>,
+    agent: AgentName,
+    succeeded: bool,
+    released: bool,
+}
+impl AgentSlotGuard {
+    pub(crate) fn new(reg: Arc<LineageRegistry>, agent: AgentName) -> Self {
+        Self {
+            reg,
+            agent,
+            succeeded: false,
+            released: false,
+        }
+    }
+    /// Call the instant a valid verdict is committed — suppresses the release.
+    pub(crate) fn mark_succeeded(&mut self) {
+        self.succeeded = true;
+    }
+    /// Call after an explicit release on a normal exit path — suppresses the
+    /// Drop fallback (no double-release, no contention window).
+    pub(crate) fn mark_released(&mut self) {
+        self.released = true;
+    }
+}
+impl Drop for AgentSlotGuard {
+    fn drop(&mut self) {
+        // RED STUB: real best-effort release lands in the Green step.
+        let _ = (&self.reg, self.agent, self.succeeded, self.released);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,6 +571,193 @@ mod tests {
             !r.lineages_in_play(AgentName::Balthasar)
                 .await
                 .contains(&Lineage::from("a"))
+        );
+    }
+
+    // ---- Task 4: claim_next + AgentSlotGuard ----
+
+    fn state(configured: &str) -> AgentRotationState {
+        AgentRotationState {
+            model_configured: configured.into(),
+            model_used: configured.into(),
+            chain: vec![],
+            used: [configured.to_string()].into(),
+            failed_lineages: BTreeSet::new(),
+            window_rejected: BTreeMap::new(),
+            rotations_done: 0,
+            succeeded: false,
+            ran_unmeasured: false,
+        }
+    }
+    fn policy() -> RotationPolicy {
+        RotationPolicy::new(pool(&[("d", "md"), ("e", "me")]), 3)
+    }
+
+    #[tokio::test]
+    async fn test_claim_next_reserves_and_replaces_active() {
+        let r = reg();
+        let p = policy();
+        let mut s = state("mc");
+        let c = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
+        assert_eq!(c.lineage.as_str(), "d");
+        assert!(
+            r.lineages_in_play(AgentName::Melchior)
+                .await
+                .contains(&Lineage::from("d"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_claim_next_none_leaves_registry_intact() {
+        let init: BTreeMap<_, _> = [(AgentName::Caspar, ae("d", "md"))].into();
+        let r = Arc::new(LineageRegistry::new(init));
+        let p = RotationPolicy::new(pool(&[("d", "md")]), 3);
+        let mut s = state("md");
+        assert!(
+            r.claim_next(AgentName::Melchior, &p, &mut s)
+                .await
+                .is_none()
+        );
+        assert!(
+            r.lineages_in_play(AgentName::Caspar)
+                .await
+                .contains(&Lineage::from("d"))
+        ); // intact
+    }
+
+    #[tokio::test]
+    async fn test_two_mages_same_free_lineage_exactly_one_reserves() {
+        // S9
+        let init: BTreeMap<_, _> = [(AgentName::Melchior, ae("x", "mx"))].into();
+        let r = Arc::new(LineageRegistry::new(init));
+        let mk = || RotationPolicy::new(pool(&[("d", "md")]), 3);
+        let (r1, r2) = (r.clone(), r.clone());
+        let h1 = tokio::spawn(async move {
+            let mut s = state("b");
+            r1.claim_next(AgentName::Balthasar, &mk(), &mut s)
+                .await
+                .map(|c| c.lineage)
+        });
+        let h2 = tokio::spawn(async move {
+            let mut s = state("c");
+            r2.claim_next(AgentName::Caspar, &mk(), &mut s)
+                .await
+                .map(|c| c.lineage)
+        });
+        let got: Vec<_> = [h1.await.unwrap(), h2.await.unwrap()]
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            got.len(),
+            1,
+            "exactly one mage reserves the single free lineage"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_claims_never_double_reserve_stress() {
+        // W7 (loop6) — 200× two-mage concurrent claim over TWO free lineages; distinct, no deadlock.
+        for _ in 0..200 {
+            let init: BTreeMap<_, _> = [(AgentName::Melchior, ae("x", "mx"))].into();
+            let r = Arc::new(LineageRegistry::new(init));
+            let mk = || RotationPolicy::new(pool(&[("d", "md"), ("e", "me")]), 3);
+            let (r1, r2) = (r.clone(), r.clone());
+            let h1 = tokio::spawn(async move {
+                let mut s = state("b");
+                r1.claim_next(AgentName::Balthasar, &mk(), &mut s)
+                    .await
+                    .map(|c| c.lineage)
+            });
+            let h2 = tokio::spawn(async move {
+                let mut s = state("c");
+                r2.claim_next(AgentName::Caspar, &mk(), &mut s)
+                    .await
+                    .map(|c| c.lineage)
+            });
+            let got: Vec<_> = [h1.await.unwrap(), h2.await.unwrap()]
+                .into_iter()
+                .flatten()
+                .collect();
+            assert_eq!(got.len(), 2, "both reserve (two free lineages)");
+            assert_ne!(
+                got[0], got[1],
+                "concurrent claims must NEVER double-reserve the same lineage"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_slot_guard_releases_on_drop_unless_succeeded() {
+        // S12 / W5
+        let r = reg();
+        {
+            let mut g = AgentSlotGuard::new(r.clone(), AgentName::Melchior);
+            g.mark_succeeded();
+        } // drop with succeeded → NOT released
+        assert!(
+            r.lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a"))
+        );
+        {
+            let _g = AgentSlotGuard::new(r.clone(), AgentName::Melchior);
+        } // drop without success → released
+        assert!(
+            !r.lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_slot_guard_releases_on_cancellation() {
+        // W5 — cancellation cleanup, deterministic sync via oneshot READY.
+        let r = reg();
+        let r2 = r.clone();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+        let handle = tokio::spawn(async move {
+            let _g = AgentSlotGuard::new(r2, AgentName::Melchior); // never mark_succeeded
+            let _ = ready_tx.send(());
+            std::future::pending::<()>().await; // park until aborted (guard still held)
+        });
+        ready_rx
+            .await
+            .expect("task must reach the park point with the guard held");
+        handle.abort();
+        let _ = handle.await;
+        assert!(
+            !r.lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a")),
+            "cancellation must release the slot via the guard's Drop"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_slot_guard_contended_drop_releases_via_spawn() {
+        // W2 (loop7) — CONTENDED Drop: hold the lock while the guard drops → detached-spawn path.
+        let r = reg();
+        let held = r.lock.lock().await; // hold the mutex → guard.try_lock() fails
+        {
+            let _g = AgentSlotGuard::new(r.clone(), AgentName::Melchior);
+        } // drop under contention → schedules a detached release task
+        drop(held);
+        let mut released = false;
+        for _ in 0..100 {
+            if !r
+                .lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a"))
+            {
+                released = true;
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            released,
+            "contended Drop must release the slot via the detached spawn once the lock frees"
         );
     }
 }
