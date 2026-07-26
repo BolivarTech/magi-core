@@ -814,6 +814,42 @@ mod tests {
         assert_eq!(inner.calls(), 1, "budget ZERO: one attempt, no retries");
     }
 
+    #[tokio::test]
+    async fn test_honored_retry_after_can_overrun_a_small_budget() {
+        // retry_after_cap (5s) > operation_budget (50ms): the reactive budget does
+        // NOT clamp the honored `Retry-After` sleep, so a single honored wait
+        // overruns the budget and the NEXT reactive check abandons. Pins the
+        // documented "reactive, not a hard cap" behavior (and the config that the
+        // new dangerous_settings warning flags).
+        let inner = Arc::new(RetryAfterProvider::new(vec!["1".to_string()], 1));
+        let cfg = RetryConfig {
+            operation_budget: Duration::from_millis(50),
+            retry_after_cap: Duration::from_secs(5),
+            ..Default::default()
+        };
+        let p = RetryProvider::with_config(inner, cfg);
+        let start = Instant::now();
+        let err = p
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        let elapsed = start.elapsed();
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::OperationBudgetExhausted { .. },
+                    ..
+                }
+            ),
+            "{err}"
+        );
+        assert!(
+            elapsed >= Duration::from_secs(1),
+            "the ~1s honored wait overran the 50ms budget: {elapsed:?}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn test_shared_provider_does_not_serialize_callers() {
         // Three concurrent tasks over ONE shared RetryProvider behind Arc. A peak

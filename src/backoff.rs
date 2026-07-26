@@ -513,6 +513,25 @@ mod tests {
     }
 
     #[test]
+    fn test_duration_max_does_not_panic_and_stays_capped() {
+        // Explicit guard for the `Duration::mul_f64` panic path: with
+        // base=cap=Duration::MAX and rand=1.0 the saturating `try_from_secs_f64`
+        // must return a bounded value, never panic (the boundary table covers this
+        // in a sweep; this pins it as a dedicated, named regression test).
+        let mut r = fixed(1.0);
+        let w = next_backoff(
+            u32::MAX,
+            RetryClass::Http,
+            Duration::MAX,
+            Duration::MAX,
+            &[],
+            None,
+            &mut r,
+        );
+        assert!(w <= Duration::MAX);
+    }
+
+    #[test]
     fn test_base_zero_yields_zero_wait() {
         let mut r = fixed(1.0);
         let w = next_backoff(
