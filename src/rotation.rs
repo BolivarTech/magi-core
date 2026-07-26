@@ -11,6 +11,8 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use crate::schema::AgentName;
+
 /// A declared model-family lineage label (e.g. `"alibaba"`, `"deepseek"`).
 ///
 /// A `Lineage` is a **declared** identity — never inferred from a model name or
@@ -144,6 +146,44 @@ impl RotationPolicy {
                 && !used.contains(&c.model)                 // 4: this mage already ran this model
                 && !window_rejected.contains_key(&c.model) // 5: rejected by window/digest verify
         })
+    }
+}
+
+/// Number of DISTINCT connection-failing lineages that trips the run-wide
+/// endpoint-down fast-fail.
+pub const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
+
+/// What each ACTIVE mage is running — carries `model` (not just `lineage`) so the
+/// digest verify can look up its digest.
+#[derive(Clone)]
+pub struct ActiveEntry {
+    pub lineage: Lineage,
+    pub model: String,
+}
+
+/// Shared run-wide rotation state behind a single lock (implemented in the Green
+/// step). RED STUB: methods return defaults so the tests compile and fail.
+pub struct LineageRegistry {}
+
+impl LineageRegistry {
+    pub fn new(_initial: BTreeMap<AgentName, ActiveEntry>) -> Self {
+        Self {}
+    }
+    pub async fn lineages_in_play(&self, _exclude: AgentName) -> BTreeSet<Lineage> {
+        BTreeSet::new()
+    }
+    pub async fn run_failed_lineages(&self) -> BTreeSet<Lineage> {
+        BTreeSet::new()
+    }
+    pub async fn connection_failed_lineages(&self) -> Vec<Lineage> {
+        Vec::new()
+    }
+    pub async fn register_transport_failure(&self, _lineage: Lineage, _connection: bool) -> bool {
+        false
+    }
+    pub async fn release(&self, _agent: AgentName) {}
+    pub async fn endpoint_down_signalled(&self) -> bool {
+        false
     }
 }
 
@@ -306,5 +346,88 @@ mod tests {
             .lineage
             .clone();
         assert_eq!(a, b);
+    }
+
+    // ---- Task 3: LineageRegistry (state, in_play, latch, release) ----
+
+    use std::sync::Arc;
+
+    fn ae(lin: &'static str, model: &str) -> ActiveEntry {
+        ActiveEntry {
+            lineage: Lineage::from(lin),
+            model: model.into(),
+        }
+    }
+    fn reg() -> Arc<LineageRegistry> {
+        let init: BTreeMap<_, _> = [
+            (AgentName::Melchior, ae("a", "ma")),
+            (AgentName::Balthasar, ae("b", "mb")),
+            (AgentName::Caspar, ae("c", "mc")),
+        ]
+        .into();
+        Arc::new(LineageRegistry::new(init))
+    }
+
+    #[tokio::test]
+    async fn test_in_play_excludes_self() {
+        let r = reg();
+        let ip = r.lineages_in_play(AgentName::Melchior).await;
+        assert!(!ip.contains(&Lineage::from("a"))); // self excluded
+        assert!(ip.contains(&Lineage::from("b")) && ip.contains(&Lineage::from("c")));
+    }
+
+    #[tokio::test]
+    async fn test_register_transport_condemns_run_wide() {
+        let r = reg();
+        let _ = r
+            .register_transport_failure(Lineage::from("a"), false)
+            .await;
+        assert!(r.run_failed_lineages().await.contains(&Lineage::from("a")));
+    }
+
+    #[tokio::test]
+    async fn test_endpoint_down_latch_exactly_one_true_concurrent() {
+        let r = reg();
+        // Two DISTINCT connection lineages failing concurrently → exactly ONE true.
+        let (r1, r2) = (r.clone(), r.clone());
+        let h1 = tokio::spawn(async move {
+            r1.register_transport_failure(Lineage::from("a"), true)
+                .await
+        });
+        let h2 = tokio::spawn(async move {
+            r2.register_transport_failure(Lineage::from("b"), true)
+                .await
+        });
+        let trues = [h1.await.unwrap(), h2.await.unwrap()]
+            .iter()
+            .filter(|b| **b)
+            .count();
+        assert_eq!(trues, 1, "latch must fire exactly once at threshold");
+    }
+
+    #[tokio::test]
+    async fn test_5xx_does_not_count_toward_endpoint_down() {
+        let r = reg();
+        // connection=false (5xx/timeout) → condemns but NEVER returns true
+        assert!(
+            !r.register_transport_failure(Lineage::from("a"), false)
+                .await
+        );
+        assert!(
+            !r.register_transport_failure(Lineage::from("b"), false)
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn test_release_is_idempotent() {
+        let r = reg();
+        r.release(AgentName::Melchior).await;
+        r.release(AgentName::Melchior).await; // no panic, no error
+        assert!(
+            !r.lineages_in_play(AgentName::Balthasar)
+                .await
+                .contains(&Lineage::from("a"))
+        );
     }
 }
