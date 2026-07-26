@@ -44,6 +44,7 @@ mod prompts;
 pub mod provider;
 pub mod providers;
 pub mod reporting;
+pub mod rotation;
 pub mod schema;
 /// Test-only support (RoutingMockProvider). Gated by `test-utils` feature
 /// for downstream integration tests; always available in-tree under `cfg(test)`.
