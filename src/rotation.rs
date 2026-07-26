@@ -14,6 +14,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
+use crate::error::ProviderError;
+use crate::provider::LlmProvider;
 use crate::schema::AgentName;
 
 /// A declared model-family lineage label (e.g. `"alibaba"`, `"deepseek"`).
@@ -402,6 +404,146 @@ impl Drop for AgentSlotGuard {
                 "AgentSlotGuard: could not schedule lineage release on drop (no runtime); \
                  slot left to registry teardown"
             );
+        }
+    }
+}
+
+/// Optional capability trait, separate from [`LlmProvider`] (G4). A provider that
+/// can be probed for its context window and weights digest implements it; one that
+/// cannot simply does not, and rotation still works (a `None` digest is trusted).
+///
+/// TODO(Task 11/14): the trait is declared here so [`FallbackCandidate`] compiles.
+/// Its full semantics — what `window`/`digest` mean, the preflight that calls them,
+/// and the only production impl (`OllamaProvider`, feature `ollama`) — are filled
+/// in later tasks. Do NOT treat the current contract as final.
+#[async_trait::async_trait]
+pub trait ProviderProbe: Send + Sync {
+    /// Context window in tokens, or `None` if it cannot be measured.
+    async fn window(&self) -> Result<Option<usize>, ProviderError>;
+    /// Model weights fingerprint, or `None` if it cannot be resolved.
+    async fn digest(&self) -> Result<Option<String>, ProviderError>;
+}
+
+/// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
+/// (present iff registered via `push_probing`).
+pub struct FallbackCandidate {
+    pub provider: Arc<dyn LlmProvider>,
+    pub lineage: Lineage,
+    pub probe: Option<Arc<dyn ProviderProbe>>,
+}
+
+/// Default per-mage rotation cap when the builder does not set one.
+pub const DEFAULT_MAX_ROTATIONS: u32 = 2;
+
+/// Immutable, encapsulated fallback pool shared run-wide (R3.1). Built via
+/// [`FallbackPool::builder`]; construction is infallible (an empty pool is valid,
+/// duplicate lineages only warn — G2).
+// Forward reference: `max_rotations` and the `pub(crate)` accessors below are
+// CONSUMED by `MagiBuilder::with_fallback_pool` (Task 7), `dispatch_one_agent`
+// (Task 8), and `RotationPolicy::new` from the pool (Task 11). Until those land,
+// the non-test lib build sees them unused — the `allow`s are REMOVED there.
+#[allow(dead_code)]
+pub struct FallbackPool {
+    candidates: Vec<FallbackCandidate>,
+    max_rotations: u32,
+}
+
+#[allow(dead_code)]
+impl FallbackPool {
+    /// Starts a [`FallbackPoolBuilder`] seeded with [`DEFAULT_MAX_ROTATIONS`].
+    pub fn builder() -> FallbackPoolBuilder {
+        FallbackPoolBuilder {
+            candidates: vec![],
+            max_rotations: DEFAULT_MAX_ROTATIONS,
+        }
+    }
+    /// Number of fallback candidates.
+    pub fn len(&self) -> usize {
+        self.candidates.len()
+    }
+    /// `true` iff the pool has no candidates (equivalent to "no rotation").
+    pub fn is_empty(&self) -> bool {
+        self.candidates.is_empty()
+    }
+    pub(crate) fn candidate(&self, i: usize) -> &FallbackCandidate {
+        &self.candidates[i]
+    }
+    pub(crate) fn max_rotations(&self) -> u32 {
+        self.max_rotations
+    }
+    pub(crate) fn candidates(&self) -> &[FallbackCandidate] {
+        &self.candidates
+    }
+    /// Resolve the pool into the `Vec<Candidate>` fed to [`RotationPolicy::new`].
+    /// `provider_ix` indexes into `candidates`, `model` comes from
+    /// `provider.model()`. (No `is_cloud`: the digest verify is fail-open on an
+    /// unresolvable digest, so provider kind is irrelevant to eligibility.)
+    pub(crate) fn to_candidates(&self) -> Vec<Candidate> {
+        self.candidates
+            .iter()
+            .enumerate()
+            .map(|(i, fc)| Candidate {
+                provider_ix: i,
+                lineage: fc.lineage.clone(),
+                model: fc.provider.model().to_string(),
+            })
+            .collect()
+    }
+}
+
+/// Builder for [`FallbackPool`]. `build` is **infallible**.
+pub struct FallbackPoolBuilder {
+    candidates: Vec<FallbackCandidate>,
+    max_rotations: u32,
+}
+
+impl FallbackPoolBuilder {
+    /// Appends a non-probing fallback (no digest/window; trusted by lineage).
+    pub fn push(mut self, provider: Arc<dyn LlmProvider>, lineage: Lineage) -> Self {
+        self.candidates.push(FallbackCandidate {
+            provider,
+            lineage,
+            probe: None,
+        });
+        self
+    }
+    /// Appends a probing fallback. `Arc<P>` is coerced to BOTH an
+    /// `Arc<dyn LlmProvider>` and an `Arc<dyn ProviderProbe>` — the capability is
+    /// DECLARED here, not discovered by downcast, so `LlmProvider` stays intact (G4).
+    pub fn push_probing<P: LlmProvider + ProviderProbe + 'static>(
+        mut self,
+        p: Arc<P>,
+        lineage: Lineage,
+    ) -> Self {
+        let provider: Arc<dyn LlmProvider> = p.clone();
+        let probe: Arc<dyn ProviderProbe> = p;
+        self.candidates.push(FallbackCandidate {
+            provider,
+            lineage,
+            probe: Some(probe),
+        });
+        self
+    }
+    /// Sets the per-mage rotation cap (default [`DEFAULT_MAX_ROTATIONS`]).
+    pub fn max_rotations(mut self, n: u32) -> Self {
+        self.max_rotations = n;
+        self
+    }
+    /// Builds the pool. Infallible: an empty pool is valid; duplicate lineages
+    /// only emit a `tracing::warn!` (diversity never blocks the run — G2).
+    pub fn build(self) -> FallbackPool {
+        let mut seen = BTreeSet::new();
+        for c in &self.candidates {
+            if !seen.insert(c.lineage.clone()) {
+                tracing::warn!(
+                    lineage = c.lineage.as_str(),
+                    "duplicate lineage in fallback pool (redundant, not fatal)"
+                );
+            }
+        }
+        FallbackPool {
+            candidates: self.candidates,
+            max_rotations: self.max_rotations,
         }
     }
 }
@@ -852,5 +994,146 @@ mod tests {
                 .await
                 .contains(&Lineage::from("a"))
         );
+    }
+
+    // ---- Task 5: FallbackPool builder ----
+
+    use crate::error::ProviderError;
+    use crate::provider::{CompletionConfig, LlmProvider};
+
+    struct MockProvider {
+        name: String,
+        model: String,
+        resp: String,
+    }
+    impl MockProvider {
+        fn new(name: &str, model: &str, resp: &str) -> Self {
+            Self {
+                name: name.into(),
+                model: model.into(),
+                resp: resp.into(),
+            }
+        }
+    }
+    #[async_trait::async_trait]
+    impl LlmProvider for MockProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            Ok(self.resp.clone())
+        }
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn model(&self) -> &str {
+            &self.model
+        }
+    }
+
+    /// A mock that is BOTH an `LlmProvider` and a `ProviderProbe`.
+    struct MockProbe {
+        model: String,
+    }
+    impl MockProbe {
+        fn new(model: &str) -> Self {
+            Self {
+                model: model.into(),
+            }
+        }
+    }
+    #[async_trait::async_trait]
+    impl LlmProvider for MockProbe {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<String, ProviderError> {
+            Ok(String::new())
+        }
+        fn name(&self) -> &str {
+            "mock-probe"
+        }
+        fn model(&self) -> &str {
+            &self.model
+        }
+    }
+    #[async_trait::async_trait]
+    impl ProviderProbe for MockProbe {
+        async fn window(&self) -> Result<Option<usize>, ProviderError> {
+            Ok(Some(200_000))
+        }
+        async fn digest(&self) -> Result<Option<String>, ProviderError> {
+            Ok(Some(format!("sha:{}", self.model)))
+        }
+    }
+
+    #[test]
+    fn test_empty_pool_is_valid_and_keeps_max_rotations() {
+        let p = FallbackPool::builder().max_rotations(0).build();
+        assert_eq!(p.len(), 0);
+        assert!(p.is_empty());
+        assert_eq!(p.max_rotations(), 0);
+    }
+
+    #[test]
+    fn test_push_probing_stores_both_views() {
+        let mp = Arc::new(MockProbe::new("m1"));
+        let pool = FallbackPool::builder()
+            .push_probing(mp, Lineage::new("ollama"))
+            .build();
+        assert!(pool.candidate(0).probe.is_some()); // probe view stored
+        assert_eq!(pool.candidate(0).provider.model(), "m1"); // llm view usable
+    }
+
+    #[test]
+    fn test_push_without_probe_has_none() {
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::new("c", "m1", "r")),
+                Lineage::new("cloud"),
+            )
+            .build();
+        assert!(pool.candidate(0).probe.is_none());
+    }
+
+    #[test]
+    fn test_duplicate_lineage_warns_but_builds() {
+        // duplicate lineage → build still succeeds (WARNING only, G2). Assert len=2.
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::new("a", "m1", "r")),
+                Lineage::new("dup"),
+            )
+            .push(
+                Arc::new(MockProvider::new("b", "m2", "r")),
+                Lineage::new("dup"),
+            )
+            .build();
+        assert_eq!(pool.len(), 2);
+    }
+
+    #[test]
+    fn test_to_candidates_resolves_ix_and_model() {
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::new("a", "ma", "r")),
+                Lineage::new("x"),
+            )
+            .push(
+                Arc::new(MockProvider::new("b", "mb", "r")),
+                Lineage::new("y"),
+            )
+            .build();
+        assert_eq!(pool.candidates().len(), 2);
+        let cands = pool.to_candidates();
+        assert_eq!(cands[0].provider_ix, 0);
+        assert_eq!(cands[0].model, "ma");
+        assert_eq!(cands[0].lineage.as_str(), "x");
+        assert_eq!(cands[1].provider_ix, 1);
+        assert_eq!(cands[1].model, "mb");
     }
 }
