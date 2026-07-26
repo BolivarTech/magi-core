@@ -4,6 +4,53 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-25
+
+Backoff/retry hardening plus a deliberate audit of the public API's
+extensibility. See `dev-docs/migration-v2.0.md` for the full migration guide.
+
+### BREAKING
+
+- **`ProviderError` is `#[non_exhaustive]`** (the enum and its struct-like
+  variants). External `match` needs a `_ =>` arm and `..` when destructuring.
+  This is what lets `Http` carry the server's `Retry-After`, impossible in 1.x.
+- **`ConsensusResult`, `Dissent`, `Condition` are `#[non_exhaustive]`.** Reading
+  them is unchanged; struct-literal construction from another crate is not.
+- **`RetryProvider` no longer exposes public fields.** The removed `pub
+  max_retries` / `pub base_delay` are now set through an immutable `RetryConfig`
+  (`with_config(inner, RetryConfig)`); read them via `provider.config()`.
+- **A 300 s total client timeout where there was none before.** A `complete()`
+  call that today takes 400 s and works will, after the upgrade, **fail with
+  `ProviderError::Timeout`**. This is the only plausible regression — raise it
+  with the provider's `with_timeout` constructor. See the migration guide.
+- **A `Retry-After` in date form (or otherwise uninterpretable) now ABANDONS the
+  retry** (`ProviderError::RetryAbandoned`) instead of being silently ignored.
+- **`ClaudeProvider::map_status_to_error` gains `retry_after_raw` / `received_at`
+  parameters** (its visibility stays `pub`).
+
+### Added
+
+- `backoff` module: capped exponential backoff, full jitter, and a
+  delta-seconds `Retry-After` parser (total functions — never panic).
+- `RetryConfig` with `cap`, `retry_after_cap`, `operation_budget`, and
+  `flat_classes` (flat vs exponential backoff per failure class).
+- `operation_budget` (default 10 min) bounding the total retry time, and typed
+  abandonment (`AbandonReason`) that says *why* retrying stopped.
+- `with_timeout` constructors on both HTTP providers; `DEFAULT_CLIENT_TIMEOUT`.
+- `tracing` (new runtime dependency) to announce dangerous configurations and
+  budget exhaustion — no-op without a subscriber.
+
+### Changed
+
+- `is_retryable` now also treats 408/502/503/504 as transient (local server
+  cold-start).
+- Waits are no longer the deterministic 1s/2s/4s progression — they carry full
+  jitter, so a test asserting exact delays will need updating.
+
+**Worst-case latency with the defaults: ~15 minutes** per `complete()` call
+(10 min `operation_budget` + one 5 min timeout). Wrap the call in
+`tokio::time::timeout` if you need a harder bound.
+
 ## [1.1.1] - 2026-07-17
 
 ### Fixed

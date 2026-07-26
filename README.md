@@ -31,7 +31,15 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Structured findings** *(v1.0)* — `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified** — validate against your own diff
 - **Finding deduplication** — co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
 - **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
-- **Retry with backoff** — opt-in `RetryProvider` wrapper with exponential backoff for HTTP/network transient errors (orthogonal to the schema-retry layer)
+- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via an immutable `RetryConfig`.
+
+> ⚠️ **Upgrading to 2.0?** The HTTP providers now apply a **300 s total request
+> timeout** where there was none before — a `complete()` call that used to hang
+> forever (or take >300 s) will now fail with `ProviderError::Timeout`. Raise it
+> with `OpenAiCompatibleProvider::with_timeout(...)`. The **worst-case latency
+> with the defaults is ~15 minutes** per call (10 min `operation_budget` + one
+> 5 min timeout); wrap in `tokio::time::timeout` for a harder bound. Full details
+> in `dev-docs/migration-v2.0.md`.
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
 - **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v3.0.0` (finding calibration), verified via SHA-256 fixture in CI

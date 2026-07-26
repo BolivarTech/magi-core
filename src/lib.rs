@@ -10,6 +10,14 @@
 //! Each agent analyzes content from a different perspective, then a
 //! consensus engine synthesizes their verdicts into a unified report.
 //!
+//! ## Retry & backoff (2.0)
+//!
+//! The opt-in [`RetryProvider`](crate::provider::RetryProvider) wraps any
+//! provider with capped, jittered backoff and honors `Retry-After`. **Worst-case
+//! latency with the defaults is ~15 minutes** per `complete()` call (a 10-minute
+//! `operation_budget` plus one 5-minute request timeout). Wrap the call in
+//! `tokio::time::timeout` if you need a harder bound.
+//!
 //! ## Quick Start
 //!
 //! ```rust,no_run
