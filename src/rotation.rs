@@ -129,16 +129,21 @@ impl RotationPolicy {
         window_rejected: &BTreeMap<String, &'static str>,
         rotations_done: u32,
     ) -> Option<&Candidate> {
-        // RED STUB (Task 2): real 4-condition logic lands in the Green step.
-        let _ = (
-            failed_lineages,
-            run_failed_lineages,
-            lineages_in_play,
-            used,
-            window_rejected,
-            rotations_done,
-        );
-        None
+        // Gate first: `max_rotations` reached (or 0 = disabled) → no candidate.
+        if rotations_done >= self.max_rotations {
+            return None;
+        }
+        // First eligible candidate in declared order. Conditions 1-4 are the pure
+        // core; #5 (`window_rejected`) is empty without a probe (no-op) but honored
+        // so a later re-propose loop cannot spin. Condition #6 (window) is added
+        // with `capabilities` in a later task.
+        self.fallback.iter().find(|c| {
+            !lineages_in_play.contains(&c.lineage)          // 1: another live mage has this lineage
+                && !failed_lineages.contains(&c.lineage)    // 2: this mage schema-failed it
+                && !run_failed_lineages.contains(&c.lineage) // 3: condemned run-wide (transport)
+                && !used.contains(&c.model)                 // 4: this mage already ran this model
+                && !window_rejected.contains_key(&c.model) // 5: rejected by window/digest verify
+        })
     }
 }
 
