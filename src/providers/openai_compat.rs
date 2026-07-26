@@ -272,8 +272,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
     /// the assistant's reply.
     ///
     /// # Errors
-    /// - `Timeout` if the request times out (note: the client sets no internal
-    ///   timeout; the orchestrator's per-agent `with_timeout` bounds hangs).
+    /// - `Timeout` if the request exceeds the **total** client timeout (300 s by
+    ///   default, or the value passed to [`Self::with_timeout`]) — it fires even
+    ///   when the server returns headers and then hangs on the body.
     /// - `Network` on connection failures (and on a malformed `base_url`/client).
     /// - `Auth` on 401/403; `Http` on other non-2xx; `Http { status: 0 }` on a
     ///   malformed response body.

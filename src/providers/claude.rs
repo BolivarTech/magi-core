@@ -31,7 +31,7 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// use magi_core::provider::{LlmProvider, CompletionConfig};
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let provider = ClaudeProvider::new("sk-ant-api03-...", "claude-sonnet-4-6");
+/// let provider = ClaudeProvider::new("sk-ant-api03-...", "claude-sonnet-4-6")?;
 /// let response = provider.complete("You are helpful", "Hello", &CompletionConfig::default()).await?;
 /// # Ok(())
 /// # }

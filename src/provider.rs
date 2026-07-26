@@ -361,7 +361,7 @@ impl LlmProvider for RetryProvider {
                             target: "magi_core::retry",
                             ?elapsed,
                             budget = ?self.config.operation_budget,
-                            "operation_budget exhausted by a SINGLE attempt: no retry will ever happen. Is the budget smaller than the provider timeout?"
+                            "operation_budget exhausted by a SINGLE attempt: no retry will ever happen. Is the budget smaller than one attempt plus its backoff (e.g. the provider timeout)?"
                         );
                     }
                     tracing::warn!(
