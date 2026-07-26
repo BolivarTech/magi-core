@@ -596,9 +596,8 @@ pub struct Magi {
     /// before any LLM dispatch. Default: `None` (no gate).
     complexity_gate: Option<ComplexityGate>,
     /// **MS2** — rotation configuration (primaries' lineages/probes + fallback
-    /// pool). `None` ⇒ rotation disabled (2.0.x path). Consumed by `analyze` /
-    /// `dispatch_one_agent` (Task 8); `allow` removed once that wires it in.
-    #[allow(dead_code)]
+    /// pool). `None` ⇒ rotation disabled (2.0.x path). Read by `dispatch_with_retry`
+    /// to route between the no-rotation and rotation dispatch paths.
     rotation_config: Option<Arc<RotationConfig>>,
 }
 
