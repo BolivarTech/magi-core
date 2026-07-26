@@ -16,9 +16,10 @@
 //! dependency (shared with `claude-api`).
 
 use crate::error::ProviderError;
-use crate::provider::CompletionConfig;
+use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::Duration;
 
 /// HTTP request body for the OpenAI Chat Completions endpoint
 /// (`POST /chat/completions`). Non-streaming; no `stream` field.
@@ -112,6 +113,22 @@ impl OpenAiCompatibleProvider {
         model: impl Into<String>,
         api_key: Option<String>,
     ) -> Result<Self, ProviderError> {
+        Self::with_timeout(base_url, model, api_key, DEFAULT_CLIENT_TIMEOUT)
+    }
+
+    /// Same as [`Self::new`] with an explicit **total** request timeout.
+    ///
+    /// The timeout covers the entire request, from send to the last body byte
+    /// ([`reqwest::ClientBuilder::timeout`]) — this is what makes
+    /// `ProviderError::Timeout` reachable against a model that hangs while
+    /// generating. Pass `Duration::MAX` for "no timeout" (dangerous: a hung
+    /// model would hang forever).
+    pub fn with_timeout(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        api_key: Option<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
         let base_url = base_url.into();
         let parsed = reqwest::Url::parse(&base_url).map_err(|e| ProviderError::Network {
             message: format!("invalid base_url: {e}"),
@@ -125,6 +142,7 @@ impl OpenAiCompatibleProvider {
             });
         }
         let client = reqwest::Client::builder()
+            .timeout(timeout)
             .build()
             .map_err(|e| ProviderError::Network {
                 message: format!("failed to build HTTP client: {e}"),
@@ -283,8 +301,19 @@ impl LlmProvider for OpenAiCompatibleProvider {
             let response_body = response.text().await.unwrap_or_default();
             return Err(Self::map_status_to_error(status, &response_body));
         }
-        let response_body = response.text().await.map_err(|e| ProviderError::Network {
-            message: format!("failed to read response body: {e}"),
+        let response_body = response.text().await.map_err(|e| {
+            // The total timeout can fire while reading the body (headers arrive,
+            // then the server hangs) — the exact S16 failure mode. Map it to
+            // `Timeout`, not `Network`, so the retry policy classifies it right.
+            if e.is_timeout() {
+                ProviderError::Timeout {
+                    message: e.to_string(),
+                }
+            } else {
+                ProviderError::Network {
+                    message: format!("failed to read response body: {e}"),
+                }
+            }
         })?;
         Self::parse_response(&response_body)
     }

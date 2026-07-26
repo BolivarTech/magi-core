@@ -3,10 +3,13 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, LlmProvider, resolve_claude_alias};
+use crate::provider::{
+    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, resolve_claude_alias,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::time::Duration;
 
 /// Anthropic API base URL.
 const API_BASE_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -112,9 +115,30 @@ impl ClaudeProvider {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
+        Self::with_timeout(api_key, model, DEFAULT_CLIENT_TIMEOUT)
+    }
+
+    /// Same as [`Self::new`] with an explicit **total** request timeout.
+    ///
+    /// The timeout covers the entire request, from send to the last body byte
+    /// ([`reqwest::ClientBuilder::timeout`]) — this is what makes
+    /// `ProviderError::Timeout` reachable against a model that hangs while
+    /// generating. Pass `Duration::MAX` for "no timeout" (dangerous).
+    pub fn with_timeout(
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
         let model_id = resolve_claude_alias(&model.into())?;
+        let client =
+            Client::builder()
+                .timeout(timeout)
+                .build()
+                .map_err(|e| ProviderError::Network {
+                    message: format!("failed to build HTTP client: {e}"),
+                })?;
         Ok(Self {
-            client: Client::new(),
+            client,
             api_key: api_key.into(),
             model: model_id,
         })
@@ -256,8 +280,18 @@ impl LlmProvider for ClaudeProvider {
             return Err(Self::map_status_to_error(status, &response_body));
         }
 
-        let response_body = response.text().await.map_err(|e| ProviderError::Network {
-            message: format!("failed to read response body: {e}"),
+        let response_body = response.text().await.map_err(|e| {
+            // The total timeout can fire while reading the body (headers arrive,
+            // then the server hangs). Map it to `Timeout`, not `Network`.
+            if e.is_timeout() {
+                ProviderError::Timeout {
+                    message: e.to_string(),
+                }
+            } else {
+                ProviderError::Network {
+                    message: format!("failed to read response body: {e}"),
+                }
+            }
         })?;
 
         Self::parse_response(&response_body)

@@ -32,8 +32,8 @@ pub use crate::reporting::{
 
 // Provider trait and config
 pub use crate::provider::{
-    CompletionConfig, LlmProvider, RetryConfig, RetryProvider, default_model_for_mode,
-    resolve_claude_alias,
+    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, RetryConfig, RetryProvider,
+    default_model_for_mode, resolve_claude_alias,
 };
 
 // Agents

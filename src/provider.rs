@@ -141,6 +141,15 @@ const DEFAULT_CAP: Duration = Duration::from_secs(60);
 const DEFAULT_RETRY_AFTER_CAP: Duration = Duration::from_secs(300);
 const DEFAULT_OPERATION_BUDGET: Duration = Duration::from_secs(600);
 
+/// Default **total** request timeout for the HTTP providers.
+///
+/// Total, not connect or read: the failure mode that matters — a model that
+/// accepts the connection, returns headers, and then **hangs generating** — is
+/// caught by no connect-timeout, and a read-timeout resets on each byte. 300 s is
+/// generous for an LLM completion; who needs more uses the provider's
+/// `with_timeout` constructor. `Duration::MAX` means "no timeout".
+pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Retry configuration for [`RetryProvider`].
 ///
 /// Set **only at construction** and then immutable: there is no public way to
