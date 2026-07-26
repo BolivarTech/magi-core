@@ -30,6 +30,9 @@ sha2 = "0.10"
 claude-api = ["dep:reqwest"]
 claude-cli = []
 openai-compat = ["dep:reqwest"]
+# MS2: OllamaProvider reuses the OpenAI-compatible completions path and adds the
+# native /api/show + /api/tags probe (window + digest). HTTP-thin, no new deps.
+ollama = ["openai-compat"]
 # v0.4.0: exposes RoutingMockProvider for downstream integration tests.
 # Stable only within v0.4.x.
 test-utils = []
