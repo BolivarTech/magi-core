@@ -8,6 +8,7 @@
 //! [`Lineage`] newtype — a declared, never-inferred model-family label.)
 
 use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 /// A declared model-family lineage label (e.g. `"alibaba"`, `"deepseek"`).
@@ -81,6 +82,66 @@ impl fmt::Display for Lineage {
     }
 }
 
+/// A resolved fallback candidate the [`RotationPolicy`] may select.
+///
+/// `provider_ix` indexes into the owning `FallbackPool`'s provider list; `model`
+/// is the candidate's model-id (from `provider.model()`). No `is_cloud`: the
+/// digest verify is fail-open on an unresolvable digest, so provider kind is
+/// irrelevant to eligibility.
+pub struct Candidate {
+    pub provider_ix: usize,
+    pub lineage: Lineage,
+    pub model: String,
+}
+
+/// Pure, total rotation policy: given a mage's per-attempt state it returns the
+/// first eligible fallback [`Candidate`] in declared order, or `None`.
+///
+/// It performs no I/O, never `await`s, never panics, and never returns `Err`.
+/// The window/digest conditions (5–6) and their `capabilities` are added in a
+/// later task; the [`RotationPolicy::next_model`] signature is stable from here.
+pub struct RotationPolicy {
+    fallback: Vec<Candidate>,
+    max_rotations: u32,
+}
+
+impl RotationPolicy {
+    /// Builds a policy over an ordered fallback list and a per-mage rotation cap
+    /// (`max_rotations = 0` disables rotation entirely).
+    pub fn new(fallback: Vec<Candidate>, max_rotations: u32) -> Self {
+        Self {
+            fallback,
+            max_rotations,
+        }
+    }
+
+    /// Returns the first eligible candidate in declared order, or `None`.
+    ///
+    /// Total: no I/O, no `await`, no panic, no `Err`. `window_rejected`
+    /// (condition #5) is honored from the start so a later re-propose loop
+    /// cannot spin. Deterministic in its arguments.
+    pub fn next_model(
+        &self,
+        failed_lineages: &BTreeSet<Lineage>,
+        run_failed_lineages: &BTreeSet<Lineage>,
+        lineages_in_play: &BTreeSet<Lineage>,
+        used: &BTreeSet<String>,
+        window_rejected: &BTreeMap<String, &'static str>,
+        rotations_done: u32,
+    ) -> Option<&Candidate> {
+        // RED STUB (Task 2): real 4-condition logic lands in the Green step.
+        let _ = (
+            failed_lineages,
+            run_failed_lineages,
+            lineages_in_play,
+            used,
+            window_rejected,
+            rotations_done,
+        );
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -131,5 +192,114 @@ mod tests {
         ));
         // Empty / all-whitespace trims to "" — a VALID Lineage value here; rejected at build (Task 7).
         assert_eq!(Lineage::new("   ").as_str(), "");
+    }
+
+    // ---- Task 2: RotationPolicy::next_model (4 pure conditions) ----
+
+    fn pool(pairs: &[(&'static str, &str)]) -> Vec<Candidate> {
+        pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (lin, m))| Candidate {
+                provider_ix: i,
+                lineage: Lineage::from(*lin),
+                model: m.to_string(),
+            })
+            .collect()
+    }
+    fn empty() -> BTreeSet<Lineage> {
+        BTreeSet::new()
+    }
+    fn empty_s() -> BTreeSet<String> {
+        BTreeSet::new()
+    }
+    fn empty_wr() -> BTreeMap<String, &'static str> {
+        BTreeMap::new()
+    }
+
+    #[test]
+    fn test_next_model_returns_first_eligible_in_declared_order() {
+        let p = RotationPolicy::new(pool(&[("a", "ma"), ("b", "mb")]), 5);
+        assert_eq!(
+            p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
+                .unwrap()
+                .lineage
+                .as_str(),
+            "a"
+        );
+    }
+
+    #[test]
+    fn test_next_model_skips_in_play_failed_runfailed_used_and_windowrejected() {
+        let p = RotationPolicy::new(
+            pool(&[("a", "ma"), ("b", "mb"), ("c", "mc"), ("d", "md")]),
+            5,
+        );
+        let in_play: BTreeSet<_> = [Lineage::from("a")].into();
+        let failed: BTreeSet<_> = [Lineage::from("b")].into();
+        let runf: BTreeSet<_> = [Lineage::from("c")].into();
+        // a in_play, b mage-failed, c run-failed → first eligible = d
+        assert_eq!(
+            p.next_model(&failed, &runf, &in_play, &empty_s(), &empty_wr(), 0)
+                .unwrap()
+                .lineage
+                .as_str(),
+            "d"
+        );
+        // 'md' in window_rejected (cond #5) → d skipped → None (re-propose loop can terminate, W12)
+        let wr: BTreeMap<String, &'static str> = [("md".to_string(), "digest_collision")].into();
+        assert!(
+            p.next_model(&failed, &runf, &in_play, &empty_s(), &wr, 0)
+                .is_none()
+        );
+        // 'md' in used → None
+        let used2: BTreeSet<_> = ["md".to_string()].into();
+        assert!(
+            p.next_model(&failed, &runf, &in_play, &used2, &empty_wr(), 0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_max_rotations_gate() {
+        let p = RotationPolicy::new(pool(&[("a", "ma")]), 2);
+        assert!(
+            p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 2)
+                .is_none()
+        ); // done==max
+        assert!(
+            p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 1)
+                .is_some()
+        );
+        let p0 = RotationPolicy::new(pool(&[("a", "ma")]), 0); // 0 disables
+        assert!(
+            p0.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_empty_pool_and_all_ineligible_return_none() {
+        assert!(
+            RotationPolicy::new(vec![], 3)
+                .next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn test_next_model_is_deterministic() {
+        let p = RotationPolicy::new(pool(&[("a", "ma"), ("b", "mb")]), 5);
+        let a = p
+            .next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
+            .unwrap()
+            .lineage
+            .clone();
+        let b = p
+            .next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
+            .unwrap()
+            .lineage
+            .clone();
+        assert_eq!(a, b);
     }
 }
