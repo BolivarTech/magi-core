@@ -364,6 +364,55 @@ values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
 (never a deserialization error). These locations are agent-reported and
 **unverified** — validate against your own diff.
 
+## Model Rotation (MS2)
+
+When a mage's model goes dead during a run, MS2 rotates that single agent to a fallback lineage instead of letting the whole run degrade. The feature is fully additive: if you declare no fallback pool, behavior is byte-identical to the pre-rotation path.
+
+> ⚠️
+> - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages abort the whole run before consensus; a genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could over-abort — accepted (YAGNI).
+> - **A hanging/slow endpoint is NOT fast-failed.** A hung endpoint surfaces as `Timeout`/`RetryAbandoned`, which by design does NOT count toward endpoint-down (only connection-refused `Network` does); it is condemned and rotated, not aborted.
+> - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected — so your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
+> - **No built-in hard cap on total run time.** Worst case per mage is about `(max_rotations + 1) × operation_budget`; wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling (an optional builder run-timeout is backlog).
+> - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down — the same boundary as the hanging-endpoint note.
+
+### Declaring fallbacks
+
+```rust
+let builder = MagiBuilder::new(default_provider)
+    .with_agent(AgentName::Melchior, provider, Lineage::new("alibaba"))
+    .with_probing_agent(AgentName::Caspar, ollama_provider, Lineage::new("deepseek"))
+    .with_fallback_pool(
+        FallbackPool::builder()
+            .push(provider_b, Lineage::new("glm"))
+            .push_probing(ollama_fallback, Lineage::new("gpt-oss"))
+            .max_rotations(2)
+            .build(),
+    )
+    .with_strict_context_guard(true);
+```
+
+`max_rotations` is a per-mage cap. A value of `2` allows up to two rotations, meaning up to three models may be tried for that mage. It is a ceiling, not a target: a mage rotates only if it fails and an eligible fallback candidate exists. Diversity is not imposed — you may point every candidate at the same provider and model, and duplicate primary lineages only emit a warning. Only a proven digest collision during rotation is rejected.
+
+### What a rotation looks like
+
+On every run, successful or failed, `MagiReport.rotations` contains a `BTreeMap<AgentName, AgentRotation>`. Each `AgentRotation` records `model_configured`, `model_used`, `chain: Vec<RotationEvent>` (empty when no rotation occurred), and `ran_unmeasured`. When at least one mage rotated, the human-readable `report` string gains a `## Model Rotations` section with one line per hop, e.g.:
+
+```text
+⟲ Caspar rotated: deepseek → glm (transport)
+```
+
+With no rotations the text output is unchanged from the pre-rotation format.
+
+### Ollama probe (feature `ollama`)
+
+Enable the `ollama` feature to use `OllamaProvider`, which provides OpenAI-compatible completions plus a native probe:
+
+```rust
+let ollama = OllamaProvider::new("http://localhost:11434", "qwen3:8b")?;
+```
+
+The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
+
 ## Feature Flags
 
 | Feature          | Default | Description                          |
@@ -371,6 +420,7 @@ values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
 | `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
+| `ollama`         | off     | `OllamaProvider` (enables `openai-compat`) — OpenAI-compatible completions **plus** the native `ProviderProbe` (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
 | `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with

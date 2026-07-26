@@ -21,6 +21,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
       - run: cargo nextest run --all-features
+      # Additivity (R11): the core + rotation (4-condition, no probe) must compile
+      # and pass with NO optional features — proving `ollama`/probe are additive and
+      # the default path stays 2.0.x. The async-boundary tests (concurrent claim
+      # stress, slot-guard cancellation/contended-drop, lost-signal recovery) are
+      # ordinary `#[tokio::test]`s in this default suite, so they run here too.
+      - name: Default-features build (additivity)
+        run: cargo nextest run
 
   clippy:
     name: Clippy

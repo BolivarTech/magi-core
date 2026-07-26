@@ -4,6 +4,49 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-07-26
+
+Per-agent lineage **rotation**: a dead model rotates to another lineage instead
+of degrading the run. Fully additive — a consumer that declares no fallbacks
+compiles and behaves exactly as 2.0.x.
+
+### Added
+
+- **Per-agent rotation.** Declare a per-mage primary `Lineage`
+  (`MagiBuilder::with_agent` / `with_probing_agent`) and a shared, run-wide
+  `FallbackPool` (`with_fallback_pool`, `max_rotations`). On a surfaced transport
+  error (after the MS1 `RetryProvider` exhausts) or a schema failure surviving its
+  corrective retry, the mage rotates to the next eligible lineage. A transport
+  failure condemns the lineage run-wide; a schema failure is mage-local; a panic
+  never rotates.
+- **`MagiError::EndpointDown { lineages }`** — a new variant (permitted by the
+  existing `#[non_exhaustive]`): two DISTINCT connection-level (`Network`)
+  failures fast-fail the run **before** consensus. `Http 5xx` / `Timeout` /
+  `RetryAbandoned` condemn a lineage but do NOT count toward this threshold.
+- **Rotation telemetry on `MagiReport`.** A new **always-present** JSON key,
+  `rotations: BTreeMap<AgentName, AgentRotation>`, is populated for every agent
+  (successful and failed) on every run — strict/exhaustive JSON consumers should
+  expect it. Each `AgentRotation` carries `model_configured`, `model_used`, the
+  ordered `chain` of `RotationEvent` hops (empty when the mage did not rotate),
+  and `ran_unmeasured`. When some mage rotated, the human report gains a
+  `## Model Rotations` section (`⟲ <agent> rotated: <from> → <to> (<kind>)`); with
+  no rotation the text output is byte-identical to 2.0.x.
+- **`ProviderProbe` trait + `OllamaProvider` (feature `ollama`).** An optional
+  capability trait (context `window` + weights `digest`), separate from
+  `LlmProvider`. `OllamaProvider` reuses the OpenAI-compatible completions path
+  and adds the native probe: **window** from `POST /api/show`, **digest** from
+  `GET /api/tags`. A concurrent, timeout-bounded preflight caches the results so
+  rotation eligibility reads them with zero I/O. The digest verify is **fail-open**
+  — only two lineages resolving to the SAME digest are rejected; an unresolvable
+  digest is trusted by the declared lineage.
+
+### Compatibility
+
+- **Default (no fallbacks declared) preserves 2.0.x behavior** — same dispatch
+  FSM, same failure strings, no registry, no endpoint-down. No regression.
+- No breaking changes; no new runtime dependencies (`tracing`/`reqwest` already
+  present). The `ollama` feature enables `openai-compat`.
+
 ## [2.0.0] - 2026-07-25
 
 Backoff/retry hardening plus a deliberate audit of the public API's

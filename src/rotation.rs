@@ -2,10 +2,59 @@
 // Version: 1.0.0
 // Date: 2026-07-26
 
-//! Per-agent lineage rotation for MS2.
+//! Per-agent lineage rotation (MS2): a dead model **rotates** to another lineage
+//! instead of degrading the run.
 //!
-//! (Module documentation is expanded in Task 15; this file starts with the
-//! [`Lineage`] newtype — a declared, never-inferred model-family label.)
+//! When a mage's model fails — transport, schema, or timeout — the orchestrator
+//! rotates it to the next eligible fallback [`Lineage`] rather than dropping to a
+//! degraded consensus. A [`Lineage`] is a **declared** model-family label, never
+//! inferred from a model name or response.
+//!
+//! # [`RotationPolicy`] — pure and total
+//!
+//! [`RotationPolicy::next_model`] is the eligibility decision: given a mage's
+//! per-attempt state it returns the first eligible fallback in declared order, or
+//! `None`. It performs **no I/O, never `await`s, never panics, and never returns
+//! `Err`** — the probe-derived window/digest data it reads was gathered once in the
+//! preflight ([`run_preflight`]) and cached in a [`ModelCapability`] map.
+//!
+//! # [`LineageRegistry`] — concurrency invariants
+//!
+//! Run-wide rotation state lives behind **exactly one** `tokio::sync::Mutex`, and
+//! it is **never held across an `await`**. Therefore deadlock is impossible by
+//! construction and there is no second lock to order against.
+//! [`LineageRegistry::claim_next`] does the whole read-decide-commit under that
+//! single lock; its postcondition is strict: `Some` → the mage's active entry was
+//! **replaced**; `None` → the registry is left **intact**. Its digest re-propose
+//! loop terminates because each rejection grows `window_rejected` (which
+//! `next_model` excludes) over a finite pool. Slot cleanup runs on **every** mage
+//! exit — success, error, panic, and cancellation — via the succeeded-flag guard
+//! (`AgentSlotGuard`): a valid verdict keeps the lineage; anything else releases
+//! it.
+//!
+//! # Scope asymmetry (R6) — why the failure class matters
+//!
+//! A **transport** failure condemns the lineage **run-wide** (every mage then
+//! avoids it); a **schema** failure is **mage-local** (only that mage stops
+//! retrying it). A panic **never** rotates. Worked example: pool `[A, B, C]`,
+//! Caspar rotates `A → B`, then Melchior fails. `B` is in play, so Melchior takes
+//! **C** if `A` was condemned run-wide (transport), but takes **A** if `A` only
+//! schema-failed for Caspar (mage-local, freed once Caspar moved on). The naive
+//! "A already failed, avoid it" intuition is wrong for the schema path.
+//!
+//! # Digest verify — fail-OPEN (R17)
+//!
+//! To catch *ensemble collapse* (two lineages that are secretly the same weights),
+//! [`claim_next`](LineageRegistry::claim_next) compares model digests. The rule is
+//! **fail-open**: a candidate is rejected ONLY on a *proven* collision — its
+//! **resolvable** digest equals a **resolvable** active mage's digest. An
+//! unresolvable (`None`) digest — because a probe is down or a provider has no
+//! probe — is **trusted by the declared lineage** and never collides (user
+//! decision 2026-07-26). The operator's lineage labels are therefore load-bearing:
+//! two identical models mislabeled as distinct are caught **only if** their digests
+//! resolve, so a provider without a [`ProviderProbe`] gets no ensemble-collapse
+//! protection. The architecture↔lineage check (`family_verdict`) is out of scope
+//! here (MS4).
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -725,6 +774,14 @@ pub struct FallbackPool {
 
 impl FallbackPool {
     /// Starts a [`FallbackPoolBuilder`] seeded with [`DEFAULT_MAX_ROTATIONS`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use magi_core::rotation::FallbackPool;
+    /// let pool = FallbackPool::builder().max_rotations(2).build();
+    /// assert!(pool.is_empty()); // an empty pool is valid — it means "no rotation"
+    /// ```
     pub fn builder() -> FallbackPoolBuilder {
         FallbackPoolBuilder {
             candidates: vec![],
