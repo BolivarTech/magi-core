@@ -11,6 +11,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::Mutex;
 
@@ -113,16 +114,45 @@ pub struct Candidate {
 pub struct RotationPolicy {
     fallback: Vec<Candidate>,
     max_rotations: u32,
+    // Probe-derived config for eligibility conditions 5-6 (window/digest). Stored
+    // here (zero-I/O — the probe ran in the preflight); the `next_model` reads that
+    // consume them land in a later task, so they carry a forward-reference `allow`.
+    #[allow(dead_code)]
+    capabilities: BTreeMap<String, ModelCapability>,
+    #[allow(dead_code)]
+    strict_context_guard: bool,
+    #[allow(dead_code)]
+    min_window_tokens: usize,
 }
 
 impl RotationPolicy {
-    /// Builds a policy over an ordered fallback list and a per-mage rotation cap
-    /// (`max_rotations = 0` disables rotation entirely).
-    pub fn new(fallback: Vec<Candidate>, max_rotations: u32) -> Self {
+    /// Builds a policy over an ordered fallback list, a per-mage rotation cap
+    /// (`max_rotations = 0` disables rotation entirely), and the preflight-derived
+    /// `capabilities` map plus the window pre-filter config (`strict_context_guard`,
+    /// `min_window_tokens`). The policy performs no I/O — it only reads this cached
+    /// capability data.
+    pub fn new(
+        fallback: Vec<Candidate>,
+        max_rotations: u32,
+        capabilities: BTreeMap<String, ModelCapability>,
+        strict_context_guard: bool,
+        min_window_tokens: usize,
+    ) -> Self {
         Self {
             fallback,
             max_rotations,
+            capabilities,
+            strict_context_guard,
+            min_window_tokens,
         }
+    }
+
+    /// Test-only shim: a probe-free policy (empty capabilities, non-strict, zero
+    /// min-window) that preserves the pure 4-condition behavior. Keeps the many
+    /// probe-agnostic tests on ONE call so future arg growth touches only this shim.
+    #[cfg(test)]
+    pub(crate) fn for_tests_no_probe(fallback: Vec<Candidate>, max_rotations: u32) -> Self {
+        Self::new(fallback, max_rotations, BTreeMap::new(), false, 0)
     }
 
     /// Returns the first eligible candidate in declared order, or `None`.
@@ -516,16 +546,87 @@ impl Drop for AgentSlotGuard {
 /// can be probed for its context window and weights digest implements it; one that
 /// cannot simply does not, and rotation still works (a `None` digest is trusted).
 ///
-/// TODO(Task 11/14): the trait is declared here so [`FallbackCandidate`] compiles.
-/// Its full semantics — what `window`/`digest` mean, the preflight that calls them,
-/// and the only production impl (`OllamaProvider`, feature `ollama`) — are filled
-/// in later tasks. Do NOT treat the current contract as final.
+/// The preflight ([`run_preflight`]) calls these once per model **before** dispatch
+/// and caches the results in a [`ModelCapability`] map, so the pure rotation policy
+/// reads them with zero I/O. Its only production impl is `OllamaProvider`
+/// (feature `ollama`, filled in a later task).
 #[async_trait::async_trait]
 pub trait ProviderProbe: Send + Sync {
     /// Context window in tokens, or `None` if it cannot be measured.
     async fn window(&self) -> Result<Option<usize>, ProviderError>;
     /// Model weights fingerprint, or `None` if it cannot be resolved.
     async fn digest(&self) -> Result<Option<String>, ProviderError>;
+}
+
+/// Probe-derived capabilities of one model, cached by the preflight so the pure
+/// rotation policy reads them with zero I/O.
+#[derive(Debug, Clone)]
+pub struct ModelCapability {
+    /// Context window in tokens, `None` if unmeasured.
+    pub window: Option<usize>,
+    /// Weights fingerprint, `None` if unresolved (trusted by lineage — fail-open).
+    pub digest: Option<String>,
+    /// Always `true` for a probe-capable provider.
+    pub supports_completion: bool,
+}
+
+/// Per-model probe timeout in the preflight. A probe that does not answer within
+/// this is treated as unmeasured (window/digest `None`), never an abort (G3).
+pub const DEFAULT_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Max probes hitting the shared endpoint at once (its agent cap is small).
+const MAX_PREFLIGHT_CONCURRENCY: usize = 4;
+
+/// Probes every `(model_id, probe)` pair CONCURRENTLY (bounded by
+/// `MAX_PREFLIGHT_CONCURRENCY`) and returns `model_id -> ModelCapability`.
+///
+/// Each probe runs under [`DEFAULT_PREFLIGHT_TIMEOUT`]; a timeout or any probe
+/// error degrades that model to `window: None, digest: None` (fail-open) rather
+/// than aborting the preflight. A panicked probe task is skipped (no entry). The
+/// bounded concurrency avoids both the serial N×timeout latency cliff and
+/// overwhelming the shared endpoint's small agent cap.
+pub async fn run_preflight(
+    probes: Vec<(String, Arc<dyn ProviderProbe>)>,
+) -> BTreeMap<String, ModelCapability> {
+    let sem = Arc::new(tokio::sync::Semaphore::new(MAX_PREFLIGHT_CONCURRENCY));
+    let mut set = tokio::task::JoinSet::new();
+
+    for (model_id, probe) in probes {
+        let id = model_id;
+        let sem = Arc::clone(&sem);
+        set.spawn(async move {
+            let unmeasured = ModelCapability {
+                window: None,
+                digest: None,
+                supports_completion: true,
+            };
+            let Ok(_permit) = sem.acquire_owned().await else {
+                return (id, unmeasured);
+            };
+            let measured = tokio::time::timeout(DEFAULT_PREFLIGHT_TIMEOUT, async {
+                let window = probe.window().await.ok().flatten();
+                let digest = probe.digest().await.ok().flatten();
+                (window, digest)
+            })
+            .await;
+            let cap = match measured {
+                Ok((window, digest)) => ModelCapability {
+                    window,
+                    digest,
+                    supports_completion: true,
+                },
+                Err(_) => unmeasured,
+            };
+            (id, cap)
+        });
+    }
+
+    let mut capabilities = BTreeMap::new();
+    while let Some(joined) = set.join_next().await {
+        if let Ok((id, cap)) = joined {
+            capabilities.insert(id, cap);
+        }
+    }
+    capabilities
 }
 
 /// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
@@ -651,11 +752,12 @@ impl FallbackPoolBuilder {
 /// `None` on the orchestrator means rotation is disabled (2.0.x behavior).
 pub(crate) struct RotationConfig {
     pub(crate) primary_lineages: BTreeMap<AgentName, Lineage>,
-    /// Declared primary probes — consumed by the Task 11 preflight; unused until
-    /// then, so this one field keeps a forward-reference `allow`.
-    #[allow(dead_code)]
     pub(crate) primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
     pub(crate) pool: FallbackPool,
+    /// When set, a candidate whose context window cannot be measured is REJECTED
+    /// by the window pre-filter (R16). Default `false` (unknown windows are
+    /// eligible — the definitive probe decides later).
+    pub(crate) strict_context_guard: bool,
 }
 
 #[cfg(test)]
@@ -735,7 +837,7 @@ mod tests {
 
     #[test]
     fn test_next_model_returns_first_eligible_in_declared_order() {
-        let p = RotationPolicy::new(pool(&[("a", "ma"), ("b", "mb")]), 5);
+        let p = RotationPolicy::for_tests_no_probe(pool(&[("a", "ma"), ("b", "mb")]), 5);
         assert_eq!(
             p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
                 .unwrap()
@@ -747,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_next_model_skips_in_play_failed_runfailed_used_and_windowrejected() {
-        let p = RotationPolicy::new(
+        let p = RotationPolicy::for_tests_no_probe(
             pool(&[("a", "ma"), ("b", "mb"), ("c", "mc"), ("d", "md")]),
             5,
         );
@@ -778,7 +880,7 @@ mod tests {
 
     #[test]
     fn test_max_rotations_gate() {
-        let p = RotationPolicy::new(pool(&[("a", "ma")]), 2);
+        let p = RotationPolicy::for_tests_no_probe(pool(&[("a", "ma")]), 2);
         assert!(
             p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 2)
                 .is_none()
@@ -787,7 +889,7 @@ mod tests {
             p.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 1)
                 .is_some()
         );
-        let p0 = RotationPolicy::new(pool(&[("a", "ma")]), 0); // 0 disables
+        let p0 = RotationPolicy::for_tests_no_probe(pool(&[("a", "ma")]), 0); // 0 disables
         assert!(
             p0.next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
                 .is_none()
@@ -797,7 +899,7 @@ mod tests {
     #[test]
     fn test_empty_pool_and_all_ineligible_return_none() {
         assert!(
-            RotationPolicy::new(vec![], 3)
+            RotationPolicy::for_tests_no_probe(vec![], 3)
                 .next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
                 .is_none()
         );
@@ -805,7 +907,7 @@ mod tests {
 
     #[test]
     fn test_next_model_is_deterministic() {
-        let p = RotationPolicy::new(pool(&[("a", "ma"), ("b", "mb")]), 5);
+        let p = RotationPolicy::for_tests_no_probe(pool(&[("a", "ma"), ("b", "mb")]), 5);
         let a = p
             .next_model(&empty(), &empty(), &empty(), &empty_s(), &empty_wr(), 0)
             .unwrap()
@@ -918,7 +1020,7 @@ mod tests {
         }
     }
     fn policy() -> RotationPolicy {
-        RotationPolicy::new(pool(&[("d", "md"), ("e", "me")]), 3)
+        RotationPolicy::for_tests_no_probe(pool(&[("d", "md"), ("e", "me")]), 3)
     }
 
     #[tokio::test]
@@ -939,7 +1041,7 @@ mod tests {
     async fn test_claim_next_none_leaves_registry_intact() {
         let init: BTreeMap<_, _> = [(AgentName::Caspar, ae("d", "md"))].into();
         let r = Arc::new(LineageRegistry::new(init));
-        let p = RotationPolicy::new(pool(&[("d", "md")]), 3);
+        let p = RotationPolicy::for_tests_no_probe(pool(&[("d", "md")]), 3);
         let mut s = state("md");
         assert!(
             r.claim_next(AgentName::Melchior, &p, &mut s)
@@ -960,7 +1062,7 @@ mod tests {
         // S9
         let init: BTreeMap<_, _> = [(AgentName::Melchior, ae("x", "mx"))].into();
         let r = Arc::new(LineageRegistry::new(init));
-        let mk = || RotationPolicy::new(pool(&[("d", "md")]), 3);
+        let mk = || RotationPolicy::for_tests_no_probe(pool(&[("d", "md")]), 3);
         let (r1, r2) = (r.clone(), r.clone());
         let h1 = tokio::spawn(async move {
             let mut s = state("b");
@@ -991,7 +1093,7 @@ mod tests {
         for _ in 0..200 {
             let init: BTreeMap<_, _> = [(AgentName::Melchior, ae("x", "mx"))].into();
             let r = Arc::new(LineageRegistry::new(init));
-            let mk = || RotationPolicy::new(pool(&[("d", "md"), ("e", "me")]), 3);
+            let mk = || RotationPolicy::for_tests_no_probe(pool(&[("d", "md"), ("e", "me")]), 3);
             let (r1, r2) = (r.clone(), r.clone());
             let h1 = tokio::spawn(async move {
                 let mut s = state("b");
@@ -1304,5 +1406,92 @@ mod tests {
             long,
         );
         assert!(ev.detail().chars().count() <= 256);
+    }
+
+    // ---- Task 11: run_preflight (concurrent, timeout, fail-open) ----
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A probe whose calls always error — exercises the fail-open degradation.
+    struct FailingProbe;
+    #[async_trait::async_trait]
+    impl ProviderProbe for FailingProbe {
+        async fn window(&self) -> Result<Option<usize>, ProviderError> {
+            Err(ProviderError::Network {
+                message: "down".into(),
+            })
+        }
+        async fn digest(&self) -> Result<Option<String>, ProviderError> {
+            Err(ProviderError::Network {
+                message: "down".into(),
+            })
+        }
+    }
+
+    /// A probe that records the maximum number of concurrently in-flight probes
+    /// via a shared counter + a rendezvous barrier (deterministic, no timing).
+    struct OverlapProbe {
+        inflight: Arc<AtomicUsize>,
+        max_overlap: Arc<AtomicUsize>,
+        barrier: Arc<tokio::sync::Barrier>,
+    }
+    #[async_trait::async_trait]
+    impl ProviderProbe for OverlapProbe {
+        async fn window(&self) -> Result<Option<usize>, ProviderError> {
+            let cur = self.inflight.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_overlap.fetch_max(cur, Ordering::SeqCst);
+            self.barrier.wait().await; // all probes rendezvous → guaranteed overlap
+            self.inflight.fetch_sub(1, Ordering::SeqCst);
+            Ok(Some(8000))
+        }
+        async fn digest(&self) -> Result<Option<String>, ProviderError> {
+            Ok(Some("d".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_preflight_builds_capabilities_from_probes() {
+        let probe: Arc<dyn ProviderProbe> = Arc::new(MockProbe::new("m1"));
+        let caps = run_preflight(vec![("m1".to_string(), probe)]).await;
+        let c = caps.get("m1").expect("m1 capability present");
+        assert_eq!(c.window, Some(200_000));
+        assert_eq!(c.digest.as_deref(), Some("sha:m1"));
+        assert!(c.supports_completion);
+    }
+
+    #[tokio::test]
+    async fn test_probe_failure_yields_none_and_does_not_abort() {
+        // S24 — a probe error degrades to unmeasured (None/None); preflight returns.
+        let probe: Arc<dyn ProviderProbe> = Arc::new(FailingProbe);
+        let caps = run_preflight(vec![("bad".to_string(), probe)]).await;
+        let c = caps
+            .get("bad")
+            .expect("entry present even on probe failure");
+        assert_eq!(c.window, None);
+        assert_eq!(c.digest, None);
+    }
+
+    #[tokio::test]
+    async fn test_probes_run_concurrently_via_overlap_counter() {
+        // Overlap-counter, NOT wall-clock (CI-stable): two probes rendezvous at a
+        // barrier, so both are in-flight at once → observed overlap >= 2.
+        let inflight = Arc::new(AtomicUsize::new(0));
+        let max_overlap = Arc::new(AtomicUsize::new(0));
+        let barrier = Arc::new(tokio::sync::Barrier::new(2));
+        let mk = |m: &str| -> (String, Arc<dyn ProviderProbe>) {
+            (
+                m.to_string(),
+                Arc::new(OverlapProbe {
+                    inflight: Arc::clone(&inflight),
+                    max_overlap: Arc::clone(&max_overlap),
+                    barrier: Arc::clone(&barrier),
+                }) as Arc<dyn ProviderProbe>,
+            )
+        };
+        let _ = run_preflight(vec![mk("m1"), mk("m2")]).await;
+        assert!(
+            max_overlap.load(Ordering::SeqCst) >= 2,
+            "preflight must run probes concurrently (observed overlap >= 2)"
+        );
     }
 }

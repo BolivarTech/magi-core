@@ -16,7 +16,8 @@ use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
 use crate::rotation::{
     ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
-    LineageRegistry, ProviderProbe, RotationConfig, RotationEvent, RotationKind, RotationPolicy,
+    LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
+    RotationPolicy, run_preflight,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
@@ -138,6 +139,8 @@ pub struct MagiBuilder {
     primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
     /// **MS2** — the shared fallback pool; `None` ⇒ rotation disabled (2.0.x path).
     fallback_pool: Option<FallbackPool>,
+    /// **MS2** — reject candidates whose context window can't be measured (R16).
+    strict_context_guard: bool,
 }
 
 impl MagiBuilder {
@@ -160,6 +163,7 @@ impl MagiBuilder {
             agent_lineages: BTreeMap::new(),
             primary_probes: BTreeMap::new(),
             fallback_pool: None,
+            strict_context_guard: false,
         }
     }
 
@@ -200,6 +204,14 @@ impl MagiBuilder {
     /// disabled and behavior is identical to 2.0.x.
     pub fn with_fallback_pool(mut self, pool: FallbackPool) -> Self {
         self.fallback_pool = Some(pool);
+        self
+    }
+
+    /// **MS2** — When enabled, a fallback candidate whose context window cannot be
+    /// measured by its probe is REJECTED during rotation (R16). Default `false`
+    /// (an unmeasured window is eligible; the definitive probe decides later).
+    pub fn with_strict_context_guard(mut self, strict: bool) -> Self {
+        self.strict_context_guard = strict;
         self
     }
 
@@ -499,6 +511,7 @@ impl MagiBuilder {
             Arc::new(RotationConfig {
                 primary_lineages: self.agent_lineages,
                 primary_probes: self.primary_probes,
+                strict_context_guard: self.strict_context_guard,
                 pool,
             })
         });
@@ -882,6 +895,19 @@ impl Magi {
         }
         let registry = Arc::new(LineageRegistry::new(initial));
 
+        // Preflight (R15): probe every probe-capable model (trio primaries + pool
+        // candidates) ONCE, CONCURRENTLY, before dispatch — caching window/digest so
+        // the pure rotation policy reads them with zero I/O and never under the lock.
+        // A failed/timed-out probe degrades to unmeasured (fail-open, G3) — never an
+        // abort. Providers without a probe contribute nothing (no window/digest).
+        let capabilities =
+            Arc::new(run_preflight(collect_probe_targets(&agent_models, &rotation)).await);
+        // Coarse lower bound on the raw payload (R16): reject only candidates whose
+        // measured window is smaller than the prompt itself would need. `chars/4` is
+        // the standard rough token estimate — a pre-filter, not precise budgeting.
+        let min_window_tokens = user_prompt.chars().count().div_ceil(CHARS_PER_TOKEN_EST);
+        let strict_context_guard = rotation.strict_context_guard;
+
         // Pre-seed telemetry OUTSIDE any task stack so a panicked agent still has a
         // present, chain-empty record (W1). A normal return replaces its entry.
         let mut rotations = default_rotations(agent_models);
@@ -903,6 +929,7 @@ impl Magi {
             let validator = Arc::clone(&validator);
             let registry = Arc::clone(&registry);
             let rotation = Arc::clone(&rotation);
+            let capabilities = Arc::clone(&capabilities);
             let handle = tokio::spawn(async move {
                 dispatch_one_agent_rotating(
                     agent,
@@ -915,6 +942,9 @@ impl Magi {
                     rotation,
                     primary_lineage,
                     model_configured,
+                    capabilities,
+                    strict_context_guard,
+                    min_window_tokens,
                 )
                 .await
             });
@@ -1095,6 +1125,32 @@ fn default_rotations(
             )
         })
         .collect()
+}
+
+/// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
+/// (R16). Not precise budgeting — the crate is char-based and adds no tokenizer
+/// dependency; this only rejects candidates smaller than the raw prompt needs.
+const CHARS_PER_TOKEN_EST: usize = 4;
+
+/// Collects the preflight probe targets: each probing PRIMARY (paired with its
+/// agent's model) plus each pool candidate that declared a probe. Non-probing
+/// providers contribute nothing — they simply have no window/digest to measure.
+fn collect_probe_targets(
+    agent_models: &BTreeMap<AgentName, String>,
+    rotation: &RotationConfig,
+) -> Vec<(String, Arc<dyn ProviderProbe>)> {
+    let mut targets = Vec::new();
+    for (agent, probe) in &rotation.primary_probes {
+        if let Some(model) = agent_models.get(agent) {
+            targets.push((model.clone(), Arc::clone(probe)));
+        }
+    }
+    for cand in rotation.pool.candidates() {
+        if let Some(probe) = &cand.probe {
+            targets.push((cand.provider.model().to_string(), Arc::clone(probe)));
+        }
+    }
+    targets
 }
 
 /// Classifies a surfaced [`ProviderError`] as a connection-level failure for the
@@ -1290,11 +1346,20 @@ pub(crate) async fn dispatch_one_agent_rotating(
     rotation: Arc<RotationConfig>,
     primary_lineage: Lineage,
     model_configured: String,
+    capabilities: Arc<BTreeMap<String, ModelCapability>>,
+    strict_context_guard: bool,
+    min_window_tokens: usize,
 ) -> (Result<AgentOutput, String>, AgentRotation, bool) {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
 
-    let policy = RotationPolicy::new(rotation.pool.to_candidates(), rotation.pool.max_rotations());
+    let policy = RotationPolicy::new(
+        rotation.pool.to_candidates(),
+        rotation.pool.max_rotations(),
+        (*capabilities).clone(),
+        strict_context_guard,
+        min_window_tokens,
+    );
 
     let mut state = AgentRotationState {
         model_configured: model_configured.clone(),
