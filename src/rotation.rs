@@ -114,14 +114,10 @@ pub struct Candidate {
 pub struct RotationPolicy {
     fallback: Vec<Candidate>,
     max_rotations: u32,
-    // Probe-derived config for eligibility conditions 5-6 (window/digest). Stored
-    // here (zero-I/O — the probe ran in the preflight); the `next_model` reads that
-    // consume them land in a later task, so they carry a forward-reference `allow`.
-    #[allow(dead_code)]
+    /// Probe-derived capabilities, keyed by model-id. Read zero-I/O by the window
+    /// pre-filter (cond 6) and the digest lookup — the probe ran in the preflight.
     capabilities: BTreeMap<String, ModelCapability>,
-    #[allow(dead_code)]
     strict_context_guard: bool,
-    #[allow(dead_code)]
     min_window_tokens: usize,
 }
 
@@ -174,16 +170,33 @@ impl RotationPolicy {
             return None;
         }
         // First eligible candidate in declared order. Conditions 1-4 are the pure
-        // core; #5 (`window_rejected`) is empty without a probe (no-op) but honored
-        // so a later re-propose loop cannot spin. Condition #6 (window) is added
-        // with `capabilities` in a later task.
+        // core; #5 (`window_rejected`) is empty without a probe but honored so the
+        // digest re-propose loop cannot spin; #6 (window) reads the cached probe
+        // capabilities (a model without a capability entry — no probe — passes,
+        // preserving no-probe behavior).
         self.fallback.iter().find(|c| {
             !lineages_in_play.contains(&c.lineage)          // 1: another live mage has this lineage
                 && !failed_lineages.contains(&c.lineage)    // 2: this mage schema-failed it
                 && !run_failed_lineages.contains(&c.lineage) // 3: condemned run-wide (transport)
                 && !used.contains(&c.model)                 // 4: this mage already ran this model
-                && !window_rejected.contains_key(&c.model) // 5: rejected by window/digest verify
+                && !window_rejected.contains_key(&c.model)  // 5: rejected by window/digest verify
+                && self.window_admits(&c.model) // 6: context window large enough (or unknown)
         })
+    }
+
+    /// Condition #6 (R16): the candidate's measured context window is large enough,
+    /// or (unmeasured) is admitted unless `strict_context_guard`. A model with no
+    /// capability entry (non-probing provider) has `window: None` → admitted
+    /// (non-strict), preserving no-probe behavior.
+    fn window_admits(&self, model: &str) -> bool {
+        let window = self.capabilities.get(model).and_then(|c| c.window);
+        window_ok(window, self.min_window_tokens, self.strict_context_guard)
+    }
+
+    /// The digest cached for `model` by the preflight, or `None` when unresolved
+    /// (probe down, or a non-probing provider). Read by the digest verify.
+    pub(crate) fn digest_of(&self, model: &str) -> Option<String> {
+        self.capabilities.get(model).and_then(|c| c.digest.clone())
     }
 }
 
@@ -431,9 +444,18 @@ impl LineageRegistry {
     ///
     /// Postcondition: `Some` → the mage's `active` entry was **replaced** by the
     /// chosen candidate; `None` → the registry is left **intact**. `window_rejected`
-    /// is cleared at entry so a dynamic rejection is re-evaluated on the next call.
-    /// The digest re-propose loop (fail-open, R5a) replaces this body in a later
-    /// task with the same signature and postcondition.
+    /// is cleared at entry so a dynamic (digest) rejection is re-evaluated on the
+    /// next call.
+    ///
+    /// Digest verify (R17, **fail-open**): after `next_model` picks a candidate, it
+    /// is rejected ONLY on a *proven* collision — its **resolvable** digest equals a
+    /// **resolvable** ACTIVE mage's digest (the calling agent is excluded, W6). An
+    /// unresolvable (`None`) digest — candidate or active — never collides, so it is
+    /// trusted by the declared lineage. A rejected candidate is marked in
+    /// `window_rejected` and the loop re-proposes the next eligible one; the set
+    /// only grows over a finite pool, so the loop terminates. The whole
+    /// read-decide-commit runs under the single lock (no `await` inside — the probe
+    /// ran in the preflight).
     pub async fn claim_next(
         &self,
         agent: AgentName,
@@ -442,30 +464,50 @@ impl LineageRegistry {
     ) -> Option<Candidate> {
         let mut g = self.lock.lock().await;
         state.window_rejected.clear();
-        let in_play: BTreeSet<Lineage> = g
-            .active
-            .iter()
-            .filter(|(a, _)| **a != agent)
-            .map(|(_, e)| e.lineage.clone())
-            .collect();
-        let chosen = policy
-            .next_model(
-                &state.failed_lineages,
-                &g.run_failed,
-                &in_play,
-                &state.used,
-                &state.window_rejected,
-                state.rotations_done,
-            )?
-            .clone();
-        g.active.insert(
-            agent,
-            ActiveEntry {
-                lineage: chosen.lineage.clone(),
-                model: chosen.model.clone(),
-            },
-        );
-        Some(chosen)
+        loop {
+            let in_play: BTreeSet<Lineage> = g
+                .active
+                .iter()
+                .filter(|(a, _)| **a != agent)
+                .map(|(_, e)| e.lineage.clone())
+                .collect();
+            let chosen = policy
+                .next_model(
+                    &state.failed_lineages,
+                    &g.run_failed,
+                    &in_play,
+                    &state.used,
+                    &state.window_rejected,
+                    state.rotations_done,
+                )?
+                .clone();
+
+            // The candidate is index 0; every OTHER active mage's digest follows.
+            // `digest_collision` returning `Some((0, _))` means the candidate's
+            // resolvable digest matches a resolvable active's → proven collision.
+            let mut digests = vec![policy.digest_of(&chosen.model)];
+            for (other, entry) in g.active.iter() {
+                if *other == agent {
+                    continue; // W6: never compare the calling agent against itself
+                }
+                digests.push(policy.digest_of(&entry.model));
+            }
+            if matches!(digest_collision(&digests), Some((0, _))) {
+                state
+                    .window_rejected
+                    .insert(chosen.model.clone(), "digest_collision");
+                continue; // re-propose the next eligible candidate
+            }
+
+            g.active.insert(
+                agent,
+                ActiveEntry {
+                    lineage: chosen.lineage.clone(),
+                    model: chosen.model.clone(),
+                },
+            );
+            return Some(chosen);
+        }
     }
 }
 
@@ -627,6 +669,39 @@ pub async fn run_preflight(
         }
     }
     capabilities
+}
+
+/// Returns the first index pair `(i, j)` with `i < j` whose digests are BOTH
+/// `Some(_)` and EQUAL — a proven weights collision. `None` is non-comparable and
+/// never collides (not even with another `None`); returns `None` when no proven
+/// collision exists. Pure, total.
+///
+/// The digest check in [`LineageRegistry::claim_next`] is **fail-open**: only a
+/// `Some((0, _))` (the candidate, placed at index 0, matching a *resolvable*
+/// active digest) rejects a rotation. An unresolvable (`None`) digest — on the
+/// candidate or on an active mage — never collides, so it is trusted by the
+/// declared lineage (R17, user decision 2026-07-26).
+pub(crate) fn digest_collision(digests: &[Option<String>]) -> Option<(usize, usize)> {
+    for (i, di) in digests.iter().enumerate() {
+        let Some(di) = di else {
+            continue;
+        };
+        for (j, dj) in digests.iter().enumerate().skip(i + 1) {
+            if dj.as_deref() == Some(di.as_str()) {
+                return Some((i, j));
+            }
+        }
+    }
+    None
+}
+
+/// Window pre-filter (R16): a KNOWN window passes iff it is at least `min_window`;
+/// an UNKNOWN window (`None`) is eligible UNLESS `strict` (then rejected). Pure.
+fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
+    match window {
+        Some(w) => w >= min_window,
+        None => !strict,
+    }
 }
 
 /// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
@@ -1492,6 +1567,201 @@ mod tests {
         assert!(
             max_overlap.load(Ordering::SeqCst) >= 2,
             "preflight must run probes concurrently (observed overlap >= 2)"
+        );
+    }
+
+    // ---- Task 12: window pre-filter + digest R5a (fail-open) ----
+
+    fn cap(digest: Option<&str>) -> ModelCapability {
+        ModelCapability {
+            window: None,
+            digest: digest.map(String::from),
+            supports_completion: true,
+        }
+    }
+    fn caps_map(pairs: &[(&str, Option<&str>)]) -> BTreeMap<String, ModelCapability> {
+        pairs
+            .iter()
+            .map(|(m, d)| (m.to_string(), cap(*d)))
+            .collect()
+    }
+
+    /// Registry with ONE active mage (Melchior), a policy carrying `caps`, and a
+    /// fresh Caspar state — Caspar is the mage rotating.
+    fn digest_case(
+        active_model: &str,
+        active_digest: Option<&str>,
+        cand: &[(&'static str, &str)],
+        caps: Vec<(&str, Option<&str>)>,
+    ) -> (Arc<LineageRegistry>, RotationPolicy, AgentRotationState) {
+        let init: BTreeMap<_, _> = [(
+            AgentName::Melchior,
+            ActiveEntry {
+                lineage: Lineage::from("mel-lin"),
+                model: active_model.into(),
+            },
+        )]
+        .into();
+        let mut cm = caps_map(&caps);
+        cm.insert(active_model.to_string(), cap(active_digest));
+        let policy = RotationPolicy::new(pool(cand), 3, cm, false, 0);
+        (Arc::new(LineageRegistry::new(init)), policy, state("cas"))
+    }
+
+    /// Registry with TWO active mages (Melchior, Balthasar) — for the dynamic-R5a
+    /// re-evaluation test (W1).
+    fn digest_case_two_active(
+        mel: &str,
+        mel_d: Option<&str>,
+        bal: &str,
+        bal_d: Option<&str>,
+        cand: &[(&'static str, &str)],
+        caps: Vec<(&str, Option<&str>)>,
+    ) -> (Arc<LineageRegistry>, RotationPolicy, AgentRotationState) {
+        let init: BTreeMap<_, _> = [
+            (
+                AgentName::Melchior,
+                ActiveEntry {
+                    lineage: Lineage::from("mel-lin"),
+                    model: mel.into(),
+                },
+            ),
+            (
+                AgentName::Balthasar,
+                ActiveEntry {
+                    lineage: Lineage::from("bal-lin"),
+                    model: bal.into(),
+                },
+            ),
+        ]
+        .into();
+        let mut cm = caps_map(&caps);
+        cm.insert(mel.to_string(), cap(mel_d));
+        cm.insert(bal.to_string(), cap(bal_d));
+        let policy = RotationPolicy::new(pool(cand), 3, cm, false, 0);
+        (Arc::new(LineageRegistry::new(init)), policy, state("cas"))
+    }
+
+    /// Registry where the CALLING agent (Caspar) is itself active with `self_digest`
+    /// — for the calling-agent exclusion test (W6).
+    fn digest_case_self(
+        self_digest: &str,
+        cand: &[(&'static str, &str)],
+        caps: Vec<(&str, Option<&str>)>,
+    ) -> (Arc<LineageRegistry>, RotationPolicy, AgentRotationState) {
+        let self_model = "cas-self";
+        let init: BTreeMap<_, _> = [(
+            AgentName::Caspar,
+            ActiveEntry {
+                lineage: Lineage::from("cas-lin"),
+                model: self_model.into(),
+            },
+        )]
+        .into();
+        let mut cm = caps_map(&caps);
+        cm.insert(self_model.to_string(), cap(Some(self_digest)));
+        let policy = RotationPolicy::new(pool(cand), 3, cm, false, 0);
+        (
+            Arc::new(LineageRegistry::new(init)),
+            policy,
+            state("cas-other"),
+        )
+    }
+
+    #[test]
+    fn test_digest_collision_table_including_none() {
+        assert_eq!(
+            digest_collision(&[Some("a".into()), Some("b".into()), Some("a".into())]),
+            Some((0, 2))
+        );
+        assert_eq!(digest_collision(&[None, None]), None); // None never collides
+        assert_eq!(
+            digest_collision(&[Some("a".into()), None, Some("b".into())]),
+            None
+        );
+        assert_eq!(digest_collision(&[]), None);
+        assert_eq!(
+            digest_collision(&[Some("a".into()), Some("a".into())]),
+            Some((0, 1))
+        );
+    }
+
+    #[test]
+    fn test_window_ok_rejects_too_small_and_unknown_eligible_unless_strict() {
+        // S20
+        assert!(!window_ok(Some(100), 1000, false)); // too small
+        assert!(window_ok(None, 1000, false)); // unknown → eligible (non-strict)
+        assert!(!window_ok(None, 1000, true)); // unknown → rejected (strict)
+        assert!(window_ok(Some(2000), 1000, true)); // big enough
+    }
+
+    #[tokio::test]
+    async fn test_claim_next_rejects_proven_digest_collision_and_reproposes() {
+        // S18 — R5a proven collision is rejected; the next unique candidate reserved.
+        let (r, p, mut s) = digest_case(
+            "mx",
+            Some("sha:a"),
+            &[("d", "md"), ("e", "me")],
+            vec![("md", Some("sha:a")), ("me", Some("sha:b"))],
+        );
+        let got = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
+        assert_eq!(got.model, "me"); // d (proven collision) rejected, e reserved
+        assert!(s.window_rejected.contains_key("md"));
+    }
+
+    #[tokio::test]
+    async fn test_candidate_without_digest_is_accepted_trusting_lineage() {
+        // S19 — an unverifiable candidate digest is trusted (fail-open), not rejected.
+        let (r, p, mut s) = digest_case("mx", Some("sha:a"), &[("d", "md")], vec![("md", None)]);
+        assert!(
+            r.claim_next(AgentName::Caspar, &p, &mut s).await.is_some(),
+            "an unverifiable candidate digest is trusted, not rejected"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_active_unverifiable_digest_does_not_block_rotation() {
+        // S19b (was R5c×G3) — an ACTIVE mage's None digest must not block rotation.
+        let (r, p, mut s) = digest_case("mx", None, &[("d", "md")], vec![("md", Some("sha:b"))]);
+        assert!(
+            r.claim_next(AgentName::Caspar, &p, &mut s).await.is_some(),
+            "unverifiable ACTIVE digest is trusted; rotation proceeds"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_window_rejected_cleared_so_dynamic_r5a_reevaluated() {
+        // W1 — d collides with Melchior (sha:x) in call 1 → e reserved. Melchior
+        // departs, e spent → call 2 must RE-EVALUATE d (no longer colliding).
+        let (r, p, mut s) = digest_case_two_active(
+            "mm",
+            Some("sha:x"),
+            "mb",
+            Some("sha:y"),
+            &[("d", "md"), ("e", "me")],
+            vec![("md", Some("sha:x")), ("me", Some("sha:e"))],
+        );
+        let first = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
+        assert_eq!(first.model, "me"); // d rejected (R5a), e reserved
+        r.release(AgentName::Melchior).await; // colliding mage departs
+        s.used.insert("me".into());
+        s.rotations_done += 1; // e spent; next rotation
+        let second = r.claim_next(AgentName::Caspar, &p, &mut s).await;
+        assert_eq!(
+            second.map(|c| c.model),
+            Some("md".into()),
+            "d must be re-eligible once the colliding mage departed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_calling_agent_excluded_from_digest_check() {
+        // W6 — Caspar's OWN active digest equals its candidate's → must NOT self-collide.
+        let (r, p, mut s) =
+            digest_case_self("sha:self", &[("d", "md")], vec![("md", Some("sha:self"))]);
+        assert!(
+            r.claim_next(AgentName::Caspar, &p, &mut s).await.is_some(),
+            "calling agent excluded → no spurious self-collision"
         );
     }
 }
