@@ -911,6 +911,11 @@ impl Magi {
         let mut successful = Vec::new();
         let mut failed = BTreeMap::new();
         let mut retried = std::collections::BTreeSet::new();
+        // ABNORMAL EXIT: the endpoint-down latch — NOT the per-agent error payload —
+        // is the single source of truth, so it MUST be consulted after EVERY outcome
+        // (success, normal failure, OR panic) before ANY return/continue. Do not drop
+        // this check in a refactor; a panicked latch-holder that never propagated the
+        // signal is recovered here (R8/W11).
         for (name, handle) in handles {
             match handle.await {
                 Ok((Ok(output), agent_rotation, was_retried)) => {
@@ -931,16 +936,18 @@ impl Magi {
                     // Panic/abnormal: keep the pre-seed (empty chain — panic never
                     // rotates, R6). The lineage is already freed by the task's
                     // `AgentSlotGuard::drop` during unwind (never `mark_succeeded`).
+                    // Lost-signal recovery (W11/W18): recover endpoint-down straight
+                    // from the registry latch, robust to a panicked carrier.
                     failed.insert(name, format!("panic: {join_err}"));
+                    if let Some(err) = resolve_abnormal_exit(name, &join_err, &registry).await {
+                        return Err(err);
+                    }
+                    continue;
                 }
             }
-            // ENDPOINT-DOWN: consult the registry latch after EVERY outcome (success,
-            // failure, OR panic) before ANY further work — the latch, not the error
-            // payload, is the single source of truth, so a panicked latch-holder that
-            // never propagated the signal is still caught (R8/W11).
-            if registry.endpoint_down_signalled().await {
-                let lineages = registry.connection_failed_lineages().await;
-                return Err(MagiError::EndpointDown { lineages });
+            // Normal outcome: a concurrent mage may still have tripped the latch.
+            if let Some(err) = resolve_endpoint_down(&registry).await {
+                return Err(err);
             }
         }
 
@@ -1202,6 +1209,43 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
         connection,
         kind,
     }
+}
+
+/// Returns `Some(MagiError::EndpointDown)` iff the registry's endpoint-down latch
+/// is set, else `None`. The latch is the single source of truth for the fast-fail
+/// (R8); the `lineages` come from the run's connection-condemned set.
+async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
+    if reg.endpoint_down_signalled().await {
+        Some(MagiError::EndpointDown {
+            lineages: reg.connection_failed_lineages().await,
+        })
+    } else {
+        None
+    }
+}
+
+/// Lost-signal recovery for an ABNORMAL agent exit (panic / `JoinError`), factored
+/// out for race-free unit testing (W18).
+///
+/// A panicked task loses its transport classification, so the decision derives
+/// **solely** from the registry latch — never from `err`. `agent`/`err` document
+/// the call site (and feed a diagnostic `tracing` event); the verdict is exactly
+/// [`resolve_endpoint_down`]. This catches a latch-holder that crossed the
+/// endpoint-down threshold and then died before propagating the signal (R8/W11).
+pub(crate) async fn resolve_abnormal_exit(
+    agent: AgentName,
+    err: &tokio::task::JoinError,
+    reg: &LineageRegistry,
+) -> Option<MagiError> {
+    let decision = resolve_endpoint_down(reg).await;
+    if decision.is_some() {
+        tracing::warn!(
+            agent = agent.display_name(),
+            cause = %err,
+            "abnormal agent exit with endpoint-down latch set; aborting run"
+        );
+    }
+    decision
 }
 
 /// Dispatch a single agent with the MS2 rotation FSM.
@@ -1670,6 +1714,47 @@ mod tests {
         assert!(
             matches!(b.build(), Err(MagiError::InvalidInput { .. })),
             "empty/blank pool-candidate lineage is invalid input, rejected at build"
+        );
+    }
+
+    // -- Task 9 (MS2): lost-signal endpoint-down recovery on abnormal exit (W18) --
+
+    /// An abnormal agent exit (a `JoinError` standing in for a panicked latch
+    /// holder) must recover `EndpointDown` from the registry latch, NOT from the
+    /// carrier — race-free, no dependency on WHEN the panic happened.
+    #[tokio::test]
+    async fn test_abnormal_exit_recovers_endpoint_down_from_registry() {
+        let mut init = BTreeMap::new();
+        init.insert(
+            AgentName::Melchior,
+            ActiveEntry {
+                lineage: Lineage::new("alibaba"),
+                model: "m".into(),
+            },
+        );
+        init.insert(
+            AgentName::Caspar,
+            ActiveEntry {
+                lineage: Lineage::new("deepseek"),
+                model: "c".into(),
+            },
+        );
+        let reg = LineageRegistry::new(init);
+        reg.register_transport_failure(Lineage::new("alibaba"), true)
+            .await; // connection=true
+        reg.register_transport_failure(Lineage::new("deepseek"), true)
+            .await; // 2 distinct → latch set
+        assert!(reg.endpoint_down_signalled().await);
+
+        // Simulate an abnormal outcome: a JoinError from an aborted spawn.
+        let handle = tokio::spawn(async { std::future::pending::<()>().await });
+        handle.abort();
+        let join_err = handle.await.unwrap_err();
+
+        let decision = resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg).await;
+        assert!(
+            matches!(decision, Some(MagiError::EndpointDown { .. })),
+            "abnormal exit must recover EndpointDown from the registry latch"
         );
     }
 
