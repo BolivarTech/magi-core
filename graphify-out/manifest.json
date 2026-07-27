@@ -5,8 +5,8 @@
     "semantic_hash": ""
   },
   "src/agent.rs": {
-    "mtime": 1779739163.0,
-    "ast_hash": "ec7514d19580b1b9a706e846904f6992",
+    "mtime": 1785097864.1361127,
+    "ast_hash": "79a4d879cd00453c351bbdf8820ac636",
     "semantic_hash": ""
   },
   "src/consensus.rs": {
@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1785036431.0148022,
-    "ast_hash": "88e98e91301a713829cee913e8d2e5ee",
+    "mtime": 1785112678.1572187,
+    "ast_hash": "9ee489167f76cc87971a48a6be92e440",
     "semantic_hash": ""
   },
   "src/finding_id.rs": {
@@ -25,18 +25,18 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1785036431.0186193,
-    "ast_hash": "1fad78b4ef7c4abda36e56e47f741f8e",
+    "mtime": 1785073031.542058,
+    "ast_hash": "763c3f9c3e25cad4447bc529073d4517",
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1785036431.0226164,
-    "ast_hash": "e2e773464e2560c597681da3543da6ad",
+    "mtime": 1785118116.8847914,
+    "ast_hash": "81425bcae56d521507cf32bece98ee6b",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
-    "mtime": 1785036431.025617,
-    "ast_hash": "f9874e710c09f3d0969c9be864c9898c",
+    "mtime": 1785105516.1780646,
+    "ast_hash": "6b35d80aa83b892f32956f42d74b8aa1",
     "semantic_hash": ""
   },
   "src/prompts/mod.rs": {
@@ -60,8 +60,8 @@
     "semantic_hash": ""
   },
   "src/providers/mod.rs": {
-    "mtime": 1779757051.0,
-    "ast_hash": "a034a12fd9d5f2e3aefe6c2ebb1fafe0",
+    "mtime": 1785105172.231639,
+    "ast_hash": "08841f32f3090e4435151772a66f6818",
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
@@ -70,8 +70,8 @@
     "semantic_hash": ""
   },
   "src/reporting.rs": {
-    "mtime": 1779739253.0,
-    "ast_hash": "e1e775b6f3d12d43df70931c4ff99015",
+    "mtime": 1785117983.0636802,
+    "ast_hash": "251f5e2378c6b9b9973670fc52f31b93",
     "semantic_hash": ""
   },
   "src/schema.rs": {
@@ -80,8 +80,8 @@
     "semantic_hash": ""
   },
   "src/test_support.rs": {
-    "mtime": 1779739264.0,
-    "ast_hash": "bcd838ab4da05726eb5634c53c7eb5b8",
+    "mtime": 1785117508.9191897,
+    "ast_hash": "94afe20e66db0912e735960913fab303",
     "semantic_hash": ""
   },
   "src/user_prompt.rs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1779427351.0,
-    "ast_hash": "c86acafa6960dea313e4aa599d7b6404",
+    "mtime": 1785106245.9170399,
+    "ast_hash": "241465ba2f93b8815c4950d4e5ea5194",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
@@ -125,13 +125,13 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1785036430.7550714,
-    "ast_hash": "eccc4b96fdba194f7715a6854b72c93f",
+    "mtime": 1785127440.541699,
+    "ast_hash": "f8bf2d8ca06f9861d27d78f2f6f434f8",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785036430.7650647,
-    "ast_hash": "700a6e0d447f464aaacac343d4bf9f9c",
+    "mtime": 1785106386.5331275,
+    "ast_hash": "ba13a604ae4a236f903f36194cba0726",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
@@ -192,6 +192,26 @@
   "tests/retry_after_integration.rs": {
     "mtime": 1785036431.0436213,
     "ast_hash": "3250dc9050ff59dcefec3211e621d70b",
+    "semantic_hash": ""
+  },
+  "src/rotation.rs": {
+    "mtime": 1785117375.6755672,
+    "ast_hash": "6f538923fb54f3318f8dd6c04b9dfadd",
+    "semantic_hash": ""
+  },
+  "tests/rotation_integration.rs": {
+    "mtime": 1785101322.6061282,
+    "ast_hash": "e2a244f1777ee66abfcb5f8304342863",
+    "semantic_hash": ""
+  },
+  "tests/probe_integration.rs": {
+    "mtime": 1785104764.2103336,
+    "ast_hash": "5374bd3059976c65aafb1a2b7bed8062",
+    "semantic_hash": ""
+  },
+  "src/providers/ollama.rs": {
+    "mtime": 1785116596.7297797,
+    "ast_hash": "444bf283ea91111324b75ea8231549df",
     "semantic_hash": ""
   }
 }
