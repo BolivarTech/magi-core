@@ -12,12 +12,14 @@ defined **by Unicode category** instead of by a hand-written list, and the heade
 neutralizer no longer depends on that set at all.
 
 **Why a minor and not a patch.** No signature moved and no item was removed, so
-this began as a `2.1.1` patch. It ships as a minor because the observable output
-of the public `validate::clean_title` changes — and per the ADR 005 amendment
-recorded with this release, an output change to a public item is a contract
-change regardless of whether it conforms *better* to that item's documented
-behavior. A security motivation is a reason to ship the change, not a reason to
-hide it in a patch.
+this began as a `2.1.1` patch. It ships as a minor under a policy this release
+adopts: **a change to the observable output of a public item is a contract
+change, and ships as a minor at minimum** — even when the new behavior conforms
+*better* to that item's documented contract, as it does here. "It's a bug fix"
+does not make an output change a patch, because a consumer's expectations are
+set by the behavior they observed, not by our reading of our own docs. A
+security motivation is a reason to ship the change, not a reason to hide it in a
+patch.
 
 ### Fixed
 
