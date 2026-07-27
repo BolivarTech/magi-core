@@ -292,14 +292,19 @@ The sanitization pipeline runs in a fixed order:
    U+0085, U+000B, U+000C, U+2028, U+2029) to `\n`.
 2. `strip_invisibles` — removes zero-width and bidi formatting characters.
 3. `neutralize_headers` — prefixes any line starting with `MODE`, `CONTEXT`,
-   `---BEGIN`, or `---END` (with optional leading ASCII whitespace) with two
-   spaces so it cannot be parsed as a delimiter.
+   `---BEGIN`, or `---END` with two spaces so it cannot be parsed as a
+   delimiter. Both flanks of the keyword are matched by a **non-letter** rule,
+   so no character can shield it: a bypass would need something that renders as
+   nothing *and* is an ASCII letter. The rule deliberately over-neutralizes —
+   `- MODE: x`, `| MODE |`, `"MODE":` and `MODE_SELECT` in ordinary content are
+   also prefixed — which is cosmetic, and preferred over a sanitizer that can be
+   walked past.
 
 Each request uses a fresh 128-bit nonce. If the sanitized content happens
 to contain the generated nonce, `analyze` fails closed with
-`MagiError::InvalidInput`. Accepted limitations include case-sensitive
-matching, non-ASCII whitespace, and ~64-bit effective nonce entropy from
-`fastrand`.
+`MagiError::InvalidInput`. Accepted limitations are case-sensitive matching
+and ~64-bit effective nonce entropy from `fastrand`. (Non-ASCII whitespace
+before a header was an accepted limitation through 2.1.0; 2.1.1 closes it.)
 
 ## Consensus Labels
 

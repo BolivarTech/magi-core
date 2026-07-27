@@ -37,10 +37,13 @@ instead of by a hand-written list, closing two gaps the list had accumulated.
   Word-continuation discrimination is unchanged — `MODESTY`, `CONTEXTUAL`,
   `---BEGINNING` and `MODEL:` are still not treated as headers.
 - The neutralizer now **deliberately over-neutralizes**: any line whose first
-  letters are a reserved keyword followed by a non-letter gains two leading
-  spaces, so `MODE_SELECT`, `CONTEXT-free`, `MODE1:` and `MODEÉ` in ordinary
-  content are affected. This is cosmetic on a content line, and is the intended
-  trade against a sanitizer that can be walked past.
+  letters are a reserved keyword flanked by non-letters gets two spaces
+  inserted immediately before the keyword. Besides `MODE_SELECT`,
+  `CONTEXT-free`, `MODE1:` and `MODEÉ`, this reaches shapes common in reviewed
+  content — `- MODE: x` becomes `-   MODE: x`, and likewise `| MODE | v |`,
+  `> MODE: x`, `"MODE":`, `### MODE`, `2. CONTEXT switch`. Cosmetic on a
+  content line, and the intended trade against a sanitizer that can be walked
+  past.
 
 ### Changed
 

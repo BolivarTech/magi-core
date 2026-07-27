@@ -97,9 +97,13 @@ fn strip_invisibles(s: &str) -> Cow<'_, str> {
 ///
 /// **It deliberately over-neutralizes**, and that is the intended trade: any
 /// line whose first letters are a keyword followed by a non-letter is
-/// neutralized, so `MODE_SELECT`, `CONTEXT-free`, `MODE1:` and `MODEÉ` in
-/// ordinary content each gain two leading spaces. Cosmetic on a content line;
-/// the alternative is a sanitizer that can be walked past.
+/// neutralized. The trailing rule catches `MODE_SELECT`, `CONTEXT-free`,
+/// `MODE1:` and `MODEÉ`; the leading rule additionally catches the shapes that
+/// are common in reviewed content — `- MODE: x`, `| MODE | v |`, `> MODE: x`,
+/// `"MODE":`, `### MODE`, `2. CONTEXT switch`. The two spaces are inserted
+/// immediately before the keyword, not at the start of the line, so `- MODE: x`
+/// becomes `-   MODE: x`. Cosmetic on a content line; the alternative is a
+/// sanitizer that can be walked past.
 ///
 /// Group 1 excludes `\r\n` so it stays line-local, matching the `(?m)^` anchor.
 static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -110,10 +114,13 @@ static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// Neutralizes header-starting lines by inserting `"  "` before the
 /// reserved keyword.
 ///
-/// The regex absorbs any leading ASCII whitespace (group 1) to defend
-/// against leading-space bypass (MAGI R1 C1). Substitution preserves
-/// the original whitespace, inserts the neutralization prefix `"  "`,
-/// and preserves the keyword and separator groups.
+/// The regex absorbs any run of non-letters before the keyword (group 1) so
+/// the keyword cannot be shielded from either side — originally ASCII
+/// whitespace only, against leading-space bypass (MAGI R1 C1), widened in
+/// 2.1.1 to cover every blank-rendering character (MAGI R3 W7). Substitution
+/// reproduces that run verbatim, inserts the neutralization prefix `"  "`, and
+/// preserves the keyword and separator groups. See [`HEADER_RE`] for why both
+/// flanks use a non-letter rule rather than an enumerated character set.
 ///
 /// Case-sensitive by design.
 ///
@@ -166,11 +173,10 @@ const RETRY_FEEDBACK_DASH_VARIANTS: &[&str] = &[
 ///    v0.3 anti-injection defense).
 /// 4. Literal substring replace of `---RETRY-FEEDBACK---` AND its
 ///    Unicode-confusable dash variants (em-dash, en-dash, horizontal bar,
-///    minus sign). The regex from step 3 requires a `(\s|:|$)` separator
-///    after the keyword and `---RETRY-FEEDBACK---` ends in `---` (no
-///    separator), so the regex never matches — this literal pass
-///    closes that gap (MAGI R2 C1) including dash-variant bypasses
-///    (MAGI R3 W2).
+///    minus sign). The regex from step 3 only ever matches its four
+///    reserved keywords, and `RETRY-FEEDBACK` is not one of them, so it
+///    never neutralizes this marker — this literal pass closes that gap
+///    (MAGI R2 C1) including dash-variant bypasses (MAGI R3 W2).
 ///
 /// Used by [`build_retry_prompt`] to sanitize the `error` argument before
 /// embedding it in the corrective feedback block. The error is typically
