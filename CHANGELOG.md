@@ -4,6 +4,43 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-07-27
+
+Hardening of invisible-character stripping. The set of characters removed from
+untrusted content and from finding titles is now defined **by Unicode category**
+instead of by a hand-written list, closing two gaps the list had accumulated.
+
+### Fixed
+
+- **Unicode tag characters are now stripped from untrusted content.**
+  `U+E0001` and `U+E0020`–`U+E007F` (category `Cf`) encode readable ASCII that is
+  invisible to a human reviewing the content, yet many LLM tokenizers emit them
+  as text — the classic covert channel for prompt injection. They were absent
+  from the enumerated set and survived sanitization intact.
+- **`U+180E` MONGOLIAN VOWEL SEPARATOR could bypass header neutralization.**
+  It was reclassified `Zs` → `Cf` in Unicode 6.3, so it matched neither the
+  strip set nor `\s`. A `MODE<U+180E>:` line in user content therefore passed
+  through unprefixed while a model could still read it as a real header.
+- Both gaps also let the affected characters reach finding-title dedup, so two
+  titles differing only by an invisible were treated as distinct.
+
+### Changed
+
+- The stripping pattern is now `[\p{Cf}\u{2028}\u{2029}\u{2065}\u{202F}]` —
+  the exhaustive `Cf` category plus four code points that are deliberately in
+  scope but are **not** `Cf`: `U+2028`/`U+2029` (`Zl`/`Zp`), `U+202F` (`Zs`) and
+  `U+2065` (`Cn`, unassigned). A category does not age; the list had.
+- **Observable behavior of the public `validate::clean_title` changes**: it now
+  removes additional invisible characters (tag characters, Arabic and Syriac
+  format marks, and other `Cf` code points outside the old enumeration). This
+  brings the function into line with its documented contract ("remove invisible
+  characters"). Two finding titles that differ only by such a character now
+  deduplicate together, where previously they did not.
+- `Mn` (nonspacing marks) is **deliberately excluded** — stripping it would
+  destroy combining accents in legitimate text. `U+00A0` NBSP remains untouched.
+- Diverges from the Python reference, which still enumerates the set; the
+  reference is to follow.
+
 ## [2.1.0] - 2026-07-27
 
 Per-agent lineage **rotation**: a dead model rotates to another lineage instead
