@@ -16,10 +16,11 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Matches invisible characters and Unicode separators that should be removed:
-/// zero-width spaces, bidi marks, line/paragraph separators (U+2028..U+202F range),
-/// extended formatting controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+/// zero-width spaces, bidi marks, the Mongolian vowel separator (U+180E),
+/// line/paragraph separators (U+2028..U+202F range), extended formatting
+/// controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
 pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}\u{00ad}]")
+    Regex::new(r"[\u{00ad}\u{180e}\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}]")
         .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
 });
 
@@ -673,6 +674,16 @@ mod tests {
     #[test]
     fn test_clean_title_strips_soft_hyphen_u00ad() {
         assert_eq!(clean_title("soft\u{00ad}hyphen"), "softhyphen");
+    }
+
+    /// U+180E MONGOLIAN VOWEL SEPARATOR is category `Cf` (reclassified from
+    /// `Zs` in Unicode 6.3), i.e. an invisible — exactly what this pipeline
+    /// exists to remove. The hand-written character set omitted it, which is
+    /// the failure mode the Python reference calls out by name: a hardcoded
+    /// list ages, a category does not.
+    #[test]
+    fn test_clean_title_strips_mongolian_vowel_separator_u180e() {
+        assert_eq!(clean_title("a\u{180e}b"), "ab");
     }
 
     #[test]
