@@ -702,35 +702,21 @@ impl Magi {
         // 6. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
 
-        // 7. Report
+        // 7. Report. The formatter assembles the whole report — banner, the MS2
+        //    rotation sections, then the consensus sections — so the orchestrator
+        //    never couples to the banner/section layout (no string-splicing). On a
+        //    plain run (no rotation, nothing estimated) the output is byte-identical
+        //    to 2.0.x (R11).
         let banner = self.formatter.format_banner(&successful, &consensus);
-        let report = {
-            let base = self.formatter.format_report(&successful, &consensus);
-            // MS2 additive sections spliced after the banner: the rotation trail and
-            // the run-level "estimated" honesty note (R19). Both are empty on a plain
-            // 2.0.x-style run, keeping the output byte-identical (R11).
-            let mut extra = self.formatter.format_model_rotations(&rotations);
-            let estimated = successful
-                .iter()
-                .any(|o| rotations.get(&o.agent).is_some_and(|r| r.ran_unmeasured));
-            extra.push_str(&self.formatter.format_estimated_note(estimated));
-            if extra.is_empty() {
-                base
-            } else {
-                // Splice the extra sections in right after the banner (before Key
-                // Findings). `format_report` emits `banner + "\n"` first; use
-                // `strip_prefix` (char-boundary-safe — NO byte-index `split_at`) so a
-                // future non-ASCII banner can never panic. If the prefix ever fails
-                // to match, fall back to prepending rather than corrupting output.
-                match base
-                    .strip_prefix(banner.as_str())
-                    .and_then(|rest| rest.strip_prefix('\n'))
-                {
-                    Some(rest) => format!("{banner}\n{extra}{rest}"),
-                    None => format!("{extra}{base}"),
-                }
-            }
-        };
+        let estimated = successful
+            .iter()
+            .any(|o| rotations.get(&o.agent).is_some_and(|r| r.ran_unmeasured));
+        let report = self.formatter.format_report_with_rotations(
+            &successful,
+            &consensus,
+            &rotations,
+            estimated,
+        );
 
         // 8. Build MagiReport
         let degraded = successful.len() < 3;

@@ -499,11 +499,36 @@ impl ReportFormatter {
     /// conditions for approval, recommended actions.
     /// Optional sections are omitted entirely when their data is absent.
     pub fn format_report(&self, agents: &[AgentOutput], consensus: &ConsensusResult) -> String {
+        // Delegates to the rotation-aware assembler with NO rotation data, so the
+        // output is byte-identical to the pre-MS2 format (empty rotations →
+        // `## Model Rotations` omitted; `estimated == false` → no note).
+        self.format_report_with_rotations(agents, consensus, &BTreeMap::new(), false)
+    }
+
+    /// **MS2** — Like [`format_report`](Self::format_report) but inserts the rotation
+    /// telemetry sections after the banner: `## Model Rotations` (when any agent
+    /// rotated) and the run-level "estimated" honesty note (when `estimated`). The
+    /// ENTIRE report is assembled here in the formatter, so callers never couple to
+    /// the banner/section layout (no external string-splicing). Additive:
+    /// `format_report` is unchanged and delegates here with empty inputs.
+    pub fn format_report_with_rotations(
+        &self,
+        agents: &[AgentOutput],
+        consensus: &ConsensusResult,
+        rotations: &BTreeMap<AgentName, AgentRotation>,
+        estimated: bool,
+    ) -> String {
         let mut out = String::new();
 
         // 1. Banner
         out.push_str(&self.format_banner(agents, consensus));
         out.push('\n');
+
+        // 1b. MS2 rotation sections (after the banner, before Key Findings). Each is
+        //     empty when there was no rotation / no estimated model, preserving the
+        //     byte-identical 2.0.x output on a plain run.
+        out.push_str(&self.format_model_rotations(rotations));
+        out.push_str(&self.format_estimated_note(estimated));
 
         // 2. Key Findings (optional)
         if !consensus.findings.is_empty() {
