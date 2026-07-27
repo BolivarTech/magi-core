@@ -211,7 +211,7 @@ pub enum MagiError {
     /// **MS2** — Endpoint-down fast-fail: two distinct lineages failed at the
     /// connection level, so no endpoint is reachable. The run aborts **before**
     /// consensus rather than degrade. Additive (enabled by `#[non_exhaustive]`).
-    #[error("endpoint down: no lineage reachable ({lineages:?})")]
+    #[error("endpoint down: no lineage reachable ({})", .lineages.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", "))]
     EndpointDown {
         /// The connection-failed lineages that tripped the fast-fail.
         lineages: Vec<crate::rotation::Lineage>,

@@ -234,6 +234,16 @@ pub struct MagiReport {
     /// **MS2** — per-agent rotation telemetry, populated for EVERY agent (successful
     /// or failed). Each entry carries `model_configured`/`model_used` and the ordered
     /// `chain` of hops (empty when the agent did not rotate). Always present in JSON.
+    ///
+    /// **Accepted limitation — telemetry on panic after rotation.** If an agent
+    /// rotated one or more times and then its task **panicked** (or was cancelled),
+    /// its entry shows the pre-seed (empty `chain`, `model_used == model_configured`),
+    /// NOT the hops it made before panicking — that in-flight chain lived on the
+    /// panicked task's stack and is unrecoverable. Capturing it would require a
+    /// shared mutable telemetry sink (a second lock outside the registry), which the
+    /// single-lock concurrency design deliberately forbids. The panic itself is the
+    /// headline (it surfaces in `failed_agents`); the exact pre-panic rotation trail
+    /// of a *failed* mage is a minor diagnostic loss, accepted by design.
     #[serde(default)]
     pub rotations: BTreeMap<AgentName, AgentRotation>,
 }
