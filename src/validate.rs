@@ -45,15 +45,19 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// meaning of its own — French punctuation spacing, Mongolian suffix
 /// separation, digit grouping — so no principled rule separates the two.
 ///
-/// # Known residual
+/// # Relationship to header neutralization
 ///
-/// Stripping invisibles does **not** close the whole
-/// header-neutralization bypass class. A character that is invisible, absent
-/// from this set, and not matched by `\s` still lets
-/// `MODE<char>:` slip past [`crate::user_prompt`]'s header neutralizer —
-/// e.g. `U+3164` (`Lo`), `U+2800` (`So`), `U+FE00`–`U+FE0F` (`Mn`), `U+FFF0`
-/// (`Cn`). Widening this set further is whack-a-mole: the structural weakness
-/// is the neutralizer's trailing `(\s|:|$)` anchor, not the size of this class.
+/// This set is **not** what defends the header neutralizer. A character that is
+/// invisible but absent from here once let `MODE<char>:` slip past
+/// [`crate::user_prompt`]'s neutralizer, and widening this set to chase such
+/// characters is whack-a-mole — the next unassigned code point reopens it. That
+/// weakness was fixed at its cause instead: the neutralizer now requires a
+/// **non-letter** after the keyword, which no invisible can satisfy. Do not add
+/// code points here reasoning that they are header-bypass vectors; they are not.
+///
+/// A residual remains in the **leading** position: the neutralizer absorbs only
+/// `[\t ]*` before the keyword, so a non-stripped whitespace-like character
+/// there — `U+00A0` is the realistic case — still prevents the match.
 ///
 /// `\p{Default_Ignorable_Code_Point}` was evaluated as a union member and
 /// **declined**: it is an addition rather than a replacement (it lacks 35 of

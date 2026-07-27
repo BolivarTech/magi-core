@@ -24,12 +24,16 @@ instead of by a hand-written list, closing two gaps the list had accumulated.
 - Both gaps also let the affected characters reach finding-title dedup, so two
   titles differing only by an invisible were treated as distinct.
 
-Scope of the second fix, stated plainly: it closes those instances, **not** the
-whole bypass class. Any invisible that is neither in the strip set nor matched
-by `\s` still slips a header past the neutralizer the same way (`U+3164`,
-`U+2800`, `U+FE00`–`U+FE0F`, `U+FFF0`). The structural weakness is the
-neutralizer's trailing anchor, not the size of the strip set; see the "Known
-residual" section on `INVISIBLE_AND_SEPARATOR_RE`.
+- **The header-neutralization bypass is closed at its cause, not just for the
+  characters we listed.** Stripping only removes invisibles someone remembered
+  to enumerate, so the next unassigned code point would reopen the hole. The
+  neutralizer's trailing group changed from `(\s|:|$)` to `([^A-Za-z]|$)`: a
+  bypass would now need a character that is invisible *and* an ASCII letter,
+  which is a contradiction. Word-continuation discrimination is unchanged —
+  `MODESTY`, `CONTEXTUAL`, `---BEGINNING` and `MODEL:` are still not treated as
+  headers. Residual, stated plainly: the neutralizer absorbs only `[\t ]*`
+  before the keyword, so a non-stripped whitespace-like character in the
+  **leading** position (realistically `U+00A0`) still prevents the match.
 
 ### Changed
 
