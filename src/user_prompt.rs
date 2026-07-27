@@ -426,6 +426,16 @@ mod tests {
         assert_eq!(strip_invisibles("a\u{2060}b"), "ab");
     }
 
+    /// Unicode **tag characters** (U+E0020..U+E007F, category `Cf`) are the
+    /// classic covert channel for prompt injection: they encode readable ASCII
+    /// that is invisible to a human reviewing the content, yet many LLM
+    /// tokenizers emit them as text. They must not survive sanitization of
+    /// untrusted user content.
+    #[test]
+    fn test_strip_invisibles_removes_unicode_tag_characters() {
+        assert_eq!(strip_invisibles("a\u{e0041}b"), "ab");
+    }
+
     /// Regression guard for a header-neutralization bypass (MAGI R3 W2 family).
     ///
     /// `strip_invisibles` runs **before** `neutralize_headers` precisely so an

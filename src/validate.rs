@@ -15,12 +15,31 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\t\n\x0B\x0C\r\x{85}]").expect("valid CONTROL_WHITESPACE_RE regex")
 });
 
-/// Matches invisible characters and Unicode separators that should be removed:
-/// zero-width spaces, bidi marks, the Mongolian vowel separator (U+180E),
-/// line/paragraph separators (U+2028..U+202F range), extended formatting
-/// controls (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+/// Matches invisible characters and Unicode separators that should be removed.
+///
+/// Defined **by Unicode category, not by an enumerated list**: `\p{Cf}` (format)
+/// covers every invisible formatting character — zero-width spaces, bidi marks,
+/// the BOM, the soft hyphen, Arabic and Syriac format marks, and the
+/// U+E0020..U+E007F **tag characters** that are the classic covert channel for
+/// prompt injection. A hand-written list cannot stay complete: this one had
+/// already drifted (it omitted U+180E and the whole tag block), and a category
+/// does not age.
+///
+/// Four code points are added explicitly because they are **not** `Cf` yet are
+/// deliberately in scope:
+/// - `U+2028` LINE SEPARATOR (`Zl`) and `U+2029` PARAGRAPH SEPARATOR (`Zp`)
+/// - `U+202F` NARROW NO-BREAK SPACE (`Zs`)
+/// - `U+2065` (`Cn`, unassigned) — reserved inside the invisible-operator block
+///
+/// `Mn` (nonspacing marks) is **deliberately excluded**: stripping it here would
+/// destroy combining accents in legitimate text. The verdict-marker
+/// normalization strips `Mn` for a different reason (it compares against an
+/// ASCII-only marker) — do not unify the two.
+///
+/// Divergence from the Python reference, which still enumerates the list in
+/// `validate.py` and `sanitize.py`; the reference is to follow.
 pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\u{00ad}\u{180e}\u{200b}-\u{200f}\u{2028}-\u{202f}\u{2060}-\u{206f}\u{feff}]")
+    Regex::new(r"[\p{Cf}\u{2028}\u{2029}\u{2065}\u{202f}]")
         .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
 });
 
@@ -684,6 +703,31 @@ mod tests {
     #[test]
     fn test_clean_title_strips_mongolian_vowel_separator_u180e() {
         assert_eq!(clean_title("a\u{180e}b"), "ab");
+    }
+
+    /// Non-regression net for the move from an enumerated set to `\p{Cf}` plus
+    /// explicit extras: **every** code point the enumerated set covered must
+    /// still be stripped.
+    ///
+    /// This is the test that makes the migration provable. `\p{Cf}` is not a
+    /// superset of the old list — it misses U+2028/U+2029 (`Zl`/`Zp`), U+202F
+    /// (`Zs`) and U+2065 (`Cn`, unassigned). U+2065 is the easiest to lose,
+    /// since it is unassigned and sits inside an otherwise all-`Cf` block.
+    #[test]
+    fn test_clean_title_strips_every_code_point_the_enumerated_set_covered() {
+        let enumerated = (0x200Bu32..=0x200F)
+            .chain(0x2028..=0x202F)
+            .chain(0x2060..=0x206F)
+            .chain([0x00AD, 0x180E, 0xFEFF]);
+        for cp in enumerated {
+            let ch = char::from_u32(cp).expect("enumerated set contains only valid scalars");
+            let input = format!("a{ch}b");
+            assert_eq!(
+                clean_title(&input),
+                "ab",
+                "U+{cp:04X} is no longer stripped — regression from the enumerated set"
+            );
+        }
     }
 
     #[test]
