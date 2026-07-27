@@ -1196,6 +1196,16 @@ fn collect_probe_targets(
 /// failures, which connection-refused is not — so the `Network` branch is the one
 /// that trips endpoint-down. This `match` is exhaustive so a new `ProviderError`
 /// variant forces a conscious classification.
+///
+/// **Worst case is graceful, not a missed abort.** In the improbable event that a
+/// genuinely dead endpoint surfaced only `RetryAbandoned` (never `Network`),
+/// endpoint-down would not fast-fail — but the lineage is still condemned run-wide
+/// and the mage rotates; the run then simply reaches `InsufficientAgents` (an
+/// honest degraded result) instead of the faster `EndpointDown` abort. No mage
+/// hangs and no incorrect verdict is produced — only the *speed* of the failure
+/// path differs. Treating `RetryAbandoned` as a connection failure would instead
+/// require inspecting `AbandonReason` + timing (a heuristic), which R7 deliberately
+/// avoids. See the README endpoint-down runbook caveats (b)/(e).
 fn is_connection(err: &ProviderError) -> bool {
     match err {
         ProviderError::Network { .. } => true,
