@@ -1,14 +1,23 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.1.1] - 2026-07-27
+## [2.2.0] - 2026-07-27
 
-Hardening of invisible-character stripping. The set of characters removed from
-untrusted content and from finding titles is now defined **by Unicode category**
-instead of by a hand-written list, closing two gaps the list had accumulated.
+Hardening of invisible-character stripping and of header neutralization. The set
+of characters removed from untrusted content and from finding titles is now
+defined **by Unicode category** instead of by a hand-written list, and the header
+neutralizer no longer depends on that set at all.
+
+**Why a minor and not a patch.** No signature moved and no item was removed, so
+this began as a `2.1.1` patch. It ships as a minor because the observable output
+of the public `validate::clean_title` changes — and per the ADR 005 amendment
+recorded with this release, an output change to a public item is a contract
+change regardless of whether it conforms *better* to that item's documented
+behavior. A security motivation is a reason to ship the change, not a reason to
+hide it in a patch.
 
 ### Fixed
 

@@ -1,4 +1,4 @@
-// Author: Julian Bolivar
+﻿// Author: Julian Bolivar
 // Version: 1.0.0
 // Date: 2026-04-05
 
@@ -38,7 +38,7 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// `U+202F` is listed while `U+00A0` NO-BREAK SPACE is not, even though both are
 /// `Zs` and both render. The reason is legacy, not linguistics: `U+202F` fell
-/// inside the old `U+2028..U+202F` range, so keeping it preserves pre-2.1.1
+/// inside the old `U+2028..U+202F` range, so keeping it preserves pre-2.2.0
 /// behavior (pinned by the non-regression test over the enumerated set), while
 /// `U+00A0` was never in the set and adding it now would be a fresh regression
 /// risk for ordinary prose. Neither is invisible, and `U+202F` carries real

@@ -1,4 +1,4 @@
-# magi-core
+﻿# magi-core
 
 [![Crates.io](https://img.shields.io/crates/v/magi-core.svg)](https://crates.io/crates/magi-core)
 [![Documentation](https://docs.rs/magi-core/badge.svg)](https://docs.rs/magi-core)
@@ -304,7 +304,7 @@ Each request uses a fresh 128-bit nonce. If the sanitized content happens
 to contain the generated nonce, `analyze` fails closed with
 `MagiError::InvalidInput`. Accepted limitations are case-sensitive matching
 and ~64-bit effective nonce entropy from `fastrand`. (Non-ASCII whitespace
-before a header was an accepted limitation through 2.1.0; 2.1.1 closes it.)
+before a header was an accepted limitation through 2.1.0; 2.2.0 closes it.)
 
 ## Consensus Labels
 

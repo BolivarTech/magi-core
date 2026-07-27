@@ -1,4 +1,4 @@
-// Author: Julian Bolivar
+﻿// Author: Julian Bolivar
 // Version: 1.0.0
 // Date: 2026-04-18
 
@@ -117,7 +117,7 @@ static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// The regex absorbs any run of non-letters before the keyword (group 1) so
 /// the keyword cannot be shielded from either side — originally ASCII
 /// whitespace only, against leading-space bypass (MAGI R1 C1), widened in
-/// 2.1.1 to cover every blank-rendering character (MAGI R3 W7). Substitution
+/// 2.2.0 to cover every blank-rendering character (MAGI R3 W7). Substitution
 /// reproduces that run verbatim, inserts the neutralization prefix `"  "`, and
 /// preserves the keyword and separator groups. See [`HEADER_RE`] for why both
 /// flanks use a non-letter rule rather than an enumerated character set.
@@ -821,7 +821,7 @@ mod tests {
 
     #[test]
     fn test_build_user_prompt_non_ascii_whitespace_no_longer_bypasses_neutralization() {
-        // MAGI R3 W7 — CLOSED in 2.1.1. This test was originally a negative
+        // MAGI R3 W7 — CLOSED in 2.2.0. This test was originally a negative
         // one, locking in the IS-NOT limitation that `^[\t ]*` matched only
         // ASCII space/tab, so an NBSP-prefixed header survived un-neutralized
         // ("adversary wins structurally"). Its own comment asked that a future
