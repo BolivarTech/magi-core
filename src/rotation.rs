@@ -10,20 +10,20 @@
 //! degraded consensus. A [`Lineage`] is a **declared** model-family label, never
 //! inferred from a model name or response.
 //!
-//! # [`RotationPolicy`] — pure and total
+//! # `RotationPolicy` — pure and total
 //!
-//! [`RotationPolicy::next_model`] is the eligibility decision: given a mage's
+//! `RotationPolicy::next_model` is the eligibility decision: given a mage's
 //! per-attempt state it returns the first eligible fallback in declared order, or
 //! `None`. It performs **no I/O, never `await`s, never panics, and never returns
 //! `Err`** — the probe-derived window/digest data it reads was gathered once in the
 //! preflight ([`run_preflight`]) and cached in a [`ModelCapability`] map.
 //!
-//! # [`LineageRegistry`] — concurrency invariants
+//! # `LineageRegistry` — concurrency invariants
 //!
 //! Run-wide rotation state lives behind **exactly one** `tokio::sync::Mutex`, and
 //! it is **never held across an `await`**. Therefore deadlock is impossible by
 //! construction and there is no second lock to order against.
-//! [`LineageRegistry::claim_next`] does the whole read-decide-commit under that
+//! `LineageRegistry::claim_next` does the whole read-decide-commit under that
 //! single lock; its postcondition is strict: `Some` → the mage's active entry was
 //! **replaced**; `None` → the registry is left **intact**. Its digest re-propose
 //! loop terminates because each rejection grows `window_rejected` (which
@@ -45,7 +45,7 @@
 //! # Digest verify — fail-OPEN (R17)
 //!
 //! To catch *ensemble collapse* (two lineages that are secretly the same weights),
-//! [`claim_next`](LineageRegistry::claim_next) compares model digests. The rule is
+//! `claim_next` compares model digests. The rule is
 //! **fail-open**: a candidate is rejected ONLY on a *proven* collision — its
 //! **resolvable** digest equals a **resolvable** active mage's digest. An
 //! unresolvable (`None`) digest — because a probe is down or a provider has no
@@ -148,10 +148,10 @@ impl fmt::Display for Lineage {
 /// digest verify is fail-open on an unresolvable digest, so provider kind is
 /// irrelevant to eligibility.
 #[derive(Clone)]
-pub struct Candidate {
-    pub provider_ix: usize,
-    pub lineage: Lineage,
-    pub model: String,
+pub(crate) struct Candidate {
+    pub(crate) provider_ix: usize,
+    pub(crate) lineage: Lineage,
+    pub(crate) model: String,
 }
 
 /// Pure, total rotation policy: given a mage's per-attempt state it returns the
@@ -160,7 +160,7 @@ pub struct Candidate {
 /// It performs no I/O, never `await`s, never panics, and never returns `Err`.
 /// The window/digest conditions (5–6) and their `capabilities` are added in a
 /// later task; the [`RotationPolicy::next_model`] signature is stable from here.
-pub struct RotationPolicy {
+pub(crate) struct RotationPolicy {
     fallback: Vec<Candidate>,
     max_rotations: u32,
     /// Probe-derived capabilities, keyed by model-id. Read zero-I/O by the window
@@ -251,14 +251,14 @@ impl RotationPolicy {
 
 /// Number of DISTINCT connection-failing lineages that trips the run-wide
 /// endpoint-down fast-fail.
-pub const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
+pub(crate) const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
 
 /// What each ACTIVE mage is running — carries `model` (not just `lineage`) so the
 /// digest verify can look up its digest.
 #[derive(Clone)]
-pub struct ActiveEntry {
-    pub lineage: Lineage,
-    pub model: String,
+pub(crate) struct ActiveEntry {
+    pub(crate) lineage: Lineage,
+    pub(crate) model: String,
 }
 
 /// Mutable run-wide rotation state, guarded by the registry's single lock.
@@ -279,7 +279,7 @@ struct RegistryInner {
 /// `register_transport_failure` registers a condemned lineage and decides the
 /// endpoint-down latch **atomically under the lock** — reading the count in a
 /// separate call would be a TOCTOU race.
-pub struct LineageRegistry {
+pub(crate) struct LineageRegistry {
     lock: Mutex<RegistryInner>,
 }
 
@@ -297,7 +297,11 @@ impl LineageRegistry {
     }
 
     /// Snapshot of the lineages held by every OTHER live mage (excludes `exclude`).
-    pub async fn lineages_in_play(&self, exclude: AgentName) -> BTreeSet<Lineage> {
+    ///
+    /// Test-only: production computes `in_play` inline inside `claim_next` (it
+    /// already holds the lock, so it cannot re-lock through this accessor).
+    #[cfg(test)]
+    pub(crate) async fn lineages_in_play(&self, exclude: AgentName) -> BTreeSet<Lineage> {
         let g = self.lock.lock().await;
         g.active
             .iter()
@@ -306,8 +310,10 @@ impl LineageRegistry {
             .collect()
     }
 
-    /// Snapshot copy of the run-wide condemned lineages.
-    pub async fn run_failed_lineages(&self) -> BTreeSet<Lineage> {
+    /// Snapshot copy of the run-wide condemned lineages. Test-only (production reads
+    /// `run_failed` directly under the `claim_next` lock).
+    #[cfg(test)]
+    pub(crate) async fn run_failed_lineages(&self) -> BTreeSet<Lineage> {
         self.lock.lock().await.run_failed.clone()
     }
 
@@ -475,7 +481,7 @@ impl AgentRotationState {
 /// `used`/`failed_lineages`/`rotations_done` persist across a mage's rotation
 /// attempts; `window_rejected` is cleared at the start of each `claim_next`
 /// (dynamic rejections must be re-evaluated). `succeeded` gates cleanup.
-pub struct AgentRotationState {
+pub(crate) struct AgentRotationState {
     pub model_configured: String,
     pub model_used: String,
     pub chain: Vec<RotationEvent>,
@@ -755,10 +761,10 @@ fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
 
 /// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
 /// (present iff registered via `push_probing`).
-pub struct FallbackCandidate {
-    pub provider: Arc<dyn LlmProvider>,
-    pub lineage: Lineage,
-    pub probe: Option<Arc<dyn ProviderProbe>>,
+pub(crate) struct FallbackCandidate {
+    pub(crate) provider: Arc<dyn LlmProvider>,
+    pub(crate) lineage: Lineage,
+    pub(crate) probe: Option<Arc<dyn ProviderProbe>>,
 }
 
 /// Default per-mage rotation cap when the builder does not set one.
