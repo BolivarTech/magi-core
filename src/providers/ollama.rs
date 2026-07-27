@@ -113,11 +113,15 @@ pub(crate) const MAX_SHOW_BODY_BYTES: usize = 1 << 20; // 1 MiB
 /// chunk by [`read_capped`], so the accumulator never grows past `cap` — the
 /// streaming memory bound for untrusted probe bodies. Pure and unit-testable.
 pub(crate) fn push_within_cap(acc: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
-    if acc.len() + chunk.len() > cap {
-        return false;
+    // `checked_add` guards the (practically impossible, but defensive) usize
+    // overflow of `acc.len() + chunk.len()`; an overflow is treated as over-cap.
+    match acc.len().checked_add(chunk.len()) {
+        Some(total) if total <= cap => {
+            acc.extend_from_slice(chunk);
+            true
+        }
+        _ => false,
     }
-    acc.extend_from_slice(chunk);
-    true
 }
 
 /// Reads a probe response body bounded by [`MAX_SHOW_BODY_BYTES`], CHUNK BY CHUNK,
@@ -185,6 +189,11 @@ impl ProviderProbe for OllamaProvider {
             .map_err(|e| ProviderError::Network {
                 message: format!("/api/show request failed: {e}"),
             })?;
+        // A non-2xx status carries no usable probe body → degrade to `None`
+        // (fail-open) without reading it, rather than parse an error page.
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
         match read_capped(resp).await {
             Some(bytes) => {
                 let body = String::from_utf8_lossy(&bytes);
@@ -211,6 +220,9 @@ impl ProviderProbe for OllamaProvider {
             .map_err(|e| ProviderError::Network {
                 message: format!("/api/tags request failed: {e}"),
             })?;
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
         match read_capped(resp).await {
             Some(bytes) => {
                 let body = String::from_utf8_lossy(&bytes);

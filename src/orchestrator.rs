@@ -989,6 +989,17 @@ impl Magi {
         // (success, normal failure, OR panic) before ANY return/continue. Do not drop
         // this check in a refactor; a panicked latch-holder that never propagated the
         // signal is recovered here (R8/W11).
+        //
+        // ABORT LATENCY (documented, not a bug): handles are awaited in a fixed order,
+        // so the latch is only OBSERVED once the currently-awaited agent's task
+        // resolves. For the endpoint-down TARGET — a shared destination (one Ollama
+        // daemon, R7/G1) — a dead endpoint yields FAST connection-refused failures on
+        // ALL mages simultaneously, so the abort fires promptly. In a multi-host
+        // deployment (already a documented caveat, README (a)), one mage could sit on
+        // a slow-but-alive host while two others connection-fail, delaying the abort
+        // by that mage's timeout. The run stays CORRECT — it still aborts (and the
+        // `AbortGuard` cancels the stragglers) — only the fast-fail *latency* grows.
+        // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
                 Ok((Ok(output), agent_rotation, was_retried)) => {
