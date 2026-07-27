@@ -717,13 +717,18 @@ impl Magi {
             if extra.is_empty() {
                 base
             } else {
-                // `format_report` emits `banner + "\n"` first (see step "1. Banner"
-                // there); splice the extra sections right after that prefix (after
-                // the banner, before Key Findings). The banner is ASCII (52-byte-
-                // per-line invariant), so `banner.len() + 1` is a valid char boundary.
-                let prefix_len = banner.len() + 1;
-                let (head, tail) = base.split_at(prefix_len);
-                format!("{head}{extra}{tail}")
+                // Splice the extra sections in right after the banner (before Key
+                // Findings). `format_report` emits `banner + "\n"` first; use
+                // `strip_prefix` (char-boundary-safe — NO byte-index `split_at`) so a
+                // future non-ASCII banner can never panic. If the prefix ever fails
+                // to match, fall back to prepending rather than corrupting output.
+                match base
+                    .strip_prefix(banner.as_str())
+                    .and_then(|rest| rest.strip_prefix('\n'))
+                {
+                    Some(rest) => format!("{banner}\n{extra}{rest}"),
+                    None => format!("{extra}{base}"),
+                }
             }
         };
 

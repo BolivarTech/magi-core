@@ -108,42 +108,46 @@ impl OllamaProvider {
 /// rather than accumulated, preventing memory exhaustion.
 pub(crate) const MAX_SHOW_BODY_BYTES: usize = 1 << 20; // 1 MiB
 
-/// Folds an untrusted body's byte chunks into a `Vec<u8>`, returning `None` the
-/// moment the accumulated length would EXCEED `cap` (strictly greater). A body
-/// within `cap` returns `Some(bytes)`. Keeps the size bound unit-testable without
-/// a live server.
-pub(crate) fn cap_body<C: AsRef<[u8]>>(
-    chunks: impl IntoIterator<Item = C>,
-    cap: usize,
-) -> Option<Vec<u8>> {
-    let mut acc = Vec::new();
-    for chunk in chunks {
-        let chunk = chunk.as_ref();
-        if acc.len() + chunk.len() > cap {
-            return None;
-        }
-        acc.extend_from_slice(chunk);
+/// Appends `chunk` to `acc` unless doing so would EXCEED `cap` (strictly greater),
+/// in which case it returns `false` and leaves `acc` unchanged. Called per network
+/// chunk by [`read_capped`], so the accumulator never grows past `cap` — the
+/// streaming memory bound for untrusted probe bodies. Pure and unit-testable.
+pub(crate) fn push_within_cap(acc: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
+    if acc.len() + chunk.len() > cap {
+        return false;
     }
-    Some(acc)
+    acc.extend_from_slice(chunk);
+    true
 }
 
-/// Reads a probe response body with the [`MAX_SHOW_BODY_BYTES`] bound. A
-/// `Content-Length` over the cap is rejected before reading; the full read is
-/// then re-checked through [`cap_body`]. Any body-read problem degrades to `None`
-/// (fail-open) — only the caller's `send()` surfaces a transport error.
+/// Reads a probe response body bounded by [`MAX_SHOW_BODY_BYTES`], CHUNK BY CHUNK,
+/// so it never buffers more than the cap even when `Content-Length` is absent or
+/// lies. A `Content-Length` already over the cap is rejected early, compared in
+/// `u64` (no `usize` truncation on 32-bit). Any body-read problem degrades to
+/// `None` (fail-open) — only the caller's `send()` surfaces a transport error.
 ///
-/// Note: streaming the body chunk-by-chunk would need `futures_util::StreamExt`, a
-/// new dependency the crate forbids ("cero dependencias nuevas"). For the local
-/// Ollama daemon target, the `Content-Length` pre-check plus `cap_body` bounds
-/// memory adequately; the HTTP path itself is not unit-tested (accepted gap D-2).
-async fn read_capped(resp: reqwest::Response) -> Option<Vec<u8>> {
+/// `reqwest::Response::chunk()` is an inherent async method, so the streaming
+/// bound needs NO `futures_util` dependency (the crate adds none). The HTTP path
+/// itself is not unit-tested (accepted gap D-2); the bound logic is
+/// ([`push_within_cap`]).
+async fn read_capped(mut resp: reqwest::Response) -> Option<Vec<u8>> {
     if let Some(len) = resp.content_length()
-        && len as usize > MAX_SHOW_BODY_BYTES
+        && len > MAX_SHOW_BODY_BYTES as u64
     {
         return None;
     }
-    let bytes = resp.bytes().await.ok()?;
-    cap_body([bytes], MAX_SHOW_BODY_BYTES)
+    let mut acc: Vec<u8> = Vec::new();
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                if !push_within_cap(&mut acc, &chunk, MAX_SHOW_BODY_BYTES) {
+                    return None; // over-cap → degrade (fail-open), never OOM
+                }
+            }
+            Ok(None) => return Some(acc),
+            Err(_) => return None, // body-read error → degrade (fail-open)
+        }
+    }
 }
 
 #[async_trait]
@@ -279,17 +283,19 @@ mod tests {
     }
 
     #[test]
-    fn test_cap_body_rejects_oversized_stream() {
-        // `cap_body` is generic over `AsRef<[u8]>`, so it accepts plain slices here
-        // and reqwest's `bytes::Bytes` on the real path — no `Bytes` type needed.
-        let small: Vec<&[u8]> = vec![b"ab", b"cd"];
-        assert_eq!(
-            cap_body(small, MAX_SHOW_BODY_BYTES).as_deref(),
-            Some(&b"abcd"[..])
-        );
-        let big: Vec<Vec<u8>> = vec![vec![0u8; MAX_SHOW_BODY_BYTES], b"x".to_vec()];
-        assert_eq!(cap_body(big, MAX_SHOW_BODY_BYTES), None);
-        let one_big: Vec<Vec<u8>> = vec![vec![0u8; MAX_SHOW_BODY_BYTES + 1]];
-        assert_eq!(cap_body(one_big, MAX_SHOW_BODY_BYTES), None);
+    fn test_push_within_cap_bounds_accumulator() {
+        let mut acc = Vec::new();
+        assert!(push_within_cap(&mut acc, b"ab", MAX_SHOW_BODY_BYTES));
+        assert!(push_within_cap(&mut acc, b"cd", MAX_SHOW_BODY_BYTES));
+        assert_eq!(acc, b"abcd");
+        // A chunk that would exceed the cap is rejected and leaves `acc` untouched.
+        let big = vec![0u8; MAX_SHOW_BODY_BYTES];
+        assert!(!push_within_cap(&mut acc, &big, MAX_SHOW_BODY_BYTES));
+        assert_eq!(acc, b"abcd");
+        // A single oversized chunk from empty is rejected (no OOM).
+        let mut empty = Vec::new();
+        let one_big = vec![0u8; MAX_SHOW_BODY_BYTES + 1];
+        assert!(!push_within_cap(&mut empty, &one_big, MAX_SHOW_BODY_BYTES));
+        assert!(empty.is_empty());
     }
 }
