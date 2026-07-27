@@ -24,6 +24,13 @@ instead of by a hand-written list, closing two gaps the list had accumulated.
 - Both gaps also let the affected characters reach finding-title dedup, so two
   titles differing only by an invisible were treated as distinct.
 
+Scope of the second fix, stated plainly: it closes those instances, **not** the
+whole bypass class. Any invisible that is neither in the strip set nor matched
+by `\s` still slips a header past the neutralizer the same way (`U+3164`,
+`U+2800`, `U+FE00`–`U+FE0F`, `U+FFF0`). The structural weakness is the
+neutralizer's trailing anchor, not the size of the strip set; see the "Known
+residual" section on `INVISIBLE_AND_SEPARATOR_RE`.
+
 ### Changed
 
 - The stripping pattern is now `[\p{Cf}\u{2028}\u{2029}\u{2065}\u{202F}]` —
@@ -31,11 +38,14 @@ instead of by a hand-written list, closing two gaps the list had accumulated.
   scope but are **not** `Cf`: `U+2028`/`U+2029` (`Zl`/`Zp`), `U+202F` (`Zs`) and
   `U+2065` (`Cn`, unassigned). A category does not age; the list had.
 - **Observable behavior of the public `validate::clean_title` changes**: it now
-  removes additional invisible characters (tag characters, Arabic and Syriac
-  format marks, and other `Cf` code points outside the old enumeration). This
-  brings the function into line with its documented contract ("remove invisible
-  characters"). Two finding titles that differ only by such a character now
-  deduplicate together, where previously they did not.
+  removes 143 additional invisible code points — tag characters, Arabic and
+  Syriac format marks, Egyptian hieroglyph joiners, and musical beam/slur
+  controls among them. Two finding titles that differ only by such a character
+  now deduplicate together, where previously they did not; only **unlocated**
+  findings are affected, since a located finding deduplicates by
+  `(file, line, category)` and never routes its title through this path.
+  No previously stripped code point stopped being stripped — the new pattern is
+  a strict superset, pinned by a non-regression test over the old set.
 - `Mn` (nonspacing marks) is **deliberately excluded** — stripping it would
   destroy combining accents in legitimate text. `U+00A0` NBSP remains untouched.
 - Diverges from the Python reference, which still enumerates the set; the

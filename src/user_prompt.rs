@@ -46,10 +46,11 @@ fn normalize_newlines(s: &str) -> Cow<'_, str> {
 
 /// Removes invisible and Unicode separator characters from `s`.
 ///
-/// Delegates to [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`], which covers:
-/// zero-width spaces, bidi marks, line/paragraph separators
-/// (U+2028..U+202F), word joiner and related formatting controls
-/// (U+2060..U+206F), BOM (U+FEFF), and soft hyphen (U+00AD).
+/// Delegates to [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`] — see it for
+/// the exact set, the rationale, and the documented residual. Deliberately
+/// **not** restated here: this doc had already drifted out of sync with that
+/// pattern once, and a description in three places is a description that
+/// eventually lies in two of them.
 ///
 /// Returns `Cow::Borrowed` when no invisible characters are present
 /// (no allocation). Returns `Cow::Owned` when at least one character
@@ -444,7 +445,12 @@ mod tests {
     /// `\s` either — it was reclassified `Zs` → `Cf` in Unicode 6.3. So
     /// `MODE\u{180e}:` survived the strip *and* failed the `(\s|:|$)` branch of
     /// the neutralizer, passing through unprefixed while a model could still
-    /// read it as a real header. Stripping U+180E closes both halves.
+    /// read it as a real header. Stripping U+180E closes this instance.
+    ///
+    /// It does **not** close the class: any invisible that is neither in the
+    /// strip set nor matched by `\s` still bypasses the neutralizer the same
+    /// way. See the "Known residual" section on
+    /// [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`].
     #[test]
     fn test_neutralize_headers_not_bypassed_by_mongolian_vowel_separator() {
         let sanitized = strip_invisibles("MODE\u{180e}: design");

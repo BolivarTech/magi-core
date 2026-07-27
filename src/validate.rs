@@ -36,8 +36,35 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// normalization strips `Mn` for a different reason (it compares against an
 /// ASCII-only marker) — do not unify the two.
 ///
+/// `U+202F` is listed while `U+00A0` NO-BREAK SPACE is not, even though both are
+/// `Zs`. That asymmetry is intentional: `U+202F` sits inside the invisible-
+/// operator neighbourhood and renders as a hairline, whereas `U+00A0` is an
+/// ordinary visible space that carries meaning in real prose.
+///
+/// # Known residual
+///
+/// Stripping invisibles does **not** close the whole
+/// header-neutralization bypass class. A character that is invisible, absent
+/// from this set, and not matched by `\s` still lets
+/// `MODE<char>:` slip past [`crate::user_prompt`]'s header neutralizer —
+/// e.g. `U+3164` (`Lo`), `U+2800` (`So`), `U+FE00`–`U+FE0F` (`Mn`), `U+FFF0`
+/// (`Cn`). Widening this set further is whack-a-mole: the structural weakness
+/// is the neutralizer's trailing `(\s|:|$)` anchor, not the size of this class.
+///
+/// `\p{Default_Ignorable_Code_Point}` was evaluated as a union member and
+/// **declined**: it is an addition rather than a replacement (it lacks 32 code
+/// points stripped here, e.g. `U+0600`–`U+0605`), it still would not cover the
+/// `Lo`/`So` cases above, and it includes `U+FE0F`, so emoji presentation
+/// selectors would be stripped from finding titles for no security gain.
+///
 /// Divergence from the Python reference, which still enumerates the list in
 /// `validate.py` and `sanitize.py`; the reference is to follow.
+///
+/// Blast radius on consensus is narrower than it appears: a **located** finding
+/// deduplicates by `generate_finding_id(file, line, category)` and never routes
+/// its title through here, so only **unlocated** findings are affected — and
+/// merging more aggressively is the safe direction, since severity promotes to
+/// the maximum seen.
 pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\p{Cf}\u{2028}\u{2029}\u{2065}\u{202f}]")
         .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
@@ -49,9 +76,11 @@ pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(||
 /// # Pipeline
 ///
 /// 1. Replace control whitespace (`\t`, `\n`, `\x0B`, `\x0C`, `\r`, U+0085) with ASCII space.
-/// 2. Remove invisible characters and selected Unicode separators
-///    (zero-width, bidi marks, line/paragraph separators in the U+2028..U+202F range,
-///    word joiner and related U+2060..U+206F controls, BOM, soft hyphen).
+/// 2. Remove invisible formatting characters: every code point in Unicode
+///    category `Cf`, plus `U+2028`, `U+2029`, `U+202F` and `U+2065`. Stated as
+///    the category rule rather than an enumeration — an enumerated list here
+///    drifted out of sync with the implementation once already. `Mn` is **not**
+///    removed, so combining accents survive.
 /// 3. Trim leading/trailing whitespace.
 ///
 /// Note: interior whitespace is NOT collapsed — an input `"foo\t\tbar"` becomes
