@@ -424,9 +424,12 @@ pub fn build_two_5xx_with_local_fallbacks() -> Magi {
         .unwrap()
 }
 
-/// Reads the run-wide condemned lineages from telemetry: a lineage is
-/// run-condemned iff some agent left it via a TRANSPORT/TIMEOUT hop (schema hops
-/// are mage-local, so they never appear here).
+/// Test helper: the set of lineages that some agent **left via a completed
+/// TRANSPORT/TIMEOUT rotation hop**, read from telemetry. This is a *subset* of the
+/// run's transport-condemned lineages — a lineage condemned by a mage that could
+/// NOT rotate away from it (no eligible fallback) leaves no hop and so does not
+/// appear here. Schema hops are mage-local and are excluded. Sufficient for the
+/// tests that assert a schema-failed lineage is NOT transport-condemned run-wide.
 pub fn report_run_failed(report: &MagiReport) -> std::collections::BTreeSet<Lineage> {
     report
         .rotations

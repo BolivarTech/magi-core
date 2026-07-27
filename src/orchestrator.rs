@@ -1417,7 +1417,6 @@ pub(crate) async fn dispatch_one_agent_rotating(
         failed_lineages: std::collections::BTreeSet::new(),
         window_rejected: BTreeMap::new(),
         rotations_done: 0,
-        succeeded: false,
         ran_unmeasured: false,
     };
 
@@ -1442,7 +1441,6 @@ pub(crate) async fn dispatch_one_agent_rotating(
         // `(kind, detail)` for the rotation hop after applying condemnation.
         let (kind, detail) = match outcome {
             ModelOutcome::Success(output) => {
-                state.succeeded = true;
                 // R19 honesty: the committed model ran on an ESTIMATED window unless
                 // a probe measured an exact one. A model with no capability entry
                 // (non-probing) or a `None` window counts as unmeasured.

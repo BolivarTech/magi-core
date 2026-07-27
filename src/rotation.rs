@@ -480,7 +480,8 @@ impl AgentRotationState {
 ///
 /// `used`/`failed_lineages`/`rotations_done` persist across a mage's rotation
 /// attempts; `window_rejected` is cleared at the start of each `claim_next`
-/// (dynamic rejections must be re-evaluated). `succeeded` gates cleanup.
+/// (dynamic rejections must be re-evaluated). Cleanup is gated by the
+/// [`AgentSlotGuard`]'s own succeeded-flag, not by this state.
 pub(crate) struct AgentRotationState {
     pub model_configured: String,
     pub model_used: String,
@@ -489,7 +490,6 @@ pub(crate) struct AgentRotationState {
     pub failed_lineages: BTreeSet<Lineage>,
     pub window_rejected: BTreeMap<String, &'static str>,
     pub rotations_done: u32,
-    pub succeeded: bool,
     pub ran_unmeasured: bool,
 }
 
@@ -1153,7 +1153,6 @@ mod tests {
             failed_lineages: BTreeSet::new(),
             window_rejected: BTreeMap::new(),
             rotations_done: 0,
-            succeeded: false,
             ran_unmeasured: false,
         }
     }
@@ -1511,8 +1510,7 @@ mod tests {
     #[test]
     fn test_state_to_rotation_preserves_empty_chain() {
         // Panicked/first-try agent → present, chain-empty record.
-        let mut s = state("deepseek");
-        s.succeeded = true;
+        let s = state("deepseek");
         let ar = s.to_rotation();
         assert_eq!(ar.model_configured, "deepseek");
         assert_eq!(ar.model_used, "deepseek");
