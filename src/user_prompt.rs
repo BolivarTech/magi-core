@@ -47,10 +47,11 @@ fn normalize_newlines(s: &str) -> Cow<'_, str> {
 /// Removes invisible and Unicode separator characters from `s`.
 ///
 /// Delegates to [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`] — see it for
-/// the exact set, the rationale, and the documented residual. Deliberately
-/// **not** restated here: this doc had already drifted out of sync with that
-/// pattern once, and a description in three places is a description that
-/// eventually lies in two of them.
+/// the exact set, the rationale, and the documented residual. The **enumeration**
+/// is deliberately not restated here: this doc had already drifted out of sync
+/// with that pattern once. (The category *rule* does appear in `clean_title`'s
+/// public doc, which cannot link to a `pub(crate)` item without a rustdoc
+/// warning; a rule does not rot the way a list does.)
 ///
 /// Returns `Cow::Borrowed` when no invisible characters are present
 /// (no allocation). Returns `Cow::Owned` when at least one character

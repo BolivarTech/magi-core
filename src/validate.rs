@@ -37,9 +37,13 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// ASCII-only marker) — do not unify the two.
 ///
 /// `U+202F` is listed while `U+00A0` NO-BREAK SPACE is not, even though both are
-/// `Zs`. That asymmetry is intentional: `U+202F` sits inside the invisible-
-/// operator neighbourhood and renders as a hairline, whereas `U+00A0` is an
-/// ordinary visible space that carries meaning in real prose.
+/// `Zs` and both render. The reason is legacy, not linguistics: `U+202F` fell
+/// inside the old `U+2028..U+202F` range, so keeping it preserves pre-2.1.1
+/// behavior (pinned by the non-regression test over the enumerated set), while
+/// `U+00A0` was never in the set and adding it now would be a fresh regression
+/// risk for ordinary prose. Neither is invisible, and `U+202F` carries real
+/// meaning of its own — French punctuation spacing, Mongolian suffix
+/// separation, digit grouping — so no principled rule separates the two.
 ///
 /// # Known residual
 ///
@@ -52,19 +56,23 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// is the neutralizer's trailing `(\s|:|$)` anchor, not the size of this class.
 ///
 /// `\p{Default_Ignorable_Code_Point}` was evaluated as a union member and
-/// **declined**: it is an addition rather than a replacement (it lacks 32 code
-/// points stripped here, e.g. `U+0600`–`U+0605`), it still would not cover the
+/// **declined**: it is an addition rather than a replacement (it lacks 35 of
+/// the code points stripped here — 32 `Cf` members such as `U+0600`–`U+0605`,
+/// plus `U+2028`, `U+2029` and `U+202F`), it still would not cover the
 /// `Lo`/`So` cases above, and it includes `U+FE0F`, so emoji presentation
 /// selectors would be stripped from finding titles for no security gain.
 ///
 /// Divergence from the Python reference, which still enumerates the list in
 /// `validate.py` and `sanitize.py`; the reference is to follow.
 ///
-/// Blast radius on consensus is narrower than it appears: a **located** finding
+/// Blast radius on **dedup** is narrower than it appears: a **located** finding
 /// deduplicates by `generate_finding_id(file, line, category)` and never routes
-/// its title through here, so only **unlocated** findings are affected — and
-/// merging more aggressively is the safe direction, since severity promotes to
-/// the maximum seen.
+/// its title through this dedup path, so only **unlocated** findings can merge
+/// differently — and merging more aggressively is the safe direction, since
+/// severity promotes to the maximum seen. Note this bounds dedup only:
+/// [`Validator::validate_mut`] cleans **every** finding title, located or not,
+/// so the stored and displayed title of any finding does change under a wider
+/// pattern.
 pub(crate) static INVISIBLE_AND_SEPARATOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"[\p{Cf}\u{2028}\u{2029}\u{2065}\u{202f}]")
         .expect("valid INVISIBLE_AND_SEPARATOR_RE regex")
