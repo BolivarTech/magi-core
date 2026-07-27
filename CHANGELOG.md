@@ -24,16 +24,23 @@ instead of by a hand-written list, closing two gaps the list had accumulated.
 - Both gaps also let the affected characters reach finding-title dedup, so two
   titles differing only by an invisible were treated as distinct.
 
-- **The header-neutralization bypass is closed at its cause, not just for the
-  characters we listed.** Stripping only removes invisibles someone remembered
-  to enumerate, so the next unassigned code point would reopen the hole. The
-  neutralizer's trailing group changed from `(\s|:|$)` to `([^A-Za-z]|$)`: a
-  bypass would now need a character that is invisible *and* an ASCII letter,
-  which is a contradiction. Word-continuation discrimination is unchanged —
-  `MODESTY`, `CONTEXTUAL`, `---BEGINNING` and `MODEL:` are still not treated as
-  headers. Residual, stated plainly: the neutralizer absorbs only `[\t ]*`
-  before the keyword, so a non-stripped whitespace-like character in the
-  **leading** position (realistically `U+00A0`) still prevents the match.
+- **The header-neutralization bypass is closed at its cause, on both flanks.**
+  A blank-rendering character placed next to a reserved keyword used to make the
+  neutralizer's pattern fail while a model still read the line as a header.
+  Stripping cannot fix this — it removes only the code points someone
+  remembered to enumerate, so the next unassigned one reopens the hole. Both
+  flanks now require a **non-letter**: the leading group went from `[\t ]*` to
+  `[^A-Za-z\r\n]*` and the trailing group from `(\s|:|$)` to `([^A-Za-z]|$)`.
+  A bypass would need a character that is invisible *and* an ASCII letter,
+  which is a contradiction, so the defense also covers code points that do not
+  exist yet. This closes the documented `U+00A0` limitation (MAGI R3 W7).
+  Word-continuation discrimination is unchanged — `MODESTY`, `CONTEXTUAL`,
+  `---BEGINNING` and `MODEL:` are still not treated as headers.
+- The neutralizer now **deliberately over-neutralizes**: any line whose first
+  letters are a reserved keyword followed by a non-letter gains two leading
+  spaces, so `MODE_SELECT`, `CONTEXT-free`, `MODE1:` and `MODEÉ` in ordinary
+  content are affected. This is cosmetic on a content line, and is the intended
+  trade against a sanitizer that can be walked past.
 
 ### Changed
 

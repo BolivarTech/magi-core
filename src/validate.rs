@@ -47,17 +47,18 @@ static CONTROL_WHITESPACE_RE: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// # Relationship to header neutralization
 ///
-/// This set is **not** what defends the header neutralizer. A character that is
-/// invisible but absent from here once let `MODE<char>:` slip past
-/// [`crate::user_prompt`]'s neutralizer, and widening this set to chase such
-/// characters is whack-a-mole — the next unassigned code point reopens it. That
-/// weakness was fixed at its cause instead: the neutralizer now requires a
-/// **non-letter** after the keyword, which no invisible can satisfy. Do not add
-/// code points here reasoning that they are header-bypass vectors; they are not.
+/// This set is **not** what defends the header neutralizer, and must not be
+/// grown in the belief that it is. Characters absent from here once shielded a
+/// keyword on either flank — `MODE<char>:` after it, `<char>MODE:` before it —
+/// and chasing them with additions is whack-a-mole: the next unassigned code
+/// point reopens the hole. That weakness was fixed at its cause instead. Both
+/// flanks of the neutralizer's pattern now require a **non-letter**, which no
+/// invisible can satisfy, so the defense holds for characters that do not exist
+/// yet and holds even if this set never changes again.
 ///
-/// A residual remains in the **leading** position: the neutralizer absorbs only
-/// `[\t ]*` before the keyword, so a non-stripped whitespace-like character
-/// there — `U+00A0` is the realistic case — still prevents the match.
+/// Concretely: `U+00A0`, `U+3164` and `U+2800` are **not** in this set, are
+/// **not** stripped, and are nonetheless harmless as header-bypass vectors.
+/// Their absence here is not a gap to close.
 ///
 /// `\p{Default_Ignorable_Code_Point}` was evaluated as a union member and
 /// **declined**: it is an addition rather than a replacement (it lacks 35 of
