@@ -1681,6 +1681,80 @@ mod tests {
         )
     }
 
+    /// The worked example shipped **verbatim** inside `src/prompts_md/caspar.md`.
+    ///
+    /// It is a complete, valid 7-key verdict object. That is the residual MS3
+    /// closes: an agent that echoes its own instructions emits something the
+    /// current parser accepts as a verdict. F0 (v1.1.1) reduced the severity by
+    /// making it `"conditional"` instead of `"approve"`, but it still parses.
+    const SHIPPED_WORKED_EXAMPLE: &str = r#"{"agent": "caspar", "verdict": "conditional", "confidence": 0.85, "summary": "One-line verdict", "reasoning": "Your risk-focused analysis", "findings": [{"severity": "warning", "title": "Short title", "detail": "Risk description with concrete scenario", "file": "src/x.py", "line": 42, "category": "logic-error"}], "recommendation": "What you recommend"}"#;
+
+    /// The current probe cap, mirrored as a LOCAL witness ON PURPOSE.
+    ///
+    /// T7 DELETES the real `MAX_BRACE_PROBES`. These characterization tests must
+    /// survive that deletion — T13 inverts them — so they cannot reference a
+    /// symbol scheduled for removal: `§0.1` runs at T7's commit and the build
+    /// would break between T7 and T13. The duplication is deliberate and
+    /// temporary; T13 removes this constant along with the tests' old meaning.
+    const PROBE_CAP_WITNESS: usize = 2_000;
+
+    /// CHARACTERIZATION (MS3 R21, variant 1 of 4) — asserts the bug as it exists
+    /// TODAY: the lone echoed example parses cleanly, fabricating a verdict no
+    /// model ever formed. In Caspar's adversarial seat this enters consensus as
+    /// if it were an opinion.
+    ///
+    /// T13 inverts this once the sentinel closes it.
+    #[test]
+    fn characterize_lone_echoed_example_fabricates_a_verdict() {
+        let output = parse_agent_response(SHIPPED_WORKED_EXAMPLE)
+            .expect("CHARACTERIZATION: today the echoed example parses; this IS the bug");
+        assert_eq!(output.agent, AgentName::Caspar);
+        assert_eq!(output.verdict, Verdict::Conditional);
+    }
+
+    /// CHARACTERIZATION (variant 2 of 4) — a truncated response that leaves the
+    /// echoed example as the only verdict-shaped object is recovered as if it
+    /// were the agent's own answer.
+    #[test]
+    fn characterize_truncation_plus_echo_fabricates_a_verdict() {
+        let raw = format!(
+            "Let me restate the schema I must follow:\n{SHIPPED_WORKED_EXAMPLE}\n\nNow my analysis of the diff"
+        );
+        assert!(
+            parse_agent_response(&raw).is_ok(),
+            "CHARACTERIZATION: prose-wrapped echo is recovered as the verdict"
+        );
+    }
+
+    /// CHARACTERIZATION (variant 3 of 4) — a REAL verdict placed beyond the probe
+    /// budget is never reached, so an agent that answered correctly is dropped.
+    #[test]
+    fn characterize_probe_cap_distance_drops_the_real_verdict() {
+        let noise = "{}".repeat(PROBE_CAP_WITNESS + 10);
+        let real = mock_agent_json("melchior", "approve", 0.9);
+        assert!(
+            parse_agent_response(&format!("{noise}\n{real}")).is_err(),
+            "CHARACTERIZATION: the probe cap hides a real verdict placed past it"
+        );
+    }
+
+    /// CHARACTERIZATION (variant 4 of 4) — a thinking model that restates its
+    /// schema while reasoning yields TWO verdict-shaped objects, so recovery
+    /// fails closed and a mage that DID answer is dropped, degrading the report.
+    ///
+    /// This is the Ollama/Jetson cost of the current parser: two of the three
+    /// models in the default trio are thinking models.
+    #[test]
+    fn characterize_think_restatement_drops_the_mage() {
+        let restated = mock_agent_json("caspar", "approve", 0.0);
+        let real = mock_agent_json("caspar", "reject", 0.8);
+        let raw = format!("<think>The schema is {restated}</think>\n{real}");
+        assert!(
+            parse_agent_response(&raw).is_err(),
+            "CHARACTERIZATION: two verdict-shaped objects fail closed, dropping the mage"
+        );
+    }
+
     /// Mock provider that returns a configurable response per call.
     /// Uses a call counter to track invocations and can return different
     /// responses for each agent by cycling through the responses vec.
