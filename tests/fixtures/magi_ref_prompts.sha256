@@ -1,10 +1,10 @@
-# Generated from MAGI@62cf58019aeab822cd55cbb02e1b8f34a3fd5d81 on 2026-07-17
-# Local divergence (F0, 2026-07-16): the worked example's verdict value is
-# "conditional" instead of the reference's "approve" — fabrication-echo
-# hardening (an echoed example must not fabricate a clean approve in the
-# adversarial seat). Matches Python MAGI v5.1.0+ prompts. Hashes below are
-# of the reference blobs with that single declared delta applied; the Rust
-# prompts_md files must match them byte-for-byte.
-866b996102916c25113ebb6c5529e88e2b904c43bbc08ccec93606d8fb70b393  melchior.md
-7483ecccf8a51014143ed4ddb4c90a488d608027d1d1b42f417423672a891fdb  balthasar.md
-f845c6f909359b992a19c819e146e421e52fb26ad73fa88df95c4b32c6cc505a  caspar.md
+# Generated from MAGI@9a762fa40b4ca366ce59127e68df160b87cae329 on 2026-07-29
+# No local divergences (MS3, 2026-07-29): the hashes below are of the
+# pinned reference blobs VERBATIM — Python MAGI v5.3.0, the verdict
+# sentinel. The F0 divergence was retired because the reference itself now
+# ships "verdict": "conditional" in the worked example, so there was
+# nothing left to apply. The Rust prompts_md files must match these hashes
+# byte-for-byte.
+4a9ea5c136e976355e1fe28cb2d3efc4440cc5f99537e68a8b0495ac245ea0d8  melchior.md
+d37ae98e16e1aba355899db3b65d80f996c752fe26c95a929fd8e55a38233a1a  balthasar.md
+314e815fad56ec38095697b3512fe84da3d25deb1f35c67d25b61fe76ec94cbd  caspar.md

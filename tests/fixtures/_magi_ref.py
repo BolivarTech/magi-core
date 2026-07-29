@@ -16,9 +16,16 @@ import subprocess
 from pathlib import Path
 
 # Pinned to a commit SHA (tags can move, commits don't). This is the release
-# commit for Python MAGI v3.0.0 — finding calibration + structured
-# file/line/category finding fields; the 7 top-level keys are unchanged.
-MAGI_REF_SHA = "62cf58019aeab822cd55cbb02e1b8f34a3fd5d81"
+# commit for Python MAGI v5.3.0 — THE VERDICT SENTINEL. The prompts now carry
+# the `<MAGI_VERDICT>` / `</MAGI_VERDICT>` marker block, the worked example
+# moved OUTSIDE it, and the empty-slot placeholder took its place inside. The
+# 7 top-level keys are unchanged.
+#
+# Delta from the previous pin (v3.0.0, 62cf5801) is 24+/4-, identical in all
+# three files, and the 4 removed lines ARE the residual this milestone closes:
+# "Respond with ONLY a JSON object...", "Example structure:", the inline
+# fabricable 7-key example, and the old IMPORTANT block.
+MAGI_REF_SHA = "9a762fa40b4ca366ce59127e68df160b87cae329"
 
 # Reference repo checkout. Override with the MAGI_PATH env var.
 MAGI_PATH = Path(
@@ -37,21 +44,27 @@ AGENTS = ("melchior", "balthasar", "caspar")
 # function of (reference, declared divergence): anti-drift preserved, and
 # re-pinning is a single command with no manual restoration.
 # Each entry: (old_bytes, new_bytes, expected_occurrences_per_prompt).
-DIVERGENCES: list[tuple[bytes, bytes, int]] = [
-    # F0 fabrication-echo hardening (2026-07-16): the worked example must not
-    # carry an echo-fabricable `approve`. Matches Python MAGI v5.1.0+.
-    (b'"verdict": "approve"', b'"verdict": "conditional"', 1),
-]
+# EMPTY since MS3 (2026-07-29): the reference itself now ships
+# `"verdict": "conditional"` in the worked example, so the F0 divergence has
+# nothing left to apply — its `expected_occurrences = 1` would find 0 and
+# `apply_divergences` would fail loudly (verified: it did, before this entry was
+# removed). The Rust prompts_md files are now the reference blobs VERBATIM, with
+# no local delta at all.
+DIVERGENCES: list[tuple[bytes, bytes, int]] = []
 
 # Comment block written into the fixture so a reader of the .sha256 file sees
 # the divergence without opening the scripts. Keep in sync with DIVERGENCES.
+# Kept (not deleted) even with DIVERGENCES empty: a reader of the .sha256 file
+# needs to be told EXPLICITLY that there is no local delta. Silence is ambiguous
+# — it does not distinguish "no divergences" from "nobody documented the ones
+# there are".
 DIVERGENCE_BLOCK = [
-    "# Local divergence (F0, 2026-07-16): the worked example's verdict value is",
-    '# "conditional" instead of the reference\'s "approve" — fabrication-echo',
-    "# hardening (an echoed example must not fabricate a clean approve in the",
-    "# adversarial seat). Matches Python MAGI v5.1.0+ prompts. Hashes below are",
-    "# of the reference blobs with that single declared delta applied; the Rust",
-    "# prompts_md files must match them byte-for-byte.",
+    "# No local divergences (MS3, 2026-07-29): the hashes below are of the",
+    "# pinned reference blobs VERBATIM — Python MAGI v5.3.0, the verdict",
+    "# sentinel. The F0 divergence was retired because the reference itself now",
+    '# ships "verdict": "conditional" in the worked example, so there was',
+    "# nothing left to apply. The Rust prompts_md files must match these hashes",
+    "# byte-for-byte.",
 ]
 
 

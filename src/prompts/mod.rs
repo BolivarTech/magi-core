@@ -160,15 +160,51 @@ mod tests_verdict_contract {
     use super::*;
     use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
-    /// NOT vacuous: at T1 the prompts still carry NO markers (the re-pin is T4), so the
-    /// contract must REJECT them. T4 flips this assertion — and that flip is how the
-    /// re-pin PROVES it installed the markers, rather than asserting it in prose.
+    /// The re-pin's own witness (MS3 T4). Until the re-pin, this test asserted the
+    /// INVERSE — that the prompts did NOT satisfy the contract, because they carried no
+    /// markers. Flipping it is how the re-pin **proves** it installed the contract,
+    /// instead of asserting it in prose.
+    ///
+    /// It also subsumes "exactly one ordered strict pair": `locate_block` with the strict
+    /// predicate succeeds only on exactly one ordered pair, so a second assertion for
+    /// that would be the same check under another name.
+    ///
+    /// Note this uses the STRICT predicate, so it doubles as E21 over our own files: an
+    /// invisible inside a marker line here is corruption and fails, even though the same
+    /// line in model output would be accepted.
     #[test]
-    fn test_shipped_prompts_do_not_yet_satisfy_the_contract_before_the_repin() {
-        for p in [melchior_prompt(), balthasar_prompt(), caspar_prompt()] {
+    fn test_shipped_prompts_satisfy_the_verdict_marker_contract() {
+        for (name, p) in [
+            ("melchior.md", melchior_prompt()),
+            ("balthasar.md", balthasar_prompt()),
+            ("caspar.md", caspar_prompt()),
+        ] {
+            validate_prompt(p)
+                .unwrap_or_else(|e| panic!("{name}: re-pin must install the contract: {e}"));
+        }
+    }
+
+    /// MANDATORY ANCHOR (R13). Without it, editing a prompt without updating the canary
+    /// leaves the canary comparing against text nobody emits: a **silent fail-open**.
+    ///
+    /// Uses LITERALS on purpose — the production constants are born in T8, next to their
+    /// first consumer; defining them here would leave them dead code in this commit. From
+    /// T8 onward this test switches to the constants, and then it also proves that
+    /// constant and prompt agree.
+    #[test]
+    fn test_echo_canary_values_are_present_in_every_shipped_prompt() {
+        for (name, p) in [
+            ("melchior.md", melchior_prompt()),
+            ("balthasar.md", balthasar_prompt()),
+            ("caspar.md", caspar_prompt()),
+        ] {
             assert!(
-                matches!(validate_prompt(p), Err(MagiError::PromptContract { .. })),
-                "pre-repin prompts carry no markers; T4 flips this"
+                p.contains("One-line verdict"),
+                "{name}: canary summary value absent"
+            );
+            assert!(
+                p.contains("What you recommend"),
+                "{name}: canary recommendation value absent"
             );
         }
     }
