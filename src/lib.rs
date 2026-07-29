@@ -40,7 +40,12 @@ pub mod error;
 pub mod finding_id;
 pub mod orchestrator;
 pub mod prelude;
-mod prompts;
+/// Public since MS3 (R19): a consumer writing a custom prompt needs to see the canonical
+/// shape now that `build()` enforces it — without this the guard is a wall with no door.
+/// It is also the migration path: the built-in prompt IS the source of truth, always in
+/// sync via `include_str!`. `validate_prompt` must be real public API for the strict
+/// marker predicate to have a production consumer at all.
+pub mod prompts;
 pub mod provider;
 pub mod providers;
 pub mod reporting;
@@ -52,3 +57,7 @@ pub mod schema;
 pub mod test_support;
 mod user_prompt;
 pub mod validate;
+/// Public from birth (MS3 R1): the doctest for `extract` (T3) cannot compile
+/// against a private module — a doctest compiles as an external crate — and
+/// `§0.1` runs doctests, so deferring visibility would break the gate mid-plan.
+pub mod verdict_markers;

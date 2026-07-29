@@ -216,6 +216,32 @@ pub enum MagiError {
         /// The connection-failed lineages that tripped the fast-fail.
         lineages: Vec<crate::rotation::Lineage>,
     },
+
+    /// **MS3** — a resolvable system prompt violates the verdict-marker contract.
+    ///
+    /// Returned by `MagiBuilder::build()` **before any provider is resolved**, and by
+    /// [`crate::prompts::validate_prompt`]. It does **not** trigger retry or rotation:
+    /// a stale prompt is not fixed by asking the model again. It is a sibling of the
+    /// validation path, not a child of it.
+    ///
+    /// Additive via the enum's `#[non_exhaustive]`; the variant is `#[non_exhaustive]`
+    /// too, so match with `..`.
+    // `AgentName` has no `Display` (only `display_name()`), so the format string calls
+    // it explicitly rather than relying on `{agent}`.
+    #[error("prompt contract violated for {}{}: {reason}",
+            agent.display_name(),
+            mode.map_or_else(String::new, |m| format!(" (mode {m:?})")))]
+    #[non_exhaustive]
+    PromptContract {
+        /// Whose prompt. **Never `Option`**: an embedded prompt has an owner, and a
+        /// message that cannot say which of the three files to open is not actionable.
+        agent: crate::schema::AgentName,
+        /// `Some` for a per-mode override; `None` for a mode-agnostic override or an
+        /// embedded prompt.
+        mode: Option<crate::schema::Mode>,
+        /// Which rule was violated, and how to check it before deploying.
+        reason: String,
+    },
 }
 
 impl From<serde_json::Error> for MagiError {

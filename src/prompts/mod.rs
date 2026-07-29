@@ -4,16 +4,29 @@
 
 //! Compile-time embedded system prompts for the three agents.
 //!
-//! **Crate-internal.** `lib.rs` declares `mod prompts;` (private), so nothing
-//! here is reachable from outside the crate; consumers reach these prompts
-//! through [`crate::agent::Agent`] or override them via the builder's custom
-//! prompt API. That is also why the accessors below carry no doctests: a
-//! doctest is compiled as an *external* crate and therefore cannot call a
-//! private item.
+//! **Public since MS3.** The module was crate-internal until `3.0.0`; it is now `pub`
+//! for three reasons that reinforce each other:
+//!
+//! 1. `MagiBuilder::build()` **enforces** the verdict-marker contract, so a consumer
+//!    writing a custom prompt has to be able to see the canonical shape. Without this,
+//!    the guard is a wall with no door.
+//! 2. The built-in prompts **are** the migration path — always in sync via
+//!    `include_str!`, so there is no fourth copy of the canonical section to drift.
+//!    Start from [`caspar_prompt`] and edit, or copy its `## Output format` verbatim.
+//! 3. [`validate_prompt`] must be real public API for the strict marker predicate to
+//!    have a production consumer at all.
+//!
+//! Visibility is deliberately **narrow**: the three accessors and `validate_prompt` are
+//! public; `lookup_prompt` and `embedded_prompt_for` stay `pub(crate)`.
+//!
+//! Being public also makes doctests possible here for the first time — a doctest is
+//! compiled as an *external* crate, so it could not reach a private item before.
 
 use std::collections::BTreeMap;
 
+use crate::error::MagiError;
 use crate::schema::{AgentName, Mode};
+use crate::verdict_markers::{is_exact_marker_line, locate_block};
 
 // ── Mode-agnostic accessors (v0.3.0) ─────────────────────────────────────────
 
@@ -87,7 +100,120 @@ pub(crate) fn lookup_prompt(
     embedded_prompt_for(agent)
 }
 
+/// Checks that `prompt` satisfies the verdict-marker contract.
+///
+/// This is the **same function** `MagiBuilder::build()` runs, so what it accepts is
+/// exactly what `build()` accepts. Call it from your own test suite before deploying a
+/// custom prompt, instead of discovering the problem when `build()` returns `Err`.
+///
+/// # What it checks (MS3 T1 — minimal)
+///
+/// Exactly **one** `<MAGI_VERDICT>` line and **one** `</MAGI_VERDICT>` line, in that
+/// order, judged with the **strict** predicate: in a file you ship, an invisible
+/// character inside a marker line is corruption, not tolerance owed.
+///
+/// A leading BOM is tolerated: it is an artefact of the file's **encoding**, not a
+/// property of a line, so it is resolved here — before anything is compared. Resolving
+/// it in the comparator is the mistake the reference implementation made (a false FATAL
+/// aborted a run) before moving it to the encoding layer.
+///
+/// # Errors
+///
+/// [`MagiError::PromptContract`] naming the rule that was violated.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::prompts::validate_prompt;
+/// use magi_core::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
+///
+/// // Each marker alone on its own line, exactly once, wrapping a NON-JSON placeholder.
+/// let mine = format!(
+///     "You are Caspar.\n\n## Output format\n{VERDICT_OPEN}\n{{ ...your 7-key JSON object... }}\n{VERDICT_CLOSE}"
+/// );
+/// assert!(validate_prompt(&mine).is_ok());
+///
+/// // A legacy prompt with no marker block is rejected — and `build()` would reject it
+/// // too, which is the point of checking here first.
+/// assert!(validate_prompt("You are Caspar. Reply with only a JSON object.").is_err());
+/// ```
+pub fn validate_prompt(prompt: &str) -> Result<(), MagiError> {
+    let body = prompt.strip_prefix('\u{feff}').unwrap_or(prompt);
+    locate_block(body, is_exact_marker_line)
+        .map(|_| ())
+        .map_err(|e| MagiError::PromptContract {
+            // DEBT, not design — T5 must eliminate this. `validate_prompt(&str)` cannot
+            // know the seat, so naming one here risks naming the WRONG one: a consumer
+            // validating their Caspar prompt would read "melchior". T5 adds the internal
+            // path that DOES know agent and mode, and the acceptance condition is that
+            // the public path never names a wrong agent.
+            agent: AgentName::Melchior,
+            mode: None,
+            reason: format!("{e}; verify with prompts::validate_prompt before deploying"),
+        })
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests_verdict_contract {
+    use super::*;
+    use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
+
+    /// NOT vacuous: at T1 the prompts still carry NO markers (the re-pin is T4), so the
+    /// contract must REJECT them. T4 flips this assertion — and that flip is how the
+    /// re-pin PROVES it installed the markers, rather than asserting it in prose.
+    #[test]
+    fn test_shipped_prompts_do_not_yet_satisfy_the_contract_before_the_repin() {
+        for p in [melchior_prompt(), balthasar_prompt(), caspar_prompt()] {
+            assert!(
+                matches!(validate_prompt(p), Err(MagiError::PromptContract { .. })),
+                "pre-repin prompts carry no markers; T4 flips this"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_prompt_rejects_prose_without_markers() {
+        assert!(matches!(
+            validate_prompt("You are Melchior. Respond with JSON."),
+            Err(MagiError::PromptContract { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_prompt_accepts_exactly_one_ordered_pair() {
+        let ok = format!("intro\n{VERDICT_OPEN}\n{{ ...slot... }}\n{VERDICT_CLOSE}\nfin");
+        validate_prompt(&ok).expect("one ordered pair must validate");
+    }
+
+    #[test]
+    fn test_validate_prompt_rejects_two_pairs() {
+        let two = format!("{VERDICT_OPEN}\na\n{VERDICT_CLOSE}\n{VERDICT_OPEN}\nb\n{VERDICT_CLOSE}");
+        assert!(matches!(
+            validate_prompt(&two),
+            Err(MagiError::PromptContract { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_prompt_tolerates_a_leading_bom() {
+        // R3 — the BOM is resolved in the encoding layer, not in the comparator.
+        let p = format!("\u{feff}intro\n{VERDICT_OPEN}\n{{ ...slot... }}\n{VERDICT_CLOSE}");
+        validate_prompt(&p).expect("a leading BOM must not fail the contract");
+    }
+
+    #[test]
+    fn test_validate_prompt_uses_the_strict_predicate_on_our_own_files() {
+        // E21 — a zero-width inside a marker line is CORRUPTION in a file we ship, even
+        // though the same line in model output would be accepted (E9).
+        let corrupt = format!("<MAGI_\u{200b}VERDICT>\nx\n{VERDICT_CLOSE}");
+        assert!(matches!(
+            validate_prompt(&corrupt),
+            Err(MagiError::PromptContract { .. })
+        ));
+    }
+}
 
 #[cfg(test)]
 mod tests {
