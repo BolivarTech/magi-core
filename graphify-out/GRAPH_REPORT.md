@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6c1b6328`
+- Built from commit: `206a1026`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -288,7 +288,7 @@ Nodes (24): Sized, build_user_prompt(), fixed_nonce(), Result, Self, Vec, test_b
 
 ### Community 39 - "[1.1.1] - 2026-07-17"
 Cohesion: 0.22
-Nodes (9): [0.1.2] - 2026-04-05, [0.3.1] - 2026-04-19, [3.0.0] - 2026-07-29, Added, BREAKING, Changed, Changelog, Fixed (+1 more)
+Nodes (9): [0.1.2] - 2026-04-05, [0.3.1] - 2026-04-19, [3.0.0] - 2026-07-30, Added, BREAKING, Changed, Changelog, Fixed (+1 more)
 
 ### Community 40 - "error.rs"
 Cohesion: 0.10
@@ -407,20 +407,20 @@ Cohesion: 0.50
 Nodes (3): Ordering, Option, Self
 
 ## Knowledge Gaps
-- **161 isolated node(s):** `check_r0.sh script`, `BREAKING`, `Added`, `Changed`, `Fixed` (+156 more)
+- **161 isolated node(s):** `BREAKING`, `Added`, `Changed`, `Fixed`, `Changed` (+156 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **36 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MagiError` connect `basic_analysis.rs` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `ProviderError`, `[1.1.1] - 2026-07-17`, `provider.rs`, `validate.rs`, `user_prompt.rs`, `error.rs`, `Lineage`, `LlmProvider`?**
-  _High betweenness centrality (0.095) - this node is a cross-community bridge._
 - **Why does `ProviderError` connect `ProviderError` to `[0.3.0] - 2026-04-18`, `Finding`, `4. Library Architecture`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `error.rs`, `.cmp`, `basic_analysis.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.092) - this node is a cross-community bridge._
-- **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Finding`, `4. Library Architecture`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `FallbackPool`, `RoutingMockProvider`, `finding_id.rs`, `.cmp`, `LlmProvider`, `lib.rs`?**
-  _High betweenness centrality (0.047) - this node is a cross-community bridge._
-- **What connects `check_r0.sh script`, `Apply every declared divergence to a reference blob, failing loudly.      Retu`, `Read a file's bytes at a specific ref via `git show`, no checkout.` to the rest of the system?**
+  _High betweenness centrality (0.087) - this node is a cross-community bridge._
+- **Why does `MagiError` connect `basic_analysis.rs` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `ProviderError`, `[1.1.1] - 2026-07-17`, `provider.rs`, `validate.rs`, `user_prompt.rs`, `error.rs`, `Lineage`, `LlmProvider`?**
+  _High betweenness centrality (0.080) - this node is a cross-community bridge._
+- **Why does `AgentName` connect `LlmProvider` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `reporting.rs`, `.new`, `schema.rs`, `error.rs`, `ClaudeProvider`, `RoutingMockProvider`, `Vec`, `FallbackPool`, `prelude.rs`, `basic_analysis.rs`, `make_output`, `lib.rs`?**
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
+- **What connects `BREAKING`, `Added`, `Changed` to the rest of the system?**
   _166 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.11175616835994194 - nodes in this community are weakly interconnected._
