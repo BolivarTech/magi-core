@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-07-29)
 
 ## Corpus Check
-- 42 files · ~100,780 words
+- 42 files · ~100,858 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `206a1026`
+- Built from commit: `6793cfdb`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -163,8 +163,8 @@ Cohesion: 0.14
 Nodes (27): output_with_confidence(), output_with_findings(), Vec, test_validate_accepts_confidence_at_boundaries(), test_validate_accepts_finding_with_normal_title(), test_validate_accepts_valid_agent_output(), test_validate_mut_collapses_control_whitespace_in_titles(), test_validate_mut_replaces_title_with_cleaned_form() (+19 more)
 
 ### Community 4 - "Finding"
-Cohesion: 0.10
-Nodes (34): Box, F, test_a_clean_run_adds_no_section_to_the_human_report(), test_a_recovered_retry_still_records_its_cause(), test_analyze_all_agents_fail_returns_insufficient_agents(), test_analyze_input_too_large_rejects_without_launching_agents(), test_analyze_no_retry_on_timeout_keeps_retried_empty(), test_analyze_nonce_collision_returns_invalid_input() (+26 more)
+Cohesion: 0.11
+Nodes (30): F, test_a_clean_run_adds_no_section_to_the_human_report(), test_a_recovered_retry_still_records_its_cause(), test_analyze_all_agents_fail_returns_insufficient_agents(), test_analyze_input_too_large_rejects_without_launching_agents(), test_analyze_no_retry_on_timeout_keeps_retried_empty(), test_analyze_one_agent_bad_json_degrades_gracefully(), test_analyze_one_agent_timeout_degrades_gracefully() (+22 more)
 
 ### Community 5 - ".new"
 Cohesion: 0.25
@@ -211,8 +211,8 @@ Cohesion: 0.18
 Nodes (12): Finding, Into, String, test_agent_name_btreeset_orders_alphabetically(), test_agent_name_usable_as_btreemap_key(), test_finding_new_constructs_three_field_finding(), test_finding_new_defaults_optional_fields(), test_finding_serde_roundtrip() (+4 more)
 
 ### Community 18 - "mod.rs"
-Cohesion: 0.67
-Nodes (3): [2.1.0] - 2026-07-27, Added, Compatibility
+Cohesion: 0.27
+Nodes (9): MagiError, Error, From, Self, clean_title(), Result, String, test_clean_title_is_idempotent() (+1 more)
 
 ### Community 19 - "RoutingMockProvider"
 Cohesion: 0.07
@@ -231,16 +231,16 @@ Cohesion: 0.14
 Nodes (10): Barrier, FailingProbe, MockProbe, OverlapProbe, ProviderProbe, AtomicUsize, Formatter, Result (+2 more)
 
 ### Community 24 - "basic_analysis.rs"
-Cohesion: 0.27
-Nodes (9): MagiError, Error, From, Self, clean_title(), Result, String, test_clean_title_is_idempotent() (+1 more)
+Cohesion: 0.29
+Nodes (8): contract_prompt(), test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_per_mode_override_supersedes_all_modes(), test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call(), test_legacy_with_custom_prompt_delegates_to_for_mode(), test_legacy_with_custom_prompt_shim_roundtrip(), test_with_custom_prompt_all_modes_stores_with_none_key(), test_with_custom_prompt_for_mode_stores_with_some_key()
 
 ### Community 25 - "LlmProvider"
 Cohesion: 0.12
 Nodes (30): AbortHandle, ComplexityGate, DispatchOutcome, JoinError, AbortGuard, attempt_model(), CapturingMockProvider, collect_probe_targets() (+22 more)
 
 ### Community 27 - "make_output"
-Cohesion: 0.29
-Nodes (8): contract_prompt(), test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_per_mode_override_supersedes_all_modes(), test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call(), test_legacy_with_custom_prompt_delegates_to_for_mode(), test_legacy_with_custom_prompt_shim_roundtrip(), test_with_custom_prompt_all_modes_stores_with_none_key(), test_with_custom_prompt_for_mode_stores_with_some_key()
+Cohesion: 0.33
+Nodes (6): Default, Self, test_title_length_checked_after_strip_zero_width(), test_validate_mut_atomic_no_partial_mutation_on_error(), test_validator_with_limits_uses_custom_limits(), ValidationLimits
 
 ### Community 28 - "[0.5.0] - 2026-05-16"
 Cohesion: 0.25
@@ -255,8 +255,8 @@ Cohesion: 0.29
 Nodes (7): [0.2.0] - 2026-04-18, Added, Changed (breaking), Dependencies, Deprecated, Not included (deferred to v0.3.0), Security considerations
 
 ### Community 31 - "lib.rs"
-Cohesion: 0.15
-Nodes (11): PathBuf, MagiBuilder, MagiConfig, Default, P, Self, test_a_failure_before_rotation_is_attributed_to_the_pre_rotation_model(), test_analyze_respects_prompts_dir_loaded_files() (+3 more)
+Cohesion: 0.12
+Nodes (15): PathBuf, MagiBuilder, MagiConfig, Box, Default, P, Self, test_a_failure_before_rotation_is_attributed_to_the_pre_rotation_model() (+7 more)
 
 ### Community 32 - "[0.4.0] - 2026-05-16"
 Cohesion: 0.29
@@ -332,15 +332,15 @@ Nodes (7): FastrandSource, FixedRng, RngLike, Send, test_fastrand_source_returns
 
 ### Community 51 - "MagiError"
 Cohesion: 0.33
-Nodes (6): Default, Self, test_title_length_checked_after_strip_zero_width(), test_validate_mut_atomic_no_partial_mutation_on_error(), test_validator_with_limits_uses_custom_limits(), ValidationLimits
+Nodes (6): 1.1 Context in the Series, 1.2 The Three Units, 1.3 Decision Mechanism, 1.4 The Philosophical Principle, 1.5 Why Structured Disagreement Works, 1. Origin: The MAGI Supercomputers from Evangelion
 
 ### Community 52 - ".validate"
 Cohesion: 0.33
 Nodes (6): [0.3.0] - 2026-04-18, Added, Changed (breaking), Dependencies, Not included (deferred beyond v0.3.0), Security considerations (MAGI R3 W8)
 
 ### Community 53 - "LineageRegistry"
-Cohesion: 0.33
-Nodes (6): 1.1 Context in the Series, 1.2 The Three Units, 1.3 Decision Mechanism, 1.4 The Philosophical Principle, 1.5 Why Structured Disagreement Works, 1. Origin: The MAGI Supercomputers from Evangelion
+Cohesion: 0.40
+Nodes (5): 4.1 Module Structure, 4.2 Dependency Flow, 4.3 Execution Pipeline, 4.4 Concurrency Model, 4. Library Architecture
 
 ### Community 54 - "backoff.rs"
 Cohesion: 0.16
@@ -352,7 +352,7 @@ Nodes (4): Declaring fallbacks, Model Rotation (MS2), Ollama probe (feature `oll
 
 ### Community 64 - ".with_limits"
 Cohesion: 0.40
-Nodes (5): 4.1 Module Structure, 4.2 Dependency Flow, 4.3 Execution Pipeline, 4.4 Concurrency Model, 4. Library Architecture
+Nodes (5): 5.1 Agent Output Schema, 5.2 Voting Rules, 5.3 Confidence Formula, 5.4 Findings Deduplication, 5. Data Schema and Consensus Protocol
 
 ### Community 65 - "5. Data Schema and Consensus Protocol"
 Cohesion: 0.10
@@ -360,19 +360,19 @@ Nodes (21): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), lookup_p
 
 ### Community 66 - "AgentName"
 Cohesion: 0.40
-Nodes (5): 5.1 Agent Output Schema, 5.2 Voting Rules, 5.3 Confidence Formula, 5.4 Findings Deduplication, 5. Data Schema and Consensus Protocol
-
-### Community 67 - "2. Translation to the Software Engineering Domain"
-Cohesion: 0.40
 Nodes (5): 7.1 Dissent is a Feature, 7.2 Adversarial by Design, 7.3 Proportionality, 7.4 LLM-Agnostic Design, 7. Design Philosophy
 
-### Community 72 - "String"
+### Community 67 - "2. Translation to the Software Engineering Domain"
 Cohesion: 0.50
 Nodes (4): 3.1 Melchior — The Scientist, 3.2 Balthasar — The Pragmatist, 3.3 Caspar — The Critic, 3. The Three Agents in Detail
 
-### Community 73 - "Vec"
+### Community 72 - "String"
 Cohesion: 0.50
 Nodes (4): 6.1 Code Review, 6.2 Design, 6.3 Analysis, 6. Modes of Operation
+
+### Community 73 - "Vec"
+Cohesion: 0.67
+Nodes (3): [1.1.0] - 2026-05-25, Added, Notes
 
 ### Community 74 - "mock_server.rs"
 Cohesion: 0.67
@@ -384,11 +384,11 @@ Nodes (54): AtomicU32, RetryClass, classify(), CompletionConfig, default_model_f
 
 ### Community 76 - ".cmp"
 Cohesion: 0.67
-Nodes (3): [1.1.0] - 2026-05-25, Added, Notes
+Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
 
 ### Community 80 - "VerdictExtractionError"
 Cohesion: 0.67
-Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
+Nodes (3): [2.1.0] - 2026-07-27, Added, Compatibility
 
 ### Community 81 - ".map_status_to_error"
 Cohesion: 0.67
@@ -407,20 +407,20 @@ Cohesion: 0.50
 Nodes (3): Ordering, Option, Self
 
 ## Knowledge Gaps
-- **161 isolated node(s):** `BREAKING`, `Added`, `Changed`, `Fixed`, `Changed` (+156 more)
+- **161 isolated node(s):** `check_r0.sh script`, `BREAKING`, `Added`, `Changed`, `Fixed` (+156 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **36 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ProviderError` connect `ProviderError` to `[0.3.0] - 2026-04-18`, `Finding`, `4. Library Architecture`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `error.rs`, `.cmp`, `basic_analysis.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.087) - this node is a cross-community bridge._
-- **Why does `MagiError` connect `basic_analysis.rs` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `ProviderError`, `[1.1.1] - 2026-07-17`, `provider.rs`, `validate.rs`, `user_prompt.rs`, `error.rs`, `Lineage`, `LlmProvider`?**
-  _High betweenness centrality (0.080) - this node is a cross-community bridge._
-- **Why does `AgentName` connect `LlmProvider` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `reporting.rs`, `.new`, `schema.rs`, `error.rs`, `ClaudeProvider`, `RoutingMockProvider`, `Vec`, `FallbackPool`, `prelude.rs`, `basic_analysis.rs`, `make_output`, `lib.rs`?**
-  _High betweenness centrality (0.053) - this node is a cross-community bridge._
-- **What connects `BREAKING`, `Added`, `Changed` to the rest of the system?**
+- **Why does `MagiError` connect `mod.rs` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `ProviderError`, `[1.1.1] - 2026-07-17`, `provider.rs`, `validate.rs`, `user_prompt.rs`, `error.rs`, `Lineage`, `LlmProvider`?**
+  _High betweenness centrality (0.095) - this node is a cross-community bridge._
+- **Why does `ProviderError` connect `ProviderError` to `[0.3.0] - 2026-04-18`, `Finding`, `4. Library Architecture`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `error.rs`, `mod.rs`, `.cmp`, `LlmProvider`?**
+  _High betweenness centrality (0.092) - this node is a cross-community bridge._
+- **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Finding`, `4. Library Architecture`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `FallbackPool`, `RoutingMockProvider`, `finding_id.rs`, `.cmp`, `LlmProvider`, `lib.rs`?**
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
+- **What connects `check_r0.sh script`, `Apply every declared divergence to a reference blob, failing loudly.      Retu`, `Read a file's bytes at a specific ref via `git show`, no checkout.` to the rest of the system?**
   _166 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.11175616835994194 - nodes in this community are weakly interconnected._
