@@ -292,7 +292,9 @@ impl LlmProvider for OpenAiCompatibleProvider {
         let status = response.status();
         let retry_after_raw = response.retry_after_raw();
         if !(200..300).contains(&status) {
-            let response_body = response.text().await.unwrap_or_default();
+            // Error branch: the body is DIAGNOSTIC text, so it truncates and says so. Dropping a
+            // 500's body whole would discard the only reason that error gets read.
+            let response_body = response.read_diagnostic_body().await;
             return Err(Self::map_status_to_error(
                 status,
                 &response_body,
@@ -300,10 +302,13 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 Some(received_at),
             ));
         }
-        // The total timeout can fire while reading the body (headers arrive, then the server
-        // hangs); the shared mapper classifies that as `Timeout`, not `Network`, so the retry
-        // policy treats it correctly.
-        let response_body = response.text().await?;
+        // Success branch: the body carries the VERDICT, so over the cap it fails rather than
+        // truncating — a cut body loses its closing marker and the parser would blame the model
+        // for a cut this reader made, with a retry that could never fix it.
+        //
+        // The total timeout can also fire while reading (headers arrive, then the server hangs);
+        // the shared mapper classifies that as `Timeout`, not `Network`.
+        let response_body = response.read_verdict_body(config.max_tokens).await?;
         Self::parse_response(&response_body)
     }
 

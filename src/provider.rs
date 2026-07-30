@@ -323,7 +323,16 @@ fn is_retryable(error: &ProviderError) -> bool {
     match error {
         ProviderError::Timeout { .. } | ProviderError::Network { .. } => true,
         ProviderError::Http { status, .. } => TRANSIENT_STATUSES.contains(status),
-        _ => false,
+        // Exhaustive on purpose — the catch-all this replaced would have silently classified any
+        // new variant as "never retry", which for a transient shape is the wrong answer and would
+        // fail no test. A new variant must now break the build until someone decides.
+        ProviderError::Auth { .. }
+        | ProviderError::Process { .. }
+        | ProviderError::NestedSession
+        | ProviderError::RetryAbandoned { .. }
+        // A server that sent an oversized body will send it again: retrying spends budget the
+        // rotation needs to try a DIFFERENT lineage.
+        | ProviderError::ResponseTooLarge { .. } => false,
     }
 }
 
@@ -415,6 +424,7 @@ pub(crate) fn classify(err: &ProviderError) -> RetryClass {
         ProviderError::Process { .. } => RetryClass::Process,
         ProviderError::NestedSession => RetryClass::NestedSession,
         ProviderError::RetryAbandoned { .. } => RetryClass::RetryAbandoned,
+        ProviderError::ResponseTooLarge { .. } => RetryClass::ResponseTooLarge,
     }
 }
 
@@ -577,6 +587,16 @@ impl LlmProvider for RetryProvider {
 #[cfg(test)]
 mod message_composition_tests {
     use super::*;
+
+    #[test]
+    fn an_oversized_response_is_not_retryable_and_has_its_own_class() {
+        let e = ProviderError::ResponseTooLarge { limit: 1024 };
+        assert!(
+            !is_retryable(&e),
+            "a server that sent 1 MiB will send it again"
+        );
+        assert_eq!(classify(&e), RetryClass::ResponseTooLarge);
+    }
 
     #[test]
     fn compose_puts_operation_and_url_first_and_truncates_the_cause_tail() {

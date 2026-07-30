@@ -135,6 +135,46 @@ impl ProviderUrl {
     }
 }
 
+/// Floor for the response-body cap: 1 MiB.
+pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 1 << 20;
+
+/// Worst-case bytes per output token.
+///
+/// A heuristic, and deliberately generous: fully escaped CJK costs 6 bytes per character and CJK
+/// tokenizers yield roughly 1-1.5 characters per token, so ~6-9 bytes/token. 16 keeps about 2x
+/// headroom over that worst case. It is a **ratio**, which ages far slower than an absolute size:
+/// it changes when tokenization changes, not when a vendor doubles its context window.
+pub(crate) const BYTES_PER_TOKEN_CEILING: usize = 16;
+
+/// Ceiling applied to `max_tokens` before deriving the cap.
+///
+/// Clamping the input is what keeps the defense bounded from ABOVE. Saturating the product instead
+/// would yield `usize::MAX` for an absurd `max_tokens` — a limit that disappears exactly when it is
+/// most needed, which is the worst possible failure for a cap.
+pub(crate) const MAX_CAPPABLE_TOKENS: usize = 1_048_576;
+
+/// Cap for the diagnostic prefix of an error body.
+pub(crate) const MAX_ERROR_BODY_PREFIX_BYTES: usize = 8 * 1024;
+
+/// The response-body cap, bounded in BOTH directions.
+fn body_cap(max_tokens: u32) -> usize {
+    let clamped = (max_tokens as usize).min(MAX_CAPPABLE_TOKENS);
+    MAX_RESPONSE_BODY_BYTES.max(clamped * BYTES_PER_TOKEN_CEILING)
+}
+
+/// Truncates diagnostic text at a character boundary, announcing the cut.
+fn truncate_diagnostic(raw: &str) -> String {
+    if raw.len() <= MAX_ERROR_BODY_PREFIX_BYTES {
+        return raw.to_string();
+    }
+    // Reserve the marker inside the budget, and cut on a character boundary: a byte-index cut is
+    // the bug class that already cost this project a release.
+    let budget =
+        MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::provider::TRUNCATION_MARKER.len());
+    let cut = raw.floor_char_boundary(budget);
+    format!("{}{}", &raw[..cut], crate::provider::TRUNCATION_MARKER)
+}
+
 /// A request that cannot be printed.
 ///
 /// The client's own request builder implements `Debug` and prints the URL, so handing it out would
@@ -203,18 +243,59 @@ impl ProviderResponse {
             .collect()
     }
 
-    /// Reads the whole body.
+    /// Reads a body that carries a **verdict**. Over the cap it **fails**.
     ///
-    /// Preserves today's behaviour; the two bounded, asymmetric readers replace it in the
-    /// response-cap task.
+    /// It must not truncate: a cut body loses its closing marker, and the verdict parser would
+    /// report a truncated *model* output — blaming the model for a cut this reader made, with a
+    /// retry that can never fix it.
     ///
     /// # Errors
-    /// [`ProviderError::Network`] or [`ProviderError::Timeout`] if the body cannot be read.
-    pub(crate) async fn text(self) -> Result<String, ProviderError> {
-        let redacted_url = self.redacted_url;
-        self.inner.text().await.map_err(|e| {
-            crate::provider::to_provider_error("failed to read response body", &redacted_url, &e)
-        })
+    /// [`ProviderError::ResponseTooLarge`] over the cap; [`ProviderError::Network`] or
+    /// [`ProviderError::Timeout`] if the body cannot be read.
+    pub(crate) async fn read_verdict_body(
+        mut self,
+        max_tokens: u32,
+    ) -> Result<String, ProviderError> {
+        let cap = body_cap(max_tokens);
+        let mut acc: Vec<u8> = Vec::new();
+        loop {
+            match self.inner.chunk().await {
+                Ok(Some(chunk)) => {
+                    if acc.len() + chunk.len() > cap {
+                        return Err(ProviderError::ResponseTooLarge { limit: cap });
+                    }
+                    acc.extend_from_slice(&chunk);
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    return Err(crate::provider::to_provider_error(
+                        "failed to read response body",
+                        &self.redacted_url,
+                        &e,
+                    ));
+                }
+            }
+        }
+        Ok(String::from_utf8_lossy(&acc).into_owned())
+    }
+
+    /// Reads a body that carries **diagnostics**. Over the cap it truncates and says so.
+    ///
+    /// Asymmetric with [`Self::read_verdict_body`] on purpose, and the difference lives in the
+    /// names so that a future "simplification" unifying them has to delete a function a reviewer
+    /// can see. Truncating is safe here: there is no verdict a cut could falsify, and dropping a
+    /// `500` body whole would discard the only reason that error is read.
+    pub(crate) async fn read_diagnostic_body(mut self) -> String {
+        let mut acc: Vec<u8> = Vec::new();
+        while let Ok(Some(chunk)) = self.inner.chunk().await {
+            acc.extend_from_slice(&chunk);
+            if acc.len() >= MAX_ERROR_BODY_PREFIX_BYTES {
+                break;
+            }
+        }
+        // Arbitrary server text: lossy conversion keeps the diagnostic instead of turning the
+        // server's error into ours.
+        truncate_diagnostic(&String::from_utf8_lossy(&acc))
     }
 }
 
@@ -341,6 +422,43 @@ mod tests {
     fn join_path_preserves_fragment() {
         let u = ProviderUrl::parse("http://h/v1#frag").expect("parses");
         assert_eq!(u.join_path(&["chat"]).fragment(), Some("frag"));
+    }
+
+    #[test]
+    fn body_cap_is_bounded_below_and_above() {
+        assert_eq!(
+            body_cap(0),
+            MAX_RESPONSE_BODY_BYTES,
+            "floor applies to a tiny max_tokens"
+        );
+        assert_eq!(
+            body_cap(128_000),
+            128_000 * BYTES_PER_TOKEN_CEILING,
+            "derived once above the floor"
+        );
+        assert_eq!(
+            body_cap(u32::MAX),
+            MAX_CAPPABLE_TOKENS * BYTES_PER_TOKEN_CEILING,
+            "an absurd max_tokens must NOT remove the defense"
+        );
+    }
+
+    #[test]
+    fn diagnostic_truncation_is_announced_and_utf8_safe() {
+        let raw = "\u{f1}".repeat(MAX_ERROR_BODY_PREFIX_BYTES);
+        let out = truncate_diagnostic(&raw);
+        assert!(
+            out.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "capped: {}",
+            out.len()
+        );
+        assert!(out.contains("truncated"), "the cut is announced");
+    }
+
+    #[test]
+    fn diagnostic_under_the_cap_is_untouched() {
+        let out = truncate_diagnostic("upstream said no");
+        assert_eq!(out, "upstream said no");
     }
 
     #[tokio::test]

@@ -1299,7 +1299,10 @@ fn is_connection(err: &ProviderError) -> bool {
         | ProviderError::Auth { .. }
         | ProviderError::Process { .. }
         | ProviderError::NestedSession
-        | ProviderError::RetryAbandoned { .. } => false,
+        | ProviderError::RetryAbandoned { .. }
+        // A server that answers TOO MUCH is not a server that is down: this must never feed the
+        // endpoint-down latch, or one seat's content failure could abort the whole run.
+        | ProviderError::ResponseTooLarge { .. } => false,
     }
 }
 
@@ -1318,6 +1321,13 @@ enum ModelOutcome {
         connection: bool,
         kind: RotationKind,
     },
+    /// Body over the cap on a successful response — **mage-local**, then rotate.
+    ///
+    /// Not `Transport`: that is run-wide and feeds the endpoint-down latch. Not `Schema`: nothing
+    /// failed to parse. Its own variant so the `match` below forces the consequence to be decided
+    /// rather than inherited.
+    OversizedResponse { limit: usize },
+
     /// A non-schema, non-transport failure — never rotates; surfaced verbatim.
     Unexpected(String),
 }
@@ -1425,8 +1435,19 @@ async fn attempt_model(
     }
 }
 
-/// Maps a surfaced [`ProviderError`] to a transport/timeout [`ModelOutcome`].
+/// Maps a surfaced [`ProviderError`] to a [`ModelOutcome`].
+///
+/// # Why one variant is singled out
+///
+/// An oversized body is a **content** failure, not a transport one: the server answered perfectly,
+/// it answered too much. Routing it through `Transport` would condemn the lineage **run-wide** —
+/// taking it away from the other two seats over what one seat observed — and, for a connection-class
+/// error, feed the endpoint-down latch. It gets its own outcome so the consequence is decided here
+/// rather than inherited.
 fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
+    if let ProviderError::ResponseTooLarge { limit } = err {
+        return ModelOutcome::OversizedResponse { limit };
+    }
     let connection = is_connection(&err);
     let kind = match err {
         ProviderError::Timeout { .. } => RotationKind::Timeout,
@@ -1573,6 +1594,17 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 registry.release(agent_name).await;
                 guard.mark_released();
                 return (Err(detail), state.to_rotation(), was_retried, failures);
+            }
+            ModelOutcome::OversizedResponse { limit } => {
+                // Mage-local, exactly like Schema: this mage will not retry this lineage, but the
+                // other seats still may. Reported as `Transport` in telemetry because that enum is
+                // public and not `#[non_exhaustive]` — a new variant would be a SemVer break — so
+                // the precision rides in `detail` instead.
+                state.failed_lineages.insert(current_lineage.clone());
+                (
+                    RotationKind::Transport,
+                    format!("response body exceeded {limit} bytes"),
+                )
             }
             ModelOutcome::Schema(detail) => {
                 // Schema failure is mage-local: this mage will not retry this

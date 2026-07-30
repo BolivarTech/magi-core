@@ -118,6 +118,25 @@ pub enum ProviderError {
     #[error("nested session detected: cannot launch CLI provider from within an existing session")]
     NestedSession,
 
+    /// Response body exceeded the size this crate is willing to buffer.
+    ///
+    /// **Not a transport failure**: the server answered fine, it answered *too much*. Condemnation
+    /// is mage-local and it never counts toward the endpoint-down latch — a content failure does
+    /// not license run-wide consequences.
+    ///
+    /// # Remediation depends on the cause
+    ///
+    /// - The **endpoint** returns oversized junk regardless of input → lower `max_tokens`, or drop
+    ///   that endpoint from the pool.
+    /// - The **input** legitimately demands a long answer → **raise** `max_tokens` (which raises
+    ///   this cap, since it is derived) or split the input. Lowering it here makes things worse.
+    #[error("response body exceeded {limit} bytes")]
+    #[non_exhaustive]
+    ResponseTooLarge {
+        /// The cap that was exceeded, so a reader never has to parse the message.
+        limit: usize,
+    },
+
     /// `RetryProvider` stopped retrying by its own decision.
     #[error("retry abandoned after {attempts} attempt(s): {reason:?}")]
     #[non_exhaustive]
