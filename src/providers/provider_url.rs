@@ -156,6 +156,23 @@ pub(crate) const MAX_CAPPABLE_TOKENS: usize = 1_048_576;
 /// Cap for the diagnostic prefix of an error body.
 pub(crate) const MAX_ERROR_BODY_PREFIX_BYTES: usize = 8 * 1024;
 
+/// Appends `chunk` to `acc` unless doing so would EXCEED `cap` (strictly greater), in which case it
+/// returns `false` and leaves `acc` untouched.
+///
+/// Pure and unit-testable on purpose: the streaming readers around it need a live server to
+/// exercise, so this is where the memory bound is actually proven.
+pub(crate) fn push_within_cap(acc: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
+    // `checked_add` guards the (practically impossible, but defensive) usize overflow of
+    // `acc.len() + chunk.len()`; an overflow is treated as over-cap.
+    match acc.len().checked_add(chunk.len()) {
+        Some(total) if total <= cap => {
+            acc.extend_from_slice(chunk);
+            true
+        }
+        _ => false,
+    }
+}
+
 /// The response-body cap, bounded in BOTH directions.
 fn body_cap(max_tokens: u32) -> usize {
     let clamped = (max_tokens as usize).min(MAX_CAPPABLE_TOKENS);
@@ -277,6 +294,36 @@ impl ProviderResponse {
             }
         }
         Ok(String::from_utf8_lossy(&acc).into_owned())
+    }
+
+    /// Reads a **probe** body: bounded, and degrading to `None` on any problem.
+    ///
+    /// A third semantics on purpose, and the asymmetry is the point. For a probe, "no capability
+    /// information" is a **valid result** — so an over-cap or unreadable body degrades rather than
+    /// failing, exactly as it did before this type existed. Truncating would be worse here than in
+    /// the diagnostic case: a half-read JSON document does not parse, so a truncated probe body
+    /// would look like schema drift instead of an oversized response.
+    ///
+    /// A `Content-Length` already over the cap is rejected early, compared in `u64` so there is no
+    /// `usize` truncation on 32-bit.
+    pub(crate) async fn read_probe_body(mut self, cap: usize) -> Option<Vec<u8>> {
+        if let Some(len) = self.inner.content_length()
+            && len > cap as u64
+        {
+            return None;
+        }
+        let mut acc: Vec<u8> = Vec::new();
+        loop {
+            match self.inner.chunk().await {
+                // The bound lives in a PURE helper so it stays unit-testable: the HTTP path here
+                // cannot be exercised without a server, and inlining the accumulation would have
+                // quietly traded away the only coverage the cap logic has.
+                Ok(Some(chunk)) if push_within_cap(&mut acc, &chunk, cap) => {}
+                Ok(Some(_)) => return None, // over cap (or overflow) → degrade, never OOM
+                Ok(None) => return Some(acc),
+                Err(_) => return None,
+            }
+        }
     }
 
     /// Reads a body that carries **diagnostics**. Over the cap it truncates and says so.

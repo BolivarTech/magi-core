@@ -25,13 +25,16 @@ use async_trait::async_trait;
 use crate::error::ProviderError;
 use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider};
 use crate::providers::openai_compat::OpenAiCompatibleProvider;
+use crate::providers::provider_url::ProviderUrl;
 use crate::rotation::ProviderProbe;
 
 /// Native Ollama provider: OpenAI-compatible completions + `/api/show` +
 /// `/api/tags` probe. Construct with [`OllamaProvider::new`].
 pub struct OllamaProvider {
     inner: OpenAiCompatibleProvider,
-    base_url: String,
+    /// The URL authority — never a `String`, so a reverse proxy's credentials in front of Ollama
+    /// cannot leak through `Debug` or an error message.
+    base_url: ProviderUrl,
     client: reqwest::Client,
 }
 
@@ -46,7 +49,7 @@ impl OllamaProvider {
         base_url: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
-        let base = base_url.into().trim_end_matches('/').to_string();
+        let base = ProviderUrl::parse(&base_url.into())?;
         let inner = OpenAiCompatibleProvider::new(format!("{base}/v1"), model, None)?;
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_CLIENT_TIMEOUT)
@@ -108,52 +111,6 @@ impl OllamaProvider {
 /// rather than accumulated, preventing memory exhaustion.
 pub(crate) const MAX_SHOW_BODY_BYTES: usize = 1 << 20; // 1 MiB
 
-/// Appends `chunk` to `acc` unless doing so would EXCEED `cap` (strictly greater),
-/// in which case it returns `false` and leaves `acc` unchanged. Called per network
-/// chunk by [`read_capped`], so the accumulator never grows past `cap` — the
-/// streaming memory bound for untrusted probe bodies. Pure and unit-testable.
-pub(crate) fn push_within_cap(acc: &mut Vec<u8>, chunk: &[u8], cap: usize) -> bool {
-    // `checked_add` guards the (practically impossible, but defensive) usize
-    // overflow of `acc.len() + chunk.len()`; an overflow is treated as over-cap.
-    match acc.len().checked_add(chunk.len()) {
-        Some(total) if total <= cap => {
-            acc.extend_from_slice(chunk);
-            true
-        }
-        _ => false,
-    }
-}
-
-/// Reads a probe response body bounded by [`MAX_SHOW_BODY_BYTES`], CHUNK BY CHUNK,
-/// so it never buffers more than the cap even when `Content-Length` is absent or
-/// lies. A `Content-Length` already over the cap is rejected early, compared in
-/// `u64` (no `usize` truncation on 32-bit). Any body-read problem degrades to
-/// `None` (fail-open) — only the caller's `send()` surfaces a transport error.
-///
-/// `reqwest::Response::chunk()` is an inherent async method, so the streaming
-/// bound needs NO `futures_util` dependency (the crate adds none). The HTTP path
-/// itself is not unit-tested (accepted gap D-2); the bound logic is
-/// ([`push_within_cap`]).
-async fn read_capped(mut resp: reqwest::Response) -> Option<Vec<u8>> {
-    if let Some(len) = resp.content_length()
-        && len > MAX_SHOW_BODY_BYTES as u64
-    {
-        return None;
-    }
-    let mut acc: Vec<u8> = Vec::new();
-    loop {
-        match resp.chunk().await {
-            Ok(Some(chunk)) => {
-                if !push_within_cap(&mut acc, &chunk, MAX_SHOW_BODY_BYTES) {
-                    return None; // over-cap → degrade (fail-open), never OOM
-                }
-            }
-            Ok(None) => return Some(acc),
-            Err(_) => return None, // body-read error → degrade (fail-open)
-        }
-    }
-}
-
 #[async_trait]
 impl LlmProvider for OllamaProvider {
     async fn complete(
@@ -179,22 +136,18 @@ impl LlmProvider for OllamaProvider {
 #[async_trait]
 impl ProviderProbe for OllamaProvider {
     async fn window(&self) -> Result<Option<usize>, ProviderError> {
-        let url = format!("{}/api/show", self.base_url);
         let resp = self
-            .client
-            .post(&url)
+            .base_url
+            .request(&self.client, reqwest::Method::POST, &["api", "show"])
             .json(&serde_json::json!({ "model": self.inner.model() }))
             .send()
-            .await
-            .map_err(|e| ProviderError::Network {
-                message: format!("/api/show request failed: {e}"),
-            })?;
+            .await?;
         // A non-2xx status carries no usable probe body → degrade to `None`
         // (fail-open) without reading it, rather than parse an error page.
-        if !resp.status().is_success() {
+        if !(200..300).contains(&resp.status()) {
             return Ok(None);
         }
-        match read_capped(resp).await {
+        match resp.read_probe_body(MAX_SHOW_BODY_BYTES).await {
             Some(bytes) => {
                 let body = String::from_utf8_lossy(&bytes);
                 let window = Self::parse_show_window(&body);
@@ -211,19 +164,15 @@ impl ProviderProbe for OllamaProvider {
     }
 
     async fn digest(&self) -> Result<Option<String>, ProviderError> {
-        let url = format!("{}/api/tags", self.base_url);
         let resp = self
-            .client
-            .get(&url)
+            .base_url
+            .request(&self.client, reqwest::Method::GET, &["api", "tags"])
             .send()
-            .await
-            .map_err(|e| ProviderError::Network {
-                message: format!("/api/tags request failed: {e}"),
-            })?;
-        if !resp.status().is_success() {
+            .await?;
+        if !(200..300).contains(&resp.status()) {
             return Ok(None);
         }
-        match read_capped(resp).await {
+        match resp.read_probe_body(MAX_SHOW_BODY_BYTES).await {
             Some(bytes) => {
                 let body = String::from_utf8_lossy(&bytes);
                 let digest = Self::parse_tags_digest(&body, self.inner.model());
@@ -297,17 +246,33 @@ mod tests {
     #[test]
     fn test_push_within_cap_bounds_accumulator() {
         let mut acc = Vec::new();
-        assert!(push_within_cap(&mut acc, b"ab", MAX_SHOW_BODY_BYTES));
-        assert!(push_within_cap(&mut acc, b"cd", MAX_SHOW_BODY_BYTES));
+        assert!(crate::providers::provider_url::push_within_cap(
+            &mut acc,
+            b"ab",
+            MAX_SHOW_BODY_BYTES
+        ));
+        assert!(crate::providers::provider_url::push_within_cap(
+            &mut acc,
+            b"cd",
+            MAX_SHOW_BODY_BYTES
+        ));
         assert_eq!(acc, b"abcd");
         // A chunk that would exceed the cap is rejected and leaves `acc` untouched.
         let big = vec![0u8; MAX_SHOW_BODY_BYTES];
-        assert!(!push_within_cap(&mut acc, &big, MAX_SHOW_BODY_BYTES));
+        assert!(!crate::providers::provider_url::push_within_cap(
+            &mut acc,
+            &big,
+            MAX_SHOW_BODY_BYTES
+        ));
         assert_eq!(acc, b"abcd");
         // A single oversized chunk from empty is rejected (no OOM).
         let mut empty = Vec::new();
         let one_big = vec![0u8; MAX_SHOW_BODY_BYTES + 1];
-        assert!(!push_within_cap(&mut empty, &one_big, MAX_SHOW_BODY_BYTES));
+        assert!(!crate::providers::provider_url::push_within_cap(
+            &mut empty,
+            &one_big,
+            MAX_SHOW_BODY_BYTES
+        ));
         assert!(empty.is_empty());
     }
 }

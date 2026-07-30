@@ -276,17 +276,11 @@ impl LlmProvider for ClaudeProvider {
             .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    ProviderError::Timeout {
-                        message: e.to_string(),
-                    }
-                } else {
-                    ProviderError::Network {
-                        message: e.to_string(),
-                    }
-                }
-            })?;
+            // The shared mapper, with no exception for this provider: its URL is a constant with
+            // no secret, but a rule that holds "except here" is a rule someone applies wrong — and
+            // the CI check that forbids building transport errors under `providers/` is
+            // unconditional precisely because this call site is not special.
+            .map_err(|e| crate::provider::to_provider_error("request failed", API_BASE_URL, &e))?;
 
         // C3.1 epoch: capture the receipt instant (headers arrived) and the raw
         // `Retry-After` header, in the same place the status is read.
@@ -309,18 +303,10 @@ impl LlmProvider for ClaudeProvider {
             ));
         }
 
+        // The total timeout can also fire while reading the body (headers arrive, then the server
+        // hangs); the shared mapper classifies that as `Timeout`, not `Network`.
         let response_body = response.text().await.map_err(|e| {
-            // The total timeout can fire while reading the body (headers arrive,
-            // then the server hangs). Map it to `Timeout`, not `Network`.
-            if e.is_timeout() {
-                ProviderError::Timeout {
-                    message: e.to_string(),
-                }
-            } else {
-                ProviderError::Network {
-                    message: format!("failed to read response body: {e}"),
-                }
-            }
+            crate::provider::to_provider_error("failed to read response body", API_BASE_URL, &e)
         })?;
 
         Self::parse_response(&response_body)
