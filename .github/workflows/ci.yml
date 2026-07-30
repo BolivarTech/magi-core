@@ -52,6 +52,18 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
 
+  # Enforces the no-search rule mechanically. It is a ratchet against a KNOWN
+  # regression: the brace-scanning heuristic that used to guess which JSON object was
+  # the verdict, and the duplicate block locator that would let the prompt guard drift
+  # out of step with the parser. A brand-new heuristic under a new name would pass it,
+  # so this backs up review rather than replacing it. Needs full history for `git grep`.
+  no-search-rule:
+    name: R0 (no verdict search)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sh scripts/check_r0.sh
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

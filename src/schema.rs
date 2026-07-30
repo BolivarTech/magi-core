@@ -409,6 +409,47 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// The guard that decides whether a prompt is a "fabrication template" asks whether
+    /// the block between its markers deserializes as a complete [`AgentOutput`]. That
+    /// question is only as strict as this type's serde definition: if any of the seven
+    /// verdict keys ever gained `#[serde(default)]`, a PARTIAL object would start
+    /// deserializing, the guard would silently become more permissive, and no other test
+    /// would notice. Documented invariants rot; this one is enforced.
+    ///
+    /// The key list is named `REQUIRED_KEYS`, not the obvious alternative: that spelling
+    /// is one of the six identifiers `scripts/check_r0.sh` bans from `src/`, so using it
+    /// here would make this test trip the very gate it stands beside. Cheap proof the
+    /// gate works.
+    #[test]
+    fn test_no_verdict_key_has_a_serde_default() {
+        const COMPLETE_JSON: &str = r#"{"agent":"caspar","verdict":"approve",
+            "confidence":0.9,"summary":"s","reasoning":"r","findings":[],
+            "recommendation":"rec"}"#;
+        const REQUIRED_KEYS: &[&str] = &[
+            "agent",
+            "verdict",
+            "confidence",
+            "summary",
+            "reasoning",
+            "findings",
+            "recommendation",
+        ];
+
+        let full: serde_json::Value = serde_json::from_str(COMPLETE_JSON).unwrap();
+        serde_json::from_value::<AgentOutput>(full.clone())
+            .expect("the complete object must deserialize, or this test proves nothing");
+
+        for key in REQUIRED_KEYS {
+            let mut stripped = full.clone();
+            stripped.as_object_mut().unwrap().remove(*key);
+            assert!(
+                serde_json::from_value::<AgentOutput>(stripped).is_err(),
+                "key '{key}' deserializes when absent — it acquired a default, and the \
+                 prompt guard just became more permissive without anyone noticing"
+            );
+        }
+    }
+
     // -- Verdict tests --
 
     #[test]
