@@ -1375,6 +1375,16 @@ async fn attempt_model(
         first_err.error,
         MagiError::Validation(_) | MagiError::Deserialization(_)
     );
+    // magi_error_for maps EVERY cause to one of those two variants, so today this
+    // always holds and the Unexpected arm below is unreachable. The assert states that
+    // dependency instead of leaving it implicit: if a future cause were ever mapped to a
+    // third variant, the arm would silently start firing and a schema failure would stop
+    // rotating — a mage lost to a mapping change nobody connected to this branch.
+    debug_assert!(
+        is_schema,
+        "every ExtractionFailureCause must map to Validation or Deserialization; \
+         see magi_error_for"
+    );
     if !is_schema {
         // Not a schema failure and not transport â€” never rotate.
         return ModelOutcome::Unexpected(first_err.error.to_string());
