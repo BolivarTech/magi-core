@@ -111,10 +111,29 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///    `prefix_budget = width - 3 - preserve_suffix.len()`,
 ///    return `prefix_source[..prefix_budget] + "..." + preserve_suffix`.
 ///
+/// Truncates `content` from the tail and appends `ellipsis`, cutting only on a char
+/// boundary.
+///
+/// Extracted because [`fit_content`] reaches it from two places — Step 2, and Step 3's
+/// precondition fallback — and two copies of a truncation rule is one copy too many: the
+/// day one grows a guard the other silently keeps the old behavior.
+///
+/// Total: `floor_char_boundary` cannot return an offset inside a codepoint, and the
+/// `max(1)` keeps the cut positive when `width < ellipsis.len()`.
+fn tail_cut(content: &str, width: usize, ellipsis: &str) -> String {
+    let cutoff = (width.saturating_sub(ellipsis.len())).max(1);
+    let safe_cutoff = content.floor_char_boundary(cutoff);
+    format!("{}{}", &content[..safe_cutoff], ellipsis)
+}
+
 /// # Panics
 ///
-/// In release mode, if preconditions are violated and byte-slice boundaries fall
-/// inside a multi-byte codepoint, this function panics (loud failure, no UB).
+/// Never. Every cut goes through `floor_char_boundary` or `strip_suffix`, so no byte
+/// offset can land inside a codepoint. A violated precondition degrades to the Step 2
+/// tail cut and emits a `tracing::warn!`; it does not panic and it does not invent text.
+/// *(Until 3.0.1 this section said the function panics in release when the Step 3
+/// precondition was broken — MAGI S2 flagged that a `debug_assert!` leaves release builds
+/// unguarded, so the guard became a real one.)*
 fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
     debug_assert!(width > 0);
@@ -133,17 +152,27 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
 
     // Step 2: fallback tail-cut when no suffix or suffix + ellipsis fills width
     if preserve_suffix.is_empty() || preserve_suffix.len() + ELLIPSIS.len() >= width {
-        let cutoff = (width.saturating_sub(ELLIPSIS.len())).max(1);
-        let safe_cutoff = content.floor_char_boundary(cutoff);
-        return format!("{}{}", &content[..safe_cutoff], ELLIPSIS);
+        return tail_cut(content, width, ELLIPSIS);
     }
 
     // Step 3: prefix-truncate with suffix protected.
-    // Precondition: content must end with preserve_suffix so the tail-slice is meaningful.
-    debug_assert!(content.ends_with(preserve_suffix));
+    //
+    // `strip_suffix` is what enforces the precondition — NOT a `debug_assert!`, which is
+    // what this used to be. The old form lopped `preserve_suffix.len()` bytes off the tail
+    // unconditionally, so a release build with the invariant broken would **fabricate**:
+    // append a suffix the content never carried. Slicing at that offset could also land
+    // inside a codepoint and panic — in a formatter, on the report that IS the product.
+    // Degrading to Step 2's tail-cut is honest about what it dropped, and total.
+    let Some(prefix_source) = content.strip_suffix(preserve_suffix) else {
+        tracing::warn!(
+            target: "magi_core::reporting",
+            suffix = preserve_suffix,
+            "fit_content: content does not end with preserve_suffix; \
+             falling back to a tail cut rather than inventing the suffix"
+        );
+        return tail_cut(content, width, ELLIPSIS);
+    };
     let prefix_budget = width - ELLIPSIS.len() - preserve_suffix.len();
-    // prefix_source is content with the suffix tail removed
-    let prefix_source = &content[..content.len() - preserve_suffix.len()];
     let safe_prefix_budget = prefix_source.floor_char_boundary(prefix_budget);
     format!(
         "{}{}{}",
@@ -2287,6 +2316,30 @@ mod tests {
         // condition: len(preserve_suffix) + 3 >= width  →  2 + 3 >= 5  → true → fallback
         // cutoff = max(1, 5-3) = 2, result = "ab..."
         assert_eq!(fit_content("abcdefghij", 5, "xy"), "ab...");
+    }
+
+    /// fit_content never appends a suffix the content did not carry.
+    ///
+    /// MAGI S2, Melchior `[WARNING]`: Step 3's precondition (`content` ends with
+    /// `preserve_suffix`) was only a `debug_assert!`, so release builds took the branch
+    /// regardless. Two consequences, and the quiet one is worse: it **fabricates** — it
+    /// lops `preserve_suffix.len()` bytes off the tail and appends the suffix, so
+    /// `("abcdefghij", 9, "xyz")` used to render `abc...xyz`, inventing a `xyz` that was
+    /// never in the input. With non-ASCII content that same byte offset can also land
+    /// inside a codepoint and panic — in a formatter, on the report that IS the product.
+    ///
+    /// A library must not invent text. When the invariant does not hold the function
+    /// degrades to the same tail-cut Step 2 uses, which is honest about what it dropped.
+    #[test]
+    fn test_fit_content_does_not_fabricate_a_suffix_the_content_lacks() {
+        // width 9: suffix(3) + ellipsis(3) < 9, so Step 2 does not catch it and Step 3
+        // runs — with a `preserve_suffix` that is NOT a suffix of `content`.
+        let result = fit_content("abcdefghij", 9, "xyz");
+        assert!(
+            !result.ends_with("xyz"),
+            "fit_content invented a suffix absent from the input: {result:?}"
+        );
+        assert_eq!(result, "abcdef...", "expected the honest tail-cut");
     }
 
     /// fit_content ellipsis is exactly three dots.
