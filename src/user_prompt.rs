@@ -183,8 +183,11 @@ const RETRY_FEEDBACK_DASH_VARIANTS: &[&str] = &[
 ///
 /// # The CONTENT under review is deliberately NOT neutralized
 ///
-/// This applies only to the **error fragment** embedded in the retry feedback, never to
-/// the content being analyzed. Two reasons, and both point the same way:
+/// The scope is checkable in one place: the only consumer of these tokens is
+/// [`sanitize_error_for_retry_feedback`], and its only caller is `build_retry_prompt`,
+/// which passes it the **error string** — never the analyzed content. `build_user_prompt`,
+/// which is what handles that content, does not touch them. Two reasons, both pointing
+/// the same way:
 ///
 /// * Content that contains a marker line and gets echoed produces a second open or close
 ///   → `Ambiguous` → **fail closed**. There is nothing to defend against.

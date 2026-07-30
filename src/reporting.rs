@@ -303,6 +303,16 @@ pub struct MagiReport {
     /// decides something is **which MODEL fails to adhere**, because that is what gets
     /// dropped from the pool. Counts erase exactly that attribution, and per-seat or
     /// per-cause totals are trivially derivable from these records anyway.
+    ///
+    /// # An empty `Vec` means "no EXTRACTION failure", not "no failure"
+    ///
+    /// Read alone, an empty vector looks like a clean seat. It is narrower than that: it
+    /// certifies only that nothing failed *extraction*. A mage that panicked, timed out,
+    /// or died on transport never produced output to extract from, so its vector is empty
+    /// while the run is degraded. `failed_agents` is what says whether the seat produced a
+    /// verdict at all; this field says why the text it produced was rejected, if it was.
+    /// Both are needed, and reading either in isolation gives a confident wrong answer.
+    /// *(MAGI S3, Caspar `[INFO]`.)*
     #[serde(default)]
     pub extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>,
 }
@@ -379,13 +389,37 @@ impl ReportConfig {
         banner_width: usize,
         agent_titles: BTreeMap<AgentName, (String, String)>,
     ) -> Result<Self, ReportError> {
+        Self::check_parts(banner_width, &agent_titles)?;
+        Ok(Self {
+            banner_width,
+            agent_titles,
+        })
+    }
+
+    /// THE validity rule for a report config — one definition, two callers.
+    ///
+    /// [`ReportConfig::new_checked`] and [`ReportFormatter::with_config`] used to carry
+    /// byte-identical copies of this. Two copies of a validation rule is one too many:
+    /// the day one grows a check, the other keeps accepting what the first now rejects,
+    /// and the gap shows up as a malformed banner rather than an error. MAGI S2,
+    /// Balthasar `[INFO]`.
+    ///
+    /// # Errors
+    ///
+    /// [`ReportError::BannerTooSmall`] when `banner_width < MIN_BANNER_WIDTH`;
+    /// [`ReportError::NonAsciiTitle`] when any display name or title is not ASCII —
+    /// the banner's byte-per-line invariant assumes ASCII content.
+    pub(crate) fn check_parts(
+        banner_width: usize,
+        agent_titles: &BTreeMap<AgentName, (String, String)>,
+    ) -> Result<(), ReportError> {
         if banner_width < Self::MIN_BANNER_WIDTH {
             return Err(ReportError::BannerTooSmall {
                 requested: banner_width,
                 minimum: Self::MIN_BANNER_WIDTH,
             });
         }
-        for (agent, (display_name, title)) in &agent_titles {
+        for (agent, (display_name, title)) in agent_titles {
             if !display_name.is_ascii() {
                 return Err(ReportError::NonAsciiTitle {
                     agent: *agent,
@@ -401,10 +435,7 @@ impl ReportConfig {
                 });
             }
         }
-        Ok(Self {
-            banner_width,
-            agent_titles,
-        })
+        Ok(())
     }
 }
 
@@ -468,28 +499,9 @@ impl ReportFormatter {
     /// let fmt = ReportFormatter::with_config(cfg).expect("default config is valid");
     /// ```
     pub fn with_config(config: ReportConfig) -> Result<Self, ReportError> {
-        if config.banner_width < ReportConfig::MIN_BANNER_WIDTH {
-            return Err(ReportError::BannerTooSmall {
-                requested: config.banner_width,
-                minimum: ReportConfig::MIN_BANNER_WIDTH,
-            });
-        }
-        for (agent, (display_name, title)) in &config.agent_titles {
-            if !display_name.is_ascii() {
-                return Err(ReportError::NonAsciiTitle {
-                    agent: *agent,
-                    field: "display_name",
-                    value: display_name.clone(),
-                });
-            }
-            if !title.is_ascii() {
-                return Err(ReportError::NonAsciiTitle {
-                    agent: *agent,
-                    field: "title",
-                    value: title.clone(),
-                });
-            }
-        }
+        // One definition of validity, shared with `ReportConfig::new_checked` — see
+        // `check_parts` for why this is not duplicated here.
+        ReportConfig::check_parts(config.banner_width, &config.agent_titles)?;
         Ok(Self::from_valid_config(config))
     }
 
