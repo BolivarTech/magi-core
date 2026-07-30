@@ -22,6 +22,7 @@ use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::MagiReport;
 use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
+use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
 /// Mock provider that routes `complete()` calls to per-agent response
 /// sequences using the `CURRENT_AGENT_IDENTITY` task-local set by
@@ -139,6 +140,15 @@ const BAD_JSON: &str = "not json at all";
 /// lowercase (`"caspar"`), NOT `display_name()` (`"Caspar"`). We serialize the
 /// enum to get the exact token — a hand-written `"Caspar"` would fail to
 /// deserialize.
+///
+/// # Delimited with the verdict markers (3.0.0)
+///
+/// The body is wrapped in [`VERDICT_OPEN`]/[`VERDICT_CLOSE`], each alone on its line,
+/// because since 3.0.0 the parser reads **only** what lies between them — a bare object
+/// is `MissingMarkers`, not a verdict. A mock that returns bare JSON therefore no longer
+/// models a *cooperative* provider; it models one that ignores the contract. This helper
+/// is the single place that shape is defined, so the rotation and probe suites express
+/// "this attempt succeeds" without each restating the wire format.
 pub fn valid_verdict_for_current_agent() -> String {
     let who = CURRENT_AGENT_IDENTITY
         .try_with(|a| *a)
@@ -148,7 +158,9 @@ pub fn valid_verdict_for_current_agent() -> String {
         .and_then(|v| v.as_str().map(str::to_owned))
         .unwrap_or_else(|| "melchior".into());
     format!(
-        r#"{{"agent":"{agent}","verdict":"approve","confidence":0.9,"summary":"ok","reasoning":"r","recommendation":"go","findings":[]}}"#
+        "{VERDICT_OPEN}\n{{\"agent\":\"{agent}\",\"verdict\":\"approve\",\"confidence\":0.9,\
+         \"summary\":\"ok\",\"reasoning\":\"r\",\"recommendation\":\"go\",\"findings\":[]}}\n\
+         {VERDICT_CLOSE}"
     )
 }
 
