@@ -22,6 +22,7 @@ use crate::rotation::{
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
 use crate::validate::{ValidationLimits, Validator};
+use crate::verdict_markers::ExtractionFailureCause;
 use tokio::task::AbortHandle;
 
 /// Default value for [`MagiConfig::max_input_len`] â€” 4 MB.
@@ -1115,22 +1116,32 @@ pub(crate) async fn dispatch_one_agent(
     // Parse + validate first response. Success exits here.
     let first_err = match parse_and_validate(&first_raw, &validator) {
         Ok(output) => return (Ok(output), false),
-        Err(e) => e,
+        Err(f) => f,
     };
+    // Surface the TYPED cause the moment the output is rejected. Until MS3 the reason a
+    // mage failed was invisible: a recovered retry left it in retried_agents with no
+    // record of why. The structured field is the diagnosis an operator needs, and it is
+    // deliberately the cause and not the message - the message is prose, the cause is a
+    // value you can filter and count on.
+    tracing::warn!(
+        target: "magi_core::verdict",
+        cause = ?first_err.cause,
+        "agent output rejected; attempting one corrective retry"
+    );
 
     // Retry gate: only on Validation or Deserialization, and only if
     // retry_enabled (set by MagiBuilder::with_retry_disabled = false).
     let should_retry = retry_enabled
         && matches!(
-            first_err,
+            first_err.error,
             MagiError::Validation(_) | MagiError::Deserialization(_)
         );
     if !should_retry {
-        return (Err(first_err.to_string()), false);
+        return (Err(first_err.error.to_string()), false);
     }
 
     // Single-shot retry with corrective feedback prompt.
-    let retry_prompt = build_retry_prompt(&user_prompt, &first_err.to_string());
+    let retry_prompt = build_retry_prompt(&user_prompt, &first_err.error.to_string());
     let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
     let second_raw = match second_result {
         Ok(Ok(raw)) => raw,
@@ -1153,7 +1164,7 @@ pub(crate) async fn dispatch_one_agent(
 
     match parse_and_validate(&second_raw, &validator) {
         Ok(output) => (Ok(output), true),
-        Err(e) => (Err(format!("retry-failed: {e}")), true),
+        Err(f) => (Err(format!("retry-failed: {}", f.error)), true),
     }
 }
 
@@ -1294,24 +1305,31 @@ async fn attempt_model(
 
     let first_err = match parse_and_validate(&first_raw, validator) {
         Ok(output) => return ModelOutcome::Success(output),
-        Err(e) => e,
+        Err(f) => f,
     };
+    // See the note at the non-rotating dispatch site: the typed cause is the diagnosis,
+    // and on this path it also explains a rotation that would otherwise look arbitrary.
+    tracing::warn!(
+        target: "magi_core::verdict",
+        cause = ?first_err.cause,
+        "agent output rejected on this model"
+    );
     let is_schema = matches!(
-        first_err,
+        first_err.error,
         MagiError::Validation(_) | MagiError::Deserialization(_)
     );
     if !is_schema {
         // Not a schema failure and not transport â€” never rotate.
-        return ModelOutcome::Unexpected(first_err.to_string());
+        return ModelOutcome::Unexpected(first_err.error.to_string());
     }
     if !retry_enabled {
         // Retry disabled â†’ a schema failure rotates immediately (R6).
-        return ModelOutcome::Schema(first_err.to_string());
+        return ModelOutcome::Schema(first_err.error.to_string());
     }
 
     // Single corrective retry on the SAME model.
     *was_retried = true;
-    let retry_prompt = build_retry_prompt(user_prompt, &first_err.to_string());
+    let retry_prompt = build_retry_prompt(user_prompt, &first_err.error.to_string());
     let second =
         tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
     let second_raw = match second {
@@ -1327,7 +1345,7 @@ async fn attempt_model(
     };
     match parse_and_validate(&second_raw, validator) {
         Ok(output) => ModelOutcome::Success(output),
-        Err(e) => ModelOutcome::Schema(format!("retry-failed: {e}")),
+        Err(f) => ModelOutcome::Schema(format!("retry-failed: {}", f.error)),
     }
 }
 
@@ -1528,160 +1546,107 @@ pub(crate) async fn dispatch_one_agent_rotating(
     }
 }
 
-/// Two discriminator keys that mark a JSON object as an agent verdict during
-/// lenient recovery. Kept to the two distinguishing keys (not the full 7-key
-/// schema) so a verdict merely missing a key is still recovered and then
-/// rejected by the full deserialize â€” preserving the single-retry path.
-const VERDICT_KEYS: [&str; 2] = ["agent", "verdict"];
+/// Maps an [`ExtractionFailureCause`] to the `MagiError` variant it surfaces as.
+///
+/// **THE mapping (R10), in one place.** Both variants trigger retry, so the choice does
+/// not change control flow — it changes the **diagnosis** a reader of the report gets,
+/// which is why it is pinned rather than left to whoever writes the next branch.
+///
+/// The line between them: `Deserialization` = *I never got an `AgentOutput`*;
+/// `Validation` = *I had one and it did not survive*. The three `extract` causes and a
+/// `serde_json` failure fall on the first side; the schema rejection and the two
+/// post-validation checks — which run **on an already-deserialized output** — on the
+/// second.
+///
+/// The `Other` arm exists because [`ExtractionFailureCause`] is `#[non_exhaustive]`. It
+/// maps to `Deserialization`, the conservative choice: an unknown cause must not claim a
+/// verdict object was obtained.
+pub(crate) fn magi_error_for(cause: ExtractionFailureCause, message: &str) -> MagiError {
+    match cause {
+        ExtractionFailureCause::Schema
+        | ExtractionFailureCause::EchoedExample
+        | ExtractionFailureCause::AgentIdentity => MagiError::Validation(message.to_string()),
+        ExtractionFailureCause::MissingMarkers
+        | ExtractionFailureCause::Unterminated
+        | ExtractionFailureCause::Ambiguous
+        | ExtractionFailureCause::InvalidJson => MagiError::Deserialization(message.to_string()),
+        _ => MagiError::Deserialization(message.to_string()),
+    }
+}
 
-/// Upper bound, in bytes ([`str::len`]), on input size eligible for lenient
-/// prose recovery. Bytes (not Unicode scalars) is the right unit here: this
-/// guards scan cost, which is byte-driven. Above this, the input is almost
-/// certainly echoed tool-use content rather than a clean verdict, and scanning
-/// it risks the O(n^2) decode worst case â€” so recovery is skipped and the
-/// agent fails closed (and is retried).
-const LENIENT_RECOVERY_MAX_BYTES: usize = 1_000_000;
+/// A parse/validate failure carrying its typed cause **alongside** the error.
+///
+/// The cause travels beside the error rather than inside its message on purpose: the
+/// retry feedback is selected by the **type**, never by matching strings. String matching
+/// is brittle (a rewording silently breaks the feedback) and is a second-order injection
+/// surface. Because this type is `pub(crate)`, none of that costs any public API.
+#[derive(Debug)]
+pub(crate) struct ParseFailure {
+    /// Why it failed. Selects the retry template and feeds the telemetry.
+    pub(crate) cause: ExtractionFailureCause,
+    /// The error as the dispatch layer and the report see it.
+    pub(crate) error: MagiError,
+}
 
-/// Hard cap on candidate `{` positions probed during recovery, bounding the
-/// scan against adversarial deeply-nested-unterminated input. A legitimate
-/// verdict is found within the first few probes.
-///
-/// Worst-case cost is the *product* of two caps, not the input length: at most
-/// `MAX_BRACE_PROBES` probes, each a `raw_decode` bounded by serde_json's
-/// recursion limit (~128 levels). Both factors are constants, so the scan is
-/// O(1) in the size of pathological input rather than O(n^2) â€” empirically a
-/// few tens of milliseconds on the deeply-nested worst case.
-const MAX_BRACE_PROBES: usize = 2_000;
-
-/// Returns the *sole* embedded JSON object carrying the verdict discriminator
-/// keys ([`VERDICT_KEYS`]), or `None` when zero qualify, two or more qualify
-/// (ambiguous), or the probe budget is exhausted.
-///
-/// Scans `{` positions and decodes one complete JSON value per position with a
-/// streaming decoder, so any prose trailing a value is ignored and nested
-/// braces / braces inside strings are handled without hand-rolled counting.
-/// Selection is schema-aware, not span-based: a large JSON document an agent
-/// echoes from tool use cannot shadow the verdict because it lacks the
-/// discriminator keys. Ambiguity (two qualifying objects) returns `None` so
-/// the caller fails closed rather than risk a fabricated verdict entering
-/// consensus. The scan is bounded by [`MAX_BRACE_PROBES`].
-///
-/// # Returns
-///
-/// `Some(value)` when exactly one qualifying object is found, otherwise `None`:
-/// - zero qualifying objects,
-/// - two or more qualifying objects (ambiguous â€” fail closed),
-/// - the probe budget ([`MAX_BRACE_PROBES`]) is exhausted first.
-///
-/// Port of Python MAGI v2.4.2 `_embedded_verdict_object`.
-fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
-    let mut matches: Vec<serde_json::Value> = Vec::new();
-    let mut index = 0;
-    let mut probes = 0;
-    while index < text.len() && probes < MAX_BRACE_PROBES {
-        let Some(rel) = text[index..].find('{') else {
-            break;
-        };
-        let brace = index + rel;
-        probes += 1;
-        // Streaming decode parses one complete value and reports where it
-        // ended, so trailing prose after the object does not fail the parse.
-        let mut stream =
-            serde_json::Deserializer::from_str(&text[brace..]).into_iter::<serde_json::Value>();
-        match stream.next() {
-            Some(Ok(value)) => {
-                let end = brace + stream.byte_offset();
-                if value.is_object() && VERDICT_KEYS.iter().all(|key| value.get(key).is_some()) {
-                    matches.push(value);
-                    if matches.len() > 1 {
-                        return None; // ambiguous â€” fail closed rather than guess
-                    }
-                }
-                // `end` lands on a value boundary (a char boundary); advance
-                // past it, guarding a zero-width decode from pinning the scan.
-                index = if end > brace { end } else { brace + 1 };
-            }
-            // Decode failure (incl. serde_json's recursion limit on deeply
-            // nested input) â€” skip this `{` and continue.
-            _ => index = brace + 1,
+impl ParseFailure {
+    fn new(cause: ExtractionFailureCause, message: String) -> Self {
+        Self {
+            error: magi_error_for(cause, &message),
+            cause,
         }
     }
-    // At most one match survives (the second triggers the early return above),
-    // so this yields the sole verdict object or `None` when none qualified.
-    matches.pop()
 }
 
-/// Extracts an [`AgentOutput`] from raw LLM response text.
+/// Extracts an [`AgentOutput`] from an agent's raw response — **by extraction only**.
 ///
-/// Handles common LLM output quirks:
-/// 1. Strips code fences (` ```json ` and ` ``` `).
-/// 2. On failure, recovers the sole verdict object embedded in prose.
-/// 3. Deserializes via serde (unknown fields are ignored).
+/// ```text
+/// raw → verdict_markers::extract → serde_json::from_str::<AgentOutput>
+///       (Err ⇒ typed cause)        (Err ⇒ InvalidJson)
+/// ```
 ///
-/// This tolerates prose before and after the JSON payload but fails closed
-/// when recovery is ambiguous (two verdict-shaped objects) or the input
-/// exceeds the recovery budget â€” see [`embedded_verdict_object`].
+/// # There is no search, and no fast path
+///
+/// The brace-scanning recovery heuristic and its two bounds are **gone**, and so is the
+/// attempt to deserialize the whole response. That fast path looked harmless — it only
+/// accepted a response that was *nothing but* a valid verdict — but it is precisely the
+/// door an echoed worked example walks through, and accepting naked JSON is the fallback
+/// R0 forbids.
+///
+/// **Review rule for anything added here:** the only legitimate call to
+/// `serde_json::from_str` in this path is the one operating on the result of `extract`.
+/// Any other is an R0 violation, whatever it is named. That is the realistic shape a
+/// regression would take — new code, new name, invisible to the symbol greps in CI — so
+/// it is a rule for a human reader, not something a script can decide.
 ///
 /// # Errors
-/// Returns `MagiError::Deserialization` if no single valid verdict object is
-/// recovered.
-fn parse_agent_response(raw: &str) -> Result<AgentOutput, MagiError> {
-    let trimmed = raw.trim();
+///
+/// [`ParseFailure`] whose `cause` says which stage failed and whose `error` is the
+/// variant R10 pins for it.
+fn parse_agent_response(raw: &str) -> Result<AgentOutput, ParseFailure> {
+    let block = crate::verdict_markers::extract(raw)
+        .map_err(|e| ParseFailure::new(e.cause(), e.to_string()))?;
 
-    // Strip code fences
-    let stripped = if trimmed.starts_with("```") {
-        let without_opening = if let Some(rest) = trimmed.strip_prefix("```json") {
-            rest
-        } else {
-            trimmed.strip_prefix("```").unwrap_or(trimmed)
-        };
-        without_opening
-            .strip_suffix("```")
-            .unwrap_or(without_opening)
-            .trim()
-    } else {
-        trimmed
-    };
-
-    // Fast path: try parsing the entire string as a single JSON object.
-    // This handles the common case where the LLM returns only JSON.
-    if let Ok(output) = serde_json::from_str::<AgentOutput>(stripped) {
-        return Ok(output);
-    }
-
-    // Fallback: an agent doing multi-turn tool use may wrap the verdict in
-    // prose. Recover the sole embedded verdict object, but skip oversized
-    // input (likely echoed tool-use content; a scan hazard) so it fails
-    // closed and the orchestrator retries instead. The 2-key candidate is
-    // re-checked against the full 7-key schema; a partial object falls
-    // through to Deserialization, preserving the retry path.
-    if stripped.len() <= LENIENT_RECOVERY_MAX_BYTES
-        && let Some(value) = embedded_verdict_object(stripped)
-        && let Ok(output) = serde_json::from_value::<AgentOutput>(value)
-    {
-        return Ok(output);
-    }
-
-    Err(MagiError::Deserialization(
-        "no valid JSON object found in agent response".to_string(),
-    ))
+    serde_json::from_str::<AgentOutput>(block).map_err(|e| {
+        ParseFailure::new(
+            ExtractionFailureCause::InvalidJson,
+            format!("the delimited verdict block is not valid JSON: {e}"),
+        )
+    })
 }
 
-/// Parse a raw agent response and validate the resulting `AgentOutput`
-/// against the supplied [`Validator`]. Returns the parsed output on
-/// success, or one of the two error variants that trigger retry in the
-/// dispatch layer (T07):
-/// - `MagiError::Deserialization` from `parse_agent_response`
-/// - `MagiError::Validation` from `validator.validate_mut`
+/// Parses an agent response and validates the resulting [`AgentOutput`].
 ///
-/// Other `MagiError` variants are not produced here; the retry gate
-/// matches only these two.
+/// Returns the parsed output, or a [`ParseFailure`] whose `error` is one of the two
+/// variants the dispatch layer retries on — see [`magi_error_for`] for which cause maps
+/// to which, and why.
 pub(crate) fn parse_and_validate(
     raw: &str,
     validator: &Validator,
-) -> Result<AgentOutput, MagiError> {
+) -> Result<AgentOutput, ParseFailure> {
     let mut output = parse_agent_response(raw)?;
-    validator.validate_mut(&mut output)?;
+    validator
+        .validate_mut(&mut output)
+        .map_err(|e| ParseFailure::new(ExtractionFailureCause::Schema, e.to_string()))?;
     Ok(output)
 }
 
@@ -1694,8 +1659,29 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
-    /// Helper: build a valid AgentOutput JSON string for a given agent name and verdict.
+    /// What a COMPLIANT MODEL RETURNS: the 7-key verdict object wrapped in the sentinel
+    /// markers, each alone on its own line.
+    ///
+    /// From MS3 the parser reads a verdict **only** from between the markers, so a mock
+    /// that returns a bare object is no longer modelling a working agent — it is
+    /// modelling one that fails extraction. Almost every test here wants a working agent,
+    /// which is why this helper is the wrapped form and [`mock_agent_object`] is the
+    /// escape hatch for the few that want the object itself.
     fn mock_agent_json(agent: &str, verdict: &str, confidence: f64) -> String {
+        format!(
+            "{}\n{}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            mock_agent_object(agent, verdict, confidence),
+            crate::verdict_markers::VERDICT_CLOSE
+        )
+    }
+
+    /// The bare 7-key verdict object, WITHOUT markers.
+    ///
+    /// For tests that need the object itself: as the payload inside a hand-built marker
+    /// block, or as the thing whose bareness is the point (a model that emitted no
+    /// markers must fail extraction).
+    fn mock_agent_object(agent: &str, verdict: &str, confidence: f64) -> String {
         format!(
             r#"{{
                 "agent": "{agent}",
@@ -1737,12 +1723,13 @@ mod tests {
     /// making it `"conditional"` instead of `"approve"`, but it still parses.
     const SHIPPED_WORKED_EXAMPLE: &str = r#"{"agent": "caspar", "verdict": "conditional", "confidence": 0.85, "summary": "One-line verdict", "reasoning": "Your risk-focused analysis", "findings": [{"severity": "warning", "title": "Short title", "detail": "Risk description with concrete scenario", "file": "src/x.py", "line": 42, "category": "logic-error"}], "recommendation": "What you recommend"}"#;
 
-    /// The current probe cap, mirrored as a LOCAL witness ON PURPOSE.
+    /// The probe cap the deleted brace-scanning heuristic used, mirrored as a LOCAL
+    /// witness ON PURPOSE.
     ///
-    /// T7 DELETES the real `MAX_BRACE_PROBES`. These characterization tests must
-    /// survive that deletion â€” T13 inverts them â€” so they cannot reference a
-    /// symbol scheduled for removal: `Â§0.1` runs at T7's commit and the build
-    /// would break between T7 and T13. The duplication is deliberate and
+    /// That heuristic's own constant is gone. These characterization tests had to
+    /// survive its deletion (T13 inverts them), so they could not NAME a symbol
+    /// scheduled for removal: the CI grep that keeps the no-search rule from being
+    /// quietly undone matches comments too. The duplication is deliberate and
     /// temporary; T13 removes this constant along with the tests' old meaning.
     const PROBE_CAP_WITNESS: usize = 2_000;
 
@@ -1753,6 +1740,8 @@ mod tests {
     ///
     /// T13 inverts this once the sentinel closes it.
     #[test]
+    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
+                — that failure is the proof of closure. T13 un-ignores and inverts it."]
     fn characterize_lone_echoed_example_fabricates_a_verdict() {
         let output = parse_agent_response(SHIPPED_WORKED_EXAMPLE)
             .expect("CHARACTERIZATION: today the echoed example parses; this IS the bug");
@@ -1764,6 +1753,8 @@ mod tests {
     /// echoed example as the only verdict-shaped object is recovered as if it
     /// were the agent's own answer.
     #[test]
+    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
+                — that failure is the proof of closure. T13 un-ignores and inverts it."]
     fn characterize_truncation_plus_echo_fabricates_a_verdict() {
         let raw = format!(
             "Let me restate the schema I must follow:\n{SHIPPED_WORKED_EXAMPLE}\n\nNow my analysis of the diff"
@@ -1777,9 +1768,11 @@ mod tests {
     /// CHARACTERIZATION (variant 3 of 4) â€” a REAL verdict placed beyond the probe
     /// budget is never reached, so an agent that answered correctly is dropped.
     #[test]
+    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
+                — that failure is the proof of closure. T13 un-ignores and inverts it."]
     fn characterize_probe_cap_distance_drops_the_real_verdict() {
         let noise = "{}".repeat(PROBE_CAP_WITNESS + 10);
-        let real = mock_agent_json("melchior", "approve", 0.9);
+        let real = mock_agent_object("melchior", "approve", 0.9);
         assert!(
             parse_agent_response(&format!("{noise}\n{real}")).is_err(),
             "CHARACTERIZATION: the probe cap hides a real verdict placed past it"
@@ -1793,9 +1786,11 @@ mod tests {
     /// This is the Ollama/Jetson cost of the current parser: two of the three
     /// models in the default trio are thinking models.
     #[test]
+    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
+                — that failure is the proof of closure. T13 un-ignores and inverts it."]
     fn characterize_think_restatement_drops_the_mage() {
-        let restated = mock_agent_json("caspar", "approve", 0.0);
-        let real = mock_agent_json("caspar", "reject", 0.8);
+        let restated = mock_agent_object("caspar", "approve", 0.0);
+        let real = mock_agent_object("caspar", "reject", 0.8);
         let raw = format!("<think>The schema is {restated}</think>\n{real}");
         assert!(
             parse_agent_response(&raw).is_err(),
@@ -3045,7 +3040,7 @@ mod tests {
         let raw = "not json at all {{{";
         let err = parse_and_validate(raw, &validator).unwrap_err();
         assert!(
-            matches!(err, MagiError::Deserialization(_)),
+            matches!(err.error, MagiError::Deserialization(_)),
             "expected Deserialization, got: {err:?}"
         );
     }
@@ -3057,300 +3052,191 @@ mod tests {
     fn test_parse_and_validate_returns_validation_for_out_of_range_confidence() {
         let validator = Validator::new();
         // confidence > 1.0 violates Validator rules.
-        let raw = r#"{"agent":"melchior","verdict":"approve","confidence":1.5,"summary":"s","reasoning":"r","findings":[],"recommendation":"rec"}"#;
-        let err = parse_and_validate(raw, &validator).unwrap_err();
+        let raw = format!(
+            "{}\n{}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            r#"{"agent":"melchior","verdict":"approve","confidence":1.5,"summary":"s","reasoning":"r","findings":[],"recommendation":"rec"}"#,
+            crate::verdict_markers::VERDICT_CLOSE
+        );
+        let err = parse_and_validate(&raw, &validator).unwrap_err();
         assert!(
-            matches!(err, MagiError::Validation(_)),
+            matches!(err.error, MagiError::Validation(_)),
             "expected Validation, got: {err:?}"
         );
     }
 
-    // -- parse_agent_response --
-
-    /// parse_agent_response strips code fences from JSON.
-    #[test]
-    fn test_parse_agent_response_strips_code_fences() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let raw = format!("```json\n{json}\n```");
-
-        let result = parse_agent_response(&raw);
-        let output = result.expect("should parse successfully");
-        assert_eq!(output.agent, AgentName::Melchior);
-        assert_eq!(output.verdict, Verdict::Approve);
-    }
-
-    /// parse_agent_response finds JSON object in preamble text.
-    #[test]
-    fn test_parse_agent_response_extracts_json_from_preamble() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let raw = format!("Here is my analysis:\n{json}");
-
-        let result = parse_agent_response(&raw);
-        assert!(result.is_ok(), "should find JSON in preamble text");
-    }
-
-    /// parse_agent_response fails on completely invalid input.
-    #[test]
-    fn test_parse_agent_response_fails_on_invalid_input() {
-        let result = parse_agent_response("no json here");
-        assert!(result.is_err(), "should fail on invalid input");
-    }
-
-    // -- v0.6.0 prose-wrapped JSON recovery (port of Python MAGI v2.4.2) --
+    // -- parse_agent_response: EXTRACT-ONLY (MS3 T7) --
     //
-    // Gap A: recover the verdict when prose TRAILS the JSON object.
-    // Gap B: fail closed when two verdict-shaped objects are present
-    //        (ambiguous â€” picking either risks a fabricated verdict).
-    // Gap C: bound the recovery scan (size budget + probe cap) against
-    //        oversized / adversarial input.
+    // The 18 tests that used to live here exercised the brace-scanning recovery
+    // heuristic and its two bounds. They are gone with it: what they covered is now
+    // covered STRUCTURALLY, because there is no search to bound. The four
+    // characterization tests above record the four residuals that disappeared.
 
-    /// Gap A â€” recover the JSON verdict when natural-language prose follows it.
-    /// Agents doing multi-turn tool use sometimes append a closing sentence
-    /// after the JSON object; a strict whole-string parse rejects the trailing
-    /// text, so the embedded object must be recovered.
+    /// E2/E3 — a bare 7-key object is NOT a verdict. The fast path is gone: accepting
+    /// naked JSON would be exactly the fallback R0 forbids, and it is the path an
+    /// echoed example walks in through.
     #[test]
-    fn test_parse_agent_response_recovers_json_with_trailing_prose() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let raw = format!("{json}\n\nThat concludes my analysis.");
-
-        let output = parse_agent_response(&raw).expect("should recover JSON before trailing prose");
-        assert_eq!(output.agent, AgentName::Melchior);
-        assert_eq!(output.verdict, Verdict::Approve);
+    fn test_parse_rejects_a_bare_json_object_without_markers() {
+        let f = parse_and_validate(
+            &mock_agent_object("caspar", "approve", 0.9),
+            &Validator::new(),
+        )
+        .unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::MissingMarkers);
     }
 
-    /// Gap A (Rust-specific) â€” trailing prose containing multi-byte UTF-8
-    /// (em dash U+2014, ellipsis U+2026) must not panic the post-JSON byte
-    /// offset arithmetic / slicing. Python is immune (code-point indexed);
-    /// Rust slices by byte, so this pins char-boundary safety.
+    /// E1 — prose and a `<think>` block outside the markers are never read, so a
+    /// thinking model no longer competes with its own verdict.
     #[test]
-    fn test_parse_agent_response_recovers_json_with_multibyte_trailing_prose() {
-        let json = mock_agent_json("balthasar", "conditional", 0.8);
-        let raw = format!("{json}\n\nConcluido â€” fin del analisis\u{2026}");
-
-        let output =
-            parse_agent_response(&raw).expect("should recover before multi-byte trailing prose");
-        assert_eq!(output.agent, AgentName::Balthasar);
+    fn test_parse_accepts_a_delimited_verdict_with_surrounding_prose() {
+        let body = mock_agent_object("caspar", "approve", 0.9);
+        let raw = format!(
+            "<think>restating the schema</think>\n{}\n{body}\n{}\ntrailing prose",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        );
+        let out = parse_and_validate(&raw, &Validator::new()).expect("delimited verdict");
+        assert_eq!(out.agent, AgentName::Caspar);
     }
 
-    /// Gap B â€” two complete verdict-shaped objects are ambiguous, so the parser
-    /// must fail closed rather than return one. Here the fabricated `approve`
-    /// example follows the real `reject` verdict: a first/last-match heuristic
-    /// would leak the fabricated verdict into consensus.
+    /// A fence INSIDE the markers is stripped, so a model that wraps its JSON in
+    /// ```json still parses — the permissiveness lives where it costs nothing.
     #[test]
-    fn test_parse_agent_response_fails_closed_when_example_follows_verdict() {
-        let real = mock_agent_json("melchior", "reject", 0.9);
-        let echoed = mock_agent_json("melchior", "approve", 0.9);
-        let raw = format!("My verdict:\n{real}\n\nFor reference the schema is:\n{echoed}");
+    fn test_parse_strips_a_fence_inside_the_markers() {
+        let body = mock_agent_object("melchior", "approve", 0.9);
+        let raw = format!(
+            "{}\n```json\n{body}\n```\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        );
+        assert!(parse_and_validate(&raw, &Validator::new()).is_ok());
+    }
 
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "two verdict-shaped objects are ambiguous -> fail closed"
+    /// R10 — the cause→variant mapping, PINNED for ALL SEVEN causes.
+    ///
+    /// Tested against `magi_error_for` directly rather than through the parser: three of
+    /// the seven are produced by later stages, so routing every case through the parser
+    /// would leave the table partial — and a PARTIAL table is how the mapping's one
+    /// discriminating line (Deserialization vs Validation) goes untested.
+    #[test]
+    fn test_every_cause_maps_to_the_pinned_error_variant() {
+        use ExtractionFailureCause::*;
+        // false = Deserialization ("I never got an AgentOutput")
+        // true  = Validation      ("I had one and rejected it")
+        let table = [
+            (MissingMarkers, false),
+            (Unterminated, false),
+            (Ambiguous, false),
+            (InvalidJson, false),
+            (Schema, true),
+            (EchoedExample, true),
+            (AgentIdentity, true),
+        ];
+        for (cause, is_validation) in table {
+            let e = magi_error_for(cause, "msg");
+            assert_eq!(
+                matches!(e, MagiError::Validation(_)),
+                is_validation,
+                "wrong variant for {cause:?}"
+            );
+            assert!(
+                matches!(e, MagiError::Validation(_) | MagiError::Deserialization(_)),
+                "{cause:?} must map to one of the two retry-eligible variants"
+            );
+        }
+    }
+
+    /// The unknown-cause arm is conservative: it must NOT claim an `AgentOutput` was
+    /// obtained, so it maps to `Deserialization`.
+    #[test]
+    fn test_unknown_cause_maps_conservatively() {
+        assert!(matches!(
+            magi_error_for(ExtractionFailureCause::Other, "m"),
+            MagiError::Deserialization(_)
+        ));
+    }
+
+    /// Keeps the mapping function honest against what the parser actually emits — the
+    /// three parser-reachable causes carry their pinned variant end to end.
+    #[test]
+    fn test_parser_reachable_causes_carry_their_pinned_variant_end_to_end() {
+        let open = crate::verdict_markers::VERDICT_OPEN;
+        let close = crate::verdict_markers::VERDICT_CLOSE;
+        let cases: [(String, ExtractionFailureCause); 3] = [
+            ("sin markers".into(), ExtractionFailureCause::MissingMarkers),
+            (
+                format!("{open}\n{{}}"),
+                ExtractionFailureCause::Unterminated,
+            ),
+            (
+                format!("{open}\nno json at all\n{close}"),
+                ExtractionFailureCause::InvalidJson,
+            ),
+        ];
+        for (raw, cause) in cases {
+            let f = parse_and_validate(&raw, &Validator::new()).unwrap_err();
+            assert_eq!(f.cause, cause, "raw was: {raw:?}");
+            assert!(matches!(f.error, MagiError::Deserialization(_)));
+        }
+    }
+
+    /// R15 — selection is by TYPE. Rewording an error message must not move the cause,
+    /// because matching strings is brittle AND a second-order injection surface.
+    #[test]
+    fn test_cause_survives_independently_of_the_error_message_text() {
+        // Two inputs that fail the same WAY carry the same cause even though their
+        // messages differ (the marker counts appear in the text). Nothing reads the text
+        // to decide, which is the whole point: a rewording must not move the cause.
+        let one_open = crate::verdict_markers::VERDICT_OPEN.to_string();
+        let two_opens = format!(
+            "{}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_OPEN
+        );
+        let a = parse_and_validate(&one_open, &Validator::new()).unwrap_err();
+        let b = parse_and_validate(&two_opens, &Validator::new()).unwrap_err();
+        assert_eq!(a.cause, ExtractionFailureCause::Unterminated);
+        assert_eq!(a.cause, b.cause, "same cause despite different messages");
+        assert_ne!(
+            a.error.to_string(),
+            b.error.to_string(),
+            "the messages DO differ, which is exactly why the cause must not be parsed from them"
         );
     }
 
-    /// Gap B â€” same ambiguity with the quoted schema example PRECEDING the real
-    /// verdict. Both orderings must fail closed.
+    /// A schema rejection is reported as `Schema`, not as a parse failure: the object
+    /// WAS obtained, it just did not survive validation.
     #[test]
-    fn test_parse_agent_response_fails_closed_when_example_precedes_verdict() {
-        let echoed = mock_agent_json("balthasar", "approve", 0.9);
-        let real = mock_agent_json("balthasar", "reject", 0.9);
-        let raw = format!("For reference:\n{echoed}\n\nMy actual verdict:\n{real}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "ambiguous multi-verdict output -> fail closed"
+    fn test_schema_rejection_reports_the_schema_cause() {
+        let bad = r#"{"agent":"melchior","verdict":"approve","confidence":9.5,"summary":"s",
+            "reasoning":"r","findings":[],"recommendation":"rec"}"#;
+        let raw = format!(
+            "{}\n{bad}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
         );
+        let f = parse_and_validate(&raw, &Validator::new()).unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::Schema);
+        assert!(matches!(f.error, MagiError::Validation(_)));
     }
 
-    /// Gap C â€” input beyond the recovery size budget is not scanned; recovery
-    /// is skipped and the parser fails closed. A multi-MB blob is almost
-    /// certainly echoed tool-use content, and scanning risks the O(n^2)
-    /// raw-decode worst case.
+    /// Never panics, whatever the model emits — including the deeply-nested input the
+    /// deleted brace-scanner had to be bounded against.
     #[test]
-    fn test_parse_agent_response_skips_recovery_for_oversized_input() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        // Exceeds LENIENT_RECOVERY_MAX_BYTES (1_000_000 bytes) on its own.
-        let filler = "x".repeat(1_000_001);
-        let raw = format!("{filler}\n\n{json}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "oversized input must skip recovery and fail closed"
-        );
-    }
-
-    /// Gap C â€” the brace scan stops after a bounded number of probes. A verdict
-    /// placed after more than MAX_BRACE_PROBES (2_000) lone `{` is not reached,
-    /// guarding against O(n^2) on adversarial deeply-nested-unterminated input.
-    #[test]
-    fn test_parse_agent_response_bounds_brace_scan() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let lone_braces = "{".repeat(2_005);
-        let raw = format!("{lone_braces}{json}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "a verdict beyond the probe budget must not be recovered"
-        );
-    }
-
-    // -- v0.6.0 invariant guards (pin the recovery contract) --
-
-    /// Gap B (invariant) â€” a JSON document echoed from tool use that lacks the
-    /// verdict discriminator keys must not shadow the real verdict, even when
-    /// it out-spans it. Selection is schema-aware, not by character span.
-    #[test]
-    fn test_parse_agent_response_ignores_echoed_object_without_verdict_keys() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let echoed = r#"{"config_a": "x", "config_b": "y", "config_c": "z", "config_d": "w"}"#;
-        let raw = format!("I read the config:\n{echoed}\n\nVerdict:\n{json}");
-
-        let output =
-            parse_agent_response(&raw).expect("verdict recovered past echoed non-verdict object");
-        assert_eq!(output.verdict, Verdict::Approve);
-    }
-
-    /// Gap B (invariant) â€” an object carrying only the two discriminator keys
-    /// is recovered as the sole candidate, then rejected by the full 7-key
-    /// schema, so it still fails and the orchestrator's single retry fires.
-    #[test]
-    fn test_parse_agent_response_rejects_object_missing_schema_keys() {
-        let partial = r#"{"agent": "melchior", "verdict": "approve"}"#;
-        let raw = format!("Here is my verdict:\n{partial}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "object with only discriminator keys is rejected by the full schema"
-        );
-    }
-
-    /// Gap B (invariant) â€” an object with only one discriminator key (`agent`,
-    /// no `verdict`) does not qualify, so recovery fails closed.
-    #[test]
-    fn test_parse_agent_response_ignores_object_with_one_discriminator_key() {
-        let raw = "The schema looks like {\"agent\": \"melchior\"}.".to_string();
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "a single discriminator key must not qualify"
-        );
-    }
-
-    /// Gap A/B (invariant) â€” a truncated verdict with no complete object
-    /// anywhere fails closed rather than returning a partial result.
-    #[test]
-    fn test_parse_agent_response_fails_on_truncated_verdict() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let truncated = &json[..json.len() - 12];
-        let raw = format!("Here is my verdict:\n{truncated}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "truncated verdict with no complete object fails closed"
-        );
-    }
-
-    /// Gap B (invariant) â€” truncation after a complete `findings` element must
-    /// still fail closed: the stray complete finding object lacks the verdict
-    /// keys, so it is not mistaken for the verdict.
-    #[test]
-    fn test_parse_agent_response_fails_on_truncated_verdict_with_intact_finding() {
-        let full = r#"{"agent": "melchior", "verdict": "approve", "confidence": 0.9, "summary": "s", "reasoning": "r", "findings": [{"severity": "info", "title": "t", "detail": "d"}], "recommendation": "rec"}"#;
-        let cut = full
-            .rfind("\"recommendation\"")
-            .expect("has recommendation key");
-        let truncated = &full[..cut];
-        let raw = format!("Here is my verdict:\n{truncated}");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "stray complete finding is not mistaken for the verdict"
-        );
-    }
-
-    /// Gap C (invariant, Rust-specific) â€” deeply nested input surfaces as a
-    /// closed failure, not a panic. serde_json returns a recursion-limit error
-    /// (where CPython raises RecursionError); either way the parser stays on
-    /// the fail-closed / retry path.
-    #[test]
-    fn test_parse_agent_response_handles_deeply_nested_without_panic() {
-        let nested = r#"{"a":"#.repeat(100_000);
-
-        let result = parse_agent_response(&nested);
-        assert!(
-            result.is_err(),
-            "deeply nested input fails closed without panic"
-        );
-    }
-
-    /// Gap A (invariant, Rust-specific) â€” multi-byte UTF-8 in the PRECEDING
-    /// prose must not break the byte-index `find('{')` / slice path.
-    #[test]
-    fn test_parse_agent_response_recovers_json_after_multibyte_preamble() {
-        let json = mock_agent_json("caspar", "reject", 0.7);
-        let raw = format!("Veredicto â€” final\u{2026}\n{json}");
-
-        let output = parse_agent_response(&raw).expect("should recover after multi-byte preamble");
-        assert_eq!(output.agent, AgentName::Caspar);
-    }
-
-    // -- v0.6.0 MAGI Loop 2 follow-up coverage --
-
-    /// Gap B (invariant, MAGI follow-up) â€” a verdict whose string fields
-    /// themselves contain `{...}` (including a verdict-shaped JSON echo) is
-    /// recovered correctly and is NOT seen as ambiguous: the streaming decode
-    /// consumes the whole outer object, so braces inside its strings are never
-    /// probed as separate candidates. Pins Melchior's no-false-ambiguity
-    /// invariant and Caspar's string-internal-braces recovery gap.
-    #[test]
-    fn test_parse_agent_response_recovers_verdict_with_braces_in_string_field() {
-        let json = r#"{"agent": "melchior", "verdict": "approve", "confidence": 0.9, "summary": "s", "reasoning": "r", "findings": [], "recommendation": "Schema example: {\"agent\": \"x\", \"verdict\": \"reject\"}"}"#;
-        let raw = format!("Here is my verdict:\n{json}\n\nThat concludes my analysis.");
-
-        let output = parse_agent_response(&raw)
-            .expect("outer verdict recovered; in-string brace echo is not a second candidate");
-        assert_eq!(output.agent, AgentName::Melchior);
-        assert_eq!(output.verdict, Verdict::Approve);
-    }
-
-    /// Gap C (boundary, MAGI follow-up) â€” input exactly at the byte budget is
-    /// still scanned and recovered (`<=` boundary).
-    #[test]
-    fn test_parse_agent_response_recovers_at_size_budget_boundary() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let sep = "\n\n";
-        let filler_len = LENIENT_RECOVERY_MAX_BYTES - sep.len() - json.len();
-        let raw = format!("{}{sep}{json}", "x".repeat(filler_len));
-        assert_eq!(raw.len(), LENIENT_RECOVERY_MAX_BYTES, "boundary setup");
-
-        let output =
-            parse_agent_response(&raw).expect("input exactly at the byte budget is still scanned");
-        assert_eq!(output.verdict, Verdict::Approve);
-    }
-
-    /// Gap C (boundary, MAGI follow-up) â€” input one byte over the budget skips
-    /// recovery and fails closed.
-    #[test]
-    fn test_parse_agent_response_skips_one_byte_over_size_budget() {
-        let json = mock_agent_json("melchior", "approve", 0.9);
-        let sep = "\n\n";
-        let filler_len = LENIENT_RECOVERY_MAX_BYTES - sep.len() - json.len() + 1;
-        let raw = format!("{}{sep}{json}", "x".repeat(filler_len));
-        assert_eq!(raw.len(), LENIENT_RECOVERY_MAX_BYTES + 1, "boundary setup");
-
-        let result = parse_agent_response(&raw);
-        assert!(
-            result.is_err(),
-            "one byte over the byte budget skips recovery and fails closed"
-        );
+    fn test_parse_never_panics_on_adversarial_input() {
+        let deep = format!("{}{}", "{".repeat(5_000), "}".repeat(5_000));
+        let open = crate::verdict_markers::VERDICT_OPEN;
+        let close = crate::verdict_markers::VERDICT_CLOSE;
+        for raw in [
+            String::new(),
+            "\r".to_string(),
+            deep.clone(),
+            format!("{open}\n{deep}\n{close}"),
+            format!("{open}\n\u{2028}\n{close}"),
+            "\u{feff}".to_string(),
+        ] {
+            let _ = parse_and_validate(&raw, &Validator::new());
+        }
     }
 
     // -- MagiBuilder --
