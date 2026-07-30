@@ -3821,13 +3821,6 @@ mod tests {
                 routing: Arc::new(routing),
             }
         }
-
-        /// Alias for `for_default_prompts`.  Used when a test only wants to
-        /// inspect captured inputs and does not care about response routing.
-        #[allow(dead_code)]
-        fn for_prompt_capture(captured: Arc<std::sync::Mutex<Vec<(String, String)>>>) -> Self {
-            Self::for_default_prompts(captured)
-        }
     }
 
     #[async_trait::async_trait]
