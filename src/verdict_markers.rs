@@ -420,6 +420,13 @@ fn strip_fence(block: &str) -> &str {
     if start > end {
         return ""; // fence with no content between its two lines
     }
+    // `get` cannot be `None` here: both offsets come from regex match boundaries on
+    // `block`, so they are char boundaries, and `start <= end` was just checked. The
+    // fallback exists to keep the function TOTAL without an `expect()` — the standards
+    // forbid one outside `#[cfg(test)]`, and a panic in the parser would be the worst
+    // possible outcome for text a model controls. Its direction is deliberate:
+    // returning the block UNSTRIPPED hands the decision to `serde_json`, so an
+    // impossible state degrades to `InvalidJson` and a retry, never to a wrong slice.
     block.get(start..end).unwrap_or(block).trim()
 }
 
@@ -720,6 +727,21 @@ mod tests {
             extract(&wrap("```json title=\"x\"\n{\"a\":1}\n```json")).unwrap(),
             "{\"a\":1}"
         );
+    }
+
+    #[test]
+    fn test_strip_fence_uses_the_same_line_splitter_as_the_delimitation() {
+        // The two axes are tested apart — CR-only anchoring, and fences over `\n` — but
+        // their CROSSING is what the rustdoc claims: `strip_fence` must find its first
+        // and last line with the R5 splitter, not `str::lines()`. With `str::lines()`
+        // the CR-only case below sees ONE line, so the fence is never recognized and the
+        // block comes back with its backticks — a stripping rule that silently stops
+        // applying for a model that emits CR-only.
+        let cr = format!("{VERDICT_OPEN}\r```json\r{{\"a\":1}}\r```\r{VERDICT_CLOSE}");
+        assert_eq!(extract(&cr).unwrap(), "{\"a\":1}");
+
+        let crlf = format!("{VERDICT_OPEN}\r\n```json\r\n{{\"a\":1}}\r\n```\r\n{VERDICT_CLOSE}");
+        assert_eq!(extract(&crlf).unwrap(), "{\"a\":1}");
     }
 
     #[test]
