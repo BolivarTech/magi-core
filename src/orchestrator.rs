@@ -743,11 +743,12 @@ impl Magi {
         let estimated = successful
             .iter()
             .any(|o| rotations.get(&o.agent).is_some_and(|r| r.ran_unmeasured));
-        let report = self.formatter.format_report_with_rotations(
+        let report = self.formatter.format_report_with_telemetry(
             &successful,
             &consensus,
             &rotations,
             estimated,
+            &extraction_failures,
         );
 
         // 8. Build MagiReport
@@ -2285,6 +2286,55 @@ mod tests {
             .analyze(&Mode::Analysis, "x")
             .await
             .expect("two of three reach consensus")
+    }
+
+    /// E23b, second half — a CLEAN run's human text is BYTE-IDENTICAL to one produced
+    /// before this feature existed. The section must not appear, not even as a heading
+    /// with nothing under it.
+    #[tokio::test]
+    async fn test_a_clean_run_adds_no_section_to_the_human_report() {
+        let provider = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![
+                mock_agent_json("melchior", "approve", 0.9),
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        )) as Arc<dyn LlmProvider>;
+        let report = Magi::new(provider)
+            .analyze(&Mode::Analysis, "x")
+            .await
+            .expect("clean run");
+
+        assert!(
+            !report.report.contains("Extraction Failures"),
+            "a clean run must not grow a section: the text stays byte-identical"
+        );
+        // And the formatter agrees when asked directly with a fully-seeded clean map.
+        let seeded: BTreeMap<AgentName, Vec<ExtractionFailure>> = report
+            .extraction_failures
+            .keys()
+            .map(|k| (*k, Vec::new()))
+            .collect();
+        assert_eq!(
+            ReportFormatter::new().format_extraction_failures(&seeded),
+            "",
+            "an all-empty map is a present certificate, not something to render"
+        );
+    }
+
+    /// With failures, the section names the CAUSE and the MODEL per seat — the two facts
+    /// that make it actionable.
+    #[tokio::test]
+    async fn test_the_section_attributes_cause_and_model_when_there_were_failures() {
+        let report = report_with_one_failing_agent().await;
+        let text = &report.report;
+        assert!(text.contains("## Extraction Failures"), "{text}");
+        assert!(text.contains("Melchior"), "names the seat: {text}");
+        assert!(text.contains("model-m"), "names the MODEL: {text}");
+        assert!(text.contains("missing markers"), "names the cause: {text}");
+        assert!(text.contains("attempt 1"), "names the attempt: {text}");
     }
 
     /// A report written by 2.2.0 — i.e. without this field at all — must still

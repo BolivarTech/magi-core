@@ -278,6 +278,25 @@ pub struct MagiReport {
     pub extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>,
 }
 
+/// Maps an [`ExtractionFailureCause`] to a short human label for the
+/// `## Extraction Failures` section.
+///
+/// `Other` is the enum's own catch-all for a cause a NEWER crate version produced — never
+/// constructed here, but the `_` arm is required because the enum is `#[non_exhaustive]`,
+/// and `"other"` is the truthful label for something this version cannot name.
+fn cause_label(cause: ExtractionFailureCause) -> &'static str {
+    match cause {
+        ExtractionFailureCause::MissingMarkers => "missing markers",
+        ExtractionFailureCause::Unterminated => "unterminated block",
+        ExtractionFailureCause::Ambiguous => "ambiguous markers",
+        ExtractionFailureCause::InvalidJson => "invalid JSON",
+        ExtractionFailureCause::Schema => "schema mismatch",
+        ExtractionFailureCause::EchoedExample => "echoed example",
+        ExtractionFailureCause::AgentIdentity => "agent identity mismatch",
+        _ => "other",
+    }
+}
+
 /// One rejected agent output, attributed to the **model** that produced it.
 ///
 /// `#[non_exhaustive]` like every public struct since 1.0.0 (ADR 005): it can gain fields
@@ -575,6 +594,28 @@ impl ReportFormatter {
         rotations: &BTreeMap<AgentName, AgentRotation>,
         estimated: bool,
     ) -> String {
+        // Delegates with no extraction telemetry, so its own signature stays untouched.
+        // MS2 established this shape when `format_report` began delegating here; adding a
+        // parameter instead would be a second public break in a release whose only
+        // intended one is the prompt guard.
+        self.format_report_with_telemetry(agents, consensus, rotations, estimated, &BTreeMap::new())
+    }
+
+    /// **MS3** — like [`format_report_with_rotations`](Self::format_report_with_rotations)
+    /// but also renders `## Extraction Failures`.
+    ///
+    /// Each telemetry section is empty when there is nothing to report, so a clean run
+    /// still produces byte-identical output to a report from before either feature
+    /// existed. The whole report is assembled here, so callers never couple to the
+    /// section layout by splicing strings themselves.
+    pub fn format_report_with_telemetry(
+        &self,
+        agents: &[AgentOutput],
+        consensus: &ConsensusResult,
+        rotations: &BTreeMap<AgentName, AgentRotation>,
+        estimated: bool,
+        extraction_failures: &BTreeMap<AgentName, Vec<ExtractionFailure>>,
+    ) -> String {
         let mut out = String::new();
 
         // 1. Banner
@@ -586,6 +627,7 @@ impl ReportFormatter {
         //     byte-identical 2.0.x output on a plain run.
         out.push_str(&self.format_model_rotations(rotations));
         out.push_str(&self.format_estimated_note(estimated));
+        out.push_str(&self.format_extraction_failures(extraction_failures));
 
         // 2. Key Findings (optional)
         if !consensus.findings.is_empty() {
@@ -605,6 +647,63 @@ impl ReportFormatter {
         // 5. Recommended Actions
         out.push_str(&self.format_recommendations(&consensus.recommendations));
 
+        out
+    }
+
+    /// Formats the `## Extraction Failures` section, or returns an empty string when every
+    /// dispatched agent's `Vec` is empty (every seat's verdict was extracted cleanly).
+    ///
+    /// Renders one line per rejected attempt, in `failures`' `BTreeMap` order (i.e.
+    /// [`AgentName`] order) and then `Vec` order within an agent — that order is
+    /// chronological (first attempt, corrective retry, then any post-rotation attempts) and
+    /// must be preserved, since it is what lets a reader see *when* a model stopped
+    /// adhering, not merely that it did:
+    ///
+    /// ```text
+    /// ## Extraction Failures
+    ///
+    /// ✗ Caspar: deepseek (attempt 1) — missing markers
+    /// ✗ Caspar: deepseek (attempt 2) — unterminated block
+    /// ✗ Caspar: glm (attempt 1) — schema mismatch
+    /// ```
+    ///
+    /// Before this section existed, an agent whose corrective retry recovered showed up in
+    /// `retried_agents` with the cause invisible — a reader knew a seat had struggled, not
+    /// why or with which model. Attributing by `model` rather than merely by seat is the
+    /// point: with per-agent rotation a single seat can burn through several models, and the
+    /// question that decides whether a model stays in the pool is *"which MODEL fails to
+    /// adhere?"*, not *"which seat suffered?"*.
+    ///
+    /// Returning an empty string on a clean run keeps the output byte-identical to a
+    /// pre-sentinel report, mirroring
+    /// [`format_model_rotations`](Self::format_model_rotations)'s rule. Note the map is
+    /// ALWAYS populated with one entry per agent, so `failures.is_empty()` would be the
+    /// wrong test — an empty `Vec` is a present, positive certificate.
+    pub fn format_extraction_failures(
+        &self,
+        failures: &BTreeMap<AgentName, Vec<ExtractionFailure>>,
+    ) -> String {
+        let has_failures = failures.values().any(|v| !v.is_empty());
+        if !has_failures {
+            return String::new();
+        }
+
+        let mut out = String::new();
+        writeln!(out, "## Extraction Failures\n").ok();
+        for (agent, agent_failures) in failures {
+            for failure in agent_failures {
+                writeln!(
+                    out,
+                    "\u{2717} {}: {} (attempt {}) \u{2014} {}",
+                    agent.display_name(),
+                    failure.model,
+                    failure.attempt,
+                    cause_label(failure.cause)
+                )
+                .ok();
+            }
+        }
+        writeln!(out).ok();
         out
     }
 
