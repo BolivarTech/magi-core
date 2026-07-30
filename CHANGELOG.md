@@ -4,6 +4,29 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.2] - 2026-07-30
+
+Documentation only. No code, API, or behavior change — the crate compiles and behaves
+identically to `3.0.1`. It exists because published docs cannot be corrected in place:
+crates.io versions are immutable and docs.rs builds per version.
+
+### Fixed
+
+- **Corrupted characters in the published API documentation.** Ninety-seven runs of
+  double-encoded text (`â€”` where an em dash belongs, `â†'` for an arrow) had reached
+  `docs.rs` in `3.0.0` and `3.0.1`. The file was mixed — correctly encoded characters sat
+  beside broken ones — so only the damaged runs were repaired.
+
+### Changed
+
+- **Internal process identifiers removed from all published documentation.** Roughly 150
+  references to milestone numbers, specification requirement ids, scenario ids, task ids and
+  review-finding ids (`MS2`, `R16`, `E23c`, `MAGI R2, Caspar [WARNING]`, `See ADR 007`) were
+  replaced by what they actually describe. None of them could be resolved by a reader of the
+  published crate — several pointed at internal documents that are not distributed at all —
+  and they will mean nothing to their own author in a year. The agent names
+  (Melchior/Balthasar/Caspar) stay: those are the product, not the process.
+
 ## [3.0.1] - 2026-07-30
 
 Defect fixes found by re-running the pre-merge review gate against the published `3.0.0`
