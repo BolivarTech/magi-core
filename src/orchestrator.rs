@@ -1114,7 +1114,7 @@ pub(crate) async fn dispatch_one_agent(
     };
 
     // Parse + validate first response. Success exits here.
-    let first_err = match parse_and_validate(&first_raw, &validator) {
+    let first_err = match parse_validate_and_check(&first_raw, agent.name(), &validator) {
         Ok(output) => return (Ok(output), false),
         Err(f) => f,
     };
@@ -1162,7 +1162,7 @@ pub(crate) async fn dispatch_one_agent(
         }
     };
 
-    match parse_and_validate(&second_raw, &validator) {
+    match parse_validate_and_check(&second_raw, agent.name(), &validator) {
         Ok(output) => (Ok(output), true),
         Err(f) => (Err(format!("retry-failed: {}", f.error)), true),
     }
@@ -1303,7 +1303,7 @@ async fn attempt_model(
         }
     };
 
-    let first_err = match parse_and_validate(&first_raw, validator) {
+    let first_err = match parse_validate_and_check(&first_raw, agent.name(), validator) {
         Ok(output) => return ModelOutcome::Success(output),
         Err(f) => f,
     };
@@ -1343,7 +1343,7 @@ async fn attempt_model(
             };
         }
     };
-    match parse_and_validate(&second_raw, validator) {
+    match parse_validate_and_check(&second_raw, agent.name(), validator) {
         Ok(output) => ModelOutcome::Success(output),
         Err(f) => ModelOutcome::Schema(format!("retry-failed: {}", f.error)),
     }
@@ -1647,6 +1647,63 @@ pub(crate) fn parse_and_validate(
     validator
         .validate_mut(&mut output)
         .map_err(|e| ParseFailure::new(ExtractionFailureCause::Schema, e.to_string()))?;
+    Ok(output)
+}
+
+/// [`parse_and_validate`] plus the two POST-VALIDATION checks, in the order that matters.
+///
+/// # The order is canary FIRST, identity second — and it is not arbitrary
+///
+/// Both run on the same validated output and **can fire together**: a mage that echoes
+/// the worked example of *another* prompt matches the fingerprint **and** carries the
+/// other mage's name in `agent`. Both observations are true, but only one names the root
+/// cause — the model copied an example instead of analysing.
+///
+/// Reporting `AgentIdentity` there would tell it *"fix your agent field"*, and an obedient
+/// model would **fix the name and resend the echoed example**, now with the right identity
+/// and nothing left to catch it. The retry would have been spent making the problem
+/// harder to see. `EchoedExample` tells it what it actually has to do — emit *its* own
+/// analysis — and that feedback **subsumes** the identity fix. The reverse does not.
+///
+/// # Errors
+///
+/// [`ParseFailure`] with `EchoedExample` or `AgentIdentity`, both mapping to the
+/// validation variant: an output WAS obtained, and then rejected.
+pub(crate) fn parse_validate_and_check(
+    raw: &str,
+    dispatched_to: AgentName,
+    validator: &Validator,
+) -> Result<AgentOutput, ParseFailure> {
+    let output = parse_and_validate(raw, validator)?;
+
+    if output.summary == crate::prompts::ECHO_CANARY_SUMMARY
+        && output.recommendation == crate::prompts::ECHO_CANARY_RECOMMENDATION
+    {
+        return Err(ParseFailure::new(
+            ExtractionFailureCause::EchoedExample,
+            "the verdict reproduces the worked example from the instructions verbatim, \
+             so it is not an analysis"
+                .to_string(),
+        ));
+    }
+
+    // R17 asks for a case-insensitive comparison, and DESERIALIZATION is what provides
+    // it: `agent` is an `AgentName`, so by the time it gets here the name has already
+    // been canonicalized — a wrong-case spelling never produces an `AgentOutput` at all,
+    // it fails as invalid JSON. Comparing the enums is therefore exact AND satisfies the
+    // requirement; an `eq_ignore_ascii_case` on the rendered names would be dead
+    // complexity suggesting a variation that cannot reach this point.
+    if output.agent != dispatched_to {
+        return Err(ParseFailure::new(
+            ExtractionFailureCause::AgentIdentity,
+            format!(
+                "verdict claims to come from {} but was dispatched to {}",
+                output.agent.display_name(),
+                dispatched_to.display_name()
+            ),
+        ));
+    }
+
     Ok(output)
 }
 
@@ -3218,6 +3275,98 @@ mod tests {
         let f = parse_and_validate(&raw, &Validator::new()).unwrap_err();
         assert_eq!(f.cause, ExtractionFailureCause::Schema);
         assert!(matches!(f.error, MagiError::Validation(_)));
+    }
+
+    /// Builds a marker-delimited response whose `summary`/`recommendation` are the
+    /// canary values — i.e. the worked example an agent must not echo.
+    fn echoed_example_response(agent: &str) -> String {
+        let object = format!(
+            r#"{{"agent":"{agent}","verdict":"conditional","confidence":0.85,
+                "summary":"{}","reasoning":"r","findings":[],"recommendation":"{}"}}"#,
+            crate::prompts::ECHO_CANARY_SUMMARY,
+            crate::prompts::ECHO_CANARY_RECOMMENDATION
+        );
+        format!(
+            "{}\n{object}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        )
+    }
+
+    /// E4 — the example copied INSIDE the markers is caught by the canary. Outside them
+    /// it never reaches the parser at all; this is the second line of defence.
+    #[test]
+    fn test_echoed_example_inside_the_markers_is_rejected() {
+        let f = parse_validate_and_check(
+            &echoed_example_response("caspar"),
+            AgentName::Caspar,
+            &Validator::new(),
+        )
+        .unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::EchoedExample);
+        assert!(matches!(f.error, MagiError::Validation(_)));
+    }
+
+    /// E17 — a mage may not answer for another: echoed example from another prompt, role
+    /// confusion, or context contamination.
+    #[test]
+    fn test_a_mage_may_not_answer_for_another() {
+        let raw = mock_agent_json("melchior", "approve", 0.9);
+        let f = parse_validate_and_check(&raw, AgentName::Caspar, &Validator::new()).unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::AgentIdentity);
+        assert!(matches!(f.error, MagiError::Validation(_)));
+    }
+
+    /// R17.1 — WHEN BOTH FIRE, THE CANARY WINS.
+    ///
+    /// A mage echoing ANOTHER prompt's example matches both checks. Reporting
+    /// `AgentIdentity` would tell it "fix your agent field", and an obedient model would
+    /// fix the name and RESEND the echoed example — right identity, nothing left to catch
+    /// it. `EchoedExample` names the root cause, and its feedback subsumes the identity
+    /// fix; the reverse does not.
+    #[test]
+    fn test_canary_wins_when_both_checks_fire() {
+        let f = parse_validate_and_check(
+            &echoed_example_response("melchior"),
+            AgentName::Caspar,
+            &Validator::new(),
+        )
+        .unwrap_err();
+        assert_eq!(
+            f.cause,
+            ExtractionFailureCause::EchoedExample,
+            "the canary must precede the identity check"
+        );
+    }
+
+    /// R17's "case-insensitive" requirement is satisfied by DESERIALIZATION, not by the
+    /// comparator: a wrong-case agent name never becomes an `AgentOutput`, so it can
+    /// never reach the identity check. This pins that reasoning so nobody re-adds an
+    /// `eq_ignore_ascii_case` for a variation that cannot occur.
+    #[test]
+    fn test_wrong_case_agent_name_fails_before_the_identity_check() {
+        let raw = format!(
+            "{}\n{}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            r#"{"agent":"CASPAR","verdict":"approve","confidence":0.9,"summary":"s",
+               "reasoning":"r","findings":[],"recommendation":"rec"}"#,
+            crate::verdict_markers::VERDICT_CLOSE
+        );
+        let f = parse_validate_and_check(&raw, AgentName::Caspar, &Validator::new()).unwrap_err();
+        assert_eq!(
+            f.cause,
+            ExtractionFailureCause::InvalidJson,
+            "the name is canonicalized by serde, so a wrong case is invalid JSON"
+        );
+    }
+
+    /// A correct verdict from the right seat passes both checks untouched.
+    #[test]
+    fn test_a_compliant_verdict_passes_both_post_validation_checks() {
+        let raw = mock_agent_json("caspar", "reject", 0.8);
+        let out = parse_validate_and_check(&raw, AgentName::Caspar, &Validator::new())
+            .expect("a compliant verdict must pass");
+        assert_eq!(out.verdict, Verdict::Reject);
     }
 
     /// Never panics, whatever the model emits — including the deeply-nested input the

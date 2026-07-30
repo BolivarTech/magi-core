@@ -100,6 +100,34 @@ pub(crate) fn lookup_prompt(
     embedded_prompt_for(agent)
 }
 
+/// Fingerprint of the worked example every shipped prompt carries: its `summary`.
+///
+/// The three prompts share this value **verbatim**; they differ only in `reasoning` and
+/// in the finding `detail`. Together with [`ECHO_CANARY_RECOMMENDATION`] it identifies an
+/// output that is the *example* rather than an analysis.
+///
+/// # ⚠ Requires BOTH values to match
+///
+/// With one alone the false positive stops being theoretical. Even with both, a genuine
+/// verdict whose `summary` is exactly `"One-line verdict"` **and** whose `recommendation`
+/// is exactly `"What you recommend"` would be rejected — accepted, because it demands
+/// simultaneous exact equality on two free-prose fields and the cost is **one retry**,
+/// not a lost verdict. The direction of failure is the safe one.
+///
+/// # This is the SECOND line of defence, and it does not cover custom prompts
+///
+/// The fingerprint is of *our* example. A consumer's custom prompt has its own, and if
+/// their model echoes it this check will not catch it. What protects them is structural:
+/// the guard rejects any prompt whose delimited block is fabricable, and the empty-slot
+/// pattern the migration guide prescribes puts their example outside the markers. Made
+/// explicit rather than extended, because a canary that only half covers gives a feeling
+/// of coverage where there is none.
+pub(crate) const ECHO_CANARY_SUMMARY: &str = "One-line verdict";
+
+/// Fingerprint of the worked example every shipped prompt carries: its `recommendation`.
+/// See [`ECHO_CANARY_SUMMARY`] — both must match for the canary to fire.
+pub(crate) const ECHO_CANARY_RECOMMENDATION: &str = "What you recommend";
+
 /// Checks that `prompt` satisfies the verdict-marker contract.
 ///
 /// This is the **same function** `MagiBuilder::build()` runs, so what it accepts is
@@ -236,10 +264,10 @@ mod tests_verdict_contract {
     /// MANDATORY ANCHOR (R13). Without it, editing a prompt without updating the canary
     /// leaves the canary comparing against text nobody emits: a **silent fail-open**.
     ///
-    /// Uses LITERALS on purpose — the production constants are born in T8, next to their
-    /// first consumer; defining them here would leave them dead code in this commit. From
-    /// T8 onward this test switches to the constants, and then it also proves that
-    /// constant and prompt agree.
+    /// Now asserted against the **production constants**, so it proves two things at
+    /// once: that the shipped prompts contain the fingerprint, and that the constants and
+    /// the prompts have not drifted apart. Either half alone leaves the canary able to
+    /// compare against text nobody emits.
     #[test]
     fn test_echo_canary_values_are_present_in_every_shipped_prompt() {
         for (name, p) in [
@@ -248,11 +276,11 @@ mod tests_verdict_contract {
             ("caspar.md", caspar_prompt()),
         ] {
             assert!(
-                p.contains("One-line verdict"),
+                p.contains(ECHO_CANARY_SUMMARY),
                 "{name}: canary summary value absent"
             );
             assert!(
-                p.contains("What you recommend"),
+                p.contains(ECHO_CANARY_RECOMMENDATION),
                 "{name}: canary recommendation value absent"
             );
         }
