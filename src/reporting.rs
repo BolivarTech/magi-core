@@ -695,7 +695,7 @@ impl ReportFormatter {
                 writeln!(
                     out,
                     "\u{2717} {}: {} (attempt {}) \u{2014} {}",
-                    agent.display_name(),
+                    self.agent_display(agent).0,
                     failure.model,
                     failure.attempt,
                     cause_label(failure.cause)
@@ -735,7 +735,7 @@ impl ReportFormatter {
                 writeln!(
                     out,
                     "\u{27F2} {} rotated: {} \u{2192} {} ({})",
-                    agent.display_name(),
+                    self.agent_display(agent).0,
                     event.from(),
                     event.to(),
                     event.kind()

@@ -40,7 +40,6 @@ static NEWLINE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// # Returns
 ///
 /// `Cow<'_, str>` — borrowed if unchanged, owned if any separator was replaced.
-#[allow(dead_code)]
 fn normalize_newlines(s: &str) -> Cow<'_, str> {
     NEWLINE_RE.replace_all(s, "\n")
 }
@@ -65,7 +64,6 @@ fn normalize_newlines(s: &str) -> Cow<'_, str> {
 /// # Returns
 ///
 /// `Cow<'_, str>` — borrowed if unchanged, owned if any character was removed.
-#[allow(dead_code)]
 fn strip_invisibles(s: &str) -> Cow<'_, str> {
     INVISIBLE_AND_SEPARATOR_RE.replace_all(s, "")
 }
@@ -158,7 +156,31 @@ const RETRY_FEEDBACK_DASH_VARIANTS: &[&str] = &[
     "\u{2013}\u{2013}\u{2013}RETRY-FEEDBACK\u{2013}\u{2013}\u{2013}", // en-dashes
     "\u{2015}\u{2015}\u{2015}RETRY-FEEDBACK\u{2015}\u{2015}\u{2015}", // horizontal bars
     "\u{2212}\u{2212}\u{2212}RETRY-FEEDBACK\u{2212}\u{2212}\u{2212}", // minus signs
+    // Added 3.0.0: the four remaining dashes a tokenizer is likely to emit where a
+    // human wrote `-`. They were absent while the four above were present, which is
+    // the failure mode an enumerated list always has — it covers what someone
+    // remembered. These are the rest of the Unicode dash-punctuation block that
+    // renders as a plain hyphen, plus the fullwidth form.
+    "\u{2010}\u{2010}\u{2010}RETRY-FEEDBACK\u{2010}\u{2010}\u{2010}", // hyphens
+    "\u{2011}\u{2011}\u{2011}RETRY-FEEDBACK\u{2011}\u{2011}\u{2011}", // non-breaking hyphens
+    "\u{2012}\u{2012}\u{2012}RETRY-FEEDBACK\u{2012}\u{2012}\u{2012}", // figure dashes
+    "\u{FF0D}\u{FF0D}\u{FF0D}RETRY-FEEDBACK\u{FF0D}\u{FF0D}\u{FF0D}", // fullwidth hyphen-minus
 ];
+
+/// Structural tokens of the **verdict sentinel** that must not survive verbatim inside the
+/// retry feedback.
+///
+/// New in 3.0.0, and the reason is new too: before the sentinel, the only structural token
+/// in a prompt was the retry envelope. Now the marker lines are structural as well, and the
+/// error text embedded in the feedback is **derived from the model's own output** — so a
+/// model can put a marker string into it. Neutralizing them keeps the feedback block from
+/// containing something that looks like a delimited verdict.
+///
+/// This is defence in depth, not a fabrication path: the retry prompt is what we *send*,
+/// and only the model's *response* is ever parsed. But an error fragment that appears to
+/// open a verdict block is at best confusing to a model that already failed once, and the
+/// symmetry with the envelope is the point — every structural token gets the same treatment.
+const VERDICT_MARKER_TOKENS: &[&str] = &[VERDICT_OPEN, VERDICT_CLOSE];
 
 /// Sanitize an error string for safe inclusion in the retry feedback block.
 ///
@@ -190,7 +212,14 @@ fn sanitize_error_for_retry_feedback(error: &str) -> String {
     let step2 = strip_invisibles(&step1);
     let step3 = neutralize_headers(&step2);
     let mut result = step3.into_owned();
-    for variant in RETRY_FEEDBACK_DASH_VARIANTS {
+    // Every structural token gets the same treatment: prefix it so it can no longer be
+    // read as the token itself. The envelope has been here since 2.2.0; the verdict
+    // markers joined the list in 3.0.0, when they became structural (see
+    // [`VERDICT_MARKER_TOKENS`]).
+    for variant in RETRY_FEEDBACK_DASH_VARIANTS
+        .iter()
+        .chain(VERDICT_MARKER_TOKENS.iter())
+    {
         if result.contains(variant) {
             result = result.replace(variant, &format!("  {variant}"));
         }
@@ -981,6 +1010,41 @@ mod tests {
                         exactly: agent, verdict, confidence, summary, reasoning, findings, \
                         recommendation. Do not omit any key and do not rename any key.";
         assert_eq!(out, expected);
+    }
+
+    /// Every dash variant in the list is actually neutralized, not just the two that
+    /// happened to have coverage. A list-based defence is only as good as its test: an
+    /// entry nobody exercises is an entry that can silently stop working.
+    #[test]
+    fn test_every_declared_dash_variant_is_neutralized() {
+        for variant in RETRY_FEEDBACK_DASH_VARIANTS {
+            let out = build_retry_prompt(
+                "ORIG",
+                ExtractionFailureCause::Schema,
+                &format!("model said {variant} here"),
+            );
+            assert!(
+                out.contains(&format!("  {variant}")),
+                "variant {variant:?} was not neutralized"
+            );
+        }
+    }
+
+    /// A verdict marker inside the error text is neutralized too — it became a structural
+    /// token in 3.0.0, so it gets the same treatment as the retry envelope.
+    #[test]
+    fn test_verdict_markers_in_the_error_text_are_neutralized() {
+        for token in VERDICT_MARKER_TOKENS {
+            let out = build_retry_prompt(
+                "ORIG",
+                ExtractionFailureCause::InvalidJson,
+                &format!("unexpected {token} in the payload"),
+            );
+            assert!(
+                out.contains(&format!("  {token}")),
+                "structural token {token:?} survived verbatim in the feedback"
+            );
+        }
     }
 
     /// E22 — the instruction is selected PER CAUSE. Before MS3 there was one generic
