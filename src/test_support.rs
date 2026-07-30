@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -129,7 +130,18 @@ impl LlmProvider for RoutingMockProvider {
 // MS2 rotation test support: ScriptProvider, MockProbe, and thin trio builders.
 // ---------------------------------------------------------------------------
 
-const BAD_JSON: &str = "not json at all";
+/// Content that is delimited correctly but is **not JSON** — so it exercises the
+/// `InvalidJson` cause, which is the failure a cooperative-but-sloppy model actually
+/// produces.
+///
+/// Wrapped in the markers on purpose. Left bare, this would fail at delimitation with
+/// `MissingMarkers` and never reach `serde_json`, so a variant named `BadJson` would test
+/// the *absence* of markers instead of bad JSON — and the `InvalidJson` rotation path
+/// would go unexercised by the shared helpers. `MissingMarkers` is already covered
+/// exhaustively by the unit tests, so no bare-body variant is added here: nothing would
+/// consume it.
+static BAD_JSON: LazyLock<String> =
+    LazyLock::new(|| format!("{VERDICT_OPEN}\nnot json at all\n{VERDICT_CLOSE}"));
 
 /// AGENT-AWARE valid verdict body. Reads the `CURRENT_AGENT_IDENTITY` task-local
 /// (set by [`crate::agent::Agent::execute`]/`execute_with`) and emits a verdict
@@ -176,7 +188,9 @@ pub enum Beh {
     Http5xx,
     /// Panic the task (never rotates — surfaces as a failure).
     Panic,
-    /// Return unparseable JSON (schema failure → mage-local rotation).
+    /// Return a correctly delimited block whose content is **not JSON** (`InvalidJson`
+    /// → schema failure → mage-local rotation). See [`BAD_JSON`] for why it is
+    /// delimited rather than bare.
     BadJson,
 }
 
@@ -227,7 +241,7 @@ impl LlmProvider for ScriptProvider {
             .unwrap_or(Beh::Ok);
         match beh {
             Beh::Ok => Ok(valid_verdict_for_current_agent()),
-            Beh::BadJson => Ok(BAD_JSON.into()),
+            Beh::BadJson => Ok(BAD_JSON.clone()),
             Beh::Network => Err(ProviderError::Network {
                 message: "connection refused".into(),
             }),
@@ -545,5 +559,32 @@ mod tests {
         assert!(crate::prompts::melchior_prompt().contains("Melchior"));
         assert!(crate::prompts::balthasar_prompt().contains("Balthasar"));
         assert!(crate::prompts::caspar_prompt().contains("Caspar"));
+    }
+
+    #[test]
+    fn test_the_two_scripted_bodies_fail_and_succeed_where_their_names_claim() {
+        use crate::verdict_markers::{ExtractionFailureCause, extract};
+
+        // Both causes map to `Deserialization`, so every rotation test passes either
+        // way — which is exactly how the meaning of `Beh::BadJson` drifted from "bad
+        // JSON" to "no markers" unnoticed when the wire format changed. Pinning the
+        // cause is what makes the drift loud instead of silent.
+        let block = extract(&BAD_JSON).expect("BAD_JSON must be correctly delimited");
+        assert!(
+            serde_json::from_str::<crate::schema::AgentOutput>(block).is_err(),
+            "BAD_JSON must fail INSIDE the markers (InvalidJson), not at delimitation"
+        );
+
+        let ok = valid_verdict_for_current_agent();
+        let block = extract(&ok).expect("the success body must be correctly delimited");
+        serde_json::from_str::<crate::schema::AgentOutput>(block)
+            .expect("the success body must deserialize as a full 7-key verdict");
+
+        // And the guard rail for the reverse drift: a bare body no longer models a
+        // cooperative provider at all.
+        assert_eq!(
+            extract("not json at all").unwrap_err().cause(),
+            ExtractionFailureCause::MissingMarkers
+        );
     }
 }
