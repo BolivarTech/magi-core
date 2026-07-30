@@ -1700,6 +1700,15 @@ impl ParseFailure {
 ///
 /// **Review rule for anything added here:** the only legitimate call to
 /// `serde_json::from_str` in this path is the one operating on the result of `extract`.
+///
+/// That claim was swept across all of `src/` (MAGI R1, Caspar): the only two call sites
+/// that decode agent-produced verdict text are this one and the prompt guard's, and both
+/// operate on the output of the shared delimitation. Every other occurrence either decodes
+/// a **transport envelope** (`providers/*` unwrapping HTTP or CLI JSON to get at the text,
+/// which then comes here) or is test code. There is no bypass path. The sweep is
+/// `serde_json::from_str|from_value|from_reader` over `src/` — cheap to redo, and worth
+/// redoing whenever a provider is added, because a new provider is the one place where a
+/// second decode of agent text could plausibly appear.
 /// Any other is an R0 violation, whatever it is named. That is the realistic shape a
 /// regression would take — new code, new name, invisible to the symbol greps in CI — so
 /// it is a rule for a human reader, not something a script can decide.

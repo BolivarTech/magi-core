@@ -40,11 +40,18 @@ fi
 # the original defect back: one of them would drift and see less than the other, and the
 # guard that simulates the parser would stop being a faithful simulation.
 #
-# Counts DEFINITIONS (the `fn ` prefix), not call sites. `git grep -c` exits non-zero
-# when there are no matches, so it is guarded with `|| true`: under `set -e` an
-# unguarded command substitution would abort the script instead of reporting `found 0`,
-# turning the most important failure into an unreadable one.
-matches=$(git grep -c 'fn locate_block' -- src || true)
+# Counts DEFINITIONS, not call sites and not prose. The pattern is ANCHORED to the start
+# of a line with an optional visibility modifier, unlike check 1 above: an unanchored
+# 'fn locate_block' also matches a rustdoc line that merely NAMES the function, so a
+# comment explaining this very rule would inflate the count to 2 and break the build for
+# documenting the invariant. (Check 1 stays unanchored on purpose — there, matching
+# anywhere on the line is what makes it strict.)
+#
+# `git grep -c` exits non-zero when there are no matches, so it is guarded with
+# `|| true`: under `set -e` an unguarded command substitution would abort the script
+# instead of reporting `found 0`, turning the most important failure into an unreadable
+# one.
+matches=$(git grep -cE '^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?fn locate_block' -- src || true)
 n=$(printf '%s\n' "$matches" | awk -F: '{s+=$2} END {print s+0}')
 if [ "$n" -ne "$EXPECTED_LOCATOR_DEFINITIONS" ]; then
     echo "check_r0: expected exactly ${EXPECTED_LOCATOR_DEFINITIONS} definition of \

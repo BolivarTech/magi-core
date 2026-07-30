@@ -72,8 +72,12 @@ static STRIPPED_CATEGORIES_RE: LazyLock<Regex> =
 ///
 /// **BINDING CONSEQUENCE:** the result of this function is **never compared with
 /// `==`**. Doing so yields case-SENSITIVE comparison — a silent divergence from
-/// the predicates. The only legitimate consumers are [`is_marker_line`] and
-/// [`is_exact_marker_line`]; everything else goes through them.
+/// the predicate. The only legitimate consumer is [`is_marker_line`]; everything
+/// else goes through it.
+///
+/// [`is_exact_marker_line`] is **not** a consumer and must not become one — it is the
+/// strict half of the R3 asymmetry, so it compares the raw trimmed line and normalizing
+/// for it would erase the very difference that makes it strict.
 ///
 /// # Why the order of the steps carries weight
 ///
@@ -108,9 +112,21 @@ static STRIPPED_CATEGORIES_RE: LazyLock<Regex> =
 pub(crate) fn normalize_line(line: &str) -> Cow<'_, str> {
     match STRIPPED_CATEGORIES_RE.replace_all(line, "") {
         Cow::Borrowed(s) => Cow::Borrowed(s.trim()),
-        // The rare branch: trimming an owned `String` needs a second pass, and paying it
-        // here is the point — it keeps the frequent branch free.
-        Cow::Owned(s) => Cow::Owned(s.trim().to_string()),
+        // The rare branch. Trim IN PLACE rather than `s.trim().to_string()`, which would
+        // allocate a second buffer for a string `replace_all` just allocated. Both offsets
+        // are whitespace-boundary byte counts, so neither can split a codepoint.
+        //
+        // NOT `replace_all(line.trim(), "")` — that inverts the step order R4 fixes, and
+        // the inversion is observable: for `" \u{200b} <MAGI_VERDICT>"`, trimming first
+        // leaves the inner space stranded after the strip (`" <MAGI_VERDICT>"`, no match),
+        // while strip-then-trim collapses it correctly.
+        Cow::Owned(mut s) => {
+            let end = s.trim_end().len();
+            s.truncate(end);
+            let start = s.len() - s.trim_start().len();
+            s.drain(..start);
+            Cow::Owned(s)
+        }
     }
 }
 
@@ -729,6 +745,29 @@ mod tests {
         assert_eq!(
             extract(&wrap("```json title=\"x\"\n{\"a\":1}\n```json")).unwrap(),
             "{\"a\":1}"
+        );
+    }
+
+    #[test]
+    fn test_strip_fence_leaves_a_four_backtick_fence_intact() {
+        // The fence pattern's `[^`~]*` cannot consume a fourth backtick, so a 4+ fence —
+        // which markdown permits — is not recognized. That is a DOCUMENTED limitation, and
+        // it is accepted because it fails in the safe direction: the fence stays, the
+        // content is left intact, `serde_json` rejects it, and the mage gets a retry with
+        // `InvalidJson`. A retry too many on a case no model produces, versus widening the
+        // pattern and gaining somewhere new to be wrong.
+        //
+        // Without this test the limitation is only prose, and prose does not fail when
+        // someone widens the pattern "harmlessly".
+        assert_eq!(
+            extract(&wrap("````json\n{\"a\":1}\n````")).unwrap(),
+            "````json\n{\"a\":1}\n````"
+        );
+        // Holds WITHOUT an info string too — it is the fourth backtick that blocks the
+        // match, not the trailing text.
+        assert_eq!(
+            extract(&wrap("````\n{\"a\":1}\n````")).unwrap(),
+            "````\n{\"a\":1}\n````"
         );
     }
 

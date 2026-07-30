@@ -154,6 +154,12 @@ pub(crate) const ECHO_CANARY_RECOMMENDATION: &str = "What you recommend";
 /// it in the comparator is the mistake the reference implementation made (a false FATAL
 /// aborted a run) before moving it to the encoding layer.
 ///
+/// **Exactly one** leading BOM is stripped, not a run of them. One is what an encoder
+/// emits; a second is corruption, and corruption in a file we ship should be **visible**.
+/// The direction is safe either way: the extra BOM stays on the first marker line, the
+/// strict predicate rejects it, and `build()` fails loudly with the offending prompt
+/// named — never silently accepting a prompt whose bytes we could not account for.
+///
 /// # Errors
 ///
 /// [`MagiError::PromptContract`] naming the rule that was violated.
