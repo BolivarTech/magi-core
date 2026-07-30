@@ -40,8 +40,11 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// Opening marker of the verdict block. ASCII by construction — see
-/// [`normalize_line`] for why that is load-bearing rather than incidental.
+/// Opening marker of the verdict block. ASCII by construction — and that is load-bearing,
+/// not incidental: because the case fold is ASCII-only, no non-ASCII scalar can fold into
+/// a marker character, so the guarantee is structural rather than a property of this
+/// particular string. (The reasoning lives on the crate-internal `normalize_line`, which
+/// cannot be linked from public docs.)
 pub const VERDICT_OPEN: &str = "<MAGI_VERDICT>";
 
 /// Closing marker of the verdict block. ASCII by construction.

@@ -189,8 +189,10 @@ pub enum Beh {
     /// Panic the task (never rotates — surfaces as a failure).
     Panic,
     /// Return a correctly delimited block whose content is **not JSON** (`InvalidJson`
-    /// → schema failure → mage-local rotation). See [`BAD_JSON`] for why it is
-    /// delimited rather than bare.
+    /// → schema failure → mage-local rotation). Delimited rather than bare on purpose: a
+    /// bare body would fail at delimitation with `MissingMarkers` and never reach
+    /// `serde_json`, so this variant would test the *absence* of markers instead of bad
+    /// JSON. The full reasoning is on the private `BAD_JSON` constant.
     BadJson,
 }
 

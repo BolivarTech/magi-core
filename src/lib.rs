@@ -76,11 +76,11 @@ pub mod error;
 pub mod finding_id;
 pub mod orchestrator;
 pub mod prelude;
-/// Public since MS3 (R19): a consumer writing a custom prompt needs to see the canonical
-/// shape now that `build()` enforces it — without this the guard is a wall with no door.
-/// It is also the migration path: the built-in prompt IS the source of truth, always in
-/// sync via `include_str!`. `validate_prompt` must be real public API for the strict
-/// marker predicate to have a production consumer at all.
+// NO outer doc comment here on purpose: the module documents itself in `prompts/mod.rs`.
+// An outer `///` at the declaration merges with the module's own `//!`, and the merged
+// docs resolve intra-doc links in the CRATE ROOT's scope — where `caspar_prompt` is not in
+// scope, so every link inside the module breaks. Rustdoc even reports those failures at
+// this line rather than at the real one, which makes it a slow thing to diagnose.
 pub mod prompts;
 pub mod provider;
 pub mod providers;
