@@ -2093,6 +2093,220 @@ mod tests {
         );
     }
 
+    // -- MS3 T10: extraction-failure telemetry with model attribution --
+
+    /// E23b — a CLEAN run still says it was clean.
+    ///
+    /// The field is present with one entry per agent and an empty `Vec` each. That empty
+    /// vector is a positive certificate of adherence; a field that vanished on success
+    /// would make a clean 3.0 report indistinguishable from a 2.2 one.
+    #[tokio::test]
+    async fn test_extraction_failures_is_seeded_for_every_agent_on_a_clean_run() {
+        let provider = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![
+                mock_agent_json("melchior", "approve", 0.9),
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        )) as Arc<dyn LlmProvider>;
+        let report = Magi::new(provider)
+            .analyze(&Mode::Analysis, "x")
+            .await
+            .expect("clean run");
+
+        assert_eq!(report.extraction_failures.len(), 3, "one entry per agent");
+        assert!(
+            report.extraction_failures.values().all(Vec::is_empty),
+            "a clean seat certifies itself with an empty Vec"
+        );
+        // Joinable with `rotations` on the same key — the two halves of one story.
+        assert_eq!(
+            report.extraction_failures.keys().collect::<Vec<_>>(),
+            report.rotations.keys().collect::<Vec<_>>(),
+            "same key set, so the join is symmetric"
+        );
+    }
+
+    /// A retry that RECOVERS still leaves the cause on the record — the gap MS3 closes.
+    /// Before this, such an agent appeared in `retried_agents` with no trace of why.
+    #[tokio::test]
+    async fn test_a_recovered_retry_still_records_its_cause() {
+        let bad = "no markers at all".to_string();
+        let good = mock_agent_json("melchior", "approve", 0.9);
+        let melchior = Arc::new(MockProvider::success("m", "model-m", vec![bad, good]));
+        let others = Arc::new(MockProvider::success(
+            "o",
+            "model-o",
+            vec![
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ));
+        let report = MagiBuilder::new(others as Arc<dyn LlmProvider>)
+            .with_provider(AgentName::Melchior, melchior as Arc<dyn LlmProvider>)
+            .build()
+            .expect("build")
+            .analyze(&Mode::Analysis, "x")
+            .await
+            .expect("melchior recovers on retry");
+
+        let mel = &report.extraction_failures[&AgentName::Melchior];
+        assert_eq!(mel.len(), 1, "the first attempt was rejected");
+        assert_eq!(mel[0].cause, ExtractionFailureCause::MissingMarkers);
+        assert_eq!(mel[0].attempt, 1);
+        assert_eq!(mel[0].model, "model-m", "attributed to the model that ran");
+        assert!(report.retried_agents.contains(&AgentName::Melchior));
+    }
+
+    /// Both attempts on one model are recorded, numbered 1 then 2.
+    #[tokio::test]
+    async fn test_both_attempts_on_the_same_model_are_recorded() {
+        let melchior = Arc::new(MockProvider::success(
+            "m",
+            "model-m",
+            vec!["no markers".to_string(), "still no markers".to_string()],
+        ));
+        let others = Arc::new(MockProvider::success(
+            "o",
+            "model-o",
+            vec![
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ));
+        let report = MagiBuilder::new(others as Arc<dyn LlmProvider>)
+            .with_provider(AgentName::Melchior, melchior as Arc<dyn LlmProvider>)
+            .build()
+            .expect("build")
+            .analyze(&Mode::Analysis, "x")
+            .await
+            .expect("two of three still reach consensus");
+
+        let mel = &report.extraction_failures[&AgentName::Melchior];
+        assert_eq!(mel.len(), 2);
+        assert_eq!((mel[0].attempt, mel[1].attempt), (1, 2));
+        assert!(mel.iter().all(|f| f.model == "model-m"));
+        assert!(report.degraded, "melchior never produced a verdict");
+    }
+
+    /// E23c — THE TEMPORAL INVARIANT, and the only test that catches getting it wrong.
+    ///
+    /// A seat fails twice on its primary `pm`, rotates, and fails again on the fallback
+    /// `fm`. The records must be `[{pm,1}, {pm,2}, {fm,1}]`.
+    ///
+    /// If the model were read AFTER the rotation instead of at the moment of failure, the
+    /// result would be `[{fm,1},{fm,2},{fm,1}]` — plausible-looking, and accusing the
+    /// model that had not run yet. Here the attribution is structural: each attempt is
+    /// recorded by the code holding the provider that produced the output, so `attempt`
+    /// also restarts at 1 per model without anyone having to remember to reset it.
+    #[tokio::test]
+    async fn test_a_failure_before_rotation_is_attributed_to_the_pre_rotation_model() {
+        let bad = || "no markers here".to_string();
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::success("f", "fm", vec![bad(), bad()])),
+                Lineage::new("zhipu"),
+            )
+            .build();
+        let report = MagiBuilder::new(Arc::new(MockProvider::success(
+            "d",
+            "dm",
+            vec![
+                mock_agent_json("melchior", "approve", 0.9),
+                mock_agent_json("balthasar", "approve", 0.85),
+            ],
+        )) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Caspar,
+            Arc::new(MockProvider::success("p", "pm", vec![bad(), bad()])),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(pool)
+        .build()
+        .expect("build")
+        .analyze(&Mode::Analysis, "x")
+        .await
+        .expect("two agents still reach consensus");
+
+        let caspar = &report.extraction_failures[&AgentName::Caspar];
+        assert_eq!(
+            caspar
+                .iter()
+                .map(|f| (f.model.as_str(), f.attempt))
+                .collect::<Vec<_>>(),
+            vec![("pm", 1), ("pm", 2), ("fm", 1), ("fm", 2)],
+            "pre-rotation failures belong to the pre-rotation model, and the attempt \
+             counter restarts at 1 on the model rotated into"
+        );
+        assert!(
+            caspar
+                .iter()
+                .all(|f| f.cause == ExtractionFailureCause::MissingMarkers)
+        );
+    }
+
+    /// Per-seat and per-cause counts are DERIVABLE from the records, which is why the
+    /// records are stored and the counts are not.
+    #[tokio::test]
+    async fn test_counts_are_derivable_from_the_records() {
+        let report = report_with_one_failing_agent().await;
+        let by_cause: BTreeMap<ExtractionFailureCause, usize> = report
+            .extraction_failures
+            .values()
+            .flatten()
+            .fold(BTreeMap::new(), |mut acc, f| {
+                *acc.entry(f.cause).or_insert(0) += 1;
+                acc
+            });
+        assert_eq!(by_cause[&ExtractionFailureCause::MissingMarkers], 2);
+    }
+
+    /// Shared setup: Melchior fails both attempts, the other two succeed.
+    async fn report_with_one_failing_agent() -> MagiReport {
+        let melchior = Arc::new(MockProvider::success(
+            "m",
+            "model-m",
+            vec!["no markers".to_string(), "no markers".to_string()],
+        ));
+        let others = Arc::new(MockProvider::success(
+            "o",
+            "model-o",
+            vec![
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ));
+        MagiBuilder::new(others as Arc<dyn LlmProvider>)
+            .with_provider(AgentName::Melchior, melchior as Arc<dyn LlmProvider>)
+            .build()
+            .expect("build")
+            .analyze(&Mode::Analysis, "x")
+            .await
+            .expect("two of three reach consensus")
+    }
+
+    /// A report written by 2.2.0 — i.e. without this field at all — must still
+    /// deserialize. Built by serializing a real report and REMOVING the key, rather than
+    /// hand-writing JSON that could drift from the actual schema.
+    #[tokio::test]
+    async fn test_a_2_2_0_report_without_the_field_still_deserializes() {
+        let current = report_with_one_failing_agent().await;
+        let mut value = serde_json::to_value(&current).expect("serialize");
+        assert!(
+            value
+                .as_object_mut()
+                .expect("object")
+                .remove("extraction_failures")
+                .is_some(),
+            "the field IS serialized on a fresh report (no skip_serializing_if)"
+        );
+
+        let old: MagiReport = serde_json::from_value(value).expect("2.2.0 report still parses");
+        assert!(old.extraction_failures.is_empty(), "absent means empty");
+    }
+
     // -- Task 9 (MS2): lost-signal endpoint-down recovery on abnormal exit (W18) --
 
     /// An abnormal agent exit (a `JoinError` standing in for a panicked latch
