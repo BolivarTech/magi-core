@@ -10,6 +10,7 @@ use std::fmt::Write;
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
 use crate::rotation::AgentRotation;
 use crate::schema::{AgentName, AgentOutput, Mode};
+use crate::verdict_markers::ExtractionFailureCause;
 
 /// Error returned by `ReportConfig::new_checked` when validation fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -246,6 +247,62 @@ pub struct MagiReport {
     /// of a *failed* mage is a minor diagnostic loss, accepted by design.
     #[serde(default)]
     pub rotations: BTreeMap<AgentName, AgentRotation>,
+
+    /// **MS3** — per-agent record of every output rejected before it could enter
+    /// consensus, in the order the attempts happened.
+    ///
+    /// # Always present, seeded for every dispatched agent
+    ///
+    /// An empty `Vec` means that seat was clean, and saying so is the point: the field's
+    /// job is to **certify** that all three agents adhered to the verdict-marker
+    /// contract. A certificate that disappears exactly when everything went well is not
+    /// a certificate — it is the absence of a claim. Hence `#[serde(default)]` with **no**
+    /// `skip_serializing_if`, unlike `retried_agents`, which it resembles structurally
+    /// but not in purpose.
+    ///
+    /// # Read it JOINED with `rotations`, on `AgentName`
+    ///
+    /// The two are halves of one story: *why* a mage suffered, and *where* it ended up.
+    /// Together they answer the question MS2 and MS3 only make answerable in combination
+    /// — *did this seat fail extraction, rotate because of it, and which model did it
+    /// finish on?* That join is why both fields follow the same presence rule.
+    ///
+    /// # Records, not counts — because the model is the actionable dimension
+    ///
+    /// A `BTreeMap<cause, usize>` would say *"Caspar had two `MissingMarkers`"*, but with
+    /// rotation that seat may have tried two or three different models. The question that
+    /// decides something is **which MODEL fails to adhere**, because that is what gets
+    /// dropped from the pool. Counts erase exactly that attribution, and per-seat or
+    /// per-cause totals are trivially derivable from these records anyway.
+    #[serde(default)]
+    pub extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>,
+}
+
+/// One rejected agent output, attributed to the **model** that produced it.
+///
+/// `#[non_exhaustive]` like every public struct since 1.0.0 (ADR 005): it can gain fields
+/// in a minor without breaking consumers.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExtractionFailure {
+    /// The model id that produced the rejected output — **not** the declared lineage.
+    ///
+    /// Recorded from the agent's rotation state **at the moment of the failure**, before
+    /// any rotation mutates it. Reading it later would attribute a pre-rotation failure
+    /// to the model that had not run yet, i.e. the telemetry would say the opposite of
+    /// the truth about the only question it exists to answer.
+    pub model: String,
+    /// `1` for the first attempt with **this model**, `2` for the corrective retry with
+    /// the **same** model.
+    ///
+    /// It **restarts at 1 after a rotation**: the retry-then-rotate cycle is per-model, so
+    /// a seat that fails twice on `M1`, rotates, and fails once on `M2` yields
+    /// `[{M1,1}, {M1,2}, {M2,1}]` — never `{M2,3}`. A global counter would make the
+    /// reading *"this model failed on its very first attempt"* unrecoverable, and that
+    /// reading is what the field is for.
+    pub attempt: u8,
+    /// Why the output was rejected.
+    pub cause: ExtractionFailureCause,
 }
 
 impl ReportConfig {
@@ -1552,6 +1609,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -1585,6 +1643,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -1608,6 +1667,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -1627,6 +1687,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1654,6 +1715,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: retried,
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1704,6 +1766,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: retried,
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -1770,6 +1833,7 @@ mod tests {
             failed_agents: BTreeMap::from([(AgentName::Caspar, "timeout".to_string())]),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         assert!(report.degraded);
@@ -2371,6 +2435,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2401,6 +2466,7 @@ mod tests {
             failed_agents: BTreeMap::new(),
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

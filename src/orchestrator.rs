@@ -13,7 +13,7 @@ use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
 use crate::error::{MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
-use crate::reporting::{MagiReport, ReportConfig, ReportFormatter};
+use crate::reporting::{ExtractionFailure, MagiReport, ReportConfig, ReportFormatter};
 use crate::rotation::{
     ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
     LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
@@ -578,6 +578,9 @@ type DispatchOutcome = (
     BTreeMap<AgentName, String>,
     std::collections::BTreeSet<AgentName>,
     BTreeMap<AgentName, AgentRotation>,
+    // MS3 — per-agent rejected outputs, seeded for every dispatched agent so a clean
+    // seat certifies itself with an empty Vec. Read joined with the rotations above.
+    BTreeMap<AgentName, Vec<ExtractionFailure>>,
 );
 
 struct AbortGuard(Vec<AbortHandle>);
@@ -725,7 +728,7 @@ impl Magi {
 
         // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
         //    (v0.4.0 replaces launch_agents + process_results â€” MAGI R2 W9 atomic merge.)
-        let (successful, failed_agents, retried_agents, rotations) =
+        let (successful, failed_agents, retried_agents, rotations, extraction_failures) =
             self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
@@ -759,6 +762,7 @@ impl Magi {
             failed_agents,
             retried_agents,
             rotations,
+            extraction_failures,
         })
     }
 
@@ -849,21 +853,31 @@ impl Magi {
         let mut successful = Vec::new();
         let mut failed = BTreeMap::new();
         let mut retried = std::collections::BTreeSet::new();
+        // SEEDED for every dispatched agent, so a clean seat says so with an empty Vec
+        // instead of vanishing from the report. See `MagiReport::extraction_failures`.
+        let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> = agent_models
+            .keys()
+            .map(|name| (*name, Vec::new()))
+            .collect();
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), was_retried)) => {
+                Ok((Ok(output), was_retried, failures)) => {
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
+                    extraction_failures.insert(name, failures);
                 }
-                Ok((Err(reason), was_retried)) => {
+                Ok((Err(reason), was_retried, failures)) => {
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
                     }
+                    extraction_failures.insert(name, failures);
                 }
                 Err(join_err) => {
+                    // A panicked task loses its in-flight records; the pre-seeded empty
+                    // Vec stands, and the panic itself is the headline in `failed_agents`.
                     failed.insert(name, format!("panic: {join_err}"));
                 }
             }
@@ -878,7 +892,7 @@ impl Magi {
         }
 
         let rotations = default_rotations(agent_models);
-        Ok((successful, failed, retried, rotations))
+        Ok((successful, failed, retried, rotations, extraction_failures))
     }
 
     /// The MS2 rotation dispatch path. Seeds a per-run [`LineageRegistry`] from the
@@ -953,6 +967,10 @@ impl Magi {
         // Pre-seed telemetry OUTSIDE any task stack so a panicked agent still has a
         // present, chain-empty record (W1). A normal return replaces its entry.
         let mut rotations = default_rotations(agent_models);
+        // Seeded per agent: an empty Vec is the positive certificate that the seat was
+        // clean, and it keeps this map joinable with otations on the same key.
+        let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> =
+            rotations.keys().map(|name| (*name, Vec::new())).collect();
 
         let mut handles = Vec::new();
         let mut abort_handles = Vec::new();
@@ -1017,15 +1035,17 @@ impl Magi {
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), agent_rotation, was_retried)) => {
+                Ok((Ok(output), agent_rotation, was_retried, failures)) => {
                     rotations.insert(name, agent_rotation);
+                    extraction_failures.insert(name, failures);
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                 }
-                Ok((Err(reason), agent_rotation, was_retried)) => {
+                Ok((Err(reason), agent_rotation, was_retried, failures)) => {
                     rotations.insert(name, agent_rotation);
+                    extraction_failures.insert(name, failures);
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
@@ -1058,7 +1078,7 @@ impl Magi {
             });
         }
 
-        Ok((successful, failed, retried, rotations))
+        Ok((successful, failed, retried, rotations, extraction_failures))
     }
 
     /// Returns the custom prompt overrides map for inspection in tests.
@@ -1097,27 +1117,41 @@ pub(crate) async fn dispatch_one_agent(
     validator: Arc<Validator>,
     timeout: Duration,
     retry_enabled: bool,
-) -> (Result<AgentOutput, String>, bool) {
+) -> (Result<AgentOutput, String>, bool, Vec<ExtractionFailure>) {
+    // Attribution is STRUCTURAL here: the model is the one whose provider actually ran,
+    // so a failure can never be credited to a model that had not executed yet (E23c).
+    let model = agent.provider_model().to_string();
+    let mut failures: Vec<ExtractionFailure> = Vec::new();
     // First attempt.
     let first_result = tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
     let first_raw = match first_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
-            return (Err(MagiError::Provider(provider_err).to_string()), false);
+            return (
+                Err(MagiError::Provider(provider_err).to_string()),
+                false,
+                failures,
+            );
         }
         Err(_elapsed) => {
             return (
                 Err(format!("timeout: agent timed out after {timeout:?}")),
                 false,
+                failures,
             );
         }
     };
 
     // Parse + validate first response. Success exits here.
     let first_err = match parse_validate_and_check(&first_raw, agent.name(), &validator) {
-        Ok(output) => return (Ok(output), false),
+        Ok(output) => return (Ok(output), false, failures),
         Err(f) => f,
     };
+    failures.push(ExtractionFailure {
+        model: model.clone(),
+        attempt: 1,
+        cause: first_err.cause,
+    });
     // Surface the TYPED cause the moment the output is rejected. Until MS3 the reason a
     // mage failed was invisible: a recovered retry left it in retried_agents with no
     // record of why. The structured field is the diagnosis an operator needs, and it is
@@ -1137,11 +1171,12 @@ pub(crate) async fn dispatch_one_agent(
             MagiError::Validation(_) | MagiError::Deserialization(_)
         );
     if !should_retry {
-        return (Err(first_err.error.to_string()), false);
+        return (Err(first_err.error.to_string()), false, failures);
     }
 
     // Single-shot retry with corrective feedback prompt.
-    let retry_prompt = build_retry_prompt(&user_prompt, &first_err.error.to_string());
+    let retry_prompt =
+        build_retry_prompt(&user_prompt, first_err.cause, &first_err.error.to_string());
     let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
     let second_raw = match second_result {
         Ok(Ok(raw)) => raw,
@@ -1152,19 +1187,31 @@ pub(crate) async fn dispatch_one_agent(
                     MagiError::Provider(provider_err)
                 )),
                 true,
+                failures,
             );
         }
         Err(_elapsed) => {
             return (
                 Err(format!("retry-failed: timeout after {timeout:?}")),
                 true,
+                failures,
             );
         }
     };
 
     match parse_validate_and_check(&second_raw, agent.name(), &validator) {
-        Ok(output) => (Ok(output), true),
-        Err(f) => (Err(format!("retry-failed: {}", f.error)), true),
+        Ok(output) => (Ok(output), true, failures),
+        Err(f) => {
+            // `attempt: 2` — the corrective retry, on the SAME model. The counter is
+            // per-model by construction, so it restarts at 1 if a rotation happens later
+            // (E23c): that is what keeps "this model failed on its first try" readable.
+            failures.push(ExtractionFailure {
+                model,
+                attempt: 2,
+                cause: f.cause,
+            });
+            (Err(format!("retry-failed: {}", f.error)), true, failures)
+        }
     }
 }
 
@@ -1287,6 +1334,7 @@ async fn attempt_model(
     timeout: Duration,
     retry_enabled: bool,
     was_retried: &mut bool,
+    failures: &mut Vec<ExtractionFailure>,
 ) -> ModelOutcome {
     // First attempt.
     let first =
@@ -1307,6 +1355,14 @@ async fn attempt_model(
         Ok(output) => return ModelOutcome::Success(output),
         Err(f) => f,
     };
+    // Attribution is STRUCTURAL: the model is the one whose provider actually ran, and
+    // ttempt restarts at 1 for each model because this function handles exactly one
+    // model. That is what makes E23c hold without depending on read ordering.
+    failures.push(ExtractionFailure {
+        model: provider.model().to_string(),
+        attempt: 1,
+        cause: first_err.cause,
+    });
     // See the note at the non-rotating dispatch site: the typed cause is the diagnosis,
     // and on this path it also explains a rotation that would otherwise look arbitrary.
     tracing::warn!(
@@ -1329,7 +1385,8 @@ async fn attempt_model(
 
     // Single corrective retry on the SAME model.
     *was_retried = true;
-    let retry_prompt = build_retry_prompt(user_prompt, &first_err.error.to_string());
+    let retry_prompt =
+        build_retry_prompt(user_prompt, first_err.cause, &first_err.error.to_string());
     let second =
         tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
     let second_raw = match second {
@@ -1345,7 +1402,14 @@ async fn attempt_model(
     };
     match parse_validate_and_check(&second_raw, agent.name(), validator) {
         Ok(output) => ModelOutcome::Success(output),
-        Err(f) => ModelOutcome::Schema(format!("retry-failed: {}", f.error)),
+        Err(f) => {
+            failures.push(ExtractionFailure {
+                model: provider.model().to_string(),
+                attempt: 2,
+                cause: f.cause,
+            });
+            ModelOutcome::Schema(format!("retry-failed: {}", f.error))
+        }
     }
 }
 
@@ -1429,7 +1493,12 @@ pub(crate) async fn dispatch_one_agent_rotating(
     capabilities: Arc<BTreeMap<String, ModelCapability>>,
     strict_context_guard: bool,
     min_window_tokens: usize,
-) -> (Result<AgentOutput, String>, AgentRotation, bool) {
+) -> (
+    Result<AgentOutput, String>,
+    AgentRotation,
+    bool,
+    Vec<ExtractionFailure>,
+) {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
 
@@ -1455,6 +1524,10 @@ pub(crate) async fn dispatch_one_agent_rotating(
     let mut current_provider = agent.provider().clone();
     let mut current_lineage = primary_lineage;
     let mut was_retried = false;
+    // Accumulates ACROSS rotations: each ttempt_model call appends its own model's
+    // records, so the sequence reads as the seat's full history and ttempt restarts
+    // at 1 per model (E23c).
+    let mut failures: Vec<ExtractionFailure> = Vec::new();
 
     loop {
         let outcome = attempt_model(
@@ -1466,6 +1539,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
             timeout,
             retry_enabled,
             &mut was_retried,
+            &mut failures,
         )
         .await;
 
@@ -1481,12 +1555,12 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     .and_then(|c| c.window)
                     .is_none();
                 guard.mark_succeeded();
-                return (Ok(output), state.to_rotation(), was_retried);
+                return (Ok(output), state.to_rotation(), was_retried, failures);
             }
             ModelOutcome::Unexpected(detail) => {
                 registry.release(agent_name).await;
                 guard.mark_released();
-                return (Err(detail), state.to_rotation(), was_retried);
+                return (Err(detail), state.to_rotation(), was_retried, failures);
             }
             ModelOutcome::Schema(detail) => {
                 // Schema failure is mage-local: this mage will not retry this
@@ -1540,6 +1614,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     Err(format!("no_fitting_candidate: {detail}")),
                     state.to_rotation(),
                     was_retried,
+                    failures,
                 );
             }
         }
@@ -2769,7 +2844,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -2797,7 +2872,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -2827,7 +2902,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "MODE: design\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -2859,7 +2934,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -2890,7 +2965,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -2921,7 +2996,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -2946,7 +3021,7 @@ mod tests {
         let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -2969,7 +3044,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -2994,7 +3069,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -3024,7 +3099,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "MODE: x\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -3057,7 +3132,7 @@ mod tests {
         let cfg = CompletionConfig::default();
 
         // retry_enabled=false
-        let (result, retried) = dispatch_one_agent(
+        let (result, retried, _failures) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
