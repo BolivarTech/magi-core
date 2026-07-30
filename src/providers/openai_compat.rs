@@ -56,10 +56,25 @@ struct OpenAiChoice {
 }
 
 /// The assistant message inside a completion choice.
+///
+/// `content` is optional so that an **absent** or **null** field deserializes instead of failing
+/// the whole parse with an opaque message: those cases mean "the server sent no content", which is
+/// a schema failure worth naming, not a malformed document.
 #[derive(Debug, Deserialize)]
 struct OpenAiRespMessage {
-    content: String,
+    #[serde(default)]
+    content: Option<String>,
 }
+
+/// Sentinel status for a response that arrived and is unusable. Never a real HTTP status, and
+/// non-retryable per `is_retryable`.
+const PARSE_FAILURE_STATUS: u16 = 0;
+
+/// Body text when the server sent no usable content.
+const EMPTY_CONTENT_BODY: &str = "response content was empty or absent";
+
+/// Body text when the response carried no choices at all.
+const NO_CHOICES_BODY: &str = "no choices in response";
 
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
 /// format.
@@ -178,21 +193,34 @@ impl OpenAiCompatibleProvider {
     /// and is non-retryable per `is_retryable`.
     pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
         let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
-            status: 0,
+            status: PARSE_FAILURE_STATUS,
             body: format!("failed to parse response: {e}"),
             retry_after_raw: vec![],
             received_at: None,
         })?;
-        resp.choices
+        let choice = resp
+            .choices
             .into_iter()
             .next()
-            .map(|c| c.message.content)
             .ok_or_else(|| ProviderError::Http {
-                status: 0,
-                body: "no choices in response".to_string(),
+                status: PARSE_FAILURE_STATUS,
+                body: NO_CHOICES_BODY.to_string(),
                 retry_after_raw: vec![],
                 received_at: None,
-            })
+            })?;
+        match choice.message.content.as_deref() {
+            // Absent, null and empty all mean the same thing: the server sent no content. The
+            // condition is written EXPLICITLY rather than letting the empty case fall through
+            // some other path — otherwise the next refactor of this match breaks it in silence
+            // and no test notices.
+            None | Some("") => Err(ProviderError::Http {
+                status: PARSE_FAILURE_STATUS,
+                body: EMPTY_CONTENT_BODY.to_string(),
+                retry_after_raw: vec![],
+                received_at: None,
+            }),
+            Some(text) => Ok(text.to_owned()),
+        }
     }
 
     /// Maps an HTTP status code to a [`ProviderError`].
@@ -418,6 +446,35 @@ mod tests {
     fn test_auth_header_none_when_key_absent() {
         let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
         assert_eq!(p.auth_header(), None);
+    }
+
+    #[test]
+    fn absent_null_and_empty_content_are_all_a_named_schema_failure() {
+        for body in [
+            r#"{"choices":[{"message":{}}]}"#,
+            r#"{"choices":[{"message":{"content":null}}]}"#,
+            r#"{"choices":[{"message":{"content":""}}]}"#,
+        ] {
+            let err = OpenAiCompatibleProvider::parse_response(body)
+                .expect_err("no content is a failure");
+            assert!(
+                matches!(err, ProviderError::Http { status: 0, .. }),
+                "same sentinel as other unusable responses: {err:?}"
+            );
+            assert!(
+                err.to_string().contains("empty or absent"),
+                "and it says WHAT was wrong, not 'failed to parse': {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn content_with_text_is_returned() {
+        let body = r#"{"choices":[{"message":{"content":"hello"}}]}"#;
+        assert_eq!(
+            OpenAiCompatibleProvider::parse_response(body).expect("parses"),
+            "hello"
+        );
     }
 
     // Endpoint construction moved to the URL authority, and its coverage GREW rather than
