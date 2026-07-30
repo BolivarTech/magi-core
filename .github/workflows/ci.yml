@@ -64,6 +64,28 @@ jobs:
       - uses: actions/checkout@v5
       - run: sh ci/check_r0.sh
 
+  # Same shape, same honesty: a ratchet against the leak paths that were already closed, not a
+  # proof that none exist. It self-tests first — a pattern that silently stopped matching would
+  # otherwise report success forever.
+  redaction-rule:
+    name: Credential redaction
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash ci/check_redaction.sh --self-test
+      - run: bash ci/check_redaction.sh
+
+  # The ONLY check that can catch a regression of external error construction: inside `src/` the
+  # variants are always constructible, so a test there would pass while the API stayed broken.
+  # An example compiles as a separate crate, which is what makes it a real probe.
+  examples-compile:
+    name: Examples compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --all-features --examples
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

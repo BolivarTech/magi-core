@@ -54,9 +54,7 @@ impl OllamaProvider {
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_CLIENT_TIMEOUT)
             .build()
-            .map_err(|e| ProviderError::Network {
-                message: format!("failed to build HTTP client: {e}"),
-            })?;
+            .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {
             inner,
             base_url: base,

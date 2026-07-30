@@ -130,13 +130,10 @@ impl ClaudeProvider {
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
         let model_id = resolve_claude_alias(&model.into())?;
-        let client =
-            Client::builder()
-                .timeout(timeout)
-                .build()
-                .map_err(|e| ProviderError::Network {
-                    message: format!("failed to build HTTP client: {e}"),
-                })?;
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {
             client,
             api_key: api_key.into(),
@@ -195,7 +192,10 @@ impl ClaudeProvider {
         let response: ClaudeResponse =
             serde_json::from_str(body).map_err(|e| ProviderError::Http {
                 status: 0,
-                body: format!("failed to parse response: {e}"),
+                body: format!(
+                    "failed to parse response: {}",
+                    crate::provider::describe_parse_error(&e)
+                ),
                 retry_after_raw: vec![],
                 received_at: None,
             })?;

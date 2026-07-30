@@ -388,6 +388,28 @@ pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
     parts.join(": ")
 }
 
+/// Describes a deserialization failure.
+///
+/// Typed on purpose: it accepts **only** a serde error, so it is structurally impossible to feed it
+/// a network error whose text embeds a URL. That is what lets the CI check forbid interpolating an
+/// error inside provider code without carving out an exception — the safe case has a name.
+pub(crate) fn describe_parse_error(e: &serde_json::Error) -> String {
+    e.to_string()
+}
+
+/// Builds the error for a client that could not be constructed.
+///
+/// Separate from [`to_provider_error`] because no request exists yet — there is no URL to redact
+/// and nothing to compose against. It lives here, with the other constructors, so that **no
+/// provider file builds a transport variant at all**: that is what lets the CI check be a flat
+/// prohibition instead of a rule with exceptions.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+pub(crate) fn client_build_error(e: &reqwest::Error) -> ProviderError {
+    ProviderError::Network {
+        message: format!("failed to build HTTP client: {}", cause_chain(e)),
+    }
+}
+
 /// Turns a transport failure into this crate's error type.
 ///
 /// **This is the only place a transport [`ProviderError`] is built from a client error.** That is

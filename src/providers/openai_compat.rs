@@ -153,9 +153,7 @@ impl OpenAiCompatibleProvider {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
-            .map_err(|e| ProviderError::Network {
-                message: format!("failed to build HTTP client: {e}"),
-            })?;
+            .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {
             client,
             base_url,
@@ -194,7 +192,10 @@ impl OpenAiCompatibleProvider {
     pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
         let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
             status: PARSE_FAILURE_STATUS,
-            body: format!("failed to parse response: {e}"),
+            body: format!(
+                "failed to parse response: {}",
+                crate::provider::describe_parse_error(&e)
+            ),
             retry_after_raw: vec![],
             received_at: None,
         })?;
