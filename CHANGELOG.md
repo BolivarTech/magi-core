@@ -4,6 +4,43 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.1] - 2026-07-30
+
+Defect fixes found by re-running the pre-merge review gate against the published `3.0.0`
+tree. No API, contract, or behavior change that a correct caller can observe — the one
+behavioral difference is that a *misuse* now degrades instead of producing wrong output.
+
+### Fixed
+
+- **`fit_content` could append a suffix the content never contained.** The report
+  formatter's truncation helper assumed, without checking, that the text ended with the
+  suffix it was asked to preserve; a `debug_assert!` guarded it, which means release builds
+  did not. With the assumption broken it lopped bytes off the tail and appended the suffix
+  anyway, so a banner line could render text that was never in the input — and with
+  non-ASCII content the same byte offset could land inside a codepoint and panic. The check
+  is now a real one (`strip_suffix`): a violation logs a warning and falls back to a plain
+  tail cut. The function no longer panics from its own slicing in any profile.
+- **The `width < 4` edge case was never verified in CI.** Its test was gated on
+  `not(debug_assertions)` while CI builds tests in debug, so the only documented edge case
+  of that function went unchecked on every push. It now runs in every profile.
+- **Rustdoc contradicted the code in four places** on `fit_content`, including a
+  `debug_assert!` shown in the contract that no longer exists, and the whole
+  precondition/algorithm block rendering on the wrong function.
+
+### Changed
+
+- Report-config validation lives in **one** place instead of two byte-identical copies, so
+  a rule added to one can no longer go missing from the other.
+- `normalize_line` no longer allocates twice on the rare path that strips invisible
+  characters.
+- The CI rule that enforces "one definition of the block locator" is anchored to
+  definitions, so documenting the invariant no longer breaks the build by mentioning it.
+
+### Notes
+
+`3.0.0` was published before this gate finished; it carries the `fit_content` defect above.
+Prefer `3.0.1`.
+
 ## [3.0.0] - 2026-07-30
 
 **The verdict sentinel.** An agent's verdict is now read only from between two marker
