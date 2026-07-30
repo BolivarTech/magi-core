@@ -180,6 +180,18 @@ const RETRY_FEEDBACK_DASH_VARIANTS: &[&str] = &[
 /// and only the model's *response* is ever parsed. But an error fragment that appears to
 /// open a verdict block is at best confusing to a model that already failed once, and the
 /// symmetry with the envelope is the point — every structural token gets the same treatment.
+///
+/// # The CONTENT under review is deliberately NOT neutralized
+///
+/// This applies only to the **error fragment** embedded in the retry feedback, never to
+/// the content being analyzed. Two reasons, and both point the same way:
+///
+/// * Content that contains a marker line and gets echoed produces a second open or close
+///   → `Ambiguous` → **fail closed**. There is nothing to defend against.
+/// * Neutralizing it would corrupt the reviewed material precisely when the material is
+///   *about* the sentinel — which is what happens every time this crate is reviewed with
+///   MAGI. A sanitizer that mangles the one input we run most often would be trading a
+///   non-threat for a real defect.
 const VERDICT_MARKER_TOKENS: &[&str] = &[VERDICT_OPEN, VERDICT_CLOSE];
 
 /// Sanitize an error string for safe inclusion in the retry feedback block.
