@@ -40,6 +40,27 @@ static NEWLINE_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// # Returns
 ///
 /// `Cow<'_, str>` — borrowed if unchanged, owned if any separator was replaced.
+///
+/// # KNOWN LIMITATION: this rewrites the content the model is shown
+///
+/// Applied to the analyzed content (not only to error text), so a `U+2028` inside a string
+/// literal in the code under review reaches the model as a plain newline. For a library
+/// whose input is *material under review*, that is a real fidelity cost, and it is accepted
+/// deliberately (MAGI R2, Melchior `[WARNING]`).
+///
+/// **Why not "detect on a normalized copy, send the original".** That is the obvious
+/// alternative and it is worse. `neutralize_headers` is **line-anchored**: if `U+2028`
+/// survives in what we send, a model that renders it as a line break sees `MODE: x`
+/// starting a line while our regex — which does not treat it as a break — never neutralizes
+/// it. That is precisely the injection this normalization closes. Preserving the original
+/// would mean detecting in the copy and rewriting at the corresponding offsets in the
+/// original, and the offsets **shift** (`U+2028` is 3 bytes, `\n` is 1). Fiddly offset
+/// arithmetic inside a security path is how holes get in.
+///
+/// So the trade is: a cosmetic loss on exotic separators, versus a walkable sanitizer. Same
+/// call `2.2.0` made when it chose to over-neutralize rather than to be bypassable. If a
+/// consumer ever needs byte-exact fidelity, the fix is a **separate** review path that does
+/// not go through header neutralization at all — not a weakening of this one.
 fn normalize_newlines(s: &str) -> Cow<'_, str> {
     NEWLINE_RE.replace_all(s, "\n")
 }
@@ -209,12 +230,17 @@ const VERDICT_MARKER_TOKENS: &[&str] = &[VERDICT_OPEN, VERDICT_CLOSE];
 /// 3. `neutralize_headers` covers line-start `MODE:` / `CONTEXT:` /
 ///    `---BEGIN USER CONTEXT` / `---END USER CONTEXT` tokens (existing
 ///    v0.3 anti-injection defense).
-/// 4. Literal substring replace of `---RETRY-FEEDBACK---` AND its
-///    Unicode-confusable dash variants (em-dash, en-dash, horizontal bar,
-///    minus sign). The regex from step 3 only ever matches its four
-///    reserved keywords, and `RETRY-FEEDBACK` is not one of them, so it
-///    never neutralizes this marker — this literal pass closes that gap
-///    (MAGI R2 C1) including dash-variant bypasses (MAGI R3 W2).
+/// 4. Literal substring replace of every **structural token**, because the step-3 regex
+///    only ever matches its four reserved keywords and none of these is one of them, so
+///    it never neutralizes them — this pass closes that gap (MAGI R2 C1). Two families:
+///    - The retry envelope `---RETRY-FEEDBACK---` and **eight** Unicode-confusable dash
+///      spellings of it, one per variant in [`RETRY_FEEDBACK_DASH_VARIANTS`]: em dash
+///      (U+2014), en dash (U+2013), horizontal bar (U+2015), minus sign (U+2212), hyphen
+///      (U+2010), non-breaking hyphen (U+2011), figure dash (U+2012), and fullwidth
+///      hyphen-minus (U+FF0D). Enumerated rather than pattern-matched, so the list is
+///      **bounded, not exhaustive** — `test_every_declared_dash_variant_is_neutralized`
+///      keeps it honest by iterating the constant instead of restating members.
+///    - The verdict markers, via [`VERDICT_MARKER_TOKENS`] — structural since 3.0.0.
 ///
 /// Used by [`build_retry_prompt`] to sanitize the `error` argument before
 /// embedding it in the corrective feedback block. The error is typically

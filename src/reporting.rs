@@ -82,14 +82,10 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
 /// - `width > 0`.
 ///   `debug_assert!(width > 0)`
-/// - `content` should end with `preserve_suffix` when Step 3 runs — but this is a
-///   *caller expectation*, **not** an unchecked assumption. It is enforced at runtime by
-///   `strip_suffix`: a violation logs a `tracing::warn!` and degrades to the Step 2 tail
-///   cut, so the result is always a meaningful truncation of the real input.
-///   *(This bullet used to say the prefix would be "arbitrary" and that a `debug_assert!`
-///   guarded it. Both were the defect: an assert is absent in release, and "arbitrary" was
-///   understating it — the function appended a suffix the content never carried. MAGI R2,
-///   Melchior `[WARNING]`.)*
+/// - `content` should end with `preserve_suffix` when Step 3 runs. This one is **checked at
+///   runtime, in every profile**, by `strip_suffix` — not asserted: a violation logs a
+///   `tracing::warn!` and degrades to the Step 2 tail cut, so the result is always a
+///   truncation of the real input and never carries a suffix the input lacked.
 ///   `debug_assert!(content.ends_with(preserve_suffix))` — checked at Step 3 entry.
 ///
 /// # Post-condition
@@ -2401,20 +2397,21 @@ mod tests {
     /// This is an accepted edge case documented in the spec — a literal port of Python behavior.
     /// Callers should ensure `width >= 4` for sensible truncation.
     ///
-    /// This test is skipped in debug builds because `fit_content` fires a `debug_assert!(width >= 4)`
-    /// to catch unintended callers in dev/test environments. The width=1 path is only reachable in
-    /// release mode where the assert is compiled out.
+    /// Exercised through [`tail_cut`], which is the code that actually implements the
+    /// behavior and carries no width assertion — so this runs in **every** profile.
+    ///
+    /// It used to be `#[cfg(not(debug_assertions))]` on `fit_content`, because that
+    /// function's `debug_assert!(width >= 4)` fires first in debug. The effect was a test
+    /// that never ran where it mattered: CI builds tests in debug, so the only documented
+    /// edge case of this function went unverified on every push. (MAGI R2, Melchior
+    /// `[INFO]`.) Extracting `tail_cut` made the behavior reachable without disabling the
+    /// assertion that protects real callers.
     #[test]
-    #[cfg(not(debug_assertions))]
-    fn test_fit_content_boundary_width_1() {
+    fn test_tail_cut_boundary_width_1_exceeds_width_by_design() {
         // width=1: cutoff = max(1, 1.saturating_sub(3)) = max(1, 0) = 1
-        // result = "a..." (4 bytes, exceeds width — documented edge case)
-        let result = fit_content("abc", 1, "");
-        assert_eq!(
-            result, "a...",
-            "Expected 'a...' for width=1, got: {:?}",
-            result
-        );
+        // result = "a..." (4 bytes, exceeds width — documented edge case, a literal port
+        // of the Python behavior: one char plus the ellipsis cannot fit in 1).
+        assert_eq!(tail_cut("abc", 1, "..."), "a...");
     }
 
     // -- S10: Banner column alignment --
