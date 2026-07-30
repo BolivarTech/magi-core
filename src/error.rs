@@ -227,17 +227,34 @@ pub enum MagiError {
     /// Additive via the enum's `#[non_exhaustive]`; the variant is `#[non_exhaustive]`
     /// too, so match with `..`.
     // `AgentName` has no `Display` (only `display_name()`), so the format string calls
-    // it explicitly rather than relying on `{agent}`.
-    #[error("prompt contract violated for {}{}: {reason}",
-            agent.display_name(),
+    // it explicitly. Both `agent` and `mode` are optional in the rendering, so the
+    // message never claims an owner it does not have.
+    #[error("prompt contract violated{}{}: {reason}",
+            agent.map_or_else(|| " (unassigned prompt)".to_string(),
+                              |a| format!(" for {}", a.display_name())),
             mode.map_or_else(String::new, |m| format!(" (mode {m:?})")))]
     #[non_exhaustive]
     PromptContract {
-        /// Whose prompt. **Never `Option`**: an embedded prompt has an owner, and a
-        /// message that cannot say which of the three files to open is not actionable.
-        agent: crate::schema::AgentName,
-        /// `Some` for a per-mode override; `None` for a mode-agnostic override or an
-        /// embedded prompt.
+        /// Whose prompt, when known.
+        ///
+        /// `Some` on the path that resolves prompts — `build()` always knows the seat,
+        /// and a message that cannot say which of the three files to open is not
+        /// actionable (E20b). `None` for [`crate::prompts::validate_prompt`], where the
+        /// **consumer** hands over a loose string and has not chosen a seat yet.
+        ///
+        /// # Deviation from R14's letter, on purpose
+        ///
+        /// The spec fixes this as a plain `AgentName`, reasoning *"no prompt is
+        /// ownerless"*. That holds for prompts the crate **resolves**; it does not hold
+        /// for a consumer validating a string in their own test suite. With a required
+        /// field, that path would have to name a mage — and would name the **wrong**
+        /// one: someone checking their Caspar prompt would read *"Melchior"*. An
+        /// actively misleading error contradicts E20b more than an honest `None` does,
+        /// so the shape follows the spec's intent rather than its wording. Use
+        /// [`crate::prompts::validate_prompt_for`] when the seat IS known.
+        agent: Option<crate::schema::AgentName>,
+        /// `Some` for a per-mode override; `None` for a mode-agnostic override, an
+        /// embedded prompt, or a consumer-supplied string.
         mode: Option<crate::schema::Mode>,
         /// Which rule was violated, and how to check it before deploying.
         reason: String,

@@ -106,11 +106,20 @@ pub(crate) fn lookup_prompt(
 /// exactly what `build()` accepts. Call it from your own test suite before deploying a
 /// custom prompt, instead of discovering the problem when `build()` returns `Err`.
 ///
-/// # What it checks (MS3 T1 — minimal)
+/// # What it checks
 ///
-/// Exactly **one** `<MAGI_VERDICT>` line and **one** `</MAGI_VERDICT>` line, in that
-/// order, judged with the **strict** predicate: in a file you ship, an invisible
-/// character inside a marker line is corruption, not tolerance owed.
+/// 1. Exactly **one** `<MAGI_VERDICT>` line and **one** `</MAGI_VERDICT>` line, in that
+///    order, judged with the **strict** predicate: in a file you ship, an invisible
+///    character inside a marker line is corruption, not tolerance owed.
+/// 2. **Nothing fabricable between them** — the delimited block must NOT deserialize as
+///    a complete verdict. A prompt whose marker block is a valid 7-key object is a
+///    *fabrication template*: an agent that echoes its own instructions emits a clean
+///    verdict nobody formed. Put the worked example **outside** the markers and leave a
+///    non-JSON placeholder inside, the way the built-in prompts do.
+///
+/// The block is obtained through the **same** `locate_block` the parser uses — same line
+/// splitter, same fence stripping — so a fence cannot hide a fabricable object from this
+/// check while the parser would still accept it.
 ///
 /// A leading BOM is tolerated: it is an artefact of the file's **encoding**, not a
 /// property of a line, so it is resolved here — before anything is compared. Resolving
@@ -138,19 +147,59 @@ pub(crate) fn lookup_prompt(
 /// assert!(validate_prompt("You are Caspar. Reply with only a JSON object.").is_err());
 /// ```
 pub fn validate_prompt(prompt: &str) -> Result<(), MagiError> {
+    validate_prompt_for(None, None, prompt)
+}
+
+/// Same check as [`validate_prompt`], for a caller that **knows the seat**.
+///
+/// This is the form `MagiBuilder::build()` uses, so its error names the agent (and the
+/// mode, for a per-mode override) and a reader knows which of the three files to open.
+/// Consumers can use it too when they already know which mage a prompt is for.
+///
+/// # Errors
+///
+/// [`MagiError::PromptContract`] identifying the prompt, the rule violated, and how to
+/// check it before deploying.
+pub fn validate_prompt_for(
+    agent: Option<AgentName>,
+    mode: Option<Mode>,
+    prompt: &str,
+) -> Result<(), MagiError> {
+    // The BOM is an artefact of the FILE's encoding, not a property of a line, so it is
+    // resolved HERE — before anything is compared. Resolving it in the comparator is the
+    // mistake the reference made (a false FATAL aborted a run) before moving it to the
+    // encoding layer.
     let body = prompt.strip_prefix('\u{feff}').unwrap_or(prompt);
-    locate_block(body, is_exact_marker_line)
-        .map(|_| ())
-        .map_err(|e| MagiError::PromptContract {
-            // DEBT, not design — T5 must eliminate this. `validate_prompt(&str)` cannot
-            // know the seat, so naming one here risks naming the WRONG one: a consumer
-            // validating their Caspar prompt would read "melchior". T5 adds the internal
-            // path that DOES know agent and mode, and the acceptance condition is that
-            // the public path never names a wrong agent.
-            agent: AgentName::Melchior,
-            mode: None,
-            reason: format!("{e}; verify with prompts::validate_prompt before deploying"),
-        })
+
+    let contract = |reason: String| MagiError::PromptContract {
+        agent,
+        mode,
+        reason,
+    };
+
+    let block = locate_block(body, is_exact_marker_line).map_err(|e| {
+        contract(format!(
+            "{e}. Start from prompts::caspar_prompt() (or copy its `## Output format` \
+             section verbatim) and check with prompts::validate_prompt before deploying"
+        ))
+    })?;
+
+    // NOTHING FABRICABLE between the markers. The block is obtained from the SAME
+    // `locate_block` the parser uses — same line splitter, same fence stripping — so the
+    // guard sees exactly what the parser would see. With two separate implementations, a
+    // 7-key object hidden inside a fence passed the guard while the parser, which does
+    // strip fences, would have accepted it: a fabrication vector inside the guard meant
+    // to close it.
+    if serde_json::from_str::<crate::schema::AgentOutput>(block).is_ok() {
+        return Err(contract(
+            "the block between the verdict markers deserializes as a complete verdict, \
+             so an agent echoing its instructions would fabricate one. Put the worked \
+             example OUTSIDE the markers and leave a non-JSON placeholder inside, as \
+             prompts::caspar_prompt() does"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -237,6 +286,101 @@ mod tests_verdict_contract {
         // R3 — the BOM is resolved in the encoding layer, not in the comparator.
         let p = format!("\u{feff}intro\n{VERDICT_OPEN}\n{{ ...slot... }}\n{VERDICT_CLOSE}");
         validate_prompt(&p).expect("a leading BOM must not fail the contract");
+    }
+
+    /// The complete 7-key object — a prompt with this between its markers is a
+    /// fabrication template: an agent echoing its instructions emits a clean verdict.
+    fn fabricable_object() -> &'static str {
+        r#"{"agent":"caspar","verdict":"approve","confidence":0.9,"summary":"s",
+           "reasoning":"r","findings":[],"recommendation":"rec"}"#
+    }
+
+    #[test]
+    fn test_validate_prompt_rejects_a_fabricable_block() {
+        // E19
+        let p = format!("{VERDICT_OPEN}\n{}\n{VERDICT_CLOSE}", fabricable_object());
+        assert!(matches!(
+            validate_prompt(&p),
+            Err(MagiError::PromptContract { .. })
+        ));
+    }
+
+    #[test]
+    fn test_validate_prompt_rejects_a_fabricable_block_inside_a_fence() {
+        // E19b — THE EVASION VECTOR the gate found. The guard applies the SAME
+        // `strip_fence` as the parser, so a fence cannot hide a fabricable object. With
+        // two separate implementations this prompt PASSED the guard (serde choked on the
+        // fence) while the parser, which strips fences, would have accepted it.
+        let p = format!(
+            "{VERDICT_OPEN}\n```json\n{}\n```\n{VERDICT_CLOSE}",
+            fabricable_object()
+        );
+        assert!(
+            matches!(validate_prompt(&p), Err(MagiError::PromptContract { .. })),
+            "a fence must not hide a fabricable object from the guard"
+        );
+    }
+
+    #[test]
+    fn test_validate_prompt_counts_markers_in_a_cr_only_prompt() {
+        // E19c — inherits the R5 splitter via `locate_block`; `str::lines()` would count
+        // zero markers here and wave the prompt through.
+        let p = format!("intro\r{VERDICT_OPEN}\r{{ ...slot... }}\r{VERDICT_CLOSE}\rfin");
+        validate_prompt(&p).expect("a CR-only prompt must validate");
+    }
+
+    #[test]
+    fn test_unassigned_validation_does_not_name_a_mage() {
+        // The debt T1 left behind, killed. `validate_prompt(&str)` cannot know the seat,
+        // so its error must not claim one: a consumer checking their Caspar prompt used
+        // to read "Melchior". An actively misleading error is worse than an honest
+        // "unassigned" (E20b).
+        let err = validate_prompt("no markers here").unwrap_err();
+        let msg = err.to_string();
+        assert!(matches!(err, MagiError::PromptContract { agent: None, .. }));
+        for mage in ["Melchior", "Balthasar", "Caspar"] {
+            assert!(
+                !msg.contains(mage),
+                "must not claim a seat it does not know: {msg}"
+            );
+        }
+        assert!(msg.contains("unassigned"), "{msg}");
+    }
+
+    #[test]
+    fn test_seat_aware_validation_names_the_agent_and_mode() {
+        // The path `build()` uses: the seat IS known, so the message says which of the
+        // three files to open (E20b).
+        let err =
+            validate_prompt_for(Some(AgentName::Caspar), Some(Mode::Design), "nope").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Caspar"), "{msg}");
+        assert!(msg.contains("Design"), "{msg}");
+    }
+
+    #[test]
+    fn test_the_error_is_actionable_on_its_own() {
+        // E20b — a consumer must be able to fix it without opening documentation: which
+        // rule broke, and how to check before deploying.
+        let msg = validate_prompt("legacy prompt").unwrap_err().to_string();
+        assert!(msg.contains("no verdict markers found"), "the rule: {msg}");
+        assert!(msg.contains("validate_prompt"), "how to check: {msg}");
+        assert!(msg.contains("caspar_prompt"), "where to start: {msg}");
+    }
+
+    #[test]
+    fn test_guard_and_parser_agree_on_the_same_block() {
+        // E19d — the guard is a FAITHFUL simulation of the parser. Whatever the strict
+        // path accepts, the permissive path must see the SAME content; the only
+        // admissible difference is that strict REJECTS invisibles.
+        let fenced = format!("{VERDICT_OPEN}\n```json\n{{\"a\":1}}\n```\n{VERDICT_CLOSE}");
+        assert_eq!(
+            crate::verdict_markers::extract(&fenced).unwrap(),
+            "{\"a\":1}",
+            "the parser strips the fence"
+        );
+        // And the guard, seeing that same stripped content, judges it non-fabricable.
+        validate_prompt(&fenced).expect("`{\"a\":1}` is not a 7-key verdict");
     }
 
     #[test]

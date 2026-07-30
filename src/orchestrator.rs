@@ -24,7 +24,7 @@ use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user
 use crate::validate::{ValidationLimits, Validator};
 use tokio::task::AbortHandle;
 
-/// Default value for [`MagiConfig::max_input_len`] — 4 MB.
+/// Default value for [`MagiConfig::max_input_len`] â€” 4 MB.
 ///
 /// This is a compromise between Python's 10 MB and v0.1.2's 1 MB.
 /// A full 10 MB alignment with Python is deferred to v0.3.0 pending
@@ -56,16 +56,16 @@ pub struct MagiConfig {
     ///
     /// An allocation audit of the `analyze()` pipeline for `magi-core v0.2.0` found
     /// 5 copy points on the content's path from `analyze()` entry to wire serialization:
-    /// (1) user-prompt construction via `format!`, (2–4) per-agent `String::clone` to
+    /// (1) user-prompt construction via `format!`, (2â€“4) per-agent `String::clone` to
     /// satisfy `tokio::spawn`'s `'static` bound (3 agents), and (5) HTTP/stdin
     /// serialization by the provider. Peak memory per analysis is approximately
-    /// `content.len() × 5` plus fixed overhead. For the 4 MB default, peak ≈ 20 MB.
+    /// `content.len() Ã— 5` plus fixed overhead. For the 4 MB default, peak â‰ˆ 20 MB.
     /// A full 10 MB alignment with Python is deferred to v0.3.0, pending an
     /// `Arc<str>` refactor of the orchestrator-to-provider path to reduce copies.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
     pub completion: CompletionConfig,
-    /// **v0.4.0** — enable the single-shot retry on schema/parse errors.
+    /// **v0.4.0** â€” enable the single-shot retry on schema/parse errors.
     ///
     /// Default: `true`. When enabled, an agent whose first response fails
     /// `MagiError::Validation` or `MagiError::Deserialization` is retried
@@ -73,7 +73,7 @@ pub struct MagiConfig {
     ///
     /// When disabled (via [`MagiBuilder::with_retry_disabled`]), the first
     /// schema/parse error becomes the failure reason without retry. Useful
-    /// for latency-sensitive deployments where 2× worst-case timeout per
+    /// for latency-sensitive deployments where 2Ã— worst-case timeout per
     /// agent is unacceptable.
     pub retry_on_schema_error: bool,
 }
@@ -98,7 +98,7 @@ impl Default for MagiConfig {
 /// silently change predicate ergonomics. `Mode` is currently `Copy` so
 /// the by-reference choice has zero runtime cost.
 ///
-/// **Future: a fallible variant** — a `Result<bool, MagiError>`-returning
+/// **Future: a fallible variant** â€” a `Result<bool, MagiError>`-returning
 /// alternative may be added in v0.6.x if callers need predicate-supplied
 /// error context. The current `bool` form is the simple-case API; it
 /// will not be removed (the type alias may grow a sibling, not change).
@@ -133,13 +133,13 @@ pub struct MagiBuilder {
     report_config: ReportConfig,
     rng_source: Option<Box<dyn RngLike + Send>>,
     complexity_gate: Option<ComplexityGate>,
-    /// **MS2** — per-agent declared primary lineage (rotation diversity key).
+    /// **MS2** â€” per-agent declared primary lineage (rotation diversity key).
     agent_lineages: BTreeMap<AgentName, Lineage>,
-    /// **MS2** — probes declared on probing primaries (`with_probing_agent`).
+    /// **MS2** â€” probes declared on probing primaries (`with_probing_agent`).
     primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
-    /// **MS2** — the shared fallback pool; `None` ⇒ rotation disabled (2.0.x path).
+    /// **MS2** â€” the shared fallback pool; `None` â‡’ rotation disabled (2.0.x path).
     fallback_pool: Option<FallbackPool>,
-    /// **MS2** — reject candidates whose context window can't be measured (R16).
+    /// **MS2** â€” reject candidates whose context window can't be measured (R16).
     strict_context_guard: bool,
 }
 
@@ -167,7 +167,7 @@ impl MagiBuilder {
         }
     }
 
-    /// **MS2** — Registers an agent's primary provider AND its declared lineage
+    /// **MS2** â€” Registers an agent's primary provider AND its declared lineage
     /// (the rotation diversity key). A `Lineage` is trimmed at construction; an
     /// empty/blank one is rejected at [`build`](Self::build) (R3.2).
     pub fn with_agent(
@@ -182,10 +182,10 @@ impl MagiBuilder {
         self
     }
 
-    /// **MS2** — Like [`with_agent`](Self::with_agent) but the primary also
+    /// **MS2** â€” Like [`with_agent`](Self::with_agent) but the primary also
     /// declares a [`ProviderProbe`]: the preflight can then resolve its window and
     /// digest. `Arc<P>` is coerced to both trait objects (no downcast; `LlmProvider`
-    /// untouched — G4). A down probe never blocks rotation (fail-open).
+    /// untouched â€” G4). A down probe never blocks rotation (fail-open).
     pub fn with_probing_agent<P: LlmProvider + ProviderProbe + 'static>(
         mut self,
         agent: AgentName,
@@ -200,14 +200,14 @@ impl MagiBuilder {
         self
     }
 
-    /// **MS2** — Declares the shared fallback pool. Without it, rotation is
+    /// **MS2** â€” Declares the shared fallback pool. Without it, rotation is
     /// disabled and behavior is identical to 2.0.x.
     pub fn with_fallback_pool(mut self, pool: FallbackPool) -> Self {
         self.fallback_pool = Some(pool);
         self
     }
 
-    /// **MS2** — When enabled, a fallback candidate whose context window cannot be
+    /// **MS2** â€” When enabled, a fallback candidate whose context window cannot be
     /// measured by its probe is REJECTED during rotation (R16). Default `false`
     /// (an unmeasured window is eligible; the definitive probe decides later).
     pub fn with_strict_context_guard(mut self, strict: bool) -> Self {
@@ -215,7 +215,7 @@ impl MagiBuilder {
         self
     }
 
-    /// **v0.5.0** — Set a complexity-gate predicate. Called by
+    /// **v0.5.0** â€” Set a complexity-gate predicate. Called by
     /// [`Magi::analyze`] **after** input-size validation but before any
     /// LLM dispatch. If the predicate returns `false`, `analyze` returns
     /// [`MagiError::SkippedByComplexityGate`] without invoking the LLM
@@ -224,7 +224,7 @@ impl MagiBuilder {
     /// # Evaluation order
     ///
     /// `analyze` checks (in order):
-    /// 1. Input length vs `max_input_len` → `MagiError::InputTooLarge`
+    /// 1. Input length vs `max_input_len` â†’ `MagiError::InputTooLarge`
     ///    on oversize.
     /// 2. **This gate.** Side effects (rate-limiter increments, cache
     ///    lookups) ONLY fire on inputs that passed size validation.
@@ -250,7 +250,7 @@ impl MagiBuilder {
     /// Bounds: `Fn(&str, &Mode) -> bool + Send + Sync + 'static`. The
     /// closure is stored as `Arc<dyn Fn>` so it must be `Send + Sync`
     /// even though `analyze` does not currently spawn the gate call
-    /// (defensive — keeps the `Magi` struct `Send + Sync`).
+    /// (defensive â€” keeps the `Magi` struct `Send + Sync`).
     ///
     /// **The predicate runs synchronously on the calling task's
     /// executor.** It must be cheap (microseconds, not milliseconds).
@@ -328,7 +328,7 @@ impl MagiBuilder {
 
     /// Injects a custom RNG source for nonce generation in `build_user_prompt`.
     ///
-    /// Intended for testing only — `#[cfg(test)]` gated to avoid dead-code
+    /// Intended for testing only â€” `#[cfg(test)]` gated to avoid dead-code
     /// warnings in release builds (the method is unused outside test code).
     /// The nonce is shared across all agents for a single `analyze()`
     /// invocation (one call per request).
@@ -342,14 +342,14 @@ impl MagiBuilder {
         self
     }
 
-    /// **v0.4.0** — Disable the single-shot retry on schema/parse errors.
+    /// **v0.4.0** â€” Disable the single-shot retry on schema/parse errors.
     ///
     /// Agents whose first response fails `MagiError::Validation` or
     /// `MagiError::Deserialization` go directly to `failed_agents` without
     /// a second attempt. `retried_agents` is always empty in the resulting
     /// [`MagiReport`].
     ///
-    /// Useful for latency-sensitive deployments where the 2× worst-case
+    /// Useful for latency-sensitive deployments where the 2Ã— worst-case
     /// timeout per agent (one for the first attempt + one for the retry,
     /// each with a fresh `timeout` budget) is unacceptable.
     ///
@@ -444,7 +444,7 @@ impl MagiBuilder {
     /// # Errors
     /// Returns `MagiError::Io` if `prompts_dir` is set and cannot be read.
     pub fn build(self) -> Result<Magi, MagiError> {
-        // MS2 (R3.2) — VALIDITY: reject empty/blank declared lineages before anything
+        // MS2 (R3.2) â€” VALIDITY: reject empty/blank declared lineages before anything
         // else. This is malformed input (a `Lineage` is a declared label), distinct
         // from the G2 diversity warning below; it fires even for a single-provider config.
         for (agent, lineage) in &self.agent_lineages {
@@ -468,7 +468,7 @@ impl MagiBuilder {
                 }
             }
         }
-        // MS2 (G2) — DIVERSITY is a warning, never an error: two primaries may share
+        // MS2 (G2) â€” DIVERSITY is a warning, never an error: two primaries may share
         // a lineage (a single-provider industrial user runs fine).
         {
             let mut seen = std::collections::BTreeSet::new();
@@ -501,12 +501,40 @@ impl MagiBuilder {
             }
         }
 
+        // MS3 (R14) â€” THE PROMPT CONTRACT GUARD. Every RESOLVABLE prompt must carry the
+        // verdict-marker block: the three embedded ones and every override, including
+        // those loaded from `prompts_dir`.
+        //
+        // Placement: after the overrides merge above, so filesystem-loaded prompts are
+        // covered too â€” those are exactly the ones a consumer is most likely to get
+        // wrong. `AgentFactory::new` only stored an `Arc`; **no provider has been
+        // called**, and returning `Err` here means none ever is (E20).
+        //
+        // This does NOT trigger retry or rotation: a stale prompt is not fixed by asking
+        // the model again. It is a sibling of the validation path, not a child of it.
+        //
+        // The Python lesson this exists to avoid: the guard existed, was tested, and
+        // NOBODY CALLED IT.
+        for (agent, mode) in [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar]
+            .into_iter()
+            .map(|a| (a, None))
+        {
+            crate::prompts::validate_prompt_for(
+                Some(agent),
+                mode,
+                crate::prompts::embedded_prompt_for(agent),
+            )?;
+        }
+        for ((agent, mode), prompt) in &overrides {
+            crate::prompts::validate_prompt_for(Some(*agent), *mode, prompt)?;
+        }
+
         let rng_source = self
             .rng_source
             .unwrap_or_else(|| Box::new(FastrandSource) as Box<dyn RngLike + Send>);
 
         // MS2: engage the rotation subsystem when the user declares a fallback pool
-        // OR probing primaries — the latter want window/digest measurement (and the
+        // OR probing primaries â€” the latter want window/digest measurement (and the
         // `ran_unmeasured` honesty flag) even with no pool to rotate into. Declaring
         // NOTHING reproduces 2.0.x behavior exactly (R11/S1).
         let engage_rotation = self.fallback_pool.is_some() || !self.primary_probes.is_empty();
@@ -543,7 +571,7 @@ impl MagiBuilder {
 /// of continuing to run in the background and consuming LLM API quota.
 /// The full result of dispatching the trio: successful outputs, failure reasons,
 /// the set of agents that hit the corrective retry, and the per-agent rotation
-/// telemetry (populated for EVERY agent — successful or failed).
+/// telemetry (populated for EVERY agent â€” successful or failed).
 type DispatchOutcome = (
     Vec<AgentOutput>,
     BTreeMap<AgentName, String>,
@@ -580,7 +608,7 @@ impl Drop for AbortGuard {
 pub struct Magi {
     config: MagiConfig,
     agent_factory: AgentFactory,
-    /// **v0.4.0** — wrapped in `Arc` (was bare `Validator`) so the dispatch
+    /// **v0.4.0** â€” wrapped in `Arc` (was bare `Validator`) so the dispatch
     /// layer can share it across spawned tasks without per-task deep clones.
     /// Validator's compiled regexes are amortized over the lifetime of
     /// the Magi instance instead of being rebuilt per `analyze()` call.
@@ -590,13 +618,13 @@ pub struct Magi {
     formatter: ReportFormatter,
     overrides: BTreeMap<(AgentName, Option<Mode>), String>,
     rng_source: Arc<Mutex<Box<dyn RngLike + Send>>>,
-    /// **v0.5.0** — Caller-supplied predicate evaluated at the start of
+    /// **v0.5.0** â€” Caller-supplied predicate evaluated at the start of
     /// `analyze`. If `Some(p)` and `p(content, mode)` returns `false`,
     /// the call short-circuits with [`MagiError::SkippedByComplexityGate`]
     /// before any LLM dispatch. Default: `None` (no gate).
     complexity_gate: Option<ComplexityGate>,
-    /// **MS2** — rotation configuration (primaries' lineages/probes + fallback
-    /// pool). `None` ⇒ rotation disabled (2.0.x path). Read by `dispatch_with_retry`
+    /// **MS2** â€” rotation configuration (primaries' lineages/probes + fallback
+    /// pool). `None` â‡’ rotation disabled (2.0.x path). Read by `dispatch_with_retry`
     /// to route between the no-rotation and rotation dispatch paths.
     rotation_config: Option<Arc<RotationConfig>>,
 }
@@ -650,7 +678,7 @@ impl Magi {
     /// in a pool of instances (one per tenant), or await v0.4 which may expose
     /// `with_rng_source` publicly to allow a thread-local RNG strategy.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
-        // 1. Input validation — runs BEFORE the complexity gate so that
+        // 1. Input validation â€” runs BEFORE the complexity gate so that
         //    stateful predicates (rate limiters, cache counters) do NOT
         //    fire on oversized inputs. v0.5.0 MAGI R2 W5: gate-first
         //    ordering allowed adversarial side-effect burn on inputs
@@ -662,7 +690,7 @@ impl Magi {
             });
         }
 
-        // 2. v0.5.0 complexity gate — caller-supplied predicate runs
+        // 2. v0.5.0 complexity gate â€” caller-supplied predicate runs
         //    AFTER input validation but BEFORE agent factory, nonce
         //    generation, and LLM dispatch. Short-circuit on `false`
         //    avoids the cost of all three.
@@ -695,15 +723,15 @@ impl Magi {
         };
 
         // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
-        //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
+        //    (v0.4.0 replaces launch_agents + process_results â€” MAGI R2 W9 atomic merge.)
         let (successful, failed_agents, retried_agents, rotations) =
             self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
 
-        // 7. Report. The formatter assembles the whole report — banner, the MS2
-        //    rotation sections, then the consensus sections — so the orchestrator
+        // 7. Report. The formatter assembles the whole report â€” banner, the MS2
+        //    rotation sections, then the consensus sections â€” so the orchestrator
         //    never couples to the banner/section layout (no string-splicing). On a
         //    plain run (no rotation, nothing estimated) the output is byte-identical
         //    to 2.0.x (R11).
@@ -739,7 +767,7 @@ impl Magi {
     /// Returns the trio `(successful, failed_agents, retried_agents)`:
     /// - `successful`: parsed+validated `AgentOutput` for each agent that
     ///   completed (first attempt or retry).
-    /// - `failed_agents`: name → reason map for failures. Reasons starting
+    /// - `failed_agents`: name â†’ reason map for failures. Reasons starting
     ///   with `"retry-failed: "` indicate the retry path was exercised and
     ///   also failed.
     /// - `retried_agents`: names of agents whose first attempt triggered the
@@ -758,7 +786,7 @@ impl Magi {
     ) -> Result<DispatchOutcome, MagiError> {
         // MS2: rotation is engaged ONLY when a fallback pool was declared. With no
         // pool (`rotation_config == None`) the dispatch path is byte-identical to
-        // 2.0.x — same FSM, same failure strings, no registry, no endpoint-down
+        // 2.0.x â€” same FSM, same failure strings, no registry, no endpoint-down
         // (R11/S1). Each agent's configured model seeds a present, chain-empty
         // telemetry record so `rotations` is populated on both paths.
         let agent_models: BTreeMap<AgentName, String> = agents
@@ -779,7 +807,7 @@ impl Magi {
 
     /// The 2.0.x dispatch path (no rotation): one `tokio::spawn` per agent running
     /// the original single-shot retry FSM ([`dispatch_one_agent`]). Preserves every
-    /// observable behavior of 2.0.x — this is what a consumer that declares no
+    /// observable behavior of 2.0.x â€” this is what a consumer that declares no
     /// fallbacks gets. `rotations` is filled with default (chain-empty) records.
     async fn dispatch_no_rotation(
         &self,
@@ -859,7 +887,7 @@ impl Magi {
     /// [`AgentRotation`] chains, and enforces the endpoint-down fast-fail: after
     /// EVERY agent outcome (success, failure, OR panic/`JoinError`) it consults the
     /// registry latch and, if set, returns `Err(EndpointDown)` **before** consensus
-    /// — the single source of truth, robust to a panicked latch-holder (R8/W11).
+    /// â€” the single source of truth, robust to a panicked latch-holder (R8/W11).
     async fn dispatch_with_rotation(
         &self,
         agents: Vec<Agent>,
@@ -896,14 +924,14 @@ impl Magi {
         let registry = Arc::new(LineageRegistry::new(initial));
 
         // Preflight (R15): probe every probe-capable model (trio primaries + pool
-        // candidates) ONCE, CONCURRENTLY, before dispatch — caching window/digest so
+        // candidates) ONCE, CONCURRENTLY, before dispatch â€” caching window/digest so
         // the pure rotation policy reads them with zero I/O and never under the lock.
-        // A failed/timed-out probe degrades to unmeasured (fail-open, G3) — never an
+        // A failed/timed-out probe degrades to unmeasured (fail-open, G3) â€” never an
         // abort. Providers without a probe contribute nothing (no window/digest).
         let capabilities =
             Arc::new(run_preflight(collect_probe_targets(&agent_models, &rotation)).await);
         // G2: warn (never error) if two primaries resolve to the SAME weights digest
-        // — reduced ensemble diversity, but the run proceeds. Diversity never blocks
+        // â€” reduced ensemble diversity, but the run proceeds. Diversity never blocks
         // the run; only a PROVEN collision during rotation (R5a) rejects a candidate.
         let trio_digests: Vec<Option<String>> = agent_models
             .values()
@@ -917,7 +945,7 @@ impl Magi {
         }
         // Coarse lower bound on the raw payload (R16): reject only candidates whose
         // measured window is smaller than the prompt itself would need. `chars/4` is
-        // the standard rough token estimate — a pre-filter, not precise budgeting.
+        // the standard rough token estimate â€” a pre-filter, not precise budgeting.
         let min_window_tokens = user_prompt.chars().count().div_ceil(CHARS_PER_TOKEN_EST);
         let strict_context_guard = rotation.strict_context_guard;
 
@@ -970,7 +998,7 @@ impl Magi {
         let mut successful = Vec::new();
         let mut failed = BTreeMap::new();
         let mut retried = std::collections::BTreeSet::new();
-        // ABNORMAL EXIT: the endpoint-down latch — NOT the per-agent error payload —
+        // ABNORMAL EXIT: the endpoint-down latch â€” NOT the per-agent error payload â€”
         // is the single source of truth, so it MUST be consulted after EVERY outcome
         // (success, normal failure, OR panic) before ANY return/continue. Do not drop
         // this check in a refactor; a panicked latch-holder that never propagated the
@@ -978,13 +1006,13 @@ impl Magi {
         //
         // ABORT LATENCY (documented, not a bug): handles are awaited in a fixed order,
         // so the latch is only OBSERVED once the currently-awaited agent's task
-        // resolves. For the endpoint-down TARGET — a shared destination (one Ollama
-        // daemon, R7/G1) — a dead endpoint yields FAST connection-refused failures on
+        // resolves. For the endpoint-down TARGET â€” a shared destination (one Ollama
+        // daemon, R7/G1) â€” a dead endpoint yields FAST connection-refused failures on
         // ALL mages simultaneously, so the abort fires promptly. In a multi-host
         // deployment (already a documented caveat, README (a)), one mage could sit on
         // a slow-but-alive host while two others connection-fail, delaying the abort
-        // by that mage's timeout. The run stays CORRECT — it still aborts (and the
-        // `AbortGuard` cancels the stragglers) — only the fast-fail *latency* grows.
+        // by that mage's timeout. The run stays CORRECT â€” it still aborts (and the
+        // `AbortGuard` cancels the stragglers) â€” only the fast-fail *latency* grows.
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
@@ -1003,7 +1031,7 @@ impl Magi {
                     }
                 }
                 Err(join_err) => {
-                    // Panic/abnormal: keep the pre-seed (empty chain — panic never
+                    // Panic/abnormal: keep the pre-seed (empty chain â€” panic never
                     // rotates, R6). The lineage is already freed by the task's
                     // `AgentSlotGuard::drop` during unwind (never `mark_succeeded`).
                     // Lost-signal recovery (W11/W18): recover endpoint-down straight
@@ -1044,7 +1072,7 @@ impl Magi {
 
 /// Dispatch a single agent with one-shot retry on schema/parse errors.
 ///
-/// Returns `(Result<AgentOutput, String>, bool)` — a flat tuple, no enum
+/// Returns `(Result<AgentOutput, String>, bool)` â€” a flat tuple, no enum
 /// (MAGI R1 C2/W2: avoids dead-variant + unreachable! noise):
 /// - First element: `Ok(output)` on success (first or second attempt),
 ///   `Err(reason)` on failure.
@@ -1054,7 +1082,7 @@ impl Magi {
 ///
 /// Retry trigger: `MagiError::Validation` or `MagiError::Deserialization`
 /// from [`parse_and_validate`] on the first attempt. Provider errors and
-/// timeouts skip retry — they're surfaced via the dedicated transient-error
+/// timeouts skip retry â€” they're surfaced via the dedicated transient-error
 /// layer ([`RetryProvider`](crate::provider::RetryProvider)) instead.
 ///
 /// When `retry_enabled` is `false`, the retry path is skipped entirely
@@ -1130,7 +1158,7 @@ pub(crate) async fn dispatch_one_agent(
 }
 
 /// Builds the default (chain-empty) rotation telemetry for every agent from its
-/// configured model — `model_used == model_configured`, empty chain. Used on the
+/// configured model â€” `model_used == model_configured`, empty chain. Used on the
 /// no-rotation path and as the pre-seed on the rotation path.
 fn default_rotations(
     agent_models: BTreeMap<AgentName, String>,
@@ -1152,13 +1180,13 @@ fn default_rotations(
 }
 
 /// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
-/// (R16). Not precise budgeting — the crate is char-based and adds no tokenizer
+/// (R16). Not precise budgeting â€” the crate is char-based and adds no tokenizer
 /// dependency; this only rejects candidates smaller than the raw prompt needs.
 const CHARS_PER_TOKEN_EST: usize = 4;
 
 /// Collects the preflight probe targets: each probing PRIMARY (paired with its
 /// agent's model) plus each pool candidate that declared a probe. Non-probing
-/// providers contribute nothing — they simply have no window/digest to measure.
+/// providers contribute nothing â€” they simply have no window/digest to measure.
 fn collect_probe_targets(
     agent_models: &BTreeMap<AgentName, String>,
     rotation: &RotationConfig,
@@ -1183,23 +1211,23 @@ fn collect_probe_targets(
 /// **Only [`ProviderError::Network`]** (connection refused / host unreachable /
 /// DNS) counts as connection evidence. An `Http` (incl. 5xx), a `Timeout`, or a
 /// `RetryAbandoned` condemns the lineage run-wide but is **not** connection
-/// evidence — someone answered, or the model is merely slow.
+/// evidence â€” someone answered, or the model is merely slow.
 ///
 /// The exclusion of [`ProviderError::RetryAbandoned`] is deliberate and is NOT a
 /// bug: a truly-down endpoint yields **fast** connection-refused `Network` errors
 /// that exhaust the `RetryProvider`'s retry COUNT (surfacing the last error,
 /// `Network`) well before its time-`operation_budget` abandon path (which is the
 /// only source of `RetryAbandoned`). The budget-abandon path fires on SLOW
-/// failures, which connection-refused is not — so the `Network` branch is the one
+/// failures, which connection-refused is not â€” so the `Network` branch is the one
 /// that trips endpoint-down. This `match` is exhaustive so a new `ProviderError`
 /// variant forces a conscious classification.
 ///
 /// **Worst case is graceful, not a missed abort.** In the improbable event that a
 /// genuinely dead endpoint surfaced only `RetryAbandoned` (never `Network`),
-/// endpoint-down would not fast-fail — but the lineage is still condemned run-wide
+/// endpoint-down would not fast-fail â€” but the lineage is still condemned run-wide
 /// and the mage rotates; the run then simply reaches `InsufficientAgents` (an
 /// honest degraded result) instead of the faster `EndpointDown` abort. No mage
-/// hangs and no incorrect verdict is produced — only the *speed* of the failure
+/// hangs and no incorrect verdict is produced â€” only the *speed* of the failure
 /// path differs. Treating `RetryAbandoned` as a connection failure would instead
 /// require inspecting `AbandonReason` + timing (a heuristic), which R7 deliberately
 /// avoids. See the README endpoint-down runbook caveats (b)/(e).
@@ -1219,24 +1247,24 @@ fn is_connection(err: &ProviderError) -> bool {
 enum ModelOutcome {
     /// A valid verdict was committed.
     Success(AgentOutput),
-    /// Schema/parse failure after the corrective retry (or with retry disabled) —
+    /// Schema/parse failure after the corrective retry (or with retry disabled) â€”
     /// mage-local condemnation, then rotate.
     Schema(String),
     /// Transport failure (`ProviderError` surfaced by the wrapped provider) or a
-    /// timeout — run-wide condemnation (`connection` per R7), then rotate. `kind`
+    /// timeout â€” run-wide condemnation (`connection` per R7), then rotate. `kind`
     /// distinguishes a plain transport hop from a timeout hop for telemetry.
     Transport {
         detail: String,
         connection: bool,
         kind: RotationKind,
     },
-    /// A non-schema, non-transport failure — never rotates; surfaced verbatim.
+    /// A non-schema, non-transport failure â€” never rotates; surfaced verbatim.
     Unexpected(String),
 }
 
 /// Runs ONE model attempt against `provider` with this agent's identity/prompt,
 /// including the single corrective schema retry (same model). Sets `*was_retried`
-/// if the corrective retry fired. Never rotates — the caller decides that from the
+/// if the corrective retry fired. Never rotates â€” the caller decides that from the
 /// returned [`ModelOutcome`].
 #[allow(clippy::too_many_arguments)]
 async fn attempt_model(
@@ -1273,11 +1301,11 @@ async fn attempt_model(
         MagiError::Validation(_) | MagiError::Deserialization(_)
     );
     if !is_schema {
-        // Not a schema failure and not transport — never rotate.
+        // Not a schema failure and not transport â€” never rotate.
         return ModelOutcome::Unexpected(first_err.to_string());
     }
     if !retry_enabled {
-        // Retry disabled → a schema failure rotates immediately (R6).
+        // Retry disabled â†’ a schema failure rotates immediately (R6).
         return ModelOutcome::Schema(first_err.to_string());
     }
 
@@ -1334,7 +1362,7 @@ async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
 /// out for race-free unit testing (W18).
 ///
 /// A panicked task loses its transport classification, so the decision derives
-/// **solely** from the registry latch — never from `err`. `agent`/`err` document
+/// **solely** from the registry latch â€” never from `err`. `agent`/`err` document
 /// the call site (and feed a diagnostic `tracing` event); the verdict is exactly
 /// [`resolve_endpoint_down`]. This catches a latch-holder that crossed the
 /// endpoint-down threshold and then died before propagating the signal (R8/W11).
@@ -1356,9 +1384,9 @@ pub(crate) async fn resolve_abnormal_exit(
 
 /// Dispatch a single agent with the MS2 rotation FSM.
 ///
-/// Runs the agent's primary model, then — on a **transport** failure (condemned
+/// Runs the agent's primary model, then â€” on a **transport** failure (condemned
 /// run-wide) or a **schema** failure surviving its corrective retry (condemned
-/// mage-local) — rotates to the next eligible fallback lineage via
+/// mage-local) â€” rotates to the next eligible fallback lineage via
 /// [`LineageRegistry::claim_next`], up to the pool's `max_rotations`. A panic or a
 /// non-schema/non-transport error **never rotates** and is surfaced.
 ///
@@ -1366,7 +1394,7 @@ pub(crate) async fn resolve_abnormal_exit(
 /// (the mage keeps its lineage); a normal failure explicitly `release`s then
 /// `mark_released`; a panic/cancellation relies on the guard's `Drop`.
 ///
-/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried)` — the
+/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried)` â€” the
 /// per-agent output plus its real rotation chain (empty when it never rotated).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_one_agent_rotating(
@@ -1503,14 +1531,14 @@ pub(crate) async fn dispatch_one_agent_rotating(
 /// Two discriminator keys that mark a JSON object as an agent verdict during
 /// lenient recovery. Kept to the two distinguishing keys (not the full 7-key
 /// schema) so a verdict merely missing a key is still recovered and then
-/// rejected by the full deserialize — preserving the single-retry path.
+/// rejected by the full deserialize â€” preserving the single-retry path.
 const VERDICT_KEYS: [&str; 2] = ["agent", "verdict"];
 
 /// Upper bound, in bytes ([`str::len`]), on input size eligible for lenient
 /// prose recovery. Bytes (not Unicode scalars) is the right unit here: this
 /// guards scan cost, which is byte-driven. Above this, the input is almost
 /// certainly echoed tool-use content rather than a clean verdict, and scanning
-/// it risks the O(n^2) decode worst case — so recovery is skipped and the
+/// it risks the O(n^2) decode worst case â€” so recovery is skipped and the
 /// agent fails closed (and is retried).
 const LENIENT_RECOVERY_MAX_BYTES: usize = 1_000_000;
 
@@ -1521,7 +1549,7 @@ const LENIENT_RECOVERY_MAX_BYTES: usize = 1_000_000;
 /// Worst-case cost is the *product* of two caps, not the input length: at most
 /// `MAX_BRACE_PROBES` probes, each a `raw_decode` bounded by serde_json's
 /// recursion limit (~128 levels). Both factors are constants, so the scan is
-/// O(1) in the size of pathological input rather than O(n^2) — empirically a
+/// O(1) in the size of pathological input rather than O(n^2) â€” empirically a
 /// few tens of milliseconds on the deeply-nested worst case.
 const MAX_BRACE_PROBES: usize = 2_000;
 
@@ -1542,7 +1570,7 @@ const MAX_BRACE_PROBES: usize = 2_000;
 ///
 /// `Some(value)` when exactly one qualifying object is found, otherwise `None`:
 /// - zero qualifying objects,
-/// - two or more qualifying objects (ambiguous — fail closed),
+/// - two or more qualifying objects (ambiguous â€” fail closed),
 /// - the probe budget ([`MAX_BRACE_PROBES`]) is exhausted first.
 ///
 /// Port of Python MAGI v2.4.2 `_embedded_verdict_object`.
@@ -1566,7 +1594,7 @@ fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
                 if value.is_object() && VERDICT_KEYS.iter().all(|key| value.get(key).is_some()) {
                     matches.push(value);
                     if matches.len() > 1 {
-                        return None; // ambiguous — fail closed rather than guess
+                        return None; // ambiguous â€” fail closed rather than guess
                     }
                 }
                 // `end` lands on a value boundary (a char boundary); advance
@@ -1574,7 +1602,7 @@ fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
                 index = if end > brace { end } else { brace + 1 };
             }
             // Decode failure (incl. serde_json's recursion limit on deeply
-            // nested input) — skip this `{` and continue.
+            // nested input) â€” skip this `{` and continue.
             _ => index = brace + 1,
         }
     }
@@ -1592,7 +1620,7 @@ fn embedded_verdict_object(text: &str) -> Option<serde_json::Value> {
 ///
 /// This tolerates prose before and after the JSON payload but fails closed
 /// when recovery is ambiguous (two verdict-shaped objects) or the input
-/// exceeds the recovery budget — see [`embedded_verdict_object`].
+/// exceeds the recovery budget â€” see [`embedded_verdict_object`].
 ///
 /// # Errors
 /// Returns `MagiError::Deserialization` if no single valid verdict object is
@@ -1681,6 +1709,26 @@ mod tests {
         )
     }
 
+    /// Wraps identifying text in a contract-compliant verdict-marker block.
+    ///
+    /// From MS3, `build()` rejects any **resolvable** prompt that lacks exactly one
+    /// ordered marker pair â€” that is the documented breaking change of `3.0.0`. These
+    /// override-plumbing tests assert that a specific string reaches the agent as its
+    /// system prompt; they are not about the contract, so they carry it via this helper
+    /// and keep asserting exactly what they asserted before. The identifying text stays
+    /// intact and findable.
+    ///
+    /// The placeholder between the markers is deliberately **not** valid JSON: a prompt
+    /// whose delimited block deserializes as a verdict is a fabrication template, and
+    /// the guard rejects it.
+    fn contract_prompt(text: &str) -> String {
+        format!(
+            "{text}\n\n## Output format\n{}\n{{ ...your 7-key JSON object... }}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        )
+    }
+
     /// The worked example shipped **verbatim** inside `src/prompts_md/caspar.md`.
     ///
     /// It is a complete, valid 7-key verdict object. That is the residual MS3
@@ -1692,13 +1740,13 @@ mod tests {
     /// The current probe cap, mirrored as a LOCAL witness ON PURPOSE.
     ///
     /// T7 DELETES the real `MAX_BRACE_PROBES`. These characterization tests must
-    /// survive that deletion — T13 inverts them — so they cannot reference a
-    /// symbol scheduled for removal: `§0.1` runs at T7's commit and the build
+    /// survive that deletion â€” T13 inverts them â€” so they cannot reference a
+    /// symbol scheduled for removal: `Â§0.1` runs at T7's commit and the build
     /// would break between T7 and T13. The duplication is deliberate and
     /// temporary; T13 removes this constant along with the tests' old meaning.
     const PROBE_CAP_WITNESS: usize = 2_000;
 
-    /// CHARACTERIZATION (MS3 R21, variant 1 of 4) — asserts the bug as it exists
+    /// CHARACTERIZATION (MS3 R21, variant 1 of 4) â€” asserts the bug as it exists
     /// TODAY: the lone echoed example parses cleanly, fabricating a verdict no
     /// model ever formed. In Caspar's adversarial seat this enters consensus as
     /// if it were an opinion.
@@ -1712,7 +1760,7 @@ mod tests {
         assert_eq!(output.verdict, Verdict::Conditional);
     }
 
-    /// CHARACTERIZATION (variant 2 of 4) — a truncated response that leaves the
+    /// CHARACTERIZATION (variant 2 of 4) â€” a truncated response that leaves the
     /// echoed example as the only verdict-shaped object is recovered as if it
     /// were the agent's own answer.
     #[test]
@@ -1726,7 +1774,7 @@ mod tests {
         );
     }
 
-    /// CHARACTERIZATION (variant 3 of 4) — a REAL verdict placed beyond the probe
+    /// CHARACTERIZATION (variant 3 of 4) â€” a REAL verdict placed beyond the probe
     /// budget is never reached, so an agent that answered correctly is dropped.
     #[test]
     fn characterize_probe_cap_distance_drops_the_real_verdict() {
@@ -1738,7 +1786,7 @@ mod tests {
         );
     }
 
-    /// CHARACTERIZATION (variant 4 of 4) — a thinking model that restates its
+    /// CHARACTERIZATION (variant 4 of 4) â€” a thinking model that restates its
     /// schema while reasoning yields TWO verdict-shaped objects, so recovery
     /// fails closed and a mage that DID answer is dropped, degrading the report.
     ///
@@ -1811,10 +1859,10 @@ mod tests {
         }
     }
 
-    // -- Task 7 (MS2): rotation builder API — R3 (declared lineage), R11 (additive) --
+    // -- Task 7 (MS2): rotation builder API â€” R3 (declared lineage), R11 (additive) --
 
-    /// S1: a builder without `with_fallback_pool` behaves exactly like 2.0.x — no
-    /// rotation — yet the `rotations` map is populated for the whole trio with empty
+    /// S1: a builder without `with_fallback_pool` behaves exactly like 2.0.x â€” no
+    /// rotation â€” yet the `rotations` map is populated for the whole trio with empty
     /// chains and `model_used == model_configured` (non-vacuous: the field is filled,
     /// not merely an empty map).
     #[tokio::test]
@@ -1838,15 +1886,15 @@ mod tests {
             "rotations populated for the whole trio"
         );
         for r in report.rotations.values() {
-            assert!(r.chain.is_empty(), "no rotation → empty chain");
+            assert!(r.chain.is_empty(), "no rotation â†’ empty chain");
             assert_eq!(
                 r.model_used, r.model_configured,
-                "no rotation → used == configured"
+                "no rotation â†’ used == configured"
             );
         }
     }
 
-    /// S23: two primaries with the SAME lineage → `build()` succeeds (emits a
+    /// S23: two primaries with the SAME lineage â†’ `build()` succeeds (emits a
     /// WARNING), never `Err`. Diversity is advisory; a single-provider / duplicate
     /// config must run (G2).
     #[test]
@@ -1868,8 +1916,8 @@ mod tests {
         );
     }
 
-    /// S23b (R3.2): a primary whose lineage trims to "" is malformed input →
-    /// `build()` must `Err(InvalidInput)`. Validity, not diversity — runs even for a
+    /// S23b (R3.2): a primary whose lineage trims to "" is malformed input â†’
+    /// `build()` must `Err(InvalidInput)`. Validity, not diversity â€” runs even for a
     /// single-provider config.
     #[test]
     fn test_empty_primary_lineage_fails_build() {
@@ -1922,7 +1970,7 @@ mod tests {
 
     /// An abnormal agent exit (a `JoinError` standing in for a panicked latch
     /// holder) must recover `EndpointDown` from the registry latch, NOT from the
-    /// carrier — race-free, no dependency on WHEN the panic happened.
+    /// carrier â€” race-free, no dependency on WHEN the panic happened.
     #[tokio::test]
     async fn test_abnormal_exit_recovers_endpoint_down_from_registry() {
         let mut init = BTreeMap::new();
@@ -1944,7 +1992,7 @@ mod tests {
         reg.register_transport_failure(Lineage::new("alibaba"), true)
             .await; // connection=true
         reg.register_transport_failure(Lineage::new("deepseek"), true)
-            .await; // 2 distinct → latch set
+            .await; // 2 distinct â†’ latch set
         assert!(reg.endpoint_down_signalled().await);
 
         // Simulate an abnormal outcome: a JoinError from an aborted spawn.
@@ -2367,7 +2415,7 @@ mod tests {
         assert_eq!(*mode, Mode::Analysis);
     }
 
-    /// Default (no gate set) preserves v0.4.x behavior — analyze proceeds.
+    /// Default (no gate set) preserves v0.4.x behavior â€” analyze proceeds.
     #[tokio::test]
     async fn test_complexity_gate_default_no_gate_preserves_v04_behavior() {
         let provider = Arc::new(
@@ -2385,7 +2433,7 @@ mod tests {
                     vec![Ok(mock_agent_json("caspar", "approve", 0.95))],
                 ),
         );
-        // Magi::new path — no gate configured.
+        // Magi::new path â€” no gate configured.
         let magi = Magi::new(provider as Arc<dyn LlmProvider>);
         let report = magi.analyze(&Mode::CodeReview, "x").await.unwrap();
         assert_eq!(report.agents.len(), 3);
@@ -2454,7 +2502,7 @@ mod tests {
             // for consistency with the documented user-facing pattern.
             MagiError::SkippedByComplexityGate { reason, .. } => {
                 // Loop 1 I2: tightened from `contains("content_len") ||
-                // contains("len")` — the loose disjunct would silently
+                // contains("len")` â€” the loose disjunct would silently
                 // accept regressions to unrelated strings containing "len".
                 assert!(
                     reason.contains("content_len"),
@@ -2500,7 +2548,7 @@ mod tests {
         assert_eq!(
             gate_calls.load(OrderingV05::SeqCst),
             0,
-            "gate MUST NOT fire on oversize input — side effects must not run"
+            "gate MUST NOT fire on oversize input â€” side effects must not run"
         );
     }
 
@@ -2577,7 +2625,7 @@ mod tests {
         assert!(report.degraded);
     }
 
-    /// BDD-06: Provider timeout for Balthasar — no retry, retried_agents empty.
+    /// BDD-06: Provider timeout for Balthasar â€” no retry, retried_agents empty.
     #[tokio::test]
     async fn test_analyze_no_retry_on_timeout_keeps_retried_empty() {
         let provider = Arc::new(
@@ -2645,7 +2693,7 @@ mod tests {
             report.retried_agents.is_empty(),
             "retry disabled => no retry telemetry"
         );
-        // MAGI R3 Melchior: tighten — must NOT see retry-failed prefix.
+        // MAGI R3 Melchior: tighten â€” must NOT see retry-failed prefix.
         let mel_reason = &report.failed_agents[&AgentName::Melchior];
         assert!(
             !mel_reason.starts_with("retry-failed:"),
@@ -2802,7 +2850,7 @@ mod tests {
         assert!(result.is_err());
         assert!(
             !retried,
-            "HTTP 500 must NOT retry — RetryProvider handles transient HTTP"
+            "HTTP 500 must NOT retry â€” RetryProvider handles transient HTTP"
         );
     }
 
@@ -2907,7 +2955,7 @@ mod tests {
         assert!(!retried);
     }
 
-    /// BDD-08: first attempt validation error → retry hits provider error.
+    /// BDD-08: first attempt validation error â†’ retry hits provider error.
     /// retried=true must be preserved (telemetry semantics).
     #[tokio::test]
     async fn test_dispatch_one_agent_retry_then_provider_error_marks_retried() {
@@ -3052,11 +3100,11 @@ mod tests {
     //
     // Gap A: recover the verdict when prose TRAILS the JSON object.
     // Gap B: fail closed when two verdict-shaped objects are present
-    //        (ambiguous — picking either risks a fabricated verdict).
+    //        (ambiguous â€” picking either risks a fabricated verdict).
     // Gap C: bound the recovery scan (size budget + probe cap) against
     //        oversized / adversarial input.
 
-    /// Gap A — recover the JSON verdict when natural-language prose follows it.
+    /// Gap A â€” recover the JSON verdict when natural-language prose follows it.
     /// Agents doing multi-turn tool use sometimes append a closing sentence
     /// after the JSON object; a strict whole-string parse rejects the trailing
     /// text, so the embedded object must be recovered.
@@ -3070,21 +3118,21 @@ mod tests {
         assert_eq!(output.verdict, Verdict::Approve);
     }
 
-    /// Gap A (Rust-specific) — trailing prose containing multi-byte UTF-8
+    /// Gap A (Rust-specific) â€” trailing prose containing multi-byte UTF-8
     /// (em dash U+2014, ellipsis U+2026) must not panic the post-JSON byte
     /// offset arithmetic / slicing. Python is immune (code-point indexed);
     /// Rust slices by byte, so this pins char-boundary safety.
     #[test]
     fn test_parse_agent_response_recovers_json_with_multibyte_trailing_prose() {
         let json = mock_agent_json("balthasar", "conditional", 0.8);
-        let raw = format!("{json}\n\nConcluido — fin del analisis\u{2026}");
+        let raw = format!("{json}\n\nConcluido â€” fin del analisis\u{2026}");
 
         let output =
             parse_agent_response(&raw).expect("should recover before multi-byte trailing prose");
         assert_eq!(output.agent, AgentName::Balthasar);
     }
 
-    /// Gap B — two complete verdict-shaped objects are ambiguous, so the parser
+    /// Gap B â€” two complete verdict-shaped objects are ambiguous, so the parser
     /// must fail closed rather than return one. Here the fabricated `approve`
     /// example follows the real `reject` verdict: a first/last-match heuristic
     /// would leak the fabricated verdict into consensus.
@@ -3101,7 +3149,7 @@ mod tests {
         );
     }
 
-    /// Gap B — same ambiguity with the quoted schema example PRECEDING the real
+    /// Gap B â€” same ambiguity with the quoted schema example PRECEDING the real
     /// verdict. Both orderings must fail closed.
     #[test]
     fn test_parse_agent_response_fails_closed_when_example_precedes_verdict() {
@@ -3116,7 +3164,7 @@ mod tests {
         );
     }
 
-    /// Gap C — input beyond the recovery size budget is not scanned; recovery
+    /// Gap C â€” input beyond the recovery size budget is not scanned; recovery
     /// is skipped and the parser fails closed. A multi-MB blob is almost
     /// certainly echoed tool-use content, and scanning risks the O(n^2)
     /// raw-decode worst case.
@@ -3134,7 +3182,7 @@ mod tests {
         );
     }
 
-    /// Gap C — the brace scan stops after a bounded number of probes. A verdict
+    /// Gap C â€” the brace scan stops after a bounded number of probes. A verdict
     /// placed after more than MAX_BRACE_PROBES (2_000) lone `{` is not reached,
     /// guarding against O(n^2) on adversarial deeply-nested-unterminated input.
     #[test]
@@ -3152,7 +3200,7 @@ mod tests {
 
     // -- v0.6.0 invariant guards (pin the recovery contract) --
 
-    /// Gap B (invariant) — a JSON document echoed from tool use that lacks the
+    /// Gap B (invariant) â€” a JSON document echoed from tool use that lacks the
     /// verdict discriminator keys must not shadow the real verdict, even when
     /// it out-spans it. Selection is schema-aware, not by character span.
     #[test]
@@ -3166,7 +3214,7 @@ mod tests {
         assert_eq!(output.verdict, Verdict::Approve);
     }
 
-    /// Gap B (invariant) — an object carrying only the two discriminator keys
+    /// Gap B (invariant) â€” an object carrying only the two discriminator keys
     /// is recovered as the sole candidate, then rejected by the full 7-key
     /// schema, so it still fails and the orchestrator's single retry fires.
     #[test]
@@ -3181,7 +3229,7 @@ mod tests {
         );
     }
 
-    /// Gap B (invariant) — an object with only one discriminator key (`agent`,
+    /// Gap B (invariant) â€” an object with only one discriminator key (`agent`,
     /// no `verdict`) does not qualify, so recovery fails closed.
     #[test]
     fn test_parse_agent_response_ignores_object_with_one_discriminator_key() {
@@ -3194,7 +3242,7 @@ mod tests {
         );
     }
 
-    /// Gap A/B (invariant) — a truncated verdict with no complete object
+    /// Gap A/B (invariant) â€” a truncated verdict with no complete object
     /// anywhere fails closed rather than returning a partial result.
     #[test]
     fn test_parse_agent_response_fails_on_truncated_verdict() {
@@ -3209,7 +3257,7 @@ mod tests {
         );
     }
 
-    /// Gap B (invariant) — truncation after a complete `findings` element must
+    /// Gap B (invariant) â€” truncation after a complete `findings` element must
     /// still fail closed: the stray complete finding object lacks the verdict
     /// keys, so it is not mistaken for the verdict.
     #[test]
@@ -3228,7 +3276,7 @@ mod tests {
         );
     }
 
-    /// Gap C (invariant, Rust-specific) — deeply nested input surfaces as a
+    /// Gap C (invariant, Rust-specific) â€” deeply nested input surfaces as a
     /// closed failure, not a panic. serde_json returns a recursion-limit error
     /// (where CPython raises RecursionError); either way the parser stays on
     /// the fail-closed / retry path.
@@ -3243,12 +3291,12 @@ mod tests {
         );
     }
 
-    /// Gap A (invariant, Rust-specific) — multi-byte UTF-8 in the PRECEDING
+    /// Gap A (invariant, Rust-specific) â€” multi-byte UTF-8 in the PRECEDING
     /// prose must not break the byte-index `find('{')` / slice path.
     #[test]
     fn test_parse_agent_response_recovers_json_after_multibyte_preamble() {
         let json = mock_agent_json("caspar", "reject", 0.7);
-        let raw = format!("Veredicto — final\u{2026}\n{json}");
+        let raw = format!("Veredicto â€” final\u{2026}\n{json}");
 
         let output = parse_agent_response(&raw).expect("should recover after multi-byte preamble");
         assert_eq!(output.agent, AgentName::Caspar);
@@ -3256,7 +3304,7 @@ mod tests {
 
     // -- v0.6.0 MAGI Loop 2 follow-up coverage --
 
-    /// Gap B (invariant, MAGI follow-up) — a verdict whose string fields
+    /// Gap B (invariant, MAGI follow-up) â€” a verdict whose string fields
     /// themselves contain `{...}` (including a verdict-shaped JSON echo) is
     /// recovered correctly and is NOT seen as ambiguous: the streaming decode
     /// consumes the whole outer object, so braces inside its strings are never
@@ -3273,7 +3321,7 @@ mod tests {
         assert_eq!(output.verdict, Verdict::Approve);
     }
 
-    /// Gap C (boundary, MAGI follow-up) — input exactly at the byte budget is
+    /// Gap C (boundary, MAGI follow-up) â€” input exactly at the byte budget is
     /// still scanned and recovered (`<=` boundary).
     #[test]
     fn test_parse_agent_response_recovers_at_size_budget_boundary() {
@@ -3288,7 +3336,7 @@ mod tests {
         assert_eq!(output.verdict, Verdict::Approve);
     }
 
-    /// Gap C (boundary, MAGI follow-up) — input one byte over the budget skips
+    /// Gap C (boundary, MAGI follow-up) â€” input one byte over the budget skips
     /// recovery and fails closed.
     #[test]
     fn test_parse_agent_response_skips_one_byte_over_size_budget() {
@@ -3318,10 +3366,10 @@ mod tests {
         assert!(magi.is_ok());
     }
 
-    // -- T11: MagiBuilder API — for_mode / all_modes / rng_source --
-    // -- T13: CapturingMockProvider upgrade — explicit agent-routing table --
+    // -- T11: MagiBuilder API â€” for_mode / all_modes / rng_source --
+    // -- T13: CapturingMockProvider upgrade â€” explicit agent-routing table --
 
-    /// Mock provider with an explicit `(system_prompt → AgentName)` routing
+    /// Mock provider with an explicit `(system_prompt â†’ AgentName)` routing
     /// table. Eliminates the need to parse system-prompt content to infer
     /// agent identity (MAGI R1 W6).
     ///
@@ -3359,12 +3407,12 @@ mod tests {
             }
         }
 
-        /// Build a mock with explicit `(custom_prompt → agent)` mappings for
+        /// Build a mock with explicit `(custom_prompt â†’ agent)` mappings for
         /// tests that inject overrides.  Default prompts are included as
         /// fallback so unoverridden agents still resolve correctly.
         fn with_routing(
             captured: Arc<std::sync::Mutex<Vec<(String, String)>>>,
-            mappings: Vec<(&'static str, AgentName)>,
+            mappings: Vec<(String, AgentName)>,
         ) -> Self {
             let mut routing = std::collections::HashMap::new();
             // Default prompts as fallback.
@@ -3381,7 +3429,7 @@ mod tests {
                 AgentName::Caspar,
             );
             for (custom, name) in mappings {
-                routing.insert(custom.to_string(), name);
+                routing.insert(custom, name);
             }
             Self {
                 captured,
@@ -3431,6 +3479,105 @@ mod tests {
         }
     }
 
+    /// E20 — THE END-TO-END TEST THE PYTHON LESSON DEMANDS.
+    ///
+    /// The reference implementation's guard *existed*, *was tested*, and **nobody called
+    /// it**. Testing `validate_prompt` in isolation would reproduce that failure exactly,
+    /// so this asserts the wiring: a corrupt custom prompt aborts `build()` and **not one
+    /// request reaches the provider**.
+    #[tokio::test]
+    async fn test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call() {
+        struct TallyProvider {
+            calls: Arc<AtomicUsize>,
+        }
+        #[async_trait::async_trait]
+        impl LlmProvider for TallyProvider {
+            async fn complete(
+                &self,
+                _s: &str,
+                _u: &str,
+                _c: &CompletionConfig,
+            ) -> Result<String, ProviderError> {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                Ok(String::new())
+            }
+            fn name(&self) -> &str {
+                "tally"
+            }
+            fn model(&self) -> &str {
+                "tally-model"
+            }
+        }
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = Arc::new(TallyProvider {
+            calls: calls.clone(),
+        });
+        let result = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
+            .with_custom_prompt_all_modes(AgentName::Caspar, "no markers here".to_string())
+            .build();
+
+        match result {
+            Err(MagiError::PromptContract { agent, reason, .. }) => {
+                assert_eq!(
+                    agent,
+                    Some(AgentName::Caspar),
+                    "must name the seat: {reason}"
+                );
+            }
+            Err(other) => panic!("expected PromptContract, got {other}"),
+            Ok(_) => panic!("a prompt without markers must not build"),
+        }
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "no request may reach the provider"
+        );
+    }
+
+    /// A prompt whose delimited block IS a complete verdict is a fabrication template,
+    /// and `build()` must refuse it (E19) — including when a fence hides it (E19b).
+    #[test]
+    fn test_build_rejects_a_fabricable_custom_prompt_even_inside_a_fence() {
+        let object = r#"{"agent":"caspar","verdict":"approve","confidence":0.9,"summary":"s",
+           "reasoning":"r","findings":[],"recommendation":"rec"}"#;
+        for body in [object.to_string(), format!("```json\n{object}\n```")] {
+            let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::success(
+                "mock",
+                "model",
+                vec![mock_agent_json("caspar", "approve", 0.9)],
+            ));
+            let prompt = format!(
+                "{}\n{body}\n{}",
+                crate::verdict_markers::VERDICT_OPEN,
+                crate::verdict_markers::VERDICT_CLOSE
+            );
+            assert!(
+                matches!(
+                    MagiBuilder::new(provider)
+                        .with_custom_prompt_all_modes(AgentName::Caspar, prompt)
+                        .build(),
+                    Err(MagiError::PromptContract { .. })
+                ),
+                "a fabrication template must not build"
+            );
+        }
+    }
+
+    /// The guard covers the THREE EMBEDDED prompts too, not just overrides — a default
+    /// build must succeed, which proves the re-pinned prompts satisfy their own contract.
+    #[test]
+    fn test_default_build_succeeds_because_embedded_prompts_satisfy_the_contract() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::success(
+            "mock",
+            "model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        MagiBuilder::new(provider)
+            .build()
+            .expect("the shipped prompts must satisfy the guard they are validated by");
+    }
+
     /// with_custom_prompt_for_mode stores entry with Some(mode) key.
     #[test]
     fn test_with_custom_prompt_for_mode_stores_with_some_key() {
@@ -3440,13 +3587,17 @@ mod tests {
             vec![mock_agent_json("melchior", "approve", 0.9)],
         ));
         let magi = MagiBuilder::new(provider)
-            .with_custom_prompt_for_mode(AgentName::Melchior, Mode::CodeReview, "X".into())
+            .with_custom_prompt_for_mode(
+                AgentName::Melchior,
+                Mode::CodeReview,
+                contract_prompt("X"),
+            )
             .build()
             .expect("build should succeed");
         assert_eq!(
             magi.overrides()
                 .get(&(AgentName::Melchior, Some(Mode::CodeReview))),
-            Some(&"X".to_string())
+            Some(&contract_prompt("X"))
         );
     }
 
@@ -3459,12 +3610,12 @@ mod tests {
             vec![mock_agent_json("melchior", "approve", 0.9)],
         ));
         let magi = MagiBuilder::new(provider)
-            .with_custom_prompt_all_modes(AgentName::Balthasar, "Y".into())
+            .with_custom_prompt_all_modes(AgentName::Balthasar, contract_prompt("Y"))
             .build()
             .expect("build should succeed");
         assert_eq!(
             magi.overrides().get(&(AgentName::Balthasar, None)),
-            Some(&"Y".to_string())
+            Some(&contract_prompt("Y"))
         );
     }
 
@@ -3478,13 +3629,13 @@ mod tests {
         ));
         #[allow(deprecated)]
         let magi = MagiBuilder::new(provider)
-            .with_custom_prompt(AgentName::Caspar, Mode::Design, "Z".into())
+            .with_custom_prompt(AgentName::Caspar, Mode::Design, contract_prompt("Z"))
             .build()
             .expect("build should succeed");
         assert_eq!(
             magi.overrides()
                 .get(&(AgentName::Caspar, Some(Mode::Design))),
-            Some(&"Z".to_string())
+            Some(&contract_prompt("Z"))
         );
     }
 
@@ -3546,7 +3697,7 @@ mod tests {
     /// with_rng_source injects a fixed nonce observable in the captured user_prompt.
     #[tokio::test]
     async fn test_with_rng_source_injects_nonce_observable_in_user_prompt() {
-        // Strengthened per MAGI R2 W9 — not a no-op assertion; observes
+        // Strengthened per MAGI R2 W9 â€” not a no-op assertion; observes
         // the fixed nonce flowing through to the captured user_prompt.
         let captured: Arc<std::sync::Mutex<Vec<(String, String)>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -3585,16 +3736,18 @@ mod tests {
         let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
         let provider = Arc::new(CapturingMockProvider::with_routing(
             captured.clone(),
-            vec![("CUSTOM MEL", AgentName::Melchior)],
+            vec![(contract_prompt("CUSTOM MEL"), AgentName::Melchior)],
         ));
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
-            .with_custom_prompt_all_modes(AgentName::Melchior, "CUSTOM MEL".into())
+            .with_custom_prompt_all_modes(AgentName::Melchior, contract_prompt("CUSTOM MEL"))
             .build()
             .expect("build should succeed");
         let _ = magi.analyze(&Mode::Design, "x").await.unwrap();
         let calls = captured.lock().unwrap();
         assert!(
-            calls.iter().any(|(sys, _)| sys == "CUSTOM MEL"),
+            calls
+                .iter()
+                .any(|(sys, _)| *sys == contract_prompt("CUSTOM MEL")),
             "Melchior should have received the mode-agnostic custom prompt"
         );
     }
@@ -3608,23 +3761,31 @@ mod tests {
         let provider = Arc::new(CapturingMockProvider::with_routing(
             captured.clone(),
             vec![
-                ("GENERIC MEL", AgentName::Melchior),
-                ("SPECIFIC MEL", AgentName::Melchior),
+                (contract_prompt("GENERIC MEL"), AgentName::Melchior),
+                (contract_prompt("SPECIFIC MEL"), AgentName::Melchior),
             ],
         ));
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
-            .with_custom_prompt_all_modes(AgentName::Melchior, "GENERIC MEL".into())
-            .with_custom_prompt_for_mode(AgentName::Melchior, Mode::Design, "SPECIFIC MEL".into())
+            .with_custom_prompt_all_modes(AgentName::Melchior, contract_prompt("GENERIC MEL"))
+            .with_custom_prompt_for_mode(
+                AgentName::Melchior,
+                Mode::Design,
+                contract_prompt("SPECIFIC MEL"),
+            )
             .build()
             .expect("build should succeed");
         let _ = magi.analyze(&Mode::Design, "x").await.unwrap();
         let calls = captured.lock().unwrap();
         assert!(
-            calls.iter().any(|(sys, _)| sys == "SPECIFIC MEL"),
+            calls
+                .iter()
+                .any(|(sys, _)| *sys == contract_prompt("SPECIFIC MEL")),
             "mode-specific prompt should have been used for Mode::Design"
         );
         assert!(
-            !calls.iter().any(|(sys, _)| sys == "GENERIC MEL"),
+            !calls
+                .iter()
+                .any(|(sys, _)| *sys == contract_prompt("GENERIC MEL")),
             "mode-agnostic prompt must NOT be used when a mode-specific one is present"
         );
     }
@@ -3638,7 +3799,7 @@ mod tests {
         let provider = Arc::new(CapturingMockProvider::for_default_prompts(captured));
         let fixed_nonce_val: u128 = 0x1234_5678_9012_3456_7890_1234_5678_9012;
         let fixed_nonce_hex = format!("{fixed_nonce_val:032x}");
-        // Content that is exactly the nonce hex — guaranteed collision.
+        // Content that is exactly the nonce hex â€” guaranteed collision.
         let colliding_content = fixed_nonce_hex.clone();
 
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
@@ -3666,20 +3827,28 @@ mod tests {
 
         let provider_legacy = Arc::new(CapturingMockProvider::with_routing(
             captured_legacy.clone(),
-            vec![("SHIM PROMPT", AgentName::Caspar)],
+            vec![(contract_prompt("SHIM PROMPT"), AgentName::Caspar)],
         ));
         let provider_new = Arc::new(CapturingMockProvider::with_routing(
             captured_new.clone(),
-            vec![("SHIM PROMPT", AgentName::Caspar)],
+            vec![(contract_prompt("SHIM PROMPT"), AgentName::Caspar)],
         ));
 
         let magi_legacy = MagiBuilder::new(provider_legacy as Arc<dyn LlmProvider>)
-            .with_custom_prompt(AgentName::Caspar, Mode::CodeReview, "SHIM PROMPT".into())
+            .with_custom_prompt(
+                AgentName::Caspar,
+                Mode::CodeReview,
+                contract_prompt("SHIM PROMPT"),
+            )
             .build()
             .expect("legacy build should succeed");
 
         let magi_new = MagiBuilder::new(provider_new as Arc<dyn LlmProvider>)
-            .with_custom_prompt_for_mode(AgentName::Caspar, Mode::CodeReview, "SHIM PROMPT".into())
+            .with_custom_prompt_for_mode(
+                AgentName::Caspar,
+                Mode::CodeReview,
+                contract_prompt("SHIM PROMPT"),
+            )
             .build()
             .expect("new build should succeed");
 
@@ -3692,13 +3861,14 @@ mod tests {
         let legacy_calls = captured_legacy.lock().unwrap();
         let new_calls = captured_new.lock().unwrap();
 
-        // Both paths must have forwarded "SHIM PROMPT" to Caspar.
+        // Both paths must have forwarded the same custom prompt to Caspar.
+        let expected = contract_prompt("SHIM PROMPT");
         assert!(
-            legacy_calls.iter().any(|(sys, _)| sys == "SHIM PROMPT"),
+            legacy_calls.iter().any(|(sys, _)| *sys == expected),
             "legacy shim must forward the custom prompt to Caspar"
         );
         assert!(
-            new_calls.iter().any(|(sys, _)| sys == "SHIM PROMPT"),
+            new_calls.iter().any(|(sys, _)| *sys == expected),
             "new API must forward the custom prompt to Caspar"
         );
     }
@@ -3731,9 +3901,12 @@ mod tests {
         std::fs::create_dir_all(&tmp.0).unwrap();
 
         // Create a temp dir with a custom melchior prompt file.
+        // The file content carries the verdict-marker contract because the MS3 guard
+        // validates filesystem-loaded prompts too — which makes this test double as the
+        // proof that `prompts_dir` prompts are covered, not just builder-level ones.
         std::fs::write(
             tmp.0.join("melchior_code_review.md"),
-            "CUSTOM FROM FILESYSTEM",
+            contract_prompt("CUSTOM FROM FILESYSTEM"),
         )
         .unwrap();
 
@@ -3741,7 +3914,10 @@ mod tests {
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let provider = Arc::new(CapturingMockProvider::with_routing(
             captured.clone(),
-            vec![("CUSTOM FROM FILESYSTEM", AgentName::Melchior)],
+            vec![(
+                contract_prompt("CUSTOM FROM FILESYSTEM"),
+                AgentName::Melchior,
+            )],
         ));
         let magi = MagiBuilder::new(provider as Arc<dyn LlmProvider>)
             .with_prompts_dir(tmp.0.clone())
@@ -3751,7 +3927,9 @@ mod tests {
 
         let calls = captured.lock().unwrap();
         assert!(
-            calls.iter().any(|(sys, _)| sys == "CUSTOM FROM FILESYSTEM"),
+            calls
+                .iter()
+                .any(|(sys, _)| *sys == contract_prompt("CUSTOM FROM FILESYSTEM")),
             "with_prompts_dir file-based prompt should reach Melchior"
         );
         // tmp is dropped here, removing the directory automatically.
