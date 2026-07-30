@@ -62,7 +62,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: sh scripts/check_r0.sh
+      - run: sh ci/check_r0.sh
 
   audit:
     name: Security Audit
