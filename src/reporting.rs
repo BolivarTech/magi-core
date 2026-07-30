@@ -82,13 +82,14 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
 /// - `width > 0`.
 ///   `debug_assert!(width > 0)`
-/// - When `preserve_suffix` is non-empty **and** truncation occurs and the suffix is not
-///   consumed by the fallback path, `content.ends_with(preserve_suffix)` must hold.
-///   Step 3 (suffix-preserving truncation) slices `content` by
-///   `content.len() - preserve_suffix.len()` assuming the tail matches. If violated,
-///   the function still produces a String but the returned prefix is arbitrary (not a
-///   meaningful truncation). This precondition is not checked when `content.len() <= width`
-///   (no truncation) or when the fallback path fires.
+/// - `content` should end with `preserve_suffix` when Step 3 runs — but this is a
+///   *caller expectation*, **not** an unchecked assumption. It is enforced at runtime by
+///   `strip_suffix`: a violation logs a `tracing::warn!` and degrades to the Step 2 tail
+///   cut, so the result is always a meaningful truncation of the real input.
+///   *(This bullet used to say the prefix would be "arbitrary" and that a `debug_assert!`
+///   guarded it. Both were the defect: an assert is absent in release, and "arbitrary" was
+///   understating it — the function appended a suffix the content never carried. MAGI R2,
+///   Melchior `[WARNING]`.)*
 ///   `debug_assert!(content.ends_with(preserve_suffix))` — checked at Step 3 entry.
 ///
 /// # Post-condition
@@ -131,9 +132,9 @@ fn tail_cut(content: &str, width: usize, ellipsis: &str) -> String {
 /// Never. Every cut goes through `floor_char_boundary` or `strip_suffix`, so no byte
 /// offset can land inside a codepoint. A violated precondition degrades to the Step 2
 /// tail cut and emits a `tracing::warn!`; it does not panic and it does not invent text.
-/// *(Until 3.0.1 this section said the function panics in release when the Step 3
-/// precondition was broken — MAGI S2 flagged that a `debug_assert!` leaves release builds
-/// unguarded, so the guard became a real one.)*
+/// *(`3.0.0` shipped with this section saying the function panics in release when the
+/// Step 3 precondition was broken. MAGI flagged that a `debug_assert!` leaves release
+/// builds unguarded, so the guard became a real one.)*
 fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
     debug_assert!(width > 0);

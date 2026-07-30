@@ -1115,14 +1115,37 @@ mod tests {
             ExtractionFailureCause::MissingMarkers,
             "a completely different wording",
         );
+        // `expect`, not `unwrap_or_default`: with a default, a layout change would make
+        // BOTH sides `""` and `assert_eq!` would pass on nothing — the test would keep
+        // reporting success while checking that two empty strings are equal. (MAGI R2,
+        // Caspar `[INFO]`.)
         let instruction = |s: &str| {
-            s.split("---RETRY-FEEDBACK---")
+            let after = s
+                .split("---RETRY-FEEDBACK---")
                 .nth(1)
-                .and_then(|t| t.split("\n\n").nth(1))
-                .unwrap_or_default()
-                .to_string()
+                .expect("the retry envelope must be present");
+            let text = after
+                .split("\n\n")
+                .nth(1)
+                .expect("the instruction paragraph must follow the envelope");
+            assert!(
+                !text.trim().is_empty(),
+                "extracted an empty instruction — the layout changed and this test would \
+                 otherwise pass vacuously"
+            );
+            text.to_string()
         };
         assert_eq!(instruction(&a), instruction(&b));
+
+        // And the other direction: the extraction must be able to TELL two instructions
+        // apart. Without this, an extraction that returned a constant would satisfy the
+        // assertion above no matter what the templates did.
+        let other = build_retry_prompt("ORIG", ExtractionFailureCause::Unterminated, "one wording");
+        assert_ne!(
+            instruction(&a),
+            instruction(&other),
+            "a different cause must yield a different instruction"
+        );
     }
 
     /// The embedded error fragment is capped, and truncation counts CHARACTERS: slicing a
