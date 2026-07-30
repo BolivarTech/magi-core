@@ -969,7 +969,7 @@ impl Magi {
         // present, chain-empty record (W1). A normal return replaces its entry.
         let mut rotations = default_rotations(agent_models);
         // Seeded per agent: an empty Vec is the positive certificate that the seat was
-        // clean, and it keeps this map joinable with otations on the same key.
+        // clean, and it keeps this map joinable with the rotations map on the same key.
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> =
             rotations.keys().map(|name| (*name, Vec::new())).collect();
 
@@ -1856,78 +1856,79 @@ mod tests {
     /// making it `"conditional"` instead of `"approve"`, but it still parses.
     const SHIPPED_WORKED_EXAMPLE: &str = r#"{"agent": "caspar", "verdict": "conditional", "confidence": 0.85, "summary": "One-line verdict", "reasoning": "Your risk-focused analysis", "findings": [{"severity": "warning", "title": "Short title", "detail": "Risk description with concrete scenario", "file": "src/x.py", "line": 42, "category": "logic-error"}], "recommendation": "What you recommend"}"#;
 
-    /// The probe cap the deleted brace-scanning heuristic used, mirrored as a LOCAL
-    /// witness ON PURPOSE.
+    /// CLOSED (was: the lone echoed example fabricating a verdict — variant 1 of 4, and
+    /// the worst of them).
     ///
-    /// That heuristic's own constant is gone. These characterization tests had to
-    /// survive its deletion (T13 inverts them), so they could not NAME a symbol
-    /// scheduled for removal: the CI grep that keeps the no-search rule from being
-    /// quietly undone matches comments too. The duplication is deliberate and
-    /// temporary; T13 removes this constant along with the tests' old meaning.
-    const PROBE_CAP_WITNESS: usize = 2_000;
-
-    /// CHARACTERIZATION (MS3 R21, variant 1 of 4) â€” asserts the bug as it exists
-    /// TODAY: the lone echoed example parses cleanly, fabricating a verdict no
-    /// model ever formed. In Caspar's adversarial seat this enters consensus as
-    /// if it were an opinion.
+    /// The worked example lives OUTSIDE the markers in every shipped prompt, so a model
+    /// that echoes it emits no marker block and nothing reaches consensus. Before the
+    /// sentinel this same input parsed cleanly and produced a verdict no model ever
+    /// formed — in the adversarial seat, an opinion out of thin air.
     ///
-    /// T13 inverts this once the sentinel closes it.
+    /// Closed STRUCTURALLY: not by a check that could be forgotten, but because there is
+    /// no longer any path from unmarked text to a verdict.
     #[test]
-    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
-                — that failure is the proof of closure. T13 un-ignores and inverts it."]
-    fn characterize_lone_echoed_example_fabricates_a_verdict() {
-        let output = parse_agent_response(SHIPPED_WORKED_EXAMPLE)
-            .expect("CHARACTERIZATION: today the echoed example parses; this IS the bug");
-        assert_eq!(output.agent, AgentName::Caspar);
-        assert_eq!(output.verdict, Verdict::Conditional);
+    fn test_lone_echoed_example_no_longer_fabricates_a_verdict() {
+        let f = parse_and_validate(SHIPPED_WORKED_EXAMPLE, &Validator::new()).unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::MissingMarkers);
     }
 
-    /// CHARACTERIZATION (variant 2 of 4) â€” a truncated response that leaves the
-    /// echoed example as the only verdict-shaped object is recovered as if it
-    /// were the agent's own answer.
+    /// CLOSED (was: truncation leaving the echoed example as the only verdict-shaped
+    /// object — variant 2 of 4).
+    ///
+    /// There is nowhere to recover it FROM: prose around an unmarked object is not
+    /// searched, so a truncated response fails instead of inventing an answer.
     #[test]
-    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
-                — that failure is the proof of closure. T13 un-ignores and inverts it."]
-    fn characterize_truncation_plus_echo_fabricates_a_verdict() {
+    fn test_truncation_plus_echo_no_longer_fabricates_a_verdict() {
         let raw = format!(
-            "Let me restate the schema I must follow:\n{SHIPPED_WORKED_EXAMPLE}\n\nNow my analysis of the diff"
+            "Let me restate the schema I must follow:\n{SHIPPED_WORKED_EXAMPLE}\n\nNow my analysis"
         );
-        assert!(
-            parse_agent_response(&raw).is_ok(),
-            "CHARACTERIZATION: prose-wrapped echo is recovered as the verdict"
-        );
+        let f = parse_and_validate(&raw, &Validator::new()).unwrap_err();
+        assert_eq!(f.cause, ExtractionFailureCause::MissingMarkers);
     }
 
-    /// CHARACTERIZATION (variant 3 of 4) â€” a REAL verdict placed beyond the probe
-    /// budget is never reached, so an agent that answered correctly is dropped.
-    #[test]
-    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
-                — that failure is the proof of closure. T13 un-ignores and inverts it."]
-    fn characterize_probe_cap_distance_drops_the_real_verdict() {
-        let noise = "{}".repeat(PROBE_CAP_WITNESS + 10);
-        let real = mock_agent_object("melchior", "approve", 0.9);
-        assert!(
-            parse_agent_response(&format!("{noise}\n{real}")).is_err(),
-            "CHARACTERIZATION: the probe cap hides a real verdict placed past it"
-        );
-    }
-
-    /// CHARACTERIZATION (variant 4 of 4) â€” a thinking model that restates its
-    /// schema while reasoning yields TWO verdict-shaped objects, so recovery
-    /// fails closed and a mage that DID answer is dropped, degrading the report.
+    /// CLOSED (was: a real verdict placed beyond the probe cap being dropped — variant 3
+    /// of 4).
     ///
-    /// This is the Ollama/Jetson cost of the current parser: two of the three
-    /// models in the default trio are thinking models.
+    /// There is no probe cap because there is no probing, so DISTANCE NO LONGER DECIDES
+    /// ANYTHING. That is what this asserts: the same unmarked object yields the same cause
+    /// whether it sits at the start of the response or after thousands of braces. The
+    /// witness constant the characterization needed is gone with the heuristic it mirrored.
     #[test]
-    #[ignore = "MS3: asserts PRE-sentinel behaviour. The sentinel makes it fail BY DESIGN \
-                — that failure is the proof of closure. T13 un-ignores and inverts it."]
-    fn characterize_think_restatement_drops_the_mage() {
+    fn test_probe_distance_no_longer_decides_the_outcome() {
+        let bare = mock_agent_object("melchior", "approve", 0.9);
+        let noise = "{}".repeat(4_000);
+        let far = parse_and_validate(&format!("{noise}\n{bare}"), &Validator::new()).unwrap_err();
+        let near = parse_and_validate(&bare, &Validator::new()).unwrap_err();
+        assert_eq!(far.cause, ExtractionFailureCause::MissingMarkers);
+        assert_eq!(near.cause, far.cause, "distance must not change the cause");
+    }
+
+    /// CLOSED (was: a thinking model restating its schema getting DROPPED — variant 4 of
+    /// 4, and the direct Ollama/Jetson win).
+    ///
+    /// Two verdict-shaped objects used to make recovery fail closed, killing a mage that
+    /// had actually answered. Now the reasoning lives outside the markers, where it is
+    /// never read, so it cannot compete with the verdict.
+    ///
+    /// NOTE: the input differs from the characterization on purpose. Back then the model
+    /// emitted two BARE objects; under the sentinel a compliant model wraps its real
+    /// verdict. Reusing the old input would assert `MissingMarkers` — i.e. that the mage
+    /// is still dropped — which is the opposite of what closed.
+    #[test]
+    fn test_think_restatement_no_longer_drops_the_mage() {
         let restated = mock_agent_object("caspar", "approve", 0.0);
         let real = mock_agent_object("caspar", "reject", 0.8);
-        let raw = format!("<think>The schema is {restated}</think>\n{real}");
-        assert!(
-            parse_agent_response(&raw).is_err(),
-            "CHARACTERIZATION: two verdict-shaped objects fail closed, dropping the mage"
+        let raw = format!(
+            "<think>The schema is {restated}</think>\n{}\n{real}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        );
+        let out = parse_and_validate(&raw, &Validator::new())
+            .expect("reasoning outside the markers must not compete with the verdict");
+        assert_eq!(
+            out.verdict,
+            Verdict::Reject,
+            "the REAL verdict, not the restatement"
         );
     }
 
