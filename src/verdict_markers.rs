@@ -35,6 +35,7 @@
 //! schema (that is `validate.rs`), does not speak HTTP, and does not launch
 //! agents. It is pure and **never panics** — every failure is a typed `Err`.
 
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use regex::Regex;
@@ -94,11 +95,20 @@ static STRIPPED_CATEGORIES_RE: LazyLock<Regex> =
 /// * `line` — one line of model output, already split by the caller.
 ///
 /// Returns the line with `Cf`/`Mn` removed and surrounding whitespace trimmed.
-pub(crate) fn normalize_line(line: &str) -> String {
-    STRIPPED_CATEGORIES_RE
-        .replace_all(line, "")
-        .trim()
-        .to_string()
+///
+/// # Zero allocation in the common case
+///
+/// This runs for **every line of every agent response**, so it returns a `Cow`: a line
+/// containing no `Cf`/`Mn` — which is nearly all of them — borrows straight from the input
+/// and allocates nothing. Only a line that actually carries an invisible takes the owned
+/// branch. `strip_invisibles` in `user_prompt` uses the same shape for the same reason.
+pub(crate) fn normalize_line(line: &str) -> Cow<'_, str> {
+    match STRIPPED_CATEGORIES_RE.replace_all(line, "") {
+        Cow::Borrowed(s) => Cow::Borrowed(s.trim()),
+        // The rare branch: trimming an owned `String` needs a second pass, and paying it
+        // here is the point — it keeps the frequent branch free.
+        Cow::Owned(s) => Cow::Owned(s.trim().to_string()),
+    }
 }
 
 /// PERMISSIVE — for the output of the **MODEL** (untrusted, outside our control).
