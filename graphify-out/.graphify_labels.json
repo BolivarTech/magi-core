@@ -79,9 +79,8 @@
   "77": "int",
   "78": "int",
   "79": "str",
-  "80": "str",
-  "81": "MAGI_REF_SHA pin (Python MAGI v3.0.0)",
-  "82": "_magi_ref.py (single source of truth)",
+  "80": "VerdictExtractionError",
+  "81": ".map_status_to_error",
   "83": "banner",
   "84": "agent_count",
   "85": "conditions",
@@ -102,12 +101,8 @@
   "100": "melchior",
   "101": "report",
   "102": "mod.rs",
-  "103": ".fmt",
-  "104": "retry_after_integration.rs",
-  "106": "[1.1.1] - 2026-07-17",
-  "107": "[2.2.0] - 2026-07-27",
+  "104": "ClaudeProvider",
   "111": "BTreeMap",
-  "133": "Option",
-  "139": "Vec",
-  "140": "Vec"
+  "133": "ProviderError",
+  "139": "Vec"
 }

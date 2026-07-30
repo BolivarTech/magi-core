@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1785376932.2085109,
-    "ast_hash": "43e148b44f8ca78f80a284f6346be4a4",
+    "mtime": 1785380074.5315268,
+    "ast_hash": "d944c18d4a6abc203fe2d60d4decd56f",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -70,8 +70,8 @@
     "semantic_hash": ""
   },
   "src/reporting.rs": {
-    "mtime": 1785375760.5158985,
-    "ast_hash": "dca4eb86a143f6b9e149d187866b090e",
+    "mtime": 1785379356.989472,
+    "ast_hash": "64a6e913d9bb4f94537a841b44f2c290",
     "semantic_hash": ""
   },
   "src/schema.rs": {
@@ -80,13 +80,13 @@
     "semantic_hash": ""
   },
   "src/test_support.rs": {
-    "mtime": 1785127872.585061,
-    "ast_hash": "aa84be400116c3fdfe8f57a6374f07cb",
+    "mtime": 1785382117.983233,
+    "ast_hash": "c88f7f5ba96cb7e65ef0cdd7e68f5fb5",
     "semantic_hash": ""
   },
   "src/user_prompt.rs": {
-    "mtime": 1785374676.3675537,
-    "ast_hash": "13e65b1c1a971812ff629e5dcb112d98",
+    "mtime": 1785382521.808541,
+    "ast_hash": "41da41f4c9f8ede4c756aa83f2945480",
     "semantic_hash": ""
   },
   "src/validate.rs": {
@@ -215,8 +215,8 @@
     "semantic_hash": ""
   },
   "src/verdict_markers.rs": {
-    "mtime": 1785366933.129746,
-    "ast_hash": "39888b39abacb26198f5785f890c4c99",
+    "mtime": 1785380878.0567741,
+    "ast_hash": "0d61d7a88830c245d332741b7aae5dcc",
     "semantic_hash": ""
   },
   "ci/check_r0.sh": {
