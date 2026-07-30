@@ -1,4 +1,4 @@
-﻿# magi-core
+# magi-core
 
 [![Crates.io](https://img.shields.io/crates/v/magi-core.svg)](https://crates.io/crates/magi-core)
 [![Documentation](https://docs.rs/magi-core/badge.svg)](https://docs.rs/magi-core)
@@ -38,11 +38,11 @@ consensus engine synthesizes their verdicts into a unified report.
 > forever (or take >300 s) will now fail with `ProviderError::Timeout`. Raise it
 > with `OpenAiCompatibleProvider::with_timeout(...)`. The **worst-case latency
 > with the defaults is ~15 minutes** per call (10 min `operation_budget` + one
-> 5 min timeout); wrap in `tokio::time::timeout` for a harder bound. Full details
-> in `dev-docs/migration-v2.0.md`.
+> 5 min timeout); wrap in `tokio::time::timeout` for a harder bound. The complete list
+> of 2.0 breaking changes is in the `[2.0.0]` entry of `CHANGELOG.md`.
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
-- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to `MAGI@v3.0.0` (finding calibration), verified via SHA-256 fixture in CI
+- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to the reference implementation's verdict-sentinel release, applied verbatim with no local divergence, verified via SHA-256 fixture in CI
 - **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), and `openai-compat` (OpenAI Chat Completions — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server) ship as optional features
 - **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
 - **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
@@ -53,12 +53,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "1.0"
+magi-core = "3.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # Enable one or both built-in providers:
-# magi-core = { version = "1.0", features = ["claude-cli"] }
-# magi-core = { version = "1.0", features = ["claude-api"] }
+# magi-core = { version = "3.0", features = ["claude-cli"] }
+# magi-core = { version = "3.0", features = ["claude-api"] }
 ```
 
 ### Basic Usage
@@ -114,18 +114,15 @@ use std::sync::Arc;
 # async fn example() -> Result<(), MagiError> {
 let provider: Arc<dyn LlmProvider> = /* ... */;
 
+// Start from a built-in prompt and edit it: it already carries the output contract
+// that `build()` enforces (see "The Output Contract" below).
+let mine = magi_core::prompts::melchior_prompt().to_string();
+
 let magi = Magi::builder(provider)
     // Only used when mode == CodeReview
-    .with_custom_prompt_for_mode(
-        AgentName::Melchior,
-        Mode::CodeReview,
-        "You are a code review specialist...".to_string(),
-    )
+    .with_custom_prompt_for_mode(AgentName::Melchior, Mode::CodeReview, mine.clone())
     // Fallback for all other modes
-    .with_custom_prompt_all_modes(
-        AgentName::Melchior,
-        "You are Melchior, the scientist...".to_string(),
-    )
+    .with_custom_prompt_all_modes(AgentName::Melchior, mine)
     .build()?;
 # Ok(())
 # }
@@ -134,6 +131,54 @@ let magi = Magi::builder(provider)
 > **Migrating from v0.2:** `with_custom_prompt(agent, mode, prompt)` is
 > deprecated. Use `with_custom_prompt_for_mode` (per-mode) or
 > `with_custom_prompt_all_modes` (mode-agnostic).
+
+### The Output Contract
+
+*(3.0+)* An agent's verdict is read **only** from between two marker lines, each alone on
+its own line, exactly once:
+
+```text
+<MAGI_VERDICT>
+{ ...the 7-key JSON object... }
+</MAGI_VERDICT>
+```
+
+Nothing outside that block is ever read — not the model's reasoning, not a restated
+schema, not an echoed example. That is what closes the case where a model reproduces the
+worked example from its own instructions and fabricates a verdict nobody formed. It is
+also what lets "thinking" models reason freely: their reasoning sits outside the markers,
+so it cannot compete with their verdict.
+
+**`MagiBuilder::build()` enforces this on every resolvable prompt** — built-in and custom
+alike, including prompts loaded via `with_prompts_dir` — and it does so **before any
+provider is contacted**. A prompt without the marker block, or one whose delimited content
+would itself deserialize as a valid verdict (a fabrication template), fails `build()` with
+`MagiError::PromptContract`, and no request is sent.
+
+Check yours in your own test suite rather than discovering it at build time.
+`prompts::validate_prompt` is the exact function `build()` runs, so what it accepts is
+what `build()` accepts:
+
+```rust
+use magi_core::prompts;
+
+let mut template = prompts::caspar_prompt().to_string();
+// ...edit `template`, keeping its `## Output format` section intact...
+assert!(prompts::validate_prompt(&template).is_ok());
+```
+
+There is deliberately **no automatic fixer**. A pre-3.0 prompt almost certainly already
+says something like *"respond with only a JSON object, no text outside it"*; appending the
+sentinel's instructions on top yields a prompt that contradicts itself — half forbidding
+text outside the JSON, half inviting the model to reason before the markers. That prompt
+passes the check and performs *worse* than either half alone. Migrating means **removing**
+the old instruction, not layering a new one over it.
+
+One combination has no prompt-side fix: a provider forced into
+`response_format`/structured JSON output makes the model emit raw JSON, which cannot be
+wrapped in markers. That is incompatible with the output contract, and staying on `2.x` is
+not the remedy — that is the version with the fabrication path still open. Stop forcing
+structured output on that provider.
 
 ### Cost Control with Complexity Gate
 

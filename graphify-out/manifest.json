@@ -25,13 +25,13 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1785366546.3299706,
-    "ast_hash": "f810c9670d18abeecffc6a083b2f25bb",
+    "mtime": 1785376203.4977107,
+    "ast_hash": "d73bf196c40b261ac01cffcdb1a30dfe",
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1785369940.2244318,
-    "ast_hash": "856693634541dc970899f7f8b13a26af",
+    "mtime": 1785376932.2085109,
+    "ast_hash": "43e148b44f8ca78f80a284f6346be4a4",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -40,8 +40,8 @@
     "semantic_hash": ""
   },
   "src/prompts/mod.rs": {
-    "mtime": 1785370016.079499,
-    "ast_hash": "04f3ee2582c756269e8f0fb6bc4e694c",
+    "mtime": 1785372695.1494396,
+    "ast_hash": "13895ec7b7594c4827bbc830a874e020",
     "semantic_hash": ""
   },
   "src/provider.rs": {
@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1785036431.0336154,
-    "ast_hash": "3a37b73b5a49d2f17f87340092893999",
+    "mtime": 1785377234.099028,
+    "ast_hash": "6a8aab0792b003acacfbe828265b5ea5",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -70,13 +70,13 @@
     "semantic_hash": ""
   },
   "src/reporting.rs": {
-    "mtime": 1785127872.577066,
-    "ast_hash": "251f5e2378c6b9b9973670fc52f31b93",
+    "mtime": 1785375760.5158985,
+    "ast_hash": "dca4eb86a143f6b9e149d187866b090e",
     "semantic_hash": ""
   },
   "src/schema.rs": {
-    "mtime": 1785036431.0406196,
-    "ast_hash": "82980082be53f0febe1b8e7c2da299fc",
+    "mtime": 1785376118.8462763,
+    "ast_hash": "d7abb777f98c73bf8f93df99faf83d18",
     "semantic_hash": ""
   },
   "src/test_support.rs": {
@@ -85,8 +85,8 @@
     "semantic_hash": ""
   },
   "src/user_prompt.rs": {
-    "mtime": 1785150619.4041965,
-    "ast_hash": "34744cc62c60cfcef3165141b16a1a88",
+    "mtime": 1785374676.3675537,
+    "ast_hash": "13e65b1c1a971812ff629e5dcb112d98",
     "semantic_hash": ""
   },
   "src/validate.rs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1785127872.3153968,
-    "ast_hash": "241465ba2f93b8815c4950d4e5ea5194",
+    "mtime": 1785376512.299644,
+    "ast_hash": "b2ec6ec5776895dc11d5b8df32fa6a60",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
@@ -125,13 +125,13 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1785150884.8507526,
-    "ast_hash": "70ca63d0f8bba89bc8ea0b39b9c47f98",
+    "mtime": 1785377484.04186,
+    "ast_hash": "3acc269860f70551cd8b87e23623e19a",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1785150619.3971965,
-    "ast_hash": "66d9ee596a2f990534238050e8345f4e",
+    "mtime": 1785377621.7212174,
+    "ast_hash": "a144f11c4decab9b56e78fd12897765a",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
@@ -217,6 +217,11 @@
   "src/verdict_markers.rs": {
     "mtime": 1785366933.129746,
     "ast_hash": "39888b39abacb26198f5785f890c4c99",
+    "semantic_hash": ""
+  },
+  "ci/check_r0.sh": {
+    "mtime": 1785376064.9433289,
+    "ast_hash": "a83bacc66a6c5cd757398c9915f9d3fd",
     "semantic_hash": ""
   }
 }

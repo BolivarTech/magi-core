@@ -1,8 +1,92 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [3.0.0] - 2026-07-29
+
+**The verdict sentinel.** An agent's verdict is now read only from between two marker
+lines, each alone on its own line, exactly once:
+
+```
+<MAGI_VERDICT>
+{ ...the 7-key JSON object... }
+</MAGI_VERDICT>
+```
+
+Text outside the markers is never parsed. This replaces a parser that *searched* the raw
+response for a JSON object shaped like a verdict — a fast path that deserialized the whole
+response, plus a scan over candidate objects that selected the one carrying the verdict's
+discriminator keys, bounded by a size limit and a probe cap. Searching means choosing, and
+choosing means some input is chosen wrong; the worst case was a **fabricated verdict in the
+adversarial seat** — an `approve`/`conditional` no model ever formed, entering consensus as
+if it were an opinion. That code is deleted outright: no flag, no environment variable, no
+Cargo feature restores it. A second, unplanned win: "thinking" models that restate their
+schema while reasoning used to produce two verdict-shaped objects, fail closed, and drop a
+mage that had actually answered — reasoning now lives outside the markers and can no longer
+compete with the verdict.
+
+### BREAKING
+
+- **`MagiBuilder::build()` now rejects any custom prompt that does not carry the marker
+  block.** Every resolvable prompt is checked — the three built-in ones and every override,
+  including prompts loaded via `with_prompts_dir` — and the check runs **before any provider
+  is contacted**; no request is sent for a prompt that fails it. The new
+  `MagiError::PromptContract` variant reports which prompt (agent and mode, or an
+  unassigned one) and which rule it broke. **Only consumers using `with_custom_prompt*` /
+  `with_prompts_dir` are affected** — the built-in prompts already satisfy the check, so a
+  consumer that never overrides a prompt sees no change. No signature moved and no item was
+  removed, so nothing breaks at the type level; what breaks is *behaviour* — a configuration
+  that used to build now returns `Err` — and that is a break under plain SemVer regardless
+  of what the type system says, hence a major and not a minor.
+
+  **The fix:** start from `prompts::caspar_prompt()` (now public) and edit it, or copy its
+  `## Output format` section into your own prompt verbatim, then check the result with the
+  also-public `prompts::validate_prompt` — the exact function `build()` runs. There is
+  deliberately no automatic fixer: appending the marker section to a legacy prompt produces
+  one that contradicts itself (one half forbids text outside the JSON, the other invites the
+  model to reason freely before the markers), and that prompt passes the check while
+  performing worse than either half on its own. Migrating means *removing* the old
+  instruction, not layering a new one over it.
+
+  If your provider forces `response_format` / structured JSON output, that is a dead end the
+  sentinel cannot help with — a model forced to emit raw JSON cannot wrap it in markers.
+  Staying on `2.x` is not a fix either: that is the version with the fabrication hole still
+  open. The provider has to stop forcing structured output.
+
+### Added
+
+- **`verdict_markers` module** (public, narrow): `VERDICT_OPEN` / `VERDICT_CLOSE`,
+  `extract`, `VerdictExtractionError`, `ExtractionFailureCause`. Pure, allocation-light,
+  never panics — every failure is a typed `Err`. No new dependencies.
+- **`prompts` module is now public**: the three prompt accessors plus `validate_prompt` and
+  `validate_prompt_for`. It had to be, or the new build-time check would be a wall with no
+  door. Internal resolution helpers stay crate-private.
+- **Retry feedback is now selected by the typed failure cause** — seven distinct
+  instructions instead of one generic paragraph. A model told it wrote the markers twice can
+  fix that; a model told only "re-emit valid JSON" cannot. The old generic instruction also
+  told models to emit nothing outside the JSON, which now contradicts the contract.
+- **`MagiReport::extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>`** —
+  always present and seeded for every dispatched agent, so an empty `Vec` is a positive
+  certificate that the seat adhered on every attempt. Each record carries the **model** that
+  produced the rejected output, the attempt number, and the cause: with per-agent rotation
+  the actionable question is *which model* fails to adhere, not *which seat* happened to
+  suffer. A `MagiReport` produced by 2.2.0 still deserializes — the field defaults to empty.
+- A `## Extraction Failures` section in the human-readable report, emitted only when at
+  least one attempt failed. A clean run's report text is unchanged.
+- **Post-validation checks:** an echoed worked example is rejected (`EchoedExample`), and a
+  verdict claiming to come from another mage is rejected (`AgentIdentity`). When both would
+  fire, the echo is reported — it names the root cause, and its feedback subsumes the other.
+- CI now mechanically enforces the "never search outside the markers" rule
+  (`ci/check_r0.sh`), so a future change cannot quietly reintroduce the deleted scan.
+
+### Changed
+
+- The three embedded system prompts are re-pinned to the reference implementation's
+  sentinel-era prompts, applied verbatim with no local divergence. The worked example moved
+  outside the marker block and a non-JSON placeholder took its place inside — which is what
+  makes an echo harmless rather than merely less severe.
 
 ## [2.2.0] - 2026-07-27
 
@@ -122,7 +206,7 @@ compiles and behaves exactly as 2.0.x.
 ## [2.0.0] - 2026-07-25
 
 Backoff/retry hardening plus a deliberate audit of the public API's
-extensibility. See `dev-docs/migration-v2.0.md` for the full migration guide.
+extensibility, detailed in the sections below.
 
 ### BREAKING
 

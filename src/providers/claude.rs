@@ -221,9 +221,11 @@ impl ClaudeProvider {
     ///   raw `Retry-After` header for the retry policy to interpret.
     ///
     /// **2.0 breaking change:** gains `retry_after_raw` and `received_at`
-    /// parameters (required by C4/A5). Visibility stays `pub` (reducing it would
-    /// be out of the A1–A7 scope). Callers pass `vec![], None` to preserve 1.x
-    /// behavior. Enumerated in `dev-docs/migration-v2.0.md`.
+    /// parameters. Visibility stays `pub`. A 1.x caller preserves the old
+    /// behaviour by passing `vec![], None` — the empty vector means "the server
+    /// sent no `Retry-After`", and `None` means "no receipt instant to discount
+    /// a honored delay against", which together reproduce the pre-2.0 semantics
+    /// exactly.
     pub fn map_status_to_error(
         status: u16,
         body: &str,
