@@ -152,6 +152,12 @@ impl OpenAiCompatibleProvider {
         let base_url = ProviderUrl::parse(&base_url.into())?;
         let client = reqwest::Client::builder()
             .timeout(timeout)
+            // Referer OFF. The default puts the ORIGINAL url — query string included — in the
+            // `Referer` header of a redirect, handing a query-authenticated credential to the
+            // target origin, which is exactly the leak this module exists to prevent, and it
+            // survives every other defense because it never touches our own rendering.
+            // An LLM API client has no use for Referer.
+            .referer(false)
             .build()
             .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {

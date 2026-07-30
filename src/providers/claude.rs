@@ -132,6 +132,9 @@ impl ClaudeProvider {
         let model_id = resolve_claude_alias(&model.into())?;
         let client = Client::builder()
             .timeout(timeout)
+            // Referer OFF — see the note in the OpenAI-compatible provider: on a redirect the
+            // client would send the ORIGINAL url, query string included, to the target origin.
+            .referer(false)
             .build()
             .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {

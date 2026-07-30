@@ -53,6 +53,9 @@ impl OllamaProvider {
         let inner = OpenAiCompatibleProvider::new(format!("{base}/v1"), model, None)?;
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_CLIENT_TIMEOUT)
+            // Referer OFF — see the note in the OpenAI-compatible provider: on a redirect the
+            // client would send the ORIGINAL url, query string included, to the target origin.
+            .referer(false)
             .build()
             .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {

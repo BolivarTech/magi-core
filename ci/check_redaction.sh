@@ -150,4 +150,22 @@ for f in $(provider_files); do
     fi
 done
 
+# 7 — every client this crate builds must have Referer OFF.
+#
+# The only PRESENCE rule here, and it is presence for a reason. The others forbid something, so a
+# test can catch the forbidden thing appearing. This one requires something, and no test can catch
+# it disappearing: the contract test builds its OWN client to prove the technique works, so it
+# keeps passing after every provider has quietly lost the call.
+#
+# What the default does, measured rather than assumed: on a redirect the client sends the ORIGINAL
+# url — query string included — as `Referer` to the target origin. For an endpoint authenticated by
+# a query parameter that hands the credential to a third party, and it bypasses every other defense
+# in this file because it never passes through anything this crate renders.
+for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
+    prod="$(prod_only "$f")"
+    echo "$prod" | grep -q 'Client::builder' || continue
+    echo "$prod" | grep -q 'referer(false)' \
+        || fail "$f builds an HTTP client without referer(false) — on a redirect the default leaks the full URL, query included, to the target origin"
+done
+
 echo "check_redaction: OK"
