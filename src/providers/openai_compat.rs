@@ -17,6 +17,7 @@
 
 use crate::error::ProviderError;
 use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT};
+use crate::providers::provider_url::ProviderUrl;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -87,7 +88,9 @@ struct OpenAiRespMessage {
 /// ```
 pub struct OpenAiCompatibleProvider {
     client: reqwest::Client,
-    base_url: String,
+    /// The URL authority. **Never a `String`**: a secret must not be storable as plain text, so
+    /// that no future `derive(Debug)`, `format!` or log statement can print it.
+    base_url: ProviderUrl,
     model: String,
     api_key: Option<String>,
 }
@@ -95,6 +98,7 @@ pub struct OpenAiCompatibleProvider {
 impl fmt::Debug for OpenAiCompatibleProvider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OpenAiCompatibleProvider")
+            // `ProviderUrl`'s own Debug is redacted, so this field cannot leak.
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("api_key", &"[REDACTED]")
@@ -129,18 +133,8 @@ impl OpenAiCompatibleProvider {
         api_key: Option<String>,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        let base_url = base_url.into();
-        let parsed = reqwest::Url::parse(&base_url).map_err(|e| ProviderError::Network {
-            message: format!("invalid base_url: {e}"),
-        })?;
-        if !matches!(parsed.scheme(), "http" | "https") {
-            return Err(ProviderError::Network {
-                message: format!(
-                    "invalid base_url scheme: {} (expected http/https)",
-                    parsed.scheme()
-                ),
-            });
-        }
+        // Parsing, scheme validation and normalisation all live in the URL authority now.
+        let base_url = ProviderUrl::parse(&base_url.into())?;
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
@@ -149,7 +143,7 @@ impl OpenAiCompatibleProvider {
             })?;
         Ok(Self {
             client,
-            base_url: base_url.trim_end_matches('/').to_string(),
+            base_url,
             model: model.into(),
             api_key,
         })
@@ -174,13 +168,6 @@ impl OpenAiCompatibleProvider {
         self.api_key
             .as_ref()
             .map(|k| ("Authorization", format!("Bearer {k}")))
-    }
-
-    /// Constructs the full Chat Completions endpoint URL by appending
-    /// `/chat/completions` to `base_url` (trailing slashes already stripped at
-    /// construction time).
-    pub(crate) fn endpoint_url(&self) -> String {
-        format!("{}/chat/completions", self.base_url)
     }
 
     /// Extracts `choices[0].message.content` from the raw response body.
@@ -286,38 +273,24 @@ impl LlmProvider for OpenAiCompatibleProvider {
     ) -> Result<String, ProviderError> {
         let body = self.build_request_body(system_prompt, user_prompt, config);
         let mut req = self
-            .client
-            .post(self.endpoint_url())
-            .header("content-type", "application/json")
+            .base_url
+            .request(
+                &self.client,
+                reqwest::Method::POST,
+                &["chat", "completions"],
+            )
             .json(&body);
         if let Some((name, value)) = self.auth_header() {
             req = req.header(name, value);
         }
-        let response = req.send().await.map_err(|e| {
-            if e.is_timeout() {
-                ProviderError::Timeout {
-                    message: e.to_string(),
-                }
-            } else {
-                ProviderError::Network {
-                    message: e.to_string(),
-                }
-            }
-        })?;
+        // `send` returns an already-composed, redacted error: this file never builds one.
+        let response = req.send().await?;
         // C3.1 epoch: capture the receipt instant when the HEADERS arrive (the
         // `send` future resolves on headers; the body is read below), and the raw
         // `Retry-After`, in the same place the status is read.
         let received_at = Instant::now();
-        let status = response.status().as_u16();
-        // `get_all`, not `get`: HTTP allows repeating the header and C1 requires
-        // keeping the first VALID one, skipping malformed ones.
-        let retry_after_raw: Vec<String> = response
-            .headers()
-            .get_all(reqwest::header::RETRY_AFTER)
-            .iter()
-            .filter_map(|v| v.to_str().ok())
-            .map(str::to_owned)
-            .collect();
+        let status = response.status();
+        let retry_after_raw = response.retry_after_raw();
         if !(200..300).contains(&status) {
             let response_body = response.text().await.unwrap_or_default();
             return Err(Self::map_status_to_error(
@@ -327,20 +300,10 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 Some(received_at),
             ));
         }
-        let response_body = response.text().await.map_err(|e| {
-            // The total timeout can fire while reading the body (headers arrive,
-            // then the server hangs) — the exact S16 failure mode. Map it to
-            // `Timeout`, not `Network`, so the retry policy classifies it right.
-            if e.is_timeout() {
-                ProviderError::Timeout {
-                    message: e.to_string(),
-                }
-            } else {
-                ProviderError::Network {
-                    message: format!("failed to read response body: {e}"),
-                }
-            }
-        })?;
+        // The total timeout can fire while reading the body (headers arrive, then the server
+        // hangs); the shared mapper classifies that as `Timeout`, not `Network`, so the retry
+        // policy treats it correctly.
+        let response_body = response.text().await?;
         Self::parse_response(&response_body)
     }
 
@@ -452,17 +415,11 @@ mod tests {
         assert_eq!(p.auth_header(), None);
     }
 
-    #[test]
-    fn test_endpoint_url_appends_chat_completions() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
-        assert_eq!(p.endpoint_url(), "http://h/v1/chat/completions");
-    }
-
-    #[test]
-    fn test_endpoint_url_normalizes_trailing_slash() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1/", "m", None).unwrap();
-        assert_eq!(p.endpoint_url(), "http://h/v1/chat/completions");
-    }
+    // Endpoint construction moved to the URL authority, and its coverage GREW rather than
+    // shrank: the two tests that lived here (append, trailing slash) are now three, adding
+    // query and fragment preservation — cases the old string-concatenation implementation
+    // could not even express, since it produced `…/v1?key=X/chat/completions`.
+    // See `provider_url::tests::join_path_*`.
 
     #[test]
     fn test_parse_response_extracts_content() {

@@ -327,6 +327,74 @@ fn is_retryable(error: &ProviderError) -> bool {
     }
 }
 
+/// Marker appended when text is cut, so a truncated message never reads as a complete one.
+pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
+
+/// Upper bound for a composed transport error message, in bytes.
+pub(crate) const MAX_TRANSPORT_MESSAGE_BYTES: usize = 2000;
+
+/// Builds a provider error message from parts this crate controls.
+///
+/// # Why compose instead of interpolating the client's error
+///
+/// An HTTP client's error text embeds the URL it was given, which may carry credentials. Composing
+/// from an already-redacted rendering plus the *causes* keeps every bit of diagnostic value and
+/// drops exactly the part that can leak.
+///
+/// # Why the order matters
+///
+/// Operation and endpoint come first, so when the cap bites it eats the tail of the cause chain —
+/// the least critical part — and never the endpoint, which is the first thing a reader needs.
+pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chain: &str) -> String {
+    let head = format!("{op} for {redacted_url}");
+    if cause_chain.is_empty() {
+        return head;
+    }
+    let full = format!("{head}: {cause_chain}");
+    if full.len() <= MAX_TRANSPORT_MESSAGE_BYTES {
+        return full;
+    }
+    // Reserve the marker inside the budget: a cap its own suffix can exceed lies about its name.
+    let budget = MAX_TRANSPORT_MESSAGE_BYTES.saturating_sub(TRUNCATION_MARKER.len());
+    let cut = full.floor_char_boundary(budget);
+    format!("{}{TRUNCATION_MARKER}", &full[..cut])
+}
+
+/// Joins an error's `source()` chain, **starting at the first source**.
+///
+/// The top-level error is skipped on purpose: an HTTP client's `Display` interpolates the URL. Its
+/// causes (transport, I/O) describe the failure without it.
+///
+/// Lives here rather than in the provider-URL module because it takes `&dyn Error` — it touches no
+/// HTTP type — and it must be reachable when only the Claude feature is enabled, which does not
+/// compile that module. Duplicating it would put two definitions on the one path that produces
+/// error text.
+pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
+    let mut parts = Vec::new();
+    let mut cur = e.source();
+    while let Some(c) = cur {
+        parts.push(c.to_string());
+        cur = c.source();
+    }
+    parts.join(": ")
+}
+
+/// Turns a transport failure into this crate's error type.
+///
+/// **This is the only place a transport [`ProviderError`] is built from a client error.** That is
+/// what lets the rule "provider files never construct transport errors" be unconditional — including
+/// for a provider whose URL is a constant with no secret. A conditional rule is one someone applies
+/// wrong.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error) -> ProviderError {
+    let message = compose_transport_message(op, redacted_url, &cause_chain(e));
+    if e.is_timeout() {
+        ProviderError::Timeout { message }
+    } else {
+        ProviderError::Network { message }
+    }
+}
+
 /// HTTP statuses considered transient (worth retrying).
 const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504];
 
@@ -503,6 +571,81 @@ impl LlmProvider for RetryProvider {
 
     fn model(&self) -> &str {
         self.inner.model()
+    }
+}
+
+#[cfg(test)]
+mod message_composition_tests {
+    use super::*;
+
+    #[test]
+    fn compose_puts_operation_and_url_first_and_truncates_the_cause_tail() {
+        let long_cause = "x".repeat(MAX_TRANSPORT_MESSAGE_BYTES * 2);
+        let msg = compose_transport_message("request failed", "http://h/v1", &long_cause);
+        assert!(
+            msg.len() <= MAX_TRANSPORT_MESSAGE_BYTES,
+            "capped: {}",
+            msg.len()
+        );
+        assert!(msg.starts_with("request failed"), "operation first: {msg}");
+        assert!(
+            msg.contains("http://h/v1"),
+            "endpoint survives truncation: {msg}"
+        );
+        assert!(msg.contains("truncated"), "the cut is announced: {msg}");
+    }
+
+    #[test]
+    fn compose_does_not_truncate_when_under_the_cap() {
+        let msg = compose_transport_message("request failed", "http://h/v1", "connection refused");
+        assert!(msg.contains("connection refused"));
+        assert!(
+            !msg.contains("truncated"),
+            "no marker when nothing was cut: {msg}"
+        );
+    }
+
+    #[test]
+    fn compose_never_panics_on_multibyte_boundaries() {
+        let cause = "ñ".repeat(MAX_TRANSPORT_MESSAGE_BYTES * 2);
+        let msg = compose_transport_message("op", "http://h", &cause);
+        assert!(msg.len() <= MAX_TRANSPORT_MESSAGE_BYTES);
+    }
+
+    #[test]
+    fn cause_chain_skips_the_top_level_error() {
+        use std::fmt;
+
+        #[derive(Debug)]
+        struct Top;
+        #[derive(Debug)]
+        struct Inner;
+        impl fmt::Display for Top {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "for url (http://u:p@h)")
+            }
+        }
+        impl fmt::Display for Inner {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "connection refused")
+            }
+        }
+        impl std::error::Error for Inner {}
+        impl std::error::Error for Top {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&Inner)
+            }
+        }
+
+        let chain = cause_chain(&Top);
+        assert!(
+            chain.contains("connection refused"),
+            "sources kept: {chain}"
+        );
+        assert!(
+            !chain.contains("http://u:p@h"),
+            "top-level Display excluded: {chain}"
+        );
     }
 }
 
