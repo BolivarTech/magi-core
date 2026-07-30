@@ -184,7 +184,7 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
 /// Declared BELOW [`fit_content`] on purpose. Sitting above it, this doc block wedged
 /// itself between that function's `# Preconditions` / `# Post-condition` / `# Algorithm`
 /// sections and the function they describe, so rustdoc attached the whole contract to
-/// THIS helper instead (MAGI R2, Caspar `[WARNING]`).
+/// THIS helper instead
 ///
 /// Total: `floor_char_boundary` cannot return an offset inside a codepoint, and the
 /// `max(1)` keeps the cut positive when `width < ellipsis.len()`.
@@ -273,7 +273,7 @@ pub struct MagiReport {
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub retried_agents: BTreeSet<AgentName>,
 
-    /// **MS2** — per-agent rotation telemetry, populated for EVERY agent (successful
+    /// per-agent rotation telemetry, populated for EVERY agent (successful
     /// or failed). Each entry carries `model_configured`/`model_used` and the ordered
     /// `chain` of hops (empty when the agent did not rotate). Always present in JSON.
     ///
@@ -289,7 +289,7 @@ pub struct MagiReport {
     #[serde(default)]
     pub rotations: BTreeMap<AgentName, AgentRotation>,
 
-    /// **MS3** — per-agent record of every output rejected before it could enter
+    /// per-agent record of every output rejected before it could enter
     /// consensus, in the order the attempts happened.
     ///
     /// # Always present, seeded for every dispatched agent
@@ -304,7 +304,8 @@ pub struct MagiReport {
     /// # Read it JOINED with `rotations`, on `AgentName`
     ///
     /// The two are halves of one story: *why* a mage suffered, and *where* it ended up.
-    /// Together they answer the question MS2 and MS3 only make answerable in combination
+    /// Together they answer a question neither rotation nor extraction telemetry can
+    /// answer alone
     /// — *did this seat fail extraction, rotate because of it, and which model did it
     /// finish on?* That join is why both fields follow the same presence rule.
     ///
@@ -324,7 +325,7 @@ pub struct MagiReport {
     /// while the run is degraded. `failed_agents` is what says whether the seat produced a
     /// verdict at all; this field says why the text it produced was rejected, if it was.
     /// Both are needed, and reading either in isolation gives a confident wrong answer.
-    /// *(MAGI S3, Caspar `[INFO]`.)*
+    ///
     #[serde(default)]
     pub extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>,
 }
@@ -350,7 +351,7 @@ fn cause_label(cause: ExtractionFailureCause) -> &'static str {
 
 /// One rejected agent output, attributed to the **model** that produced it.
 ///
-/// `#[non_exhaustive]` like every public struct since 1.0.0 (ADR 005): it can gain fields
+/// `#[non_exhaustive]` like every public struct since 1.0.0: it can gain fields
 /// in a minor without breaking consumers.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -413,8 +414,7 @@ impl ReportConfig {
     /// [`ReportConfig::new_checked`] and [`ReportFormatter::with_config`] used to carry
     /// byte-identical copies of this. Two copies of a validation rule is one too many:
     /// the day one grows a check, the other keeps accepting what the first now rejects,
-    /// and the gap shows up as a malformed banner rather than an error. MAGI S2,
-    /// Balthasar `[INFO]`.
+    /// and the gap shows up as a malformed banner rather than an error.
     ///
     /// # Errors
     ///
@@ -634,7 +634,7 @@ impl ReportFormatter {
         self.format_report_with_rotations(agents, consensus, &BTreeMap::new(), false)
     }
 
-    /// **MS2** — Like [`format_report`](Self::format_report) but inserts the rotation
+    /// Like [`format_report`](Self::format_report) but inserts the rotation
     /// telemetry sections after the banner: `## Model Rotations` (when any agent
     /// rotated) and the run-level "estimated" honesty note (when `estimated`). The
     /// ENTIRE report is assembled here in the formatter, so callers never couple to
@@ -654,7 +654,7 @@ impl ReportFormatter {
         self.format_report_with_telemetry(agents, consensus, rotations, estimated, &BTreeMap::new())
     }
 
-    /// **MS3** — like [`format_report_with_rotations`](Self::format_report_with_rotations)
+    /// like [`format_report_with_rotations`](Self::format_report_with_rotations)
     /// but also renders `## Extraction Failures`.
     ///
     /// Each telemetry section is empty when there is nothing to report, so a clean run
@@ -800,7 +800,7 @@ impl ReportFormatter {
         out
     }
 
-    /// Run-level honesty disclosure (R19): when any surviving mage ran on an
+    /// Run-level honesty disclosure: when any surviving mage ran on an
     /// ESTIMATED (unmeasured) context window, returns a one-line note; otherwise
     /// `""`. The word "estimated" is the auditable signal.
     pub fn format_estimated_note(&self, estimated: bool) -> String {
@@ -1945,7 +1945,7 @@ mod tests {
     /// Fixture capture path: C — constructed from v0.4 with
     /// retried_agents=BTreeSet::new(), serialized form is byte-identical
     /// to what v0.3.1 produced for the same MagiReport shape (since
-    /// skip_serializing_if omits the empty field). See MAGI R2 W2/W7/W10.
+    /// skip_serializing_if omits the empty field).
     #[test]
     fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
         let json = include_str!("../tests/fixtures/magi_report_v0_3_1.json");
@@ -2344,7 +2344,7 @@ mod tests {
 
     /// fit_content never appends a suffix the content did not carry.
     ///
-    /// MAGI S2, Melchior `[WARNING]`: Step 3's precondition (`content` ends with
+    /// Step 3's precondition (`content` ends with
     /// `preserve_suffix`) was only a `debug_assert!`, so release builds took the branch
     /// regardless. Two consequences, and the quiet one is worse: it **fabricates** — it
     /// lops `preserve_suffix.len()` bytes off the tail and appends the suffix, so
@@ -2418,8 +2418,8 @@ mod tests {
     /// It used to be `#[cfg(not(debug_assertions))]` on `fit_content`, because that
     /// function's `debug_assert!(width >= 4)` fires first in debug. The effect was a test
     /// that never ran where it mattered: CI builds tests in debug, so the only documented
-    /// edge case of this function went unverified on every push. (MAGI R2, Melchior
-    /// `[INFO]`.) Extracting `tail_cut` made the behavior reachable without disabling the
+    /// edge case of this function went unverified on every push. Extracting `tail_cut`
+    /// made the behavior reachable without disabling the
     /// assertion that protects real callers.
     #[test]
     fn test_tail_cut_boundary_width_1_exceeds_width_by_design() {

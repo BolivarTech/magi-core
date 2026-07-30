@@ -414,9 +414,9 @@ values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
 (never a deserialization error). These locations are agent-reported and
 **unverified** — validate against your own diff.
 
-## Model Rotation (MS2)
+## Model Rotation
 
-When a mage's model goes dead during a run, MS2 rotates that single agent to a fallback lineage instead of letting the whole run degrade. The feature is fully additive: if you declare no fallback pool, behavior is byte-identical to the pre-rotation path.
+When a mage's model goes dead during a run, the crate rotates that single agent to a fallback lineage instead of letting the whole run degrade. The feature is fully additive: if you declare no fallback pool, behavior is byte-identical to the pre-rotation path.
 
 > ⚠️
 > - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages abort the whole run before consensus; a genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could over-abort — accepted (YAGNI).

@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 ///
 /// This constant is retained for external consumers that depend on it. Internal
 /// code uses [`crate::validate::clean_title`] which applies a different (updated)
-/// character set aligned with Python MAGI 2.1.3.
+/// character set aligned with the upstream Python implementation.
 #[deprecated(
     since = "0.2.0",
     note = "use `magi_core::validate::clean_title` for current behavior; \
@@ -43,8 +43,7 @@ pub static ZERO_WIDTH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 /// `Verdict` does **not** carry `#[non_exhaustive]`, and that is a decision, not
 /// an oversight: it is a closed domain. If it ever grew, we **want** the
 /// compiler to break consumers so they revisit their consensus logic, rather
-/// than have a silent `_ => ...` treat the new case as "anything else". See
-/// ADR 007.
+/// than have a silent `_ => ...` treat the new case as "anything else".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Verdict {
@@ -98,8 +97,7 @@ impl fmt::Display for Verdict {
 /// # Stability — deliberately CLOSED
 ///
 /// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. A new variant
-/// **should** break exhaustive matches so consumers revisit their logic. See
-/// ADR 007.
+/// **should** break exhaustive matches so consumers revisit their logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -161,8 +159,7 @@ impl Ord for Severity {
 /// # Stability — deliberately CLOSED
 ///
 /// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. A new mode
-/// **should** break exhaustive matches so consumers revisit their logic. See
-/// ADR 007.
+/// **should** break exhaustive matches so consumers revisit their logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
@@ -192,7 +189,7 @@ impl fmt::Display for Mode {
 /// # Stability — deliberately CLOSED
 ///
 /// No `#[non_exhaustive]`: a closed domain, like [`Verdict`]. The MAGI trio is
-/// fixed; a new agent **should** break exhaustive matches. See ADR 007.
+/// fixed; a new agent **should** break exhaustive matches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentName {

@@ -4,19 +4,19 @@
 
 //! The verdict sentinel: delimits an agent's verdict inside its raw output.
 //!
-//! # R0 — THE RULE THAT CARRIES ALL OF THIS MODULE'S SECURITY
+//! # The no-search rule — it carries all of this module's security
 //!
 //! **NORMALIZING inside an already-delimited region is PERMITTED.
 //! SEARCHING outside the markers is FORBIDDEN, always.**
 //!
-//! Any PR that adds a search outside the markers **reverts MS3**, however useful
-//! it looks: the parser would go back to *guessing* which of several JSON objects
+//! Any change that adds a search outside the markers **undoes this module**, however
+//! useful it looks: the parser would go back to *guessing* which of several JSON objects
 //! was the verdict, which is exactly the defect this module exists to erase.
 //!
-//! ## What R0 does NOT forbid
+//! ## What the no-search rule does NOT forbid
 //!
 //! "Searching" means **choosing between candidates** — probing positions until
-//! something decodes, or preferring one object over another. R0 does not forbid:
+//! something decodes, or preferring one object over another. It does not forbid:
 //!
 //! - **Scanning lines to LOCATE the markers.** The text must be walked to learn
 //!   where the block starts and ends; that is locating, not choosing, and the
@@ -76,8 +76,8 @@ static STRIPPED_CATEGORIES_RE: LazyLock<Regex> =
 /// else goes through it.
 ///
 /// [`is_exact_marker_line`] is **not** a consumer and must not become one — it is the
-/// strict half of the R3 asymmetry, so it compares the raw trimmed line and normalizing
-/// for it would erase the very difference that makes it strict.
+/// strict half of the two-predicate asymmetry, so it compares the raw trimmed line, and
+/// normalizing for it would erase the very difference that makes it strict.
 ///
 /// # Why the order of the steps carries weight
 ///

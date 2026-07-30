@@ -18,7 +18,7 @@ tokio::task_local! {
     /// Production providers (Claude HTTP, Claude CLI) MUST ignore this
     /// (they never read it).
     ///
-    /// **MAGI R3 Caspar W7:** `tokio::task_local!` requires a running
+    /// `tokio::task_local!` requires a running
     /// tokio runtime and a current task to `scope` into. Reads via
     /// `try_with` return `Err(AccessError)` if no scope is active; the
     /// `RoutingMockProvider` converts that into a fail-closed
@@ -132,7 +132,7 @@ impl Agent {
             .await
     }
 
-    /// Executes against an EXPLICIT provider (a rotation fallback, MS2) using
+    /// Executes against an EXPLICIT provider (a rotation fallback) using
     /// **this agent's identity and system prompt**.
     ///
     /// Identical to [`execute`](Agent::execute) except the provider is supplied

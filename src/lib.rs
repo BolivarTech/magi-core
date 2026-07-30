@@ -93,7 +93,8 @@ pub mod schema;
 pub mod test_support;
 mod user_prompt;
 pub mod validate;
-/// Public from birth (MS3 R1): the doctest for `extract` (T3) cannot compile
-/// against a private module — a doctest compiles as an external crate — and
-/// `§0.1` runs doctests, so deferring visibility would break the gate mid-plan.
+/// Public because a consumer needs to be able to call [`verdict_markers::extract`]: the
+/// crate defines exactly one notion of "this line is a marker", and one that cannot be
+/// called from outside gets reimplemented — most likely with `str::lines()`, which does
+/// not split on a lone `\r`. Drift across the crate boundary is as bad as drift within it.
 pub mod verdict_markers;

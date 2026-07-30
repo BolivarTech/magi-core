@@ -25,9 +25,9 @@ pub struct ConsensusConfig {
 ///
 /// # Stability
 ///
-/// `#[non_exhaustive]`: an **output** type the crate may enrich (e.g. MS2/MS3
-/// telemetry). Reading fields still works; constructing it by struct-literal
-/// from another crate is no longer possible. See ADR 007.
+/// `#[non_exhaustive]`: an **output** type the crate may enrich with further
+/// telemetry. Reading fields still works; constructing it by struct-literal
+/// from another crate is no longer possible.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[non_exhaustive]
 pub struct ConsensusResult {
@@ -86,8 +86,7 @@ pub struct DedupFinding {
 /// # Stability
 ///
 /// `#[non_exhaustive]`: an **output** type the crate may enrich. Reading fields
-/// still works; struct-literal construction from another crate does not. See
-/// ADR 007.
+/// still works; struct-literal construction from another crate does not.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub struct Dissent {
@@ -104,8 +103,7 @@ pub struct Dissent {
 /// # Stability
 ///
 /// `#[non_exhaustive]`: an **output** type the crate may enrich. Reading fields
-/// still works; struct-literal construction from another crate does not. See
-/// ADR 007.
+/// still works; struct-literal construction from another crate does not.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[non_exhaustive]
 pub struct Condition {
@@ -534,7 +532,7 @@ mod tests {
     /// After `#[non_exhaustive]` (v2.0), reading `ConsensusResult`/`Dissent`/
     /// `Condition` fields from within the crate still compiles. No-regression:
     /// the attribute blocks external struct-literal construction, not field
-    /// reads (external construction is verified in design; see ADR 007).
+    /// reads (external construction is verified in design).
     #[test]
     fn test_consensus_result_fields_remain_readable() {
         let agents = vec![

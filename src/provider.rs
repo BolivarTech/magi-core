@@ -196,8 +196,8 @@ pub struct RetryConfig {
     /// (`elapsed >= budget` before each attempt), a zero budget is already met
     /// on the first check and yields **zero retries** — it behaves like
     /// `max_retries = 0`, not "start now". It is legitimate but almost always a
-    /// mistake; unlike the three zeros of F2 it emits no warning of its own
-    /// (covered by the runtime symptom of E3.1). For "no cap" use `Duration::MAX`.
+    /// mistake, and unlike the other zero-valued settings it emits no warning of
+    /// its own — the symptom shows up at runtime. For "no cap" use `Duration::MAX`.
     pub operation_budget: Duration,
     /// Classes that use **flat** backoff instead of exponential.
     pub flat_classes: Vec<RetryClass>,
@@ -605,7 +605,8 @@ mod tests {
     }
 
     /// Returns a 429 with the given `Retry-After` headers and, after `fail_times`
-    /// failures, responds with success. The only one that exercises C1/C3.
+    /// failures, responds with success. The only mock that exercises the
+    /// `Retry-After` honouring path end to end.
     struct RetryAfterProvider {
         headers: Vec<String>,
         fail_times: usize,

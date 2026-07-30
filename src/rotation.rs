@@ -2,7 +2,7 @@
 // Version: 1.0.0
 // Date: 2026-07-26
 
-//! Per-agent lineage rotation (MS2): a dead model **rotates** to another lineage
+//! Per-agent lineage rotation: a dead model **rotates** to another lineage
 //! instead of degrading the run.
 //!
 //! When a mage's model fails — transport, schema, or timeout — the orchestrator
@@ -32,7 +32,7 @@
 //! (`AgentSlotGuard`): a valid verdict keeps the lineage; anything else releases
 //! it.
 //!
-//! # Scope asymmetry (R6) — why the failure class matters
+//! # Scope asymmetry — why the failure class matters
 //!
 //! A **transport** failure condemns the lineage **run-wide** (every mage then
 //! avoids it); a **schema** failure is **mage-local** (only that mage stops
@@ -42,7 +42,7 @@
 //! schema-failed for Caspar (mage-local, freed once Caspar moved on). The naive
 //! "A already failed, avoid it" intuition is wrong for the schema path.
 //!
-//! # Digest verify — fail-OPEN (R17)
+//! # Digest verify — fail-OPEN
 //!
 //! To catch *ensemble collapse* (two lineages that are secretly the same weights),
 //! `claim_next` compares model digests. The rule is
@@ -54,7 +54,7 @@
 //! two identical models mislabeled as distinct are caught **only if** their digests
 //! resolve, so a provider without a [`ProviderProbe`] gets no ensemble-collapse
 //! protection. The architecture↔lineage check (`family_verdict`) is out of scope
-//! here (MS4).
+//! here.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -75,7 +75,7 @@ use crate::schema::AgentName;
 /// share a lineage. Backed by `Cow<'static, str>` so a `&'static str` literal is
 /// zero-alloc (`Borrowed`) while a runtime `String` is `Owned`.
 ///
-/// # Normalization (R3.2)
+/// # Normalization
 ///
 /// All constructors **trim** leading/trailing whitespace. Construction is
 /// infallible: an empty result (`""`, or all-whitespace) is a valid `Lineage`
@@ -92,7 +92,7 @@ use crate::schema::AgentName;
 pub struct Lineage(Cow<'static, str>);
 
 impl Lineage {
-    /// Creates a `Lineage`, trimming surrounding whitespace (R3.2).
+    /// Creates a `Lineage`, trimming surrounding whitespace.
     ///
     /// Accepts anything convertible into `Cow<'static, str>` — a `&'static str`
     /// stays `Borrowed` (zero-alloc), a `String` is `Owned`.
@@ -233,7 +233,7 @@ impl RotationPolicy {
         })
     }
 
-    /// Condition #6 (R16): the candidate's measured context window is large enough,
+    /// Condition #6: the candidate's measured context window is large enough,
     /// or (unmeasured) is admitted unless `strict_context_guard`. A model with no
     /// capability entry (non-probing provider) has `window: None` → admitted
     /// (non-strict), preserving no-probe behavior.
@@ -502,9 +502,9 @@ impl LineageRegistry {
     /// is cleared at entry so a dynamic (digest) rejection is re-evaluated on the
     /// next call.
     ///
-    /// Digest verify (R17, **fail-open**): after `next_model` picks a candidate, it
+    /// Digest verify (**fail-open**): after `next_model` picks a candidate, it
     /// is rejected ONLY on a *proven* collision — its **resolvable** digest equals a
-    /// **resolvable** ACTIVE mage's digest (the calling agent is excluded, W6). An
+    /// **resolvable** ACTIVE mage's digest (the calling agent is excluded). An
     /// unresolvable (`None`) digest — candidate or active — never collides, so it is
     /// trusted by the declared lineage. A rejected candidate is marked in
     /// `window_rejected` and the loop re-proposes the next eligible one; the set
@@ -735,7 +735,7 @@ pub async fn run_preflight(
 /// `Some((0, _))` (the candidate, placed at index 0, matching a *resolvable*
 /// active digest) rejects a rotation. An unresolvable (`None`) digest — on the
 /// candidate or on an active mage — never collides, so it is trusted by the
-/// declared lineage (R17, user decision 2026-07-26).
+/// declared lineage.
 pub(crate) fn digest_collision(digests: &[Option<String>]) -> Option<(usize, usize)> {
     for (i, di) in digests.iter().enumerate() {
         let Some(di) = di else {
@@ -750,7 +750,7 @@ pub(crate) fn digest_collision(digests: &[Option<String>]) -> Option<(usize, usi
     None
 }
 
-/// Window pre-filter (R16): a KNOWN window passes iff it is at least `min_window`;
+/// Window pre-filter: a KNOWN window passes iff it is at least `min_window`;
 /// an UNKNOWN window (`None`) is eligible UNLESS `strict` (then rejected). Pure.
 fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
     match window {
@@ -770,7 +770,7 @@ pub(crate) struct FallbackCandidate {
 /// Default per-mage rotation cap when the builder does not set one.
 pub const DEFAULT_MAX_ROTATIONS: u32 = 2;
 
-/// Immutable, encapsulated fallback pool shared run-wide (R3.1). Built via
+/// Immutable, encapsulated fallback pool shared run-wide. Built via
 /// [`FallbackPool::builder`]; construction is infallible (an empty pool is valid,
 /// duplicate lineages only warn — G2).
 pub struct FallbackPool {
@@ -893,7 +893,7 @@ pub(crate) struct RotationConfig {
     pub(crate) primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
     pub(crate) pool: FallbackPool,
     /// When set, a candidate whose context window cannot be measured is REJECTED
-    /// by the window pre-filter (R16). Default `false` (unknown windows are
+    /// by the window pre-filter. Default `false` (unknown windows are
     /// eligible — the definitive probe decides later).
     pub(crate) strict_context_guard: bool,
 }
@@ -1670,7 +1670,7 @@ mod tests {
     }
 
     /// Registry with TWO active mages (Melchior, Balthasar) — for the dynamic-R5a
-    /// re-evaluation test (W1).
+    /// re-evaluation test.
     fn digest_case_two_active(
         mel: &str,
         mel_d: Option<&str>,
@@ -1704,7 +1704,7 @@ mod tests {
     }
 
     /// Registry where the CALLING agent (Caspar) is itself active with `self_digest`
-    /// — for the calling-agent exclusion test (W6).
+    /// — for the calling-agent exclusion test.
     fn digest_case_self(
         self_digest: &str,
         cand: &[(&'static str, &str)],

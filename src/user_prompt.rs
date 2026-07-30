@@ -45,8 +45,8 @@ static NEWLINE_RE: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// Applied to the analyzed content (not only to error text), so a `U+2028` inside a string
 /// literal in the code under review reaches the model as a plain newline. For a library
-/// whose input is *material under review*, that is a real fidelity cost, and it is accepted
-/// deliberately (MAGI R2, Melchior `[WARNING]`).
+/// whose input is *material under review*, that is a real fidelity cost, and it is
+/// accepted deliberately.
 ///
 /// **Why not "detect on a normalized copy, send the original".** That is the obvious
 /// alternative and it is worse. `neutralize_headers` is **line-anchored**: if `U+2028`
@@ -136,8 +136,8 @@ static HEADER_RE: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// The regex absorbs any run of non-letters before the keyword (group 1) so
 /// the keyword cannot be shielded from either side — originally ASCII
-/// whitespace only, against leading-space bypass (MAGI R1 C1), widened in
-/// 2.2.0 to cover every blank-rendering character (MAGI R3 W7). Substitution
+/// whitespace only, against a leading-space bypass, and widened in `2.2.0`
+/// to cover every blank-rendering character. Substitution
 /// reproduces that run verbatim, inserts the neutralization prefix `"  "`, and
 /// preserves the keyword and separator groups. See [`HEADER_RE`] for why both
 /// flanks use a non-letter rule rather than an enumerated character set.
@@ -162,7 +162,7 @@ fn neutralize_headers(s: &str) -> Cow<'_, str> {
 /// replace. Each entry is the dash run replaced uniformly. Order matters
 /// only for clarity — every entry is independent.
 ///
-/// Added MAGI R3 W2 (Loop 2 sanitizer hardening) — the original literal
+/// Added with the sanitizer hardening in `2.2.0` — the original literal
 /// replace only neutralized `---RETRY-FEEDBACK---` with ASCII hyphens.
 /// An LLM emitting an error containing U+2014 em-dash or U+2013 en-dash
 /// instead of `-` could slip through structurally if the model later
@@ -223,16 +223,16 @@ const VERDICT_MARKER_TOKENS: &[&str] = &[VERDICT_OPEN, VERDICT_CLOSE];
 /// Four layers of defense, applied in this order:
 /// 1. `normalize_newlines` converts `\r`, U+0085, U+000B/C, U+2028/9 to
 ///    `\n` so subsequent line-anchored matching sees uniform line breaks
-///    (MAGI R3 W2: CR-only line break previously bypassed neutralize).
+///
 /// 2. `strip_invisibles` removes zero-width / bidi / BOM / soft-hyphen
 ///    characters so a ZWSP-prefixed `MODE:` cannot evade the line-start
-///    regex (MAGI R3 W2: zero-width prefix bypass).
+///    regex
 /// 3. `neutralize_headers` covers line-start `MODE:` / `CONTEXT:` /
 ///    `---BEGIN USER CONTEXT` / `---END USER CONTEXT` tokens (existing
 ///    v0.3 anti-injection defense).
 /// 4. Literal substring replace of every **structural token**, because the step-3 regex
 ///    only ever matches its four reserved keywords and none of these is one of them, so
-///    it never neutralizes them — this pass closes that gap (MAGI R2 C1). Two families:
+///    it never neutralizes them — this pass closes that gap Two families:
 ///    - The retry envelope `---RETRY-FEEDBACK---` and **eight** Unicode-confusable dash
 ///      spellings of it, one per variant in [`RETRY_FEEDBACK_DASH_VARIANTS`]: em dash
 ///      (U+2014), en dash (U+2013), horizontal bar (U+2015), minus sign (U+2212), hyphen
@@ -398,7 +398,7 @@ fn truncate_error_for_retry(text: &str) -> String {
 /// closed if the sanitized content contains the nonce, and wraps the result
 /// in `---BEGIN/END USER CONTEXT <nonce>---` delimiters.
 ///
-/// Pipeline order is load-bearing per spec §5.2 (MAGI R1):
+/// Pipeline order is load-bearing:
 /// `normalize_newlines → strip_invisibles → neutralize_headers`.
 ///
 /// # Arguments
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(strip_invisibles("a\u{e0041}b"), "ab");
     }
 
-    /// Regression guard for a header-neutralization bypass (MAGI R3 W2 family).
+    /// Regression guard for a header-neutralization bypass
     ///
     /// `strip_invisibles` runs **before** `neutralize_headers` precisely so an
     /// invisible cannot be used to smuggle a header past the neutralizer.
@@ -1088,7 +1088,7 @@ mod tests {
         }
     }
 
-    /// E22 — the instruction is selected PER CAUSE. Before MS3 there was one generic
+    /// The instruction is selected PER CAUSE. Before the sentinel there was one generic
     /// paragraph, and its last sentence ("do not emit anything outside the JSON object")
     /// now contradicts the sentinel outright: the model MUST emit the marker lines and
     /// MAY reason freely outside them. A single template cannot be right for all seven
@@ -1232,7 +1232,7 @@ mod tests {
         );
     }
 
-    /// BDD-17 (MAGI R1 C1 / I5): an adversarial error string containing
+    /// BDD-17: an adversarial error string containing
     /// MODE:/CONTEXT:/---BEGIN/---END tokens **at the start of a line**
     /// gets each token neutralized with a two-space prefix inside the
     /// feedback block. The legitimate END delimiter that closes the
@@ -1289,7 +1289,7 @@ mod tests {
         );
     }
 
-    /// MAGI R2 C1: `neutralize_headers` regex does NOT cover
+    /// `neutralize_headers` regex does NOT cover
     /// `---RETRY-FEEDBACK---` (no separator after the keyword). The
     /// `sanitize_error_for_retry_feedback` helper closes this gap via a
     /// literal substring replace.
@@ -1311,7 +1311,7 @@ mod tests {
         );
     }
 
-    /// MAGI R3 W2: full pipeline normalize_newlines runs on error string —
+    /// full pipeline normalize_newlines runs on error string —
     /// CR-only line break in error doesn't bypass line-start neutralize.
     #[test]
     fn test_build_retry_prompt_normalizes_cr_only_line_breaks_in_error() {
@@ -1328,7 +1328,7 @@ mod tests {
         );
     }
 
-    /// MAGI R3 W2: full pipeline strip_invisibles runs on error string —
+    /// full pipeline strip_invisibles runs on error string —
     /// zero-width-prefixed MODE: in error doesn't bypass line-start neutralize.
     #[test]
     fn test_build_retry_prompt_strips_zero_width_prefix_in_error() {
@@ -1343,7 +1343,7 @@ mod tests {
         );
     }
 
-    /// MAGI R3 W2: Unicode-confusable dash variants of ---RETRY-FEEDBACK---
+    /// Unicode-confusable dash variants of ---RETRY-FEEDBACK---
     /// are neutralized along with the ASCII form. Catches em-dash, en-dash,
     /// horizontal bar, and minus-sign variants.
     #[test]
@@ -1369,7 +1369,7 @@ mod tests {
         );
     }
 
-    /// MAGI R2 I5 (regresion contra multi-error chained injection): an error
+    /// Regression guard against a multi-error chained injection: an error
     /// string that strings together multiple structural tokens must have
     /// each token neutralized.
     #[test]

@@ -4,7 +4,7 @@
 
 //! Compile-time embedded system prompts for the three agents.
 //!
-//! **Public since MS3.** The module was crate-internal until `3.0.0`; it is now `pub`
+//! **Public since `3.0.0`.** The module was crate-internal before that; it is now `pub`
 //! for three reasons that reinforce each other:
 //!
 //! 1. `MagiBuilder::build()` **enforces** the verdict-marker contract, so a consumer
@@ -243,7 +243,7 @@ mod tests_verdict_contract {
     use super::*;
     use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
-    /// The re-pin's own witness (MS3 T4). Until the re-pin, this test asserted the
+    /// The witness for the prompt re-pin. Before it, this test asserted the
     /// INVERSE — that the prompts did NOT satisfy the contract, because they carried no
     /// markers. Flipping it is how the re-pin **proves** it installed the contract,
     /// instead of asserting it in prose.
@@ -252,7 +252,7 @@ mod tests_verdict_contract {
     /// predicate succeeds only on exactly one ordered pair, so a second assertion for
     /// that would be the same check under another name.
     ///
-    /// Note this uses the STRICT predicate, so it doubles as E21 over our own files: an
+    /// Note this uses the STRICT predicate, so it also covers our own shipped files: an
     /// invisible inside a marker line here is corruption and fails, even though the same
     /// line in model output would be accepted.
     #[test]
@@ -267,7 +267,7 @@ mod tests_verdict_contract {
         }
     }
 
-    /// MANDATORY ANCHOR (R13). Without it, editing a prompt without updating the canary
+    /// MANDATORY ANCHOR. Without it, editing a prompt without updating the canary
     /// leaves the canary comparing against text nobody emits: a **silent fail-open**.
     ///
     /// Now asserted against the **production constants**, so it proves two things at
@@ -450,7 +450,7 @@ mod tests {
         );
     }
 
-    /// F0 fabrication-echo hardening: the worked example embedded in each
+    /// Fabrication-echo hardening: the worked example embedded in each
     /// prompt must never carry an `approve` verdict. A model that echoes the
     /// example verbatim would otherwise fabricate a clean `approve` in the
     /// adversarial seat — the worst silent failure the system can produce.

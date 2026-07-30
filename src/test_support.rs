@@ -127,7 +127,7 @@ impl LlmProvider for RoutingMockProvider {
 }
 
 // ---------------------------------------------------------------------------
-// MS2 rotation test support: ScriptProvider, MockProbe, and thin trio builders.
+// Rotation test support: ScriptProvider, MockProbe, and thin trio builders.
 // ---------------------------------------------------------------------------
 
 /// Content that is delimited correctly but is **not JSON** — so it exercises the
@@ -357,7 +357,7 @@ pub fn build_trio_with_caspar(
 
 /// Caspar's deepseek primary returns `BadJson` on both attempt and corrective
 /// retry → schema fail (mage-local) → rotate to the pool. deepseek is never
-/// condemned run-wide (schema ≠ transport), which the S4 test asserts.
+/// condemned run-wide (schema ≠ transport), which an integration test asserts.
 pub fn build_schema_local_case() -> Magi {
     build_trio_with_caspar(
         ScriptProvider::new("deepseek", vec![Beh::BadJson]),
@@ -552,7 +552,7 @@ mod tests {
         assert_eq!(r2, "MEL_2");
     }
 
-    /// MAGI R1 W9: invariant — each prompt file still contains the agent
+    /// Invariant — each prompt file still contains the agent
     /// role marker. Not load-bearing for routing (we use task-local now),
     /// but keeps the option open for marker-based detection in downstream
     /// mock providers.

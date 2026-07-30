@@ -16,7 +16,7 @@ use thiserror::Error;
 /// symmetry with [`ProviderError`] (A1/A2): the enum-level attribute only
 /// enables adding new variants; the per-variant attribute enables adding new
 /// **fields** (e.g. a field on `RetryAfterTooLong`) without breaking. Consumers
-/// use `_ => ...` when matching and `..` when destructuring. See ADR 007.
+/// use `_ => ...` when matching and `..` when destructuring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AbandonReason {
@@ -56,7 +56,7 @@ pub enum AbandonReason {
 /// `#[non_exhaustive]` on the enum **and on its struct-like variants**:
 /// consumers must include a `_ => ...` arm when matching, and use `..` when
 /// destructuring a variant. This allows adding variants and fields in future
-/// minor releases without breaking. See ADR 007.
+/// minor releases without breaking.
 #[derive(Debug, Clone, Error)]
 #[non_exhaustive]
 pub enum ProviderError {
@@ -70,7 +70,7 @@ pub enum ProviderError {
         body: String,
         /// **Raw** values of the `Retry-After` header, in order of arrival.
         /// Empty means the server did not send it. It is a `Vec` because HTTP
-        /// allows the header to be **repeated** and the spec (C1) requires
+        /// allows the header to be **repeated** and the HTTP spec requires
         /// keeping the **first valid** one, skipping malformed ones — a single
         /// `String` could not represent that. Interpreting them is
         /// `RetryProvider`'s job, since only it knows the configured cap.
@@ -208,7 +208,7 @@ pub enum MagiError {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    /// **MS2** — Endpoint-down fast-fail: two distinct lineages failed at the
+    /// Endpoint-down fast-fail: two distinct lineages failed at the
     /// connection level, so no endpoint is reachable. The run aborts **before**
     /// consensus rather than degrade. Additive (enabled by `#[non_exhaustive]`).
     #[error("endpoint down: no lineage reachable ({})", .lineages.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", "))]
@@ -217,7 +217,7 @@ pub enum MagiError {
         lineages: Vec<crate::rotation::Lineage>,
     },
 
-    /// **MS3** — a resolvable system prompt violates the verdict-marker contract.
+    /// A resolvable system prompt violates the verdict-marker contract.
     ///
     /// Returned by `MagiBuilder::build()` **before any provider is resolved**, and by
     /// [`crate::prompts::validate_prompt`]. It does **not** trigger retry or rotation:
@@ -239,18 +239,18 @@ pub enum MagiError {
         ///
         /// `Some` on the path that resolves prompts — `build()` always knows the seat,
         /// and a message that cannot say which of the three files to open is not
-        /// actionable (E20b). `None` for [`crate::prompts::validate_prompt`], where the
+        /// actionable. `None` for [`crate::prompts::validate_prompt`], where the
         /// **consumer** hands over a loose string and has not chosen a seat yet.
         ///
-        /// # Deviation from R14's letter, on purpose
+        /// # Why this is optional, and not always known
         ///
-        /// The spec fixes this as a plain `AgentName`, reasoning *"no prompt is
+        /// The obvious shape is a plain `AgentName`, reasoning *"no prompt is
         /// ownerless"*. That holds for prompts the crate **resolves**; it does not hold
         /// for a consumer validating a string in their own test suite. With a required
         /// field, that path would have to name a mage — and would name the **wrong**
         /// one: someone checking their Caspar prompt would read *"Melchior"*. An
-        /// actively misleading error contradicts E20b more than an honest `None` does,
-        /// so the shape follows the spec's intent rather than its wording. Use
+        /// actively misleading error is worse than an honest `None`,
+        /// so the field is optional. Use
         /// [`crate::prompts::validate_prompt_for`] when the seat IS known.
         agent: Option<crate::schema::AgentName>,
         /// `Some` for a per-mode override; `None` for a mode-agnostic override, an

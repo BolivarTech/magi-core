@@ -208,7 +208,7 @@ compiles and behaves exactly as 2.0.x.
 - **Per-agent rotation.** Declare a per-mage primary `Lineage`
   (`MagiBuilder::with_agent` / `with_probing_agent`) and a shared, run-wide
   `FallbackPool` (`with_fallback_pool`, `max_rotations`). On a surfaced transport
-  error (after the MS1 `RetryProvider` exhausts) or a schema failure surviving its
+  error (after the `RetryProvider` exhausts) or a schema failure surviving its
   corrective retry, the mage rotates to the next eligible lineage. A transport
   failure condemns the lineage run-wide; a schema failure is mage-local; a panic
   never rotates.
@@ -291,7 +291,7 @@ extensibility, detailed in the sections below.
 
 ### Fixed
 
-- **Fabrication-echo hardening (F0).** The worked example embedded in each of the
+- **Fabrication-echo hardening.** The worked example embedded in each of the
   three agent prompts carried `"verdict": "approve"`; a model echoing the example
   verbatim could fabricate a clean `approve` in the adversarial (Caspar) seat —
   the worst silent failure the consensus can produce. The example now uses
@@ -665,7 +665,7 @@ the AgentName Ord contract, and the v0.3.1 backward-compat fixture.
 - **72 new unit tests** (pipeline + adversarial + integration + SHA-256
   parity). Total: 324.
 
-### Security considerations (MAGI R3 W8)
+### Security considerations
 
 The following limitations are **known and accepted** per the threat model
 (Scope IS-NOT section):
