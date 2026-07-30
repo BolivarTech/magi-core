@@ -110,21 +110,6 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///    `prefix_budget = width - 3 - preserve_suffix.len()`,
 ///    return `prefix_source[..prefix_budget] + "..." + preserve_suffix`.
 ///
-/// Truncates `content` from the tail and appends `ellipsis`, cutting only on a char
-/// boundary.
-///
-/// Extracted because [`fit_content`] reaches it from two places — Step 2, and Step 3's
-/// precondition fallback — and two copies of a truncation rule is one copy too many: the
-/// day one grows a guard the other silently keeps the old behavior.
-///
-/// Total: `floor_char_boundary` cannot return an offset inside a codepoint, and the
-/// `max(1)` keeps the cut positive when `width < ellipsis.len()`.
-fn tail_cut(content: &str, width: usize, ellipsis: &str) -> String {
-    let cutoff = (width.saturating_sub(ellipsis.len())).max(1);
-    let safe_cutoff = content.floor_char_boundary(cutoff);
-    format!("{}{}", &content[..safe_cutoff], ellipsis)
-}
-
 /// # Panics
 ///
 /// **Never from its own slicing, in any profile.** Every cut goes through
@@ -187,6 +172,26 @@ fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
         ELLIPSIS,
         preserve_suffix
     )
+}
+
+/// Truncates `content` from the tail and appends `ellipsis`, cutting only on a char
+/// boundary.
+///
+/// Extracted because [`fit_content`] reaches it from two places — Step 2, and Step 3's
+/// precondition fallback — and two copies of a truncation rule is one copy too many: the
+/// day one grows a guard the other silently keeps the old behavior.
+///
+/// Declared BELOW [`fit_content`] on purpose. Sitting above it, this doc block wedged
+/// itself between that function's `# Preconditions` / `# Post-condition` / `# Algorithm`
+/// sections and the function they describe, so rustdoc attached the whole contract to
+/// THIS helper instead (MAGI R2, Caspar `[WARNING]`).
+///
+/// Total: `floor_char_boundary` cannot return an offset inside a codepoint, and the
+/// `max(1)` keeps the cut positive when `width < ellipsis.len()`.
+fn tail_cut(content: &str, width: usize, ellipsis: &str) -> String {
+    let cutoff = (width.saturating_sub(ellipsis.len())).max(1);
+    let safe_cutoff = content.floor_char_boundary(cutoff);
+    format!("{}{}", &content[..safe_cutoff], ellipsis)
 }
 
 /// Left-justified width of the markdown severity label column (e.g., `**[CRITICAL]**`).
