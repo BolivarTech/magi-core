@@ -82,11 +82,13 @@ const FINDING_MARKER_WIDTH: usize = 5;
 ///   `debug_assert!(content.is_ascii() && preserve_suffix.is_ascii())`
 /// - `width > 0`.
 ///   `debug_assert!(width > 0)`
+/// - `width >= 4`, so one character plus the ellipsis can fit.
+///   `debug_assert!(width >= 4, ...)` — see `# Post-condition` for what a smaller width
+///   produces (it is defined, just wider than `width`).
 /// - `content` should end with `preserve_suffix` when Step 3 runs. This one is **checked at
 ///   runtime, in every profile**, by `strip_suffix` — not asserted: a violation logs a
 ///   `tracing::warn!` and degrades to the Step 2 tail cut, so the result is always a
 ///   truncation of the real input and never carries a suffix the input lacked.
-///   `debug_assert!(content.ends_with(preserve_suffix))` — checked at Step 3 entry.
 ///
 /// # Post-condition
 ///
@@ -125,12 +127,20 @@ fn tail_cut(content: &str, width: usize, ellipsis: &str) -> String {
 
 /// # Panics
 ///
-/// Never. Every cut goes through `floor_char_boundary` or `strip_suffix`, so no byte
-/// offset can land inside a codepoint. A violated precondition degrades to the Step 2
-/// tail cut and emits a `tracing::warn!`; it does not panic and it does not invent text.
-/// *(`3.0.0` shipped with this section saying the function panics in release when the
-/// Step 3 precondition was broken. MAGI flagged that a `debug_assert!` leaves release
-/// builds unguarded, so the guard became a real one.)*
+/// **Never from its own slicing, in any profile.** Every cut goes through
+/// `floor_char_boundary` or `strip_suffix`, so no byte offset can land inside a codepoint,
+/// and a broken Step 3 precondition degrades to the Step 2 tail cut with a
+/// `tracing::warn!` — it does not panic and it does not invent text.
+///
+/// The **three** `debug_assert!`s at the top *are* panics, but only in **debug**, and only
+/// for the presentation preconditions (ASCII input, `width > 0`, `width >= 4`). They exist
+/// to catch a wrong caller during development; release compiles them out and it stays total.
+/// So: a caller bug is loud in dev and degrades gracefully in production, which is the
+/// intended split — it is not the same thing as "this function can panic".
+///
+/// *(`3.0.0` shipped with this section claiming a panic in release when the Step 3
+/// precondition was broken. MAGI flagged that a `debug_assert!` leaves release builds
+/// unguarded, so that guard became a real one.)*
 fn fit_content(content: &str, width: usize, preserve_suffix: &str) -> String {
     debug_assert!(content.is_ascii() && preserve_suffix.is_ascii());
     debug_assert!(width > 0);
