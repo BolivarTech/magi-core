@@ -1,16 +1,16 @@
 # Graph Report - MAGI-Core  (2026-07-29)
 
 ## Corpus Check
-- 41 files · ~91,092 words
+- 41 files · ~93,595 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1569 nodes · 3782 edges · 133 communities (75 shown, 58 thin omitted)
+- 1585 nodes · 3827 edges · 131 communities (73 shown, 58 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 18 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a4c84737`
+- Built from commit: `347ed846`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -138,21 +138,19 @@
 - Duration
 - From
 - Instant
-- Self
-- Vec
-- BTreeMap
+- Path
 
 ## God Nodes (most connected - your core abstractions)
-1. `ProviderError` - 60 edges
+1. `ProviderError` - 66 edges
 2. `AgentName` - 44 edges
 3. `MagiBuilder` - 41 edges
-4. `LlmProvider` - 36 edges
-5. `make_consensus()` - 33 edges
-6. `make_agent()` - 32 edges
-7. `Magi` - 31 edges
-8. `Lineage` - 28 edges
-9. `build_user_prompt()` - 28 edges
-10. `MagiError` - 27 edges
+4. `MagiError` - 37 edges
+5. `LlmProvider` - 36 edges
+6. `make_consensus()` - 33 edges
+7. `make_agent()` - 32 edges
+8. `Magi` - 31 edges
+9. `Lineage` - 28 edges
+10. `build_user_prompt()` - 28 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `main()` --calls--> `default_model_for_mode()`  [INFERRED]
@@ -169,35 +167,35 @@
 ## Import Cycles
 - None detected.
 
-## Communities (133 total, 58 thin omitted)
+## Communities (131 total, 58 thin omitted)
 
 ### Community 0 - "orchestrator.rs"
-Cohesion: 0.12
-Nodes (35): AgentOutput, RotationKind, attempt_model(), characterize_lone_echoed_example_fabricates_a_verdict(), characterize_probe_cap_distance_drops_the_real_verdict(), characterize_think_restatement_drops_the_mage(), embedded_verdict_object(), mock_agent_json() (+27 more)
+Cohesion: 0.09
+Nodes (48): AgentOutput, characterize_lone_echoed_example_fabricates_a_verdict(), characterize_probe_cap_distance_drops_the_real_verdict(), characterize_think_restatement_drops_the_mage(), dispatch_one_agent(), embedded_verdict_object(), mock_agent_json(), parse_agent_response() (+40 more)
 
 ### Community 1 - "reporting.rs"
-Cohesion: 0.06
-Nodes (76): Condition, ConsensusResult, Dissent, BTreeMap, String, fit_content(), MagiReport, make_agent() (+68 more)
+Cohesion: 0.07
+Nodes (67): fit_content(), MagiReport, make_agent(), make_consensus(), ReportConfig, ReportError, ReportFormatter, BTreeMap (+59 more)
 
 ### Community 2 - "consensus.rs"
 Cohesion: 0.09
-Nodes (64): ConsensusConfig, ConsensusEngine, dedup_key(), DedupFinding, DedupKey, finding_key(), make_output(), Default (+56 more)
+Nodes (69): Condition, ConsensusConfig, ConsensusEngine, ConsensusResult, dedup_key(), DedupFinding, DedupKey, Dissent (+61 more)
 
 ### Community 3 - "validate.rs"
-Cohesion: 0.05
-Nodes (46): From, MagiError, AgentName, Error, Mode, Option, clean_title(), finding_with_title() (+38 more)
+Cohesion: 0.07
+Nodes (29): finding_with_title(), output_with_confidence(), output_with_findings(), Vec, test_validate_accepts_confidence_at_boundaries(), test_validate_accepts_finding_with_normal_title(), test_validate_accepts_valid_agent_output(), test_validate_mut_collapses_control_whitespace_in_titles() (+21 more)
 
 ### Community 4 - "Finding"
-Cohesion: 0.11
-Nodes (28): F, MagiReport, test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_input_too_large_rejects_without_launching_agents(), test_analyze_no_retry_on_timeout_keeps_retried_empty(), test_analyze_nonce_collision_returns_invalid_input(), test_analyze_one_agent_bad_json_degrades_gracefully(), test_analyze_per_mode_override_supersedes_all_modes() (+20 more)
+Cohesion: 0.12
+Nodes (40): F, MagiReport, contract_prompt(), test_analyze_all_agents_fail_returns_insufficient_agents(), test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_input_too_large_rejects_without_launching_agents(), test_analyze_no_retry_on_timeout_keeps_retried_empty(), test_analyze_nonce_collision_returns_invalid_input() (+32 more)
 
 ### Community 5 - ".new"
-Cohesion: 0.14
-Nodes (9): Barrier, FallbackCandidate, FallbackPool, OverlapProbe, ProviderProbe, RotationConfig, AtomicUsize, Send (+1 more)
+Cohesion: 0.16
+Nodes (15): Candidate, digest_collision(), empty_s(), empty_wr(), FailingProbe, MockProbe, ModelCapability, RotationPolicy (+7 more)
 
 ### Community 6 - "provider.rs"
 Cohesion: 0.11
-Nodes (16): AtomicU32, Instant, RetryClass, AbandonReason, ProviderError, String, classify(), CompletionConfig (+8 more)
+Nodes (15): Instant, AbandonReason, ProviderError, Duration, String, classify(), CompletionConfig, FailingProvider (+7 more)
 
 ### Community 7 - "schema.rs"
 Cohesion: 0.05
@@ -225,7 +223,7 @@ Nodes (11): Balthasar — The Pragmatist, Constraints, Finding calibration (code
 
 ### Community 14 - "MAGI System Technical Documentation"
 Cohesion: 0.22
-Nodes (10): main(), main(), Path, MAGI R1 W4: pre-write check that the pinned SHA exists in the repo     before r, verify_sha_exists(), apply_divergences(), Path, Apply every declared divergence to a reference blob, failing loudly.      Retu (+2 more)
+Nodes (10): Path, main(), main(), Path, MAGI R1 W4: pre-write check that the pinned SHA exists in the repo     before r, verify_sha_exists(), apply_divergences(), Apply every declared divergence to a reference blob, failing loudly.      Retu (+2 more)
 
 ### Community 15 - "Caspar — The Critic"
 Cohesion: 0.17
@@ -252,24 +250,20 @@ Cohesion: 0.40
 Nodes (4): Exemption from CLAUDE.local.md §0.2 file-header rule, Local divergence from the pinned reference (F0, 2026-07-16), Regeneration, `src/prompts_md/` — Embedded prompt data
 
 ### Community 21 - "prelude.rs"
-Cohesion: 0.16
-Nodes (15): Candidate, digest_collision(), empty_s(), empty_wr(), FailingProbe, MockProbe, ModelCapability, RotationPolicy (+7 more)
+Cohesion: 0.14
+Nodes (9): Barrier, FallbackCandidate, FallbackPool, OverlapProbe, ProviderProbe, RotationConfig, AtomicUsize, Send (+1 more)
 
 ### Community 22 - "finding_id.rs"
 Cohesion: 0.23
 Nodes (13): D, de_category(), de_opt_file(), de_opt_line(), generate_finding_id(), normalize_category(), normalize_path(), Error (+5 more)
 
 ### Community 23 - ".cmp"
-Cohesion: 0.21
-Nodes (17): dispatch_one_agent(), test_dispatch_one_agent_does_not_retry_on_auth_error(), test_dispatch_one_agent_does_not_retry_on_http_429(), test_dispatch_one_agent_does_not_retry_on_http_500(), test_dispatch_one_agent_does_not_retry_on_nested_session(), test_dispatch_one_agent_does_not_retry_on_network_error(), test_dispatch_one_agent_does_not_retry_on_provider_timeout(), test_dispatch_one_agent_retries_on_deserialization_and_fails() (+9 more)
-
-### Community 24 - "basic_analysis.rs"
-Cohesion: 0.13
-Nodes (12): AtomicUsize, CompletionConfig, Default, Duration, ProviderError, is_connection(), MagiConfig, MockProvider (+4 more)
+Cohesion: 0.20
+Nodes (11): clean_title(), Default, Result, Self, String, test_clean_title_is_idempotent(), test_title_length_checked_after_strip_zero_width(), test_validate_mut_atomic_no_partial_mutation_on_error() (+3 more)
 
 ### Community 25 - "LlmProvider"
 Cohesion: 0.12
-Nodes (34): AbortHandle, Agent, AgentFactory, AgentName, AgentRotation, Arc, BTreeMap, ComplexityGate (+26 more)
+Nodes (28): Agent, AgentFactory, AgentRotation, AtomicUsize, CompletionConfig, ConsensusEngine, Default, DispatchOutcome (+20 more)
 
 ### Community 27 - "make_output"
 Cohesion: 0.33
@@ -280,8 +274,8 @@ Cohesion: 0.25
 Nodes (8): [0.5.0] - 2026-05-16, Added, Backward compatibility, Changed (breaking), Documentation, Performance, Pre-merge gates (CLAUDE.local.md §6), Test count
 
 ### Community 29 - "Release workflow (publish to crates.io)"
-Cohesion: 0.07
-Nodes (3): is_marker_line(), normalize_line(), test_locate_block_argument_order_is_not_symmetric()
+Cohesion: 0.06
+Nodes (19): Display, Fn, Formatter, extract(), ExtractionFailureCause, is_marker_line(), locate(), locate_block() (+11 more)
 
 ### Community 30 - "[0.2.0] - 2026-04-18"
 Cohesion: 0.29
@@ -289,15 +283,15 @@ Nodes (7): [0.2.0] - 2026-04-18, Added, Changed (breaking), Dependencies, Deprec
 
 ### Community 31 - "lib.rs"
 Cohesion: 0.11
-Nodes (20): Box, ConsensusConfig, FallbackPool, Lineage, LlmProvider, P, PathBuf, ProviderProbe (+12 more)
+Nodes (23): Arc, Box, ComplexityGate, ConsensusConfig, FallbackPool, HashMap, LlmProvider, Mutex (+15 more)
 
 ### Community 32 - "[0.4.0] - 2026-05-16"
 Cohesion: 0.29
 Nodes (7): [0.4.0] - 2026-05-16, Added, Backward compatibility, Changed, Documentation, Performance, Test count
 
 ### Community 33 - "[0.3.0] - 2026-04-18"
-Cohesion: 0.09
-Nodes (33): Agent, AgentFactory, MockProvider, Arc, AtomicUsize, BTreeMap, Default, Option (+25 more)
+Cohesion: 0.07
+Nodes (43): Ord, Ordering, PartialOrd, Agent, AgentFactory, MockProvider, Arc, AtomicUsize (+35 more)
 
 ### Community 34 - "[0.6.0] - 2026-05-21"
 Cohesion: 0.33
@@ -388,8 +382,8 @@ Cohesion: 0.67
 Nodes (3): [1.0.1] - 2026-05-25, Fixed, Internal
 
 ### Community 65 - "5. Data Schema and Consensus Protocol"
-Cohesion: 0.15
-Nodes (11): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), lookup_prompt(), melchior_prompt(), AgentName, Mode, Option (+3 more)
+Cohesion: 0.10
+Nodes (23): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), lookup_prompt(), melchior_prompt(), AgentName, BTreeMap, Mode (+15 more)
 
 ### Community 66 - "AgentName"
 Cohesion: 0.40
@@ -398,6 +392,10 @@ Nodes (5): 5.1 Agent Output Schema, 5.2 Voting Rules, 5.3 Confidence Formula, 5.
 ### Community 69 - "4. Library Architecture"
 Cohesion: 0.40
 Nodes (5): 7.1 Dissent is a Feature, 7.2 Adversarial by Design, 7.3 Proportionality, 7.4 LLM-Agnostic Design, 7. Design Philosophy
+
+### Community 70 - "Self"
+Cohesion: 0.16
+Nodes (15): Error, From, JoinError, LineageRegistry, MagiError, AgentName, Lineage, Mode (+7 more)
 
 ### Community 72 - "String"
 Cohesion: 0.50
@@ -412,16 +410,20 @@ Cohesion: 0.31
 Nodes (4): JoinHandle, String, spawn_429_with_retry_after(), spawn_hanging_headers()
 
 ### Community 75 - "MockProvider"
-Cohesion: 0.32
-Nodes (18): test_base_zero_with_three_retries_emits_exactly_four_requests(), test_budget_exhaustion_abandons_with_typed_reason(), test_honored_retry_after_can_overrun_a_small_budget(), test_max_retries_zero_does_not_retry(), test_operation_budget_zero_yields_single_attempt(), test_retry_after_beyond_cap_abandons_with_typed_reason(), test_retry_provider_does_not_retry_on_auth(), test_retry_provider_does_not_retry_on_http_4xx() (+10 more)
+Cohesion: 0.31
+Nodes (19): Self, test_base_zero_with_three_retries_emits_exactly_four_requests(), test_budget_exhaustion_abandons_with_typed_reason(), test_honored_retry_after_can_overrun_a_small_budget(), test_max_retries_zero_does_not_retry(), test_operation_budget_zero_yields_single_attempt(), test_retry_after_beyond_cap_abandons_with_typed_reason(), test_retry_provider_does_not_retry_on_auth() (+11 more)
 
 ### Community 76 - ".cmp"
-Cohesion: 0.50
-Nodes (3): Ordering, Option, Self
+Cohesion: 0.39
+Nodes (3): AgentOutput, Vec, Verdict
 
-### Community 103 - ".fmt"
-Cohesion: 0.24
-Nodes (6): Ord, PartialOrd, Display, Formatter, Result, Severity
+### Community 80 - "str"
+Cohesion: 0.18
+Nodes (7): AtomicU32, RetryClass, MockProvider, RetryConfig, RetryProvider, Arc, Mutex
+
+### Community 81 - "MAGI_REF_SHA pin (Python MAGI v3.0.0)"
+Cohesion: 0.50
+Nodes (3): AbortHandle, Drop, AbortGuard
 
 ### Community 106 - "[1.1.1] - 2026-07-17"
 Cohesion: 0.67
@@ -431,37 +433,25 @@ Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
 Cohesion: 0.67
 Nodes (3): [2.2.0] - 2026-07-27, Changed, Fixed
 
-### Community 124 - "RetryConfig"
-Cohesion: 0.13
-Nodes (8): FailingProvider, RetryConfig, RetryProvider, Arc, AtomicUsize, Duration, Self, SlowFailingProvider
-
-### Community 125 - "VerdictExtractionError"
-Cohesion: 0.16
-Nodes (16): Display, Fn, Formatter, extract(), ExtractionFailureCause, locate(), locate_block(), Error (+8 more)
-
-### Community 126 - "validate_prompt"
-Cohesion: 0.50
-Nodes (4): Result, test_validate_prompt_accepts_exactly_one_ordered_pair(), test_validate_prompt_tolerates_a_leading_bom(), validate_prompt()
-
 ## Knowledge Gaps
-- **159 isolated node(s):** `Fixed`, `Changed`, `Added`, `Compatibility`, `BREAKING` (+154 more)
+- **156 isolated node(s):** `Your role`, `Input format`, `In code review mode`, `In design mode`, `In analysis mode` (+151 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **58 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `LlmProvider`, `validate_prompt`, `lib.rs`?**
-  _High betweenness centrality (0.094) - this node is a cross-community bridge._
-- **Why does `ProviderError` connect `provider.rs` to `[0.3.0] - 2026-04-18`, `validate.rs`, `.new`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `error.rs`, `LineageRegistry`, `prelude.rs`, `LlmProvider`, `RetryConfig`?**
-  _High betweenness centrality (0.094) - this node is a cross-community bridge._
-- **Why does `AgentName` connect `reporting.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `[0.3.1] - 2026-04-19`, `.new`, `RoutingMockProvider`, `schema.rs`, `error.rs`, `.fmt`, `.cmp`, `Lineage`, `prelude.rs`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
-- **What connects `Apply every declared divergence to a reference blob, failing loudly.      Retu`, `Read a file's bytes at a specific ref via `git show`, no checkout.`, `MAGI R1 W4: pre-write check that the pinned SHA exists in the repo     before r` to the rest of the system?**
-  _165 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Why does `MagiError` connect `Self` to `orchestrator.rs`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `Finding`, `validate.rs`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `LlmProvider`?**
+  _High betweenness centrality (0.114) - this node is a cross-community bridge._
+- **Why does `ProviderError` connect `provider.rs` to `[0.3.0] - 2026-04-18`, `Finding`, `.new`, `Self`, `RoutingMockProvider`, `openai_compat.rs`, `claude.rs`, `error.rs`, `MockProvider`, `claude_cli.rs`, `String`, `error.rs`, `str`, `LineageRegistry`, `prelude.rs`, `LlmProvider`?**
+  _High betweenness centrality (0.109) - this node is a cross-community bridge._
+- **Why does `RetryClass` connect `str` to `2. Translation to the Software Engineering Domain`, `LineageRegistry`, `backoff.rs`, `provider.rs`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **What connects `Your role`, `Input format`, `In code review mode` to the rest of the system?**
+  _161 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.12312312312312312 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.09254901960784313 - nodes in this community are weakly interconnected._
 - **Should `reporting.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.05921601334445371 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.06898096304591265 - nodes in this community are weakly interconnected._
 - **Should `consensus.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.0928462709284627 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08691308691308691 - nodes in this community are weakly interconnected._

@@ -129,7 +129,5 @@
   "127": "Duration",
   "128": "From",
   "129": "Instant",
-  "130": "Self",
-  "131": "Vec",
-  "132": "BTreeMap"
+  "134": "Path"
 }
