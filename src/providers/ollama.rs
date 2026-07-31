@@ -14,6 +14,14 @@
 //! - **digest** ← `GET {base}/api/tags` → the model's manifest SHA256 (64-char
 //!   lowercase hex, no `sha256:` prefix). `/api/show` has NO digest field.
 //!
+//! # Probe transport errors are classified like any other, since 3.1.0
+//!
+//! The probe used to map **every** transport failure to `Network`, which is the connection class:
+//! a probe that merely timed out counted toward the endpoint-down latch while a completion that
+//! timed out did not. Both now go through the shared mapper, so a timeout reads as `Timeout` — it
+//! still condemns the lineage run-wide, it just no longer fast-fails the whole run on a slow
+//! daemon. That asymmetry was the accident; this is the deliberate part.
+//!
 //! Both bodies are untrusted, so each read is bounded by `MAX_SHOW_BODY_BYTES`
 //! (`cap_body`); an over-cap or malformed body degrades the probe to `None`
 //! (fail-open, trusted by lineage) rather than erroring — only a transport failure

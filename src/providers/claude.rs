@@ -4,7 +4,8 @@
 
 use crate::error::ProviderError;
 use crate::provider::{
-    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, resolve_claude_alias,
+    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, PARSE_FAILURE_STATUS,
+    resolve_claude_alias,
 };
 use crate::providers::provider_url::ProviderUrl;
 use reqwest::Client;
@@ -200,7 +201,7 @@ impl ClaudeProvider {
     pub fn parse_response(body: &str) -> Result<String, ProviderError> {
         let response: ClaudeResponse =
             serde_json::from_str(body).map_err(|e| ProviderError::Http {
-                status: 0,
+                status: PARSE_FAILURE_STATUS,
                 body: format!(
                     "failed to parse response: {}",
                     crate::provider::describe_parse_error(&e)
@@ -215,7 +216,7 @@ impl ClaudeProvider {
             .find(|block| block.type_ == "text")
             .and_then(|block| block.text)
             .ok_or_else(|| ProviderError::Http {
-                status: 0,
+                status: PARSE_FAILURE_STATUS,
                 body: "no text content block in response".to_string(),
                 retry_after_raw: vec![],
                 received_at: None,
