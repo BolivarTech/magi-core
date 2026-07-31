@@ -29,6 +29,17 @@
 #
 # Not included: `cargo audit`, which needs a generated lockfile and network access, so it stays a
 # separate job in each workflow.
+#
+# # THE ORDER OF THE STEPS BELOW IS LOAD-BEARING — do not sort or regroup them
+#
+#   1. Examples are built BEFORE the test runs. After them, linking failed on Windows against the
+#      example's own `.pdb`, because the harness had just written dozens of binaries into the same
+#      directory and had not released the handles.
+#   2. Doctests run LAST among the cargo steps, for the mirror reason: run earlier, they still held
+#      handles when the next build tried to link.
+#
+# Both surfaced as linker errors naming a source file, which points the reader at code that is
+# fine. Neither is a correctness constraint on the crate — they are constraints on this script.
 set -euo pipefail
 
 step() { printf '\n=== %s ===\n' "$1"; }
