@@ -50,7 +50,16 @@ impl OllamaProvider {
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
         let base = ProviderUrl::parse(&base_url.into())?;
-        let inner = OpenAiCompatibleProvider::new(format!("{base}/v1"), model, None)?;
+        // Derived authority-to-authority, NEVER `format!("{base}/v1")`: `Display` on the authority
+        // is the redacted rendering, so composing a string would hand the inner provider the
+        // literal placeholder in place of real credentials — a silent 401 — and a doubled path
+        // separator from the normalising trailing slash.
+        let inner = OpenAiCompatibleProvider::from_authority(
+            base.with_segments(&["v1"]),
+            model,
+            None,
+            DEFAULT_CLIENT_TIMEOUT,
+        )?;
         let client = reqwest::Client::builder()
             .timeout(DEFAULT_CLIENT_TIMEOUT)
             // Referer OFF — see the note in the OpenAI-compatible provider: on a redirect the
@@ -193,6 +202,46 @@ impl ProviderProbe for OllamaProvider {
 #[cfg(all(test, feature = "ollama"))]
 mod tests {
     use super::*;
+
+    /// The completions endpoint must come out with ONE separator, from either spelling of the
+    /// daemon URL. Composing it as a string produced `//v1`, because the redacted rendering
+    /// normalises an empty path to `/`.
+    #[test]
+    fn new_composes_the_completions_base_with_a_single_separator() {
+        for raw in ["http://localhost:11434", "http://localhost:11434/"] {
+            let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
+            assert_eq!(
+                *p.inner.base(),
+                ProviderUrl::parse("http://localhost:11434/v1").expect("parses"),
+                "from {raw}"
+            );
+        }
+    }
+
+    /// The regression this pair exists for: the inner provider must receive the REAL credentials,
+    /// not the redaction placeholder. Equality compares the full url, so this proves it without
+    /// printing anything — and a failure prints the redacted form.
+    #[test]
+    fn new_gives_the_inner_provider_the_real_credentials() {
+        let p = OllamaProvider::new("http://alice:s3cret@localhost:11434", "qwen3:8b")
+            .expect("constructs");
+        assert_eq!(
+            *p.inner.base(),
+            ProviderUrl::parse("http://alice:s3cret@localhost:11434/v1").expect("parses")
+        );
+    }
+
+    /// The probe endpoints are built from the untouched authority, so they must keep the
+    /// credentials too — and must not inherit the `/v1` the completions path adds.
+    #[test]
+    fn the_probe_authority_keeps_the_credentials_and_stays_at_the_root() {
+        let p = OllamaProvider::new("http://alice:s3cret@localhost:11434", "qwen3:8b")
+            .expect("constructs");
+        assert_eq!(
+            p.base_url,
+            ProviderUrl::parse("http://alice:s3cret@localhost:11434").expect("parses")
+        );
+    }
 
     #[test]
     fn test_parse_show_window_scans_arch_prefixed_context_length() {

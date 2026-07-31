@@ -150,6 +150,30 @@ impl OpenAiCompatibleProvider {
     ) -> Result<Self, ProviderError> {
         // Parsing, scheme validation and normalisation all live in the URL authority now.
         let base_url = ProviderUrl::parse(&base_url.into())?;
+        Self::from_authority(base_url, model, api_key, timeout)
+    }
+
+    /// Builds a provider from an already-parsed URL authority.
+    ///
+    /// # Parameters
+    /// - `base_url`: the authority, derived rather than re-parsed.
+    /// - `model`, `api_key`, `timeout`: as in [`with_timeout`](Self::with_timeout).
+    ///
+    /// # Errors
+    /// [`ProviderError::Network`] if the HTTP client cannot be built.
+    ///
+    /// # Why an in-crate provider must use this and not the string constructors
+    ///
+    /// Rendering an existing authority back to a string goes through `Display`, which is the
+    /// **redacted** form: real credentials come back as the placeholder, and the normalising
+    /// trailing slash doubles the separator. Passing the authority itself has neither failure mode
+    /// available to it.
+    pub(crate) fn from_authority(
+        base_url: ProviderUrl,
+        model: impl Into<String>,
+        api_key: Option<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             // Referer OFF. The default puts the ORIGINAL url — query string included — in the
@@ -166,6 +190,20 @@ impl OpenAiCompatibleProvider {
             model: model.into(),
             api_key,
         })
+    }
+
+    /// The URL authority this provider was built with.
+    ///
+    /// Test-only, and deliberately so. Its single purpose is letting a test **compare** the
+    /// authority the Ollama provider handed over — which is how the credential-destroying
+    /// `format!("{base}/v1")` was caught. Returning the authority rather than a string keeps the
+    /// guarantee intact even here: a caller can compare or derive, never render.
+    ///
+    /// Not exposed outside tests because no production path needs to read a URL back; every use
+    /// goes through the request builder.
+    #[cfg(all(test, feature = "ollama"))]
+    pub(crate) fn base(&self) -> &ProviderUrl {
+        &self.base_url
     }
 
     /// Provider name for diagnostics/telemetry.

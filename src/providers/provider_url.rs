@@ -121,6 +121,32 @@ impl ProviderUrl {
         url
     }
 
+    /// Derives a new authority with `segs` appended to the path, **keeping everything else** —
+    /// credentials, query and fragment included.
+    ///
+    /// # Parameters
+    /// - `segs`: compile-time path segments, same contract as the request builder.
+    ///
+    /// # Why this exists rather than composing a string
+    ///
+    /// A caller that needs a sub-path is otherwise tempted to write `format!("{base}/v1")`, and
+    /// that is **silently destructive**: `Display` on this type is the *redacted* rendering, so the
+    /// string it produces has the real credentials replaced by the placeholder — an inexplicable
+    /// 401 — and carries the normalising trailing slash, giving `//v1`.
+    ///
+    /// That is not hypothetical. It shipped in the Ollama provider and reached code review: the
+    /// type that exists to make the leak impossible was being round-tripped through the one method
+    /// that rewrites the secret. Deriving authority-to-authority removes the string entirely.
+    /// Only the Ollama provider needs this today, so it is gated there: an item compiled into
+    /// a feature set that never calls it is dead code under that feature set, and silencing
+    /// that with an allow would hide the next one that is genuinely dead.
+    #[cfg(feature = "ollama")]
+    pub(crate) fn with_segments(&self, segs: &[&'static str]) -> Self {
+        Self {
+            inner: self.join_path(segs),
+        }
+    }
+
     /// Builds a request against this URL. The raw URL never leaves this module.
     pub(crate) fn request(
         &self,
@@ -277,12 +303,11 @@ impl ProviderResponse {
         let mut acc: Vec<u8> = Vec::new();
         loop {
             match self.inner.chunk().await {
-                Ok(Some(chunk)) => {
-                    if acc.len() + chunk.len() > cap {
-                        return Err(ProviderError::ResponseTooLarge { limit: cap });
-                    }
-                    acc.extend_from_slice(&chunk);
-                }
+                // Same pure helper as the probe reader, so the bound is computed in ONE place and
+                // stays unit-testable. Only the reaction to hitting it differs, which is the whole
+                // difference between these two readers.
+                Ok(Some(chunk)) if push_within_cap(&mut acc, &chunk, cap) => {}
+                Ok(Some(_)) => return Err(ProviderError::ResponseTooLarge { limit: cap }),
                 Ok(None) => break,
                 Err(e) => {
                     return Err(crate::provider::to_provider_error(
@@ -306,6 +331,7 @@ impl ProviderResponse {
     ///
     /// A `Content-Length` already over the cap is rejected early, compared in `u64` so there is no
     /// `usize` truncation on 32-bit.
+    #[cfg(feature = "ollama")]
     pub(crate) async fn read_probe_body(mut self, cap: usize) -> Option<Vec<u8>> {
         if let Some(len) = self.inner.content_length()
             && len > cap as u64
@@ -334,15 +360,35 @@ impl ProviderResponse {
     /// `500` body whole would discard the only reason that error is read.
     pub(crate) async fn read_diagnostic_body(mut self) -> String {
         let mut acc: Vec<u8> = Vec::new();
-        while let Ok(Some(chunk)) = self.inner.chunk().await {
-            acc.extend_from_slice(&chunk);
-            if acc.len() >= MAX_ERROR_BODY_PREFIX_BYTES {
-                break;
+        let mut partial = false;
+        loop {
+            match self.inner.chunk().await {
+                // Bounded through the same pure helper as its two siblings, so the cap is tested
+                // BEFORE the bytes are taken. Appending first and checking afterwards let a single
+                // oversized chunk land in memory whole — the one asymmetry among the three readers
+                // that had no reason behind it.
+                Ok(Some(chunk))
+                    if push_within_cap(&mut acc, &chunk, MAX_ERROR_BODY_PREFIX_BYTES) => {}
+                // Over the cap, or the read failed part-way. Both leave a PREFIX, and both must
+                // say so — a body cut short that reads as complete makes its last word look like
+                // the server's final one.
+                Ok(Some(_)) | Err(_) => {
+                    partial = true;
+                    break;
+                }
+                Ok(None) => break,
             }
         }
         // Arbitrary server text: lossy conversion keeps the diagnostic instead of turning the
         // server's error into ours.
-        truncate_diagnostic(&String::from_utf8_lossy(&acc))
+        let text = truncate_diagnostic(&String::from_utf8_lossy(&acc));
+        // `truncate_diagnostic` only marks what IT cut. Rejecting an over-cap chunk leaves `acc`
+        // below the limit, so without this the cut would go unannounced — which is the failure
+        // this reader is supposed to be immune to.
+        if partial && !text.ends_with(crate::provider::TRUNCATION_MARKER) {
+            return format!("{text}{}", crate::provider::TRUNCATION_MARKER);
+        }
+        text
     }
 }
 
@@ -439,6 +485,49 @@ mod tests {
         let u = ProviderUrl::parse("http://h/v1/../admin").expect("parses");
         assert!(u.redacted().contains("/admin"));
         assert!(!u.redacted().contains(".."));
+    }
+
+    #[test]
+    #[cfg(feature = "ollama")]
+    fn with_segments_keeps_the_real_credentials() {
+        // Equality here compares the FULL url, credentials included — which is exactly why this
+        // test can prove they survived without ever printing them. Composing the sub-path as a
+        // string instead would have gone through the redacted rendering and produced the literal
+        // placeholder as a username.
+        let derived = ProviderUrl::parse("http://alice:s3cret@h:11434")
+            .expect("parses")
+            .with_segments(&["v1"]);
+        let expected = ProviderUrl::parse("http://alice:s3cret@h:11434/v1").expect("parses");
+        assert_eq!(derived, expected);
+    }
+
+    #[test]
+    #[cfg(feature = "ollama")]
+    fn with_segments_produces_one_separator_not_two() {
+        // The other half of the string-composition bug: `Display` normalises an empty path to
+        // `/`, so `format!("{base}/v1")` yields `//v1`.
+        for raw in ["http://h:11434", "http://h:11434/"] {
+            let derived = ProviderUrl::parse(raw)
+                .expect("parses")
+                .with_segments(&["v1"]);
+            assert_eq!(
+                derived,
+                ProviderUrl::parse("http://h:11434/v1").expect("parses"),
+                "from {raw}"
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ollama")]
+    fn with_segments_keeps_the_query_and_the_fragment() {
+        let derived = ProviderUrl::parse("http://h/base?key=S#frag")
+            .expect("parses")
+            .with_segments(&["v1"]);
+        assert_eq!(
+            derived,
+            ProviderUrl::parse("http://h/base/v1?key=S#frag").expect("parses")
+        );
     }
 
     #[test]
