@@ -65,8 +65,10 @@ pub struct MagiConfig {
     /// attempt consumes the whole per-agent budget and **no retry happens** — so describing
     /// rotation as firing *after the retry chain is exhausted* is inaccurate for that case.
     ///
-    /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix, and it
-    /// is tracked separately. This is documented in both places that govern it — here and on
+    /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix.
+    /// **It is tracked for 3.2.0**, starting from a configuration that puts the retry budget
+    /// *below* the agent ceiling on purpose, so abandonment is typed and diagnosable instead of an
+    /// opaque timeout cut. This is documented in both places that govern it — here and on
     /// [`RetryConfig`] — because whoever configures one of them does not read the other.
     ///
     /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
@@ -2027,6 +2029,35 @@ mod input_threshold_tests {
     /// feed the endpoint-down latch. Every declared shape must answer `false` — including
     /// `Network`, which is the tempting one: it looks like this crate's own connection failure,
     /// but it describes a backend this crate never contacted and knows nothing about.
+    /// The other mage-local outcome, checked at the same source.
+    ///
+    /// A server that answered too much is not a server that is down. Routing it through the
+    /// connection class would let one seat's CONTENT failure feed the run-wide endpoint-down latch
+    /// and abort the whole run — which is why this branch, not the type, is what has to be pinned.
+    #[test]
+    fn an_oversized_response_is_never_connection_class() {
+        assert!(!is_connection(&ProviderError::ResponseTooLarge {
+            limit: 1 << 20
+        }));
+    }
+
+    /// …and that it gets its OWN outcome rather than inheriting `Transport`'s run-wide scope.
+    /// Both halves are needed: the first says it cannot reach the latch, this one says it does not
+    /// take the lineage away from the other two seats either.
+    #[test]
+    fn an_oversized_response_routes_to_its_own_mage_local_outcome() {
+        let outcome = provider_err_outcome(ProviderError::ResponseTooLarge { limit: 4096 });
+        match outcome {
+            ModelOutcome::OversizedResponse { limit } => assert_eq!(limit, 4096),
+            ModelOutcome::Transport { .. } => {
+                panic!(
+                    "Transport is run-wide — that is the inheritance this variant exists to stop"
+                )
+            }
+            _ => panic!("expected OversizedResponse"),
+        }
+    }
+
     #[test]
     fn no_external_shape_is_ever_connection_class() {
         for kind in [

@@ -156,6 +156,10 @@ impl ProviderUrl {
     ///
     /// Returns a `bool` rather than the segment itself on purpose: handing out a `&str` from this
     /// module is the shape the redaction rules forbid, and a caller only ever needs the answer.
+    ///
+    /// **Case-sensitive, deliberately.** URL paths are case-sensitive, and a server that publishes
+    /// `/v1` does not answer at `/V1`; folding the comparison would make this report a match for a
+    /// path the daemon would 404. So `…/V1` is treated as an ordinary path segment.
     #[cfg(feature = "ollama")]
     pub(crate) fn ends_with_segment(&self, seg: &'static str) -> bool {
         self.inner
@@ -195,8 +199,13 @@ impl ProviderUrl {
     }
 }
 
-/// Drops the empty segment a trailing slash leaves behind, so `…/v1` and `…/v1/` become the same
-/// value.
+/// Drops the empty segment ONE trailing slash leaves behind, so `…/v1` and `…/v1/` become the
+/// same value.
+///
+/// One, not all: `…/v1//` keeps an empty segment and still compares unequal. That is cosmetic —
+/// the request builder pops another, so the endpoint is identical either way — and it is left
+/// alone rather than looped, because a repeated empty segment is a malformed URL the caller should
+/// see rather than have quietly repaired.
 ///
 /// Canonicalising at construction is what lets equality mean what it looks like. The endpoints
 /// were already identical either way — the request builder pops the empty segment too — but the
@@ -217,6 +226,30 @@ pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 1 << 20;
 /// tokenizers yield roughly 1-1.5 characters per token, so ~6-9 bytes/token. 16 keeps about 2x
 /// headroom over that worst case. It is a **ratio**, which ages far slower than an absolute size:
 /// it changes when tokenization changes, not when a vendor doubles its context window.
+///
+/// # Measured, not assumed — 2026-07-30
+///
+/// Response-body bytes divided by the model's own reported completion tokens, over a CJK-heavy
+/// prompt chosen to push toward the escaped worst case rather than measure easy English. All eight
+/// models this project routes through were measured, across eight distinct vendors:
+///
+/// | Model | bytes/token |
+/// |---|---|
+/// | `nemotron-3-super` | 4.05 |
+/// | `gpt-oss:120b` | 4.37 |
+/// | `gemma4` | 4.76 |
+/// | `qwen3.5:397b` | 4.82 |
+/// | `kimi-k2.6` | 4.90 |
+/// | `glm-5.2` | 4.96 |
+/// | `minimax-m3` | 5.12 |
+/// | `deepseek-v4-pro` | **5.51** ← worst |
+///
+/// The acceptance criterion was fixed **before** measuring, so the number could not be fitted to
+/// the result: pass if the worst observation is at most half the ceiling. Observed worst is 5.51
+/// against a bound of 8.00, so 16 stands with ~2.9x headroom.
+///
+/// Re-measure when the model pool turns over. This is a ratio, so it survives a vendor doubling a
+/// context window; what would move it is a change in how text is tokenized or encoded.
 pub(crate) const BYTES_PER_TOKEN_CEILING: usize = 16;
 
 /// Ceiling applied to `max_tokens` before deriving the cap.
@@ -524,6 +557,59 @@ mod tests {
         assert!(
             !msg.contains("s3cret"),
             "malformed-input error leaked: {msg}"
+        );
+    }
+
+    #[cfg(feature = "ollama")]
+    #[test]
+    fn ends_with_segment_is_case_sensitive_and_ignores_a_trailing_slash() {
+        let f = |raw: &str| {
+            ProviderUrl::parse(raw)
+                .expect("parses")
+                .ends_with_segment("v1")
+        };
+        assert!(f("http://h/v1"));
+        assert!(
+            f("http://h/v1/"),
+            "the trailing slash is canonicalised away first"
+        );
+        assert!(f("http://h/ollama/v1"));
+        assert!(
+            !f("http://h/V1"),
+            "case-sensitive on purpose: a server at /v1 404s at /V1"
+        );
+        assert!(!f("http://h/v10"));
+        assert!(!f("http://h"), "a root has no segment to match");
+    }
+
+    #[cfg(feature = "ollama")]
+    #[test]
+    fn parent_climbs_one_level_and_stops_at_the_root() {
+        let p = |raw: &str| ProviderUrl::parse(raw).expect("parses").parent();
+        assert_eq!(
+            p("http://h/a/b"),
+            ProviderUrl::parse("http://h/a").expect("parses")
+        );
+        assert_eq!(
+            p("http://h/v1"),
+            ProviderUrl::parse("http://h").expect("parses")
+        );
+        // The documented no-op. It is the branch a refactor is most likely to break, and the
+        // honest answer for "what is above the root" is "the same place", not an error.
+        assert_eq!(
+            p("http://h"),
+            ProviderUrl::parse("http://h").expect("parses")
+        );
+    }
+
+    #[cfg(feature = "ollama")]
+    #[test]
+    fn parent_keeps_the_credentials_the_query_and_the_fragment() {
+        assert_eq!(
+            ProviderUrl::parse("http://u:p@h/base/v1?key=S#frag")
+                .expect("parses")
+                .parent(),
+            ProviderUrl::parse("http://u:p@h/base?key=S#frag").expect("parses")
         );
     }
 

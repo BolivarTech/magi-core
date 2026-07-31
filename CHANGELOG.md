@@ -41,8 +41,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   different things in the same crate, and people reported getting it wrong. Both spellings are
   now accepted and produce identical endpoints, so **no existing call breaks**. A reverse-proxy
   prefix is preserved either way. The one deployment this reads wrong — a daemon root that
-  genuinely ends in a segment named `v1` — fails loudly with a 404 on the probe, and is
-  documented on the constructor.
+  genuinely ends in a segment named `v1` — surfaces as a **404 on the completions request**,
+  which is a non-retryable HTTP error that condemns the lineage and rotates the seat. The
+  native probe, by contrast, degrades silently to "unmeasured" there, because fail-open is its
+  designed behaviour. Documented on the constructor.
 - **Endpoint construction dropped the query string.** The path was appended *after* it,
   producing a URL that could not authenticate.
 - **Response bodies are bounded** — derived from `max_tokens`, with a 1 MiB floor — instead
@@ -76,7 +78,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Correction to the 3.0.x notes on rotation.** Describing rotation as firing *after the
   retry chain is exhausted* is inaccurate with the shipped defaults: in the hang case the
   agent timeout cuts first and the chain never exhausts. Choosing better numbers is a
-  latency trade-off, tracked separately.
+  latency trade-off rather than a fix, and is **tracked for 3.2.0** — a deferral with a
+  version on it can be missed visibly, which "tracked separately" cannot.
 
 ## [3.0.2] - 2026-07-30
 

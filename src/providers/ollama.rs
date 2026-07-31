@@ -73,10 +73,21 @@ impl OllamaProvider {
     /// # The one deployment this reads wrong
     ///
     /// A daemon whose root genuinely ends in a segment named `v1` — say
-    /// `https://gw/tenants/v1` — is taken for the OpenAI prefix, so the probe is looked for one
-    /// level too high. It fails **loudly**: the probe 404s, the context window comes back
-    /// unmeasured, and a strict context guard refuses the model rather than running blind. Pass
-    /// such a root through [`OpenAiCompatibleProvider`] instead, which does no probing.
+    /// `https://gw/tenants/v1` — is taken for the OpenAI prefix, so **both** families are looked
+    /// for one level too high.
+    ///
+    /// It does not degrade quietly, but be precise about which half is the alarm:
+    ///
+    /// | Channel | What happens |
+    /// |---|---|
+    /// | **Completions** | 404 → a non-retryable HTTP error → the lineage is condemned and the seat rotates. **This is the loud one.** |
+    /// | **Probe** | 404 → `Ok(None)`, by design. It is fail-open: an unmeasurable window is a valid result, so nothing refuses here. |
+    ///
+    /// The probe's silence surfaces only as the report's *estimated window* note — a disclosure,
+    /// not a refusal. A strict context guard does **not** catch this either: it is off by default,
+    /// and it filters rotation *candidates*, never the primary this constructor produces.
+    ///
+    /// Pass such a root through [`OpenAiCompatibleProvider`] instead, which does no probing.
     pub fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,

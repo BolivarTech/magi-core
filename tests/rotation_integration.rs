@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use magi_core::prelude::*;
 use magi_core::test_support::{
-    Beh, ScriptProvider, build_schema_local_case, build_trio_with_caspar,
+    Beh, ScriptProvider, build_oversized_case, build_schema_local_case, build_trio_with_caspar,
     build_two_5xx_with_local_fallbacks, build_two_external_failing_no_fallback,
     build_two_failing_with_single_free_fallback, build_two_network_failing_no_fallback,
     report_run_failed,
@@ -300,4 +300,25 @@ async fn an_external_failure_rotates_the_seat_and_the_run_completes() {
     // returns false for every `External` shape (unit-tested in `orchestrator`), which is what
     // keeps it out of the run-wide condemned set, and the sibling test above shows the
     // endpoint-down latch staying shut over a topology where its in-crate twin trips it.
+}
+
+#[tokio::test]
+async fn an_oversized_response_is_mage_local_and_the_run_completes() {
+    // The consequence chain of `ResponseTooLarge`, asserted rather than inferred from the type.
+    // A server that answered too much is not a server that is down: the seat gives up on that
+    // lineage, the other two keep theirs, and the run finishes intact.
+    let magi = build_oversized_case();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content")
+        .await
+        .expect("an oversized body must not abort the run");
+
+    let caspar = &report.rotations[&AgentName::Caspar];
+    assert_eq!(caspar.chain.len(), 1, "the seat rotated exactly once");
+    assert!(
+        caspar.chain[0].detail().contains("exceeded"),
+        "the cause rides in `detail`, since `RotationKind` cannot gain a variant in a minor: {:?}",
+        caspar.chain[0].detail()
+    );
+    assert!(!report.degraded, "all three seats produced a verdict");
 }

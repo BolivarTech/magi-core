@@ -194,6 +194,12 @@ pub enum Beh {
     /// `serde_json`, so this variant would test the *absence* of markers instead of bad
     /// JSON. The full reasoning is on the private `BAD_JSON` constant.
     BadJson,
+    /// Surface `ProviderError::ResponseTooLarge`.
+    ///
+    /// A CONTENT failure that looks superficially like transport: the server answered fine, it
+    /// answered too much. Scripted so the mage-local consequence can be observed end to end
+    /// rather than inferred from the variant.
+    Oversized,
     /// Surface `ProviderError::external(.., ExternalErrorKind::Network)`.
     ///
     /// The `Network` shape is chosen deliberately: it is the one an external provider is most
@@ -260,6 +266,7 @@ impl LlmProvider for ScriptProvider {
                 retry_after_raw: vec![],
                 received_at: None,
             }),
+            Beh::Oversized => Err(ProviderError::ResponseTooLarge { limit: 1 << 20 }),
             Beh::External => Err(ProviderError::external(
                 "third-party backend unreachable",
                 ExternalErrorKind::Network,
@@ -440,6 +447,17 @@ pub fn build_two_network_failing_no_fallback() -> Magi {
 /// purpose. The endpoint-down latch fires for the twin and must NOT fire here, and holding every
 /// other variable still is what makes that difference attributable to the error class rather than
 /// to the topology.
+/// One seat hits an oversized response and rotates to another lineage; the other two are healthy.
+///
+/// Mirrors the schema-failure builder rather than the transport one, because that is the claim:
+/// an oversized body condemns MAGE-LOCAL, so the lineage stays available to the other seats.
+pub fn build_oversized_case() -> Magi {
+    build_trio_with_caspar(
+        ScriptProvider::new("deepseek", vec![Beh::Oversized]),
+        vec![("glm", "zhipu")],
+    )
+}
+
 pub fn build_two_external_failing_no_fallback() -> Magi {
     MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
         .with_agent(

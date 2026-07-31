@@ -208,7 +208,9 @@ pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// attempt consumes the whole agent budget and **none of the retries below ever run**. Every knob
 /// here is then inert for that failure mode — which is worth knowing before tuning them.
 ///
-/// Fixing the numbers is a latency trade-off, not a bug fix, and is tracked separately. Said here
+/// Fixing the numbers is a latency trade-off, not a bug fix. **It is tracked for 3.2.0**, starting
+/// from a configuration that puts this budget *below* the agent ceiling so that abandonment is
+/// typed and diagnosable rather than an opaque cut. Said here
 /// as well as on [`MagiConfig::timeout`] deliberately: whoever tunes retries does not necessarily
 /// read the orchestrator's config, and a layering rule documented on one side only is a rule that
 /// gets broken from the other.

@@ -39,7 +39,10 @@ jobs:
           toolchain: "1.91"
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-features --tests -- -D warnings
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      # The default feature set is supported and has its own dead-code surface. Linting only
+      # --all-features hid dead code under narrower sets until it was caught in review.
+      - run: cargo clippy --all-targets -- -D warnings
 
   fmt:
     name: Format
@@ -74,6 +77,16 @@ jobs:
       - uses: actions/checkout@v5
       - run: bash ci/check_redaction.sh --self-test
       - run: bash ci/check_redaction.sh
+
+  # Seals the response-body cap's calibration: asserts the constant's rustdoc carries a date and
+  # names at least three models. It cannot check the measurement is right — only that one was made
+  # and recorded, which is the difference between a datum and an intuition in a costume.
+  calibration-seal:
+    name: Body-cap calibration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash ci/check_calibration.sh
 
   # The ONLY check that can catch a regression of external error construction: inside `src/` the
   # variants are always constructible, so a test there would pass while the API stayed broken.

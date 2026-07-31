@@ -3,5 +3,5 @@
 use reqwest as _;
 fn redacted(&self) -> String { String::new() }
 impl X {
-    pub(crate) async fn as_url(&self) -> &reqwest::Url { &self.inner }
+    pub(crate) fn leak(&self) -> RequestBuilder { todo!() }
 }

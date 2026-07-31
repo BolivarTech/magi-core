@@ -1,0 +1,200 @@
+// Author: Julian Bolivar
+// Version: 1.0.0
+// Date: 2026-07-30
+
+//! Behavioural tests for the three response-body readers.
+//!
+//! # Why these exist
+//!
+//! The bound itself was covered by unit tests on the pure helpers (`push_within_cap`, `body_cap`,
+//! `truncate_diagnostic`), but nothing exercised the readers that use them. That left the entire
+//! `ResponseTooLarge` production path unconstructed by any test, the truncation marker on a body
+//! cut short unverified, and the probe's fail-open degrade unexercised — while the changelog
+//! stated flatly that response bodies are bounded.
+//!
+//! The three readers deliberately react differently to the same event, and that asymmetry is the
+//! thing most at risk from a well-meaning "simplification":
+//!
+//! | Reader | Over the cap | Why |
+//! |---|---|---|
+//! | verdict | **fails** | a cut body loses its closing marker, and the parser would blame the *model* for our cut |
+//! | diagnostic | **truncates and says so** | there is no verdict to falsify, and dropping a 500's body discards the reason it is read |
+//! | probe | **degrades to `None`** | "no capability information" is a valid answer for a probe |
+//!
+//! No network: loopback only, OS-assigned ports, explicit deadlines.
+
+#![cfg(feature = "openai-compat")]
+
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::time::{Duration, Instant};
+
+use magi_core::prelude::*;
+
+/// Generous: two orders of magnitude above a loopback exchange, so exceeding it means something is
+/// actually broken rather than that the runner was busy.
+const DEADLINE: Duration = Duration::from_secs(10);
+
+/// Bounds the post-response drain; the peer has been told the connection closes.
+const DRAIN: Duration = Duration::from_millis(500);
+
+/// The floor of the verdict cap. With the default `max_tokens` the derived cap never rises above
+/// it, so this is what a body has to exceed.
+const VERDICT_CAP: usize = 1 << 20;
+
+/// The diagnostic prefix cap — far smaller, because an error body is read by a human.
+const DIAGNOSTIC_CAP: usize = 8 * 1024;
+
+/// Serves ONE request with `status` and a body of `body_len` bytes, then hangs up cleanly.
+///
+/// Returns the address to point a client at, and a handle that must be joined so a server-side
+/// failure surfaces instead of being swallowed.
+fn serve_one_body(status: &str, body_len: usize) -> (String, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let addr = listener.local_addr().expect("addr").to_string();
+    let status = status.to_string();
+
+    let handle = std::thread::spawn(move || {
+        listener.set_nonblocking(true).expect("nonblocking");
+        let start = Instant::now();
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    // MUST come before the first read: on Windows an accepted socket inherits the
+                    // listener's non-blocking mode, so a read issued before the request bytes land
+                    // returns `WouldBlock` — not an error, but it reads like one.
+                    stream.set_nonblocking(false).expect("blocking");
+                    stream.set_read_timeout(Some(DEADLINE)).ok();
+
+                    let mut buf = [0u8; 4096];
+                    let _ = stream.read(&mut buf);
+
+                    let head = format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+                         Content-Length: {body_len}\r\nConnection: close\r\n\r\n"
+                    );
+                    if stream.write_all(head.as_bytes()).is_ok() {
+                        let _ = stream.write_all(&vec![b'x'; body_len]);
+                    }
+                    let _ = stream.flush();
+
+                    // Hang up cleanly: dropping a socket with unread bytes makes the OS send RST
+                    // instead of FIN, and a client that takes an RST mid-response reports a
+                    // connection error rather than the response it already had.
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    let _ = stream.set_read_timeout(Some(DRAIN));
+                    while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
+                    return;
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(start.elapsed() <= DEADLINE, "no client connected");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("accept failed: {e}"),
+            }
+        }
+    });
+
+    (addr, handle)
+}
+
+#[tokio::test]
+async fn a_success_body_over_the_cap_fails_rather_than_arriving_truncated() {
+    // The one reader that must NOT truncate. Handing a cut body to the verdict parser would strip
+    // its closing marker, and the parser would report a truncated *model* output — blaming the
+    // model for a cut this reader made, with a retry that can never fix it.
+    let (addr, server) = serve_one_body("200 OK", VERDICT_CAP + 1);
+    let provider =
+        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+
+    let err = provider
+        .complete("sys", "usr", &CompletionConfig::default())
+        .await
+        .expect_err("an over-cap body must fail");
+    server.join().expect("server thread");
+
+    match err {
+        // `..` is required, and that is the design rather than an inconvenience: the variant is
+        // `#[non_exhaustive]`, so from outside the crate it can gain fields without breaking this.
+        ProviderError::ResponseTooLarge { limit, .. } => {
+            assert_eq!(
+                limit, VERDICT_CAP,
+                "the cap is reported, not left to be parsed"
+            );
+        }
+        other => panic!("expected ResponseTooLarge, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_success_body_at_the_cap_is_read_whole() {
+    // The boundary is `>`, not `>=`. Without this the previous test would also pass with an
+    // off-by-one that rejected a body of exactly the permitted size.
+    let (addr, server) = serve_one_body("200 OK", VERDICT_CAP);
+    let provider =
+        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+
+    let err = provider
+        .complete("sys", "usr", &CompletionConfig::default())
+        .await
+        .expect_err("the body is `xxxx…`, so it still fails — as a PARSE error");
+    server.join().expect("server thread");
+
+    assert!(
+        !matches!(err, ProviderError::ResponseTooLarge { .. }),
+        "a body exactly at the cap must be read, not rejected: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut() {
+    // The opposite reaction, deliberately: an error body is diagnostic text. There is no verdict a
+    // cut could falsify, and dropping a 500's body whole discards the only reason that error is
+    // read at all.
+    let (addr, server) = serve_one_body("500 Internal Server Error", DIAGNOSTIC_CAP * 4);
+    let provider =
+        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+
+    let err = provider
+        .complete("sys", "usr", &CompletionConfig::default())
+        .await
+        .expect_err("a 500 is an error");
+    server.join().expect("server thread");
+
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("truncated"),
+        "a body cut short must say so, or its last byte reads as the server's last word: {rendered}"
+    );
+    assert!(
+        rendered.contains("xxxx"),
+        "and the prefix is kept — that is the point of not failing here: {rendered}"
+    );
+    assert!(
+        rendered.len() < DIAGNOSTIC_CAP * 2,
+        "the retained prefix is bounded, not the whole body: {} bytes",
+        rendered.len()
+    );
+}
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn a_probe_body_over_the_cap_degrades_instead_of_failing() {
+    // The third semantics. For a probe, "no capability information" is a VALID result, so an
+    // over-cap body degrades rather than erroring — the fail-open behaviour rotation depends on.
+    // Truncating would be worse here than anywhere else: a half-read JSON document does not parse,
+    // so it would look like schema drift rather than an oversized response.
+    use magi_core::rotation::ProviderProbe;
+
+    let (addr, server) = serve_one_body("200 OK", VERDICT_CAP + 1);
+    let provider = magi_core::providers::ollama::OllamaProvider::new(format!("http://{addr}"), "m")
+        .expect("constructs");
+
+    let window = provider.window().await;
+    server.join().expect("server thread");
+
+    assert!(
+        matches!(window, Ok(None)),
+        "an over-cap probe body degrades to `None`, it does not error: {window:?}"
+    );
+}

@@ -35,7 +35,15 @@ provider_files() {
 
 # Production half of a file: everything before `#[cfg(test)]`. Test assertions legitimately print
 # errors — they are not a channel anything ships through.
-prod_only() { awk '/#\[cfg\(test\)\]/ { exit } { print }' "$1"; }
+#
+# ANCHORED AT COLUMN 0, and matching `#[cfg(all(test, …))]` as well. The unanchored substring
+# version was evadable by ordinary Rust: an indented `#[cfg(test)] use …;` or a test-only helper
+# part-way down a file truncated the scan there and blinded every later pattern for the rest of the
+# file — a `String` base_url, a raw error interpolation and an unconfigured client could all pass
+# together. The mirror error was equally real: `#[cfg(all(test, feature = "ollama"))]` did not match
+# at all, so that file's entire test module was scanned as production. The split was correct by
+# luck in one file and by construction in none.
+prod_only() { awk '/^#\[cfg\((all\()?[[:space:]]*test/ { exit } { print }' "$1"; }
 
 # Builds a minimal tree that passes EVERY check, so a fixture placed into it is the only thing
 # that can make the run fail.
@@ -222,6 +230,12 @@ done
 # in this file because it never passes through anything this crate renders.
 for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
     prod="$(prod_only "$f")"
+    # `Client::new()` is a DEFAULT client: Referer on, and no builder to turn it off. It is
+    # rejected outright rather than asked for a call it has no way to make — and it slipped past
+    # the rule below, which only ever looked for the builder.
+    if echo "$prod" | grep -q 'Client::new()'; then
+        fail "$f uses Client::new(), which cannot disable referer — build the client instead"
+    fi
     echo "$prod" | grep -q 'Client::builder' || continue
     echo "$prod" | grep -q 'referer(false)' \
         || fail "$f builds an HTTP client without referer(false) — on a redirect the default leaks the full URL, query included, to the target origin"
