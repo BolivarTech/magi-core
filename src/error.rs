@@ -711,6 +711,47 @@ mod tests {
     }
 
     #[test]
+    fn a_message_of_exactly_the_cap_is_kept_whole() {
+        // The boundary the comparison turns on. One byte either way changes the answer, and an
+        // off-by-one here would either truncate a message that fit or let one through that did
+        // not — the two failures a cap exists to prevent, in opposite directions.
+        for (len, truncated) in [
+            (MAX_EXTERNAL_MESSAGE_BYTES - 1, false),
+            (MAX_EXTERNAL_MESSAGE_BYTES, false),
+            (MAX_EXTERNAL_MESSAGE_BYTES + 1, true),
+        ] {
+            let err = ProviderError::external("x".repeat(len), ExternalErrorKind::Other);
+            let message = external_message(&err);
+            assert!(
+                message.len() <= MAX_EXTERNAL_MESSAGE_BYTES,
+                "a {len}-byte message must never exceed the cap"
+            );
+            assert_eq!(
+                message.contains("truncated"),
+                truncated,
+                "a {len}-byte message against a {MAX_EXTERNAL_MESSAGE_BYTES}-byte cap"
+            );
+        }
+    }
+
+    #[test]
+    fn truncation_never_splits_a_four_byte_character() {
+        // Four-byte characters divide the budget differently from three-byte ones, and an
+        // implementation that walked back a fixed number of bytes would pass the three-byte case
+        // and split this one. Emoji are the common carrier of them in real diagnostic text.
+        let err = ProviderError::external(
+            "\u{1f600}".repeat(MAX_EXTERNAL_MESSAGE_BYTES),
+            ExternalErrorKind::ServerError,
+        );
+        let message = external_message(&err);
+        assert!(message.len() <= MAX_EXTERNAL_MESSAGE_BYTES);
+        assert!(message.contains("truncated"));
+        // The real assertion: the surviving prefix is still valid text. A split codepoint would
+        // have panicked at the slice, so reaching here with intact characters is the guarantee.
+        assert!(message.chars().any(|c| c == '\u{1f600}'));
+    }
+
+    #[test]
     fn the_kind_reaches_the_rendered_message() {
         // The shape is diagnostic: a reader of `failed_agents` must be able to tell an auth
         // failure from an outage without the third party having spelled it out in prose.

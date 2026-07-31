@@ -71,13 +71,19 @@ fn describe(err: &ProviderError) -> String {
 #[tokio::main]
 async fn main() {
     let provider = MyBackend;
-    let err = provider
+    // Matched rather than unwrapped. An example is the first code a new implementor copies, so it
+    // has to model the handling this crate asks for everywhere else — `expect_err` would teach the
+    // opposite in the one file written to be imitated.
+    match provider
         .complete("system", "user", &CompletionConfig::default())
         .await
-        .expect_err("this backend always fails");
-
-    println!("{}", describe(&err));
-    println!("rendered: {err}");
+    {
+        Err(err) => {
+            println!("{}", describe(&err));
+            println!("rendered: {err}");
+        }
+        Ok(text) => println!("unexpected success: {text}"),
+    }
 
     // The shape is declared by the third party; the CONSEQUENCE stays with magi-core. This crate
     // decides whether that shape is retried and whether it condemns a lineage — an external
