@@ -1,6 +1,6 @@
 // TARGET: error.rs
+// EXPECT: lost #[non_exhaustive]
 pub enum ProviderError {
-    #[non_exhaustive]
     Http {
         f: u8,
     },

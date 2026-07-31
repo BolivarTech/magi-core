@@ -1,4 +1,5 @@
 // TARGET: error.rs
+// EXPECT: must construct External and nothing else
 pub enum ProviderError {
     #[non_exhaustive]
     Http {
@@ -34,3 +35,4 @@ pub enum ProviderError {
     },
 }
 fn build() -> Self { Self::External { f: 0 } }
+fn other() -> Self { Self::Auth { f: 1 } }

@@ -1,1 +1,5 @@
-let msg = compose_transport_message("request failed", &redacted, &chain);
+// TARGET: providers/subject.rs
+use reqwest as _;
+fn f() {
+    let m = compose_transport_message("op", &url, &chain);
+}

@@ -1,1 +1,5 @@
-let e = to_provider_error("op", &redacted, &err);
+// TARGET: providers/subject.rs
+use reqwest as _;
+fn f() {
+    let e = map_status_to_error(status, body);
+}
