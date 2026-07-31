@@ -235,5 +235,14 @@
   "233": "Vec",
   "234": "Into",
   "235": "Option",
-  "236": "ProviderUrl"
+  "236": "ProviderUrl",
+  "237": "compose_transport_message",
+  "238": ".complete",
+  "239": "serve_once",
+  "240": "Debug",
+  "241": "Duration",
+  "242": "Formatter",
+  "243": "Instant",
+  "244": "Vec",
+  "245": "ProviderProbe"
 }

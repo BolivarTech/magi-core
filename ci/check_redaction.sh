@@ -20,6 +20,9 @@ PROVIDERS="${PROVIDERS:-$SRC/providers}"
 # therefore cannot echo the input — and it is held to the stricter rules 2/2b/3/4 instead.
 ALLOW="provider_url.rs"
 
+# Floor on the fixture count, so an emptied or mis-pathed directory cannot pass as a clean run.
+MIN_FIXTURE_PAIRS=20
+
 fail() { echo "check_redaction: $1" >&2; exit 1; }
 
 # Deny-by-default over the directory, RECURSIVE: a provider that grows into a submodule
@@ -61,7 +64,7 @@ provider_files() {
 # make every future report point at the wrong line.
 prod_only() {
     awk '
-      /^#\[cfg\((all\()?[ \t]*test/ { pending = 1; print ""; next }
+      /^#\[cfg[^)]*[^a-z_"]test[^a-z_-]/ { pending = 1; print ""; next }
       pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
@@ -99,6 +102,20 @@ fixture_meta() { sed -n "s|^// $2: ||p" "$1" | head -1; }
 
 self_test() {
     local rc=0 dir="ci/fixtures/redaction"
+
+    # The harness's own vacuity check. With the directory missing or empty, every loop below
+    # skips and the run reports `self-test OK` — a self-test that certifies nothing while
+    # claiming health, which is precisely the failure mode it exists to detect one level down.
+    # The floor is a floor, not the current count: it must not need editing for every new pair.
+    # Counted with `find`, not `ls`: under `pipefail` a failing `ls` aborts the script with its
+    # own status and no message, which is a failure nobody can act on.
+    local pairs
+    pairs="$(find "$dir" -name '*_bad.rs' 2>/dev/null | wc -l || true)"
+    if [ "${pairs:-0}" -lt "$MIN_FIXTURE_PAIRS" ]; then
+        echo "self-test: found $pairs fixture(s) in $dir, expected at least $MIN_FIXTURE_PAIRS" >&2
+        echo "  a self-test with no fixtures reports success while testing nothing" >&2
+        exit 1
+    fi
 
     for bad in "$dir"/*_bad.rs; do
         [ -e "$bad" ] || continue
@@ -275,9 +292,15 @@ for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
     if echo "$prod" | grep -q 'Client::new()'; then
         fail "$f uses Client::new(), which cannot disable referer — build the client instead"
     fi
-    echo "$prod" | grep -q 'Client::builder' || continue
-    echo "$prod" | grep -q 'referer(false)' \
-        || fail "$f builds an HTTP client without referer(false) — on a redirect the default leaks the full URL, query included, to the target origin"
+    # PER BUILDER, not per file. A file-level check is satisfied by one configured client while a
+    # second one beside it goes bare — and a provider module holding a completions client and a
+    # probe client is exactly the shape this crate has. Counting is enough here: every builder
+    # must carry the call, so the counts have to match.
+    builders="$(echo "$prod" | grep -c 'Client::builder' || true)"
+    [ "${builders:-0}" -gt 0 ] || continue
+    configured="$(echo "$prod" | grep -c 'referer(false)' || true)"
+    [ "${configured:-0}" -ge "${builders:-0}" ] \
+        || fail "$f builds $builders HTTP client(s) but only $configured disable referer — on a redirect the default leaks the full URL, query included, to the target origin"
 done
 
 # 8 — the asymmetry this release opens: `External` is CONSTRUCTIBLE from another crate, every

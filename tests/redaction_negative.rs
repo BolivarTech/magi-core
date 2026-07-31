@@ -138,3 +138,21 @@ async fn ollama_credentials_never_appear_in_a_probe_error() {
         assert_clean(&rendered, &format!("ollama {label} probe"));
     }
 }
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn ollama_credentials_never_reach_the_serialized_report() {
+    // The channel that matters most, and the one the Ollama coverage was missing: the error
+    // travels into `failed_agents` and from there into whatever gets pasted into a ticket.
+    // Stopping at the provider's own error string never exercises that path.
+    let provider = std::sync::Arc::new(ollama_with(format!(
+        "http://{USER}:{PASS}@127.0.0.1:1?key={QKEY}"
+    )));
+    let magi = Magi::builder(provider).build().expect("builds");
+
+    let serialized = match magi.analyze(&Mode::CodeReview, "contenido de prueba").await {
+        Ok(report) => serde_json::to_string(&report).expect("serializes"),
+        Err(e) => e.to_string(),
+    };
+    assert_clean(&serialized, "ollama serialized report");
+}
