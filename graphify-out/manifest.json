@@ -225,8 +225,8 @@
     "semantic_hash": ""
   },
   "src/providers/provider_url.rs": {
-    "mtime": 1785486259.4797337,
-    "ast_hash": "36015ac964149fbdb6c2dfb3cd0400b3",
+    "mtime": 1785486769.0353725,
+    "ast_hash": "7ba66c11823cdac819dad30072f05d2c",
     "semantic_hash": ""
   },
   "tests/redaction_negative.rs": {
@@ -455,8 +455,8 @@
     "semantic_hash": ""
   },
   "tests/body_bounds.rs": {
-    "mtime": 1785474217.1766474,
-    "ast_hash": "721e1c6ca0020ad7b969eb3ddeb68bc9",
+    "mtime": 1785486810.5370903,
+    "ast_hash": "2e103e6b735353ef3e3512ef42207bd3",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern0nonterminal_bad.rs": {
