@@ -77,6 +77,11 @@ provider_files() {
 # numbers. Pattern 5 and the `grep -n` rules report positions, and shifting them silently would
 # make every future report point at the wrong line.
 #
+# KNOWN BLIND SPOT, stated rather than implied: the test-module detection is anchored at column 0,
+# so a test module nested inside another module is NOT skipped and its body is scanned as
+# production. That fails in the SAFE direction — false positives, which a fixture catches and a
+# human notices — but a maintainer reading only the regex would assume otherwise.
+#
 # LINE COMMENTS ARE STRIPPED. Every rule here looks for a code shape, and a comment that mentions
 # one is prose, not the thing. It matters most for the per-builder count: a comment naming
 # `Client::builder` inflated the builder tally and failed a correct file, which is the way a check
@@ -193,7 +198,7 @@ self_test() {
 #     operation is why the structural rules (1c, 1d) matter more than this list: they make the
 #     shared mapper the only way to build a transport error at all, whatever the spelling.
 for f in $(provider_files); do
-    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b|\{[0-9]*(:#?\?)?\}[^"]*",[[:space:]]*&?(e|err|error|source)[,)[:space:]]'; then
+    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b|\{[0-9]*(:#?\?)?\}[^"]*"[^;]*[(,][[:space:]]*&?(e|err|error|source)[,);[:space:]]'; then
         fail "raw error interpolation in $f (compose from a redacted URL instead)"
     fi
 done
