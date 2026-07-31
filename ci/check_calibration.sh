@@ -54,7 +54,12 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 # the whole script with it, so a rustdoc block naming ZERO models died here instead of reaching the
 # message written for exactly that case. The seal would then have failed for the right reason with
 # the wrong explanation — and an unexplained failure is how a check gets deleted.
-models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l || true)"
+# A DIGIT is required as well as a separator. The separator alone let ordinary hyphenated
+# identifiers through — `magi-core`, `provider_url.rs`, `check_redaction.sh` — so three of those in
+# a rustdoc satisfied a floor meant to require three measured models. Every model in use carries a
+# version or a parameter count (`qwen3.5:397b`, `gpt-oss:120b`, `nemotron-3-super`), and none of the
+# identifiers that were slipping through does.
+models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -E '[0-9]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l || true)"
 models="${models:-0}"
 [ "$models" -ge "$MIN_MODELS" ] \
     || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest"

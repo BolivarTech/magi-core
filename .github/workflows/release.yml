@@ -13,31 +13,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history: the verdict-search rule uses `git grep` across it. Without this the
+          # release path would run that check over a shallow clone and pass by seeing nothing.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.91"
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
-      - run: cargo fmt --check
-      # --all-targets, not --tests: examples are linted too, and the examples build below is the
-      # ONLY check able to catch an external-construction regression of the error type.
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      # The default feature set is a supported configuration and has its own dead-code surface;
-      # linting only --all-features hid exactly that during this milestone.
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo nextest run --all-features
-      - run: cargo nextest run
-      # The gates this crate relies on to stay correct. They were absent from the PUBLISHING path
-      # while present in CI, so a tag on any commit other than a gated `main` shipped without them.
-      - run: sh ci/check_r0.sh
-      - run: bash ci/check_redaction.sh --self-test
-      - run: bash ci/check_redaction.sh
-      - run: bash ci/check_calibration.sh
-      - run: cargo build --all-features --examples
-      - run: cargo doc --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
+      # THE SAME script the pull-request workflow runs. This sequence used to be written out here
+      # as well, and the two copies drifted: the checks this crate relies on were present before
+      # merge and ABSENT before publish, so a tag on any commit other than a gated `main` shipped
+      # without them. One list means the publishing path can no longer run fewer checks than the
+      # path that gates the merge — and it cannot be made to, except by deleting them from both,
+      # which a reviewer sees.
+      - run: bash ci/run_all_checks.sh
       - run: cargo generate-lockfile
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit

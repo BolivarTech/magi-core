@@ -10,99 +10,39 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Test
+  # ONE list of checks, in `ci/run_all_checks.sh`, run by this workflow and by the release
+  # workflow alike.
+  #
+  # These used to be a job per check here and the same sequence written out again in the release
+  # workflow. The two drifted — the release path ended up running FEWER checks than the pull-request
+  # path, which is the worst direction for that to go, since the run that publishes is the one doing
+  # less. Nothing surfaced it; it was noticed by reading the two files side by side.
+  #
+  # The cost is that the checks now run in sequence rather than in parallel, so a failure is
+  # reported one at a time and the job takes longer. That is a real loss, accepted: a check list
+  # that cannot silently differ between "before merge" and "before publish" is worth more than a
+  # faster red. What the script covers, both feature sets and why, is documented in the script.
+  gate:
+    name: Gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Full history: the verdict-search rule uses `git grep` across it.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
+          # The declared MSRV, not `stable`. On `stable` every one of these would prove the crate
+          # works on a toolchain no consumer is promised, which is not the claim they make.
           toolchain: "1.91"
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --all-features
-      # Additivity (R11): the core + rotation (4-condition, no probe) must compile
-      # and pass with NO optional features — proving `ollama`/probe are additive and
-      # the default path stays 2.0.x. The async-boundary tests (concurrent claim
-      # stress, slot-guard cancellation/contended-drop, lost-signal recovery) are
-      # ordinary `#[tokio::test]`s in this default suite, so they run here too.
-      - name: Default-features build (additivity)
-        run: cargo nextest run
+      - run: bash ci/run_all_checks.sh
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.91"
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      # The default feature set is supported and has its own dead-code surface. Linting only
-      # --all-features hid dead code under narrower sets until it was caught in review.
-      - run: cargo clippy --all-targets -- -D warnings
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.91"
-          components: rustfmt
-      - run: cargo fmt --check
-
-  # Enforces the no-search rule mechanically. It is a ratchet against a KNOWN
-  # regression: the brace-scanning heuristic that used to guess which JSON object was
-  # the verdict, and the duplicate block locator that would let the prompt guard drift
-  # out of step with the parser. A brand-new heuristic under a new name would pass it,
-  # so this backs up review rather than replacing it. Needs full history for `git grep`.
-  no-search-rule:
-    name: R0 (no verdict search)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: sh ci/check_r0.sh
-
-  # Same shape, same honesty: a ratchet against the leak paths that were already closed, not a
-  # proof that none exist. It self-tests first — a pattern that silently stopped matching would
-  # otherwise report success forever.
-  redaction-rule:
-    name: Credential redaction
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: bash ci/check_redaction.sh --self-test
-      - run: bash ci/check_redaction.sh
-
-  # Seals the response-body cap's calibration: asserts the constant's rustdoc carries a date and
-  # names at least three models. It cannot check the measurement is right — only that one was made
-  # and recorded, which is the difference between a datum and an intuition in a costume.
-  calibration-seal:
-    name: Body-cap calibration
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: bash ci/check_calibration.sh
-
-  # The ONLY check that can catch a regression of external error construction: inside `src/` the
-  # variants are always constructible, so a test there would pass while the API stayed broken.
-  # An example compiles as a separate crate, which is what makes it a real probe.
-  examples-compile:
-    name: Examples compile
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      # Pinned to the declared MSRV like every other job. On `stable` this job would prove the
-      # example compiles on a toolchain no consumer is promised, which is not the claim it makes.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.91"
-      - run: cargo build --all-features --examples
-
+  # Separate because it needs a generated lockfile and network access to the advisory database, so
+  # it fails for reasons that have nothing to do with this crate's code. Keeping it apart means an
+  # advisory-database outage does not read as a gate failure.
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
@@ -114,16 +54,3 @@ jobs:
       - run: cargo generate-lockfile
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit
-
-  doc:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.91"
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --all-features --no-deps
-        env:
-          RUSTDOCFLAGS: "-D warnings"
