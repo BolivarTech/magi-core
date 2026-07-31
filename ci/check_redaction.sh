@@ -100,6 +100,10 @@ provider_files() {
 #   * BLOCK comments (`/* … */`) are not stripped, only line comments;
 #   * a string literal spanning lines can leave its contents visible to the line-wise rules.
 #
+# Attributes, blank lines and COMMENTS between the gate and the `mod` do NOT cancel it — all three
+# were found the same way, one per review round, which is the argument for the category over the
+# list: what cancels the gate is a line of CODE, not any of the things that decorate one.
+#
 # HANDLED, each verified against the regex rather than assumed: `#[cfg(test)]`, the compound in
 # either argument order, a compound with a NESTED paren before the token
 # (`all(not(feature = "y"), test)`), and `any(test, doc)`. Correctly NOT treated as test modules:
@@ -158,7 +162,7 @@ prod_only() {
       # Clearing on any non-`mod` line meant `#[cfg(test)]` followed by `#[allow(…)]` left the
       # module unrecognised, so its whole body was scanned as production — a false positive, and
       # one that arrives with no clue as to why, since the offending line is a test.
-      pending && /^([[:space:]]*$|#\[)/  { print ""; next }
+      pending && /^([[:space:]]*$|#\[|\/\/)/ { print ""; next }
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
       skipping                      { print ""; next }
@@ -482,7 +486,13 @@ if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
     #      the space let it through. The trailing `|| true` matters just as much: under `pipefail`
     #      a grep that matches nothing kills the script, so a file constructing NOTHING exited
     #      silently instead of reaching the message written for that case.
+    #      Only the part of a line that can CONSTRUCT is read: everything after the last `=>`, or
+    #      the whole line when there is none. `Self::Http { .. }` on the left of an arrow is a
+    #      PATTERN — it destructures, it does not build — and counting it made a plain `match` over
+    #      the enum look like a second door. `X => Self::External { .. }` still counts, because
+    #      what follows the arrow is a construction.
     built="$(prod_only "$SRC/error.rs" \
+        | awk '{ while (match($0, /=>/)) { $0 = substr($0, RSTART + 2) } print }' \
         | grep -oE '(Self|ProviderError)::[A-Za-z]+[[:space:]]*\{' \
         | sed -e 's/^ProviderError::/Self::/' -e 's/[[:space:]]*{$/ {/' \
         | sort -u | tr '\n' ' ' || true)"

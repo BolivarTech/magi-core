@@ -49,7 +49,7 @@
       "label": "provider_files()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L62",
+      "source_location": "L63",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -63,7 +63,7 @@
       "label": "prod_only()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L114",
+      "source_location": "L115",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -77,7 +77,7 @@
       "label": "skeleton()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L175",
+      "source_location": "L176",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -91,7 +91,7 @@
       "label": "fixture_meta()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L193",
+      "source_location": "L194",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -105,7 +105,7 @@
       "label": "self_test()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L195",
+      "source_location": "L196",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -121,9 +121,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_bad",
       "community": 293,
-      "norm_label": "pattern7builderalias_bad.rs"
+      "norm_label": "pattern7builderalias_bad.rs",
+      "id": "ci_fixtures_redaction_pattern7builderalias_bad"
     },
     {
       "label": "configured()",
@@ -131,9 +131,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_bad.rs",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_bad_configured",
       "community": 293,
-      "norm_label": "configured()"
+      "norm_label": "configured()",
+      "id": "ci_fixtures_redaction_pattern7builderalias_bad_configured"
     },
     {
       "label": "Client",
@@ -141,9 +141,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client",
       "community": 293,
-      "norm_label": "client"
+      "norm_label": "client",
+      "id": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client"
     },
     {
       "label": "bare()",
@@ -151,9 +151,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_bad.rs",
       "source_location": "L11",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_bad_bare",
       "community": 293,
-      "norm_label": "bare()"
+      "norm_label": "bare()",
+      "id": "ci_fixtures_redaction_pattern7builderalias_bad_bare"
     },
     {
       "label": "pattern7builderalias_good.rs",
@@ -161,9 +161,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_good",
       "community": 294,
-      "norm_label": "pattern7builderalias_good.rs"
+      "norm_label": "pattern7builderalias_good.rs",
+      "id": "ci_fixtures_redaction_pattern7builderalias_good"
     },
     {
       "label": "configured()",
@@ -171,9 +171,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_good.rs",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_good_configured",
       "community": 294,
-      "norm_label": "configured()"
+      "norm_label": "configured()",
+      "id": "ci_fixtures_redaction_pattern7builderalias_good_configured"
     },
     {
       "label": "Client",
@@ -181,9 +181,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_good_rs_client",
       "community": 294,
-      "norm_label": "client"
+      "norm_label": "client",
+      "id": "ci_fixtures_redaction_pattern7builderalias_good_rs_client"
     },
     {
       "label": "also_configured()",
@@ -191,9 +191,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_good.rs",
       "source_location": "L10",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7builderalias_good_also_configured",
       "community": 294,
-      "norm_label": "also_configured()"
+      "norm_label": "also_configured()",
+      "id": "ci_fixtures_redaction_pattern7builderalias_good_also_configured"
     },
     {
       "label": "pattern7default_bad.rs",
@@ -201,9 +201,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_bad",
       "community": 295,
-      "norm_label": "pattern7default_bad.rs"
+      "norm_label": "pattern7default_bad.rs",
+      "id": "ci_fixtures_redaction_pattern7default_bad"
     },
     {
       "label": "build()",
@@ -211,9 +211,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_bad.rs",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_bad_build",
       "community": 295,
-      "norm_label": "build()"
+      "norm_label": "build()",
+      "id": "ci_fixtures_redaction_pattern7default_bad_build"
     },
     {
       "label": "Client",
@@ -221,9 +221,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_bad_rs_client",
       "community": 295,
-      "norm_label": "client"
+      "norm_label": "client",
+      "id": "ci_fixtures_redaction_pattern7default_bad_rs_client"
     },
     {
       "label": "pattern7default_good.rs",
@@ -231,9 +231,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_good",
       "community": 296,
-      "norm_label": "pattern7default_good.rs"
+      "norm_label": "pattern7default_good.rs",
+      "id": "ci_fixtures_redaction_pattern7default_good"
     },
     {
       "label": "build()",
@@ -241,9 +241,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_good.rs",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_good_build",
       "community": 296,
-      "norm_label": "build()"
+      "norm_label": "build()",
+      "id": "ci_fixtures_redaction_pattern7default_good_build"
     },
     {
       "label": "Client",
@@ -251,9 +251,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern7default_good_rs_client",
       "community": 296,
-      "norm_label": "client"
+      "norm_label": "client",
+      "id": "ci_fixtures_redaction_pattern7default_good_rs_client"
     },
     {
       "label": "body_bounds.rs",
@@ -261,9 +261,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "tests_body_bounds",
       "community": 270,
-      "norm_label": "body_bounds.rs"
+      "norm_label": "body_bounds.rs",
+      "id": "tests_body_bounds"
     },
     {
       "label": "Framing",
@@ -271,9 +271,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L57",
       "_origin": "ast",
-      "id": "tests_body_bounds_framing",
       "community": 270,
-      "norm_label": "framing"
+      "norm_label": "framing",
+      "id": "tests_body_bounds_framing"
     },
     {
       "label": "serve_one_body()",
@@ -281,9 +281,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L73",
       "_origin": "ast",
-      "id": "tests_body_bounds_serve_one_body",
       "community": 270,
-      "norm_label": "serve_one_body()"
+      "norm_label": "serve_one_body()",
+      "id": "tests_body_bounds_serve_one_body"
     },
     {
       "label": "String",
@@ -291,9 +291,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "string",
       "community": 25,
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "string"
     },
     {
       "label": "JoinHandle",
@@ -301,9 +301,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "joinhandle",
       "community": 269,
-      "norm_label": "joinhandle"
+      "norm_label": "joinhandle",
+      "id": "joinhandle"
     },
     {
       "label": "serve_framed()",
@@ -311,9 +311,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L77",
       "_origin": "ast",
-      "id": "tests_body_bounds_serve_framed",
       "community": 270,
-      "norm_label": "serve_framed()"
+      "norm_label": "serve_framed()",
+      "id": "tests_body_bounds_serve_framed"
     },
     {
       "label": "Vec",
@@ -321,9 +321,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "vec",
       "community": 25,
-      "norm_label": "vec"
+      "norm_label": "vec",
+      "id": "vec"
     },
     {
       "label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
@@ -331,9 +331,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L134",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
       "community": 270,
-      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()"
+      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
+      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
     },
     {
       "label": "a_success_body_at_the_cap_is_read_whole()",
@@ -341,9 +341,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L162",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
       "community": 270,
-      "norm_label": "a_success_body_at_the_cap_is_read_whole()"
+      "norm_label": "a_success_body_at_the_cap_is_read_whole()",
+      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
     },
     {
       "label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
@@ -351,9 +351,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L182",
       "_origin": "ast",
-      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
       "community": 270,
-      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()"
+      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
+      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
     },
     {
       "label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
@@ -361,9 +361,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L214",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
       "community": 270,
-      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()"
+      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
+      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
     },
     {
       "label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
@@ -371,9 +371,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L236",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
       "community": 270,
-      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()"
+      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
+      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
     },
     {
       "label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
@@ -381,9 +381,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L271",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
       "community": 270,
-      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()"
+      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
+      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
     },
     {
       "label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
@@ -391,9 +391,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L295",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
       "community": 270,
-      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()"
+      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
+      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
     },
     {
       "label": "check_calibration.sh",
@@ -21953,7 +21953,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L193",
+      "source_location": "L194",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_fixture_meta",
@@ -21963,7 +21963,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L114",
+      "source_location": "L115",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_prod_only",
@@ -21973,7 +21973,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L62",
+      "source_location": "L63",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_provider_files",
@@ -21983,7 +21983,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L195",
+      "source_location": "L196",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_self_test",
@@ -22003,7 +22003,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L175",
+      "source_location": "L176",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_skeleton",
@@ -22024,7 +22024,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L273",
+      "source_location": "L274",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -22035,7 +22035,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L260",
+      "source_location": "L261",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -22046,7 +22046,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L221",
+      "source_location": "L222",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_self_test",
@@ -22059,9 +22059,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_bad.rs",
       "source_location": "L11",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_bad",
-      "target": "ci_fixtures_redaction_pattern7builderalias_bad_bare",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_bad_bare"
     },
     {
       "relation": "contains",
@@ -22069,9 +22069,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_bad.rs",
       "source_location": "L7",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_bad",
-      "target": "ci_fixtures_redaction_pattern7builderalias_bad_configured",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_bad_configured"
     },
     {
       "relation": "references",
@@ -22080,9 +22080,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_bad_configured",
-      "target": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client"
     },
     {
       "relation": "references",
@@ -22091,9 +22091,9 @@
       "source_location": "L11",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_bad_bare",
-      "target": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_bad_rs_client"
     },
     {
       "relation": "contains",
@@ -22101,9 +22101,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_good.rs",
       "source_location": "L10",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_good",
-      "target": "ci_fixtures_redaction_pattern7builderalias_good_also_configured",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_good_also_configured"
     },
     {
       "relation": "contains",
@@ -22111,9 +22111,9 @@
       "source_file": "ci/fixtures/redaction/pattern7builderalias_good.rs",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_good",
-      "target": "ci_fixtures_redaction_pattern7builderalias_good_configured",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_good_configured"
     },
     {
       "relation": "references",
@@ -22122,9 +22122,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_good_configured",
-      "target": "ci_fixtures_redaction_pattern7builderalias_good_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_good_rs_client"
     },
     {
       "relation": "references",
@@ -22133,9 +22133,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7builderalias_good_also_configured",
-      "target": "ci_fixtures_redaction_pattern7builderalias_good_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7builderalias_good_rs_client"
     },
     {
       "relation": "contains",
@@ -22143,9 +22143,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_bad.rs",
       "source_location": "L7",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_bad",
-      "target": "ci_fixtures_redaction_pattern7default_bad_build",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_bad_build"
     },
     {
       "relation": "imports_from",
@@ -22154,9 +22154,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_bad",
-      "target": "ci_fixtures_redaction_pattern7default_bad_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_bad_rs_client"
     },
     {
       "relation": "references",
@@ -22165,9 +22165,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_bad_build",
-      "target": "ci_fixtures_redaction_pattern7default_bad_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_bad_rs_client"
     },
     {
       "relation": "contains",
@@ -22175,9 +22175,9 @@
       "source_file": "ci/fixtures/redaction/pattern7default_good.rs",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_good",
-      "target": "ci_fixtures_redaction_pattern7default_good_build",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_good_build"
     },
     {
       "relation": "imports_from",
@@ -22186,9 +22186,9 @@
       "source_location": "L4",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_good",
-      "target": "ci_fixtures_redaction_pattern7default_good_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_good_rs_client"
     },
     {
       "relation": "references",
@@ -22197,9 +22197,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern7default_good_build",
-      "target": "ci_fixtures_redaction_pattern7default_good_rs_client",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern7default_good_rs_client"
     },
     {
       "relation": "imports_from",
@@ -22208,9 +22208,9 @@
       "source_location": "L31",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "src_prelude",
-      "confidence_score": 1.0
+      "target": "src_prelude"
     },
     {
       "relation": "imports_from",
@@ -22219,9 +22219,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tcplistener",
-      "confidence_score": 1.0
+      "target": "tcplistener"
     },
     {
       "relation": "contains",
@@ -22229,9 +22229,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L236",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
     },
     {
       "relation": "contains",
@@ -22239,9 +22239,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L295",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
     },
     {
       "relation": "contains",
@@ -22249,9 +22249,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L214",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
     },
     {
       "relation": "contains",
@@ -22259,9 +22259,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L162",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
     },
     {
       "relation": "contains",
@@ -22269,9 +22269,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L134",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
     },
     {
       "relation": "contains",
@@ -22279,9 +22279,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L271",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
     },
     {
       "relation": "contains",
@@ -22289,9 +22289,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L182",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
     },
     {
       "relation": "contains",
@@ -22299,9 +22299,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L57",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_framing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_framing"
     },
     {
       "relation": "contains",
@@ -22309,9 +22309,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L77",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "contains",
@@ -22319,9 +22319,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L73",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "references",
@@ -22330,9 +22330,9 @@
       "source_location": "L77",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_framing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_framing"
     },
     {
       "relation": "calls",
@@ -22341,9 +22341,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L221",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -22352,9 +22352,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L165",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -22363,9 +22363,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L138",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -22374,9 +22374,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L186",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "references",
@@ -22385,9 +22385,9 @@
       "source_location": "L73",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "joinhandle",
-      "confidence_score": 1.0
+      "target": "joinhandle"
     },
     {
       "relation": "references",
@@ -22396,9 +22396,9 @@
       "source_location": "L73",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "calls",
@@ -22407,9 +22407,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L74",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "references",
@@ -22825,9 +22825,9 @@
       "source_location": "L77",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -22880,9 +22880,9 @@
       "source_location": "L77",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "joinhandle",
-      "confidence_score": 1.0
+      "target": "joinhandle"
     },
     {
       "relation": "imports_from",
@@ -22924,9 +22924,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L257",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "calls",
@@ -22935,9 +22935,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L303",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "calls",
@@ -22946,9 +22946,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L276",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "references",
@@ -22957,9 +22957,9 @@
       "source_location": "L77",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "vec",
-      "confidence_score": 1.0
+      "target": "vec"
     },
     {
       "relation": "references",
@@ -71680,5 +71680,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "c5bc25aef6fde8fea55ac8c5159d7c35b5a6497a"
+  "built_at_commit": "bc6b82fe94ace75a932dc929eae0f43db8c719d3"
 }
