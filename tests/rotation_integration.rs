@@ -13,8 +13,9 @@ use std::sync::Arc;
 use magi_core::prelude::*;
 use magi_core::test_support::{
     Beh, ScriptProvider, build_schema_local_case, build_trio_with_caspar,
-    build_two_5xx_with_local_fallbacks, build_two_failing_with_single_free_fallback,
-    build_two_network_failing_no_fallback, report_run_failed,
+    build_two_5xx_with_local_fallbacks, build_two_external_failing_no_fallback,
+    build_two_failing_with_single_free_fallback, build_two_network_failing_no_fallback,
+    report_run_failed,
 };
 
 /// Wraps a provider in a `RetryProvider` that exhausts INSTANTLY (zero delay,
@@ -239,4 +240,64 @@ async fn test_5xx_condemns_but_does_not_abort_endpoint_down() {
         report.rotations.values().any(|r| !r.chain.is_empty()),
         "5xx condemns lineages but the run proceeds by rotating"
     );
+}
+
+#[tokio::test]
+async fn an_external_failure_is_mage_local_and_never_trips_endpoint_down() {
+    // The discriminating pair. `build_two_network_failing_no_fallback` and this builder differ in
+    // exactly one thing — the class of the error the two seats report — so the opposite outcomes
+    // below are attributable to that and to nothing else.
+    //
+    // Why it must be mage-local: this crate cannot verify anything a third-party backend says
+    // about the lineages the OTHER seats are using, and aborting the whole run on that guess is
+    // not recoverable.
+    let magi = build_two_external_failing_no_fallback();
+    let result = magi.analyze(&Mode::CodeReview, "content").await;
+
+    assert!(
+        !matches!(result, Err(MagiError::EndpointDown { .. })),
+        "the endpoint-down latch must not fire on a third-party failure, got: {result:?}"
+    );
+    // It still fails — one surviving seat cannot form a consensus — but it fails for the honest
+    // reason. The twin returns `EndpointDown` over this identical topology, and the distance
+    // between the two errors IS the requirement: one says "your endpoint is gone", the other says
+    // "not enough mages answered".
+    assert!(
+        matches!(result, Err(MagiError::InsufficientAgents { .. })),
+        "expected the honest degradation, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_external_failure_rotates_the_seat_and_the_run_completes() {
+    // The recovering half of the same story: with somewhere to rotate to, a seat that fails
+    // externally moves to another lineage and the run finishes intact.
+    let magi = build_trio_with_caspar(
+        ScriptProvider::new("deepseek", vec![Beh::External]),
+        vec![("glm", "zhipu")],
+    );
+    let report = magi
+        .analyze(&Mode::CodeReview, "content")
+        .await
+        .expect("the seat rotates, so the run completes");
+
+    let caspar = &report.rotations[&AgentName::Caspar];
+    assert_eq!(caspar.chain.len(), 1, "the seat rotated exactly once");
+    assert!(
+        caspar.chain[0].detail().contains("external"),
+        "the precision rides in `detail`, since `RotationKind` cannot gain a variant in a minor: {:?}",
+        caspar.chain[0].detail()
+    );
+    assert!(!report.degraded, "all three seats produced a verdict");
+
+    // NOT asserted here: that `deepseek` is absent from `report_run_failed`. That helper reads
+    // the rotation KIND from telemetry, and an external failure is reported as `Transport`
+    // because `RotationKind` is public and not `#[non_exhaustive]` — so telemetry genuinely
+    // cannot tell this hop apart from a run-wide one, and a check written against it would be
+    // asserting the limitation rather than the behaviour.
+    //
+    // The mage-local guarantee is verified where it is unambiguous instead: `is_connection`
+    // returns false for every `External` shape (unit-tested in `orchestrator`), which is what
+    // keeps it out of the run-wide condemned set, and the sibling test above shows the
+    // endpoint-down latch staying shut over a topology where its in-crate twin trips it.
 }

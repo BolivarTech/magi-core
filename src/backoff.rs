@@ -142,6 +142,12 @@ pub enum RetryClass {
     /// Response body over the buffering cap. Distinct from `Http`: nothing about the status was
     /// wrong, and its condemnation scope is mage-local rather than run-wide.
     ResponseTooLarge,
+    /// Failure reported by a provider implemented outside this crate.
+    ///
+    /// One class for all of them, regardless of the shape the third party declared: the shape
+    /// informs retryability, but backoff policy stays configurable per-class by THIS crate's
+    /// vocabulary, not by a vocabulary an external crate can extend.
+    External,
 }
 
 /// Positive jitter added to a honored `Retry-After`, so that several clients

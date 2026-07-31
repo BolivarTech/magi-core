@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::backoff::RetryClass;
-use crate::error::{AbandonReason, ProviderError};
+use crate::error::{AbandonReason, ExternalErrorKind, ProviderError};
 use crate::schema::Mode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -333,6 +333,16 @@ fn is_retryable(error: &ProviderError) -> bool {
         // A server that sent an oversized body will send it again: retrying spends budget the
         // rotation needs to try a DIFFERENT lineage.
         | ProviderError::ResponseTooLarge { .. } => false,
+        // The third party named a SHAPE; the decision is made here. `Other` is deliberately not
+        // retryable: the escape hatch must not become a way to buy retries by declining to
+        // classify.
+        ProviderError::External { kind, .. } => matches!(
+            kind,
+            ExternalErrorKind::Network
+                | ExternalErrorKind::Timeout
+                | ExternalErrorKind::RateLimit
+                | ExternalErrorKind::ServerError
+        ),
     }
 }
 
@@ -447,6 +457,11 @@ pub(crate) fn classify(err: &ProviderError) -> RetryClass {
         ProviderError::NestedSession => RetryClass::NestedSession,
         ProviderError::RetryAbandoned { .. } => RetryClass::RetryAbandoned,
         ProviderError::ResponseTooLarge { .. } => RetryClass::ResponseTooLarge,
+        // One class per variant, as this enum's contract says — NOT a mapping of `kind` onto the
+        // existing classes. Folding `ExternalErrorKind::Network` into `RetryClass::Network` would
+        // let a third party inherit whatever backoff policy is configured for this crate's own
+        // network failures, which is exactly the ownership the design keeps here.
+        ProviderError::External { .. } => RetryClass::External,
     }
 }
 
@@ -869,6 +884,43 @@ mod tests {
         assert!(!is_retryable(&ProviderError::Auth {
             message: String::new()
         }));
+    }
+
+    /// The core decides retryability; the third party only names a shape. Every variant is
+    /// listed, so adding one to `ExternalErrorKind` without deciding its consequence leaves a
+    /// visible hole here.
+    #[test]
+    fn the_core_decides_retryability_of_external_failures_not_the_third_party() {
+        for kind in [
+            ExternalErrorKind::Network,
+            ExternalErrorKind::Timeout,
+            ExternalErrorKind::RateLimit,
+            ExternalErrorKind::ServerError,
+        ] {
+            assert!(
+                is_retryable(&ProviderError::external("x", kind)),
+                "{kind:?} is a transient shape"
+            );
+        }
+        for kind in [ExternalErrorKind::Auth, ExternalErrorKind::Other] {
+            assert!(
+                !is_retryable(&ProviderError::external("x", kind)),
+                "{kind:?} must not buy a retry"
+            );
+        }
+    }
+
+    #[test]
+    fn every_external_failure_shares_one_retry_class() {
+        // The class mirrors the VARIANT, not the declared kind: backoff policy is configured in
+        // this crate's vocabulary, and an external crate must not be able to select among the
+        // policies meant for our own failures.
+        for kind in [ExternalErrorKind::Network, ExternalErrorKind::Auth] {
+            assert_eq!(
+                classify(&ProviderError::external("x", kind)),
+                RetryClass::External
+            );
+        }
     }
 
     #[tokio::test]

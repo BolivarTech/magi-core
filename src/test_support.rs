@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 
 use crate::agent::CURRENT_AGENT_IDENTITY;
-use crate::error::ProviderError;
+use crate::error::{ExternalErrorKind, ProviderError};
 use crate::orchestrator::{Magi, MagiBuilder};
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::MagiReport;
@@ -194,6 +194,13 @@ pub enum Beh {
     /// `serde_json`, so this variant would test the *absence* of markers instead of bad
     /// JSON. The full reasoning is on the private `BAD_JSON` constant.
     BadJson,
+    /// Surface `ProviderError::external(.., ExternalErrorKind::Network)`.
+    ///
+    /// The `Network` shape is chosen deliberately: it is the one an external provider is most
+    /// likely to report, and the one whose IN-CRATE twin (`Beh::Network`) trips the endpoint-down
+    /// latch. Running both over the SAME topology is what proves the scope difference is real
+    /// rather than incidental.
+    External,
 }
 
 /// A provider whose behavior is FIXED per instance and scripted per call index.
@@ -253,6 +260,10 @@ impl LlmProvider for ScriptProvider {
                 retry_after_raw: vec![],
                 received_at: None,
             }),
+            Beh::External => Err(ProviderError::external(
+                "third-party backend unreachable",
+                ExternalErrorKind::Network,
+            )),
             Beh::Panic => panic!("mock panic"),
         }
     }
@@ -417,6 +428,35 @@ pub fn build_two_network_failing_no_fallback() -> Magi {
         )
         // Empty pool → rotation is engaged (registry built) but there is nothing
         // to rotate to; the connection failures still trip endpoint-down.
+        .with_fallback_pool(FallbackPool::builder().build())
+        .build()
+        .unwrap()
+}
+
+/// The TWIN of [`build_two_network_failing_no_fallback`], differing in exactly one thing: the two
+/// failing seats report `ProviderError::External` instead of `ProviderError::Network`.
+///
+/// Everything else — the lineages, the empty pool, the healthy middle seat — is identical on
+/// purpose. The endpoint-down latch fires for the twin and must NOT fire here, and holding every
+/// other variable still is what makes that difference attributable to the error class rather than
+/// to the topology.
+pub fn build_two_external_failing_no_fallback() -> Magi {
+    MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("m-alibaba", vec![Beh::External]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ok("m-moonshot"),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("m-deepseek", vec![Beh::External]),
+            Lineage::new("deepseek"),
+        )
         .with_fallback_pool(FallbackPool::builder().build())
         .build()
         .unwrap()

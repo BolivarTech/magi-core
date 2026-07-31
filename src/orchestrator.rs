@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
-use crate::error::{MagiError, ProviderError};
+use crate::error::{ExternalErrorKind, MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
 use crate::reporting::{
     ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
@@ -1426,6 +1426,11 @@ fn is_connection(err: &ProviderError) -> bool {
         // A server that answers TOO MUCH is not a server that is down: this must never feed the
         // endpoint-down latch, or one seat's content failure could abort the whole run.
         | ProviderError::ResponseTooLarge { .. } => false,
+        // NEVER counts toward the endpoint-down latch, whatever shape it declares. Even
+        // `ExternalErrorKind::Network` means only that a third-party backend was unreachable —
+        // this crate has no way to know whether that says anything about the lineages the OTHER
+        // two seats are using, and aborting the whole run on that guess is unrecoverable.
+        ProviderError::External { .. } => false,
     }
 }
 
@@ -1450,6 +1455,18 @@ enum ModelOutcome {
     /// failed to parse. Its own variant so the `match` below forces the consequence to be decided
     /// rather than inherited.
     OversizedResponse { limit: usize },
+
+    /// Failure surfaced by a provider implemented outside this crate — **mage-local**, then
+    /// rotate.
+    ///
+    /// Not `Transport`: that is run-wide and feeds the endpoint-down latch, and this crate cannot
+    /// know whether a third-party backend's failure says anything about the lineage the other
+    /// seats are on. Not `Schema`: nothing failed to parse, so saying so would lie in both the
+    /// detail and the telemetry.
+    ExternalFailure {
+        detail: String,
+        kind: ExternalErrorKind,
+    },
 
     /// A non-schema, non-transport failure — never rotates; surfaced verbatim.
     Unexpected(String),
@@ -1570,6 +1587,12 @@ async fn attempt_model(
 fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
     if let ProviderError::ResponseTooLarge { limit } = err {
         return ModelOutcome::OversizedResponse { limit };
+    }
+    if let ProviderError::External { kind, .. } = err {
+        return ModelOutcome::ExternalFailure {
+            detail: MagiError::Provider(err).to_string(),
+            kind,
+        };
     }
     let connection = is_connection(&err);
     let kind = match err {
@@ -1727,6 +1750,18 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 (
                     RotationKind::Transport,
                     format!("response body exceeded {limit} bytes"),
+                )
+            }
+            ModelOutcome::ExternalFailure { detail, kind } => {
+                // Mage-local, exactly like `Schema` and `OversizedResponse`: this seat gives up on
+                // this lineage, the other seats keep theirs. Reported as `Transport` for the same
+                // reason as `OversizedResponse` — `RotationKind` is public and NOT
+                // `#[non_exhaustive]`, so a new variant would be a SemVer break in a minor — so
+                // the precision rides in `detail`, where it is at least not lost.
+                state.failed_lineages.insert(current_lineage.clone());
+                (
+                    RotationKind::Transport,
+                    format!("external ({kind:?}): {detail}"),
                 )
             }
             ModelOutcome::Schema(detail) => {
@@ -1962,6 +1997,29 @@ pub(crate) fn parse_validate_and_check(
 #[cfg(test)]
 mod input_threshold_tests {
     use super::*;
+
+    /// The mage-local guarantee for external failures, checked at its source.
+    ///
+    /// `is_connection` is what decides whether a failure can enter the run-wide condemned set and
+    /// feed the endpoint-down latch. Every declared shape must answer `false` — including
+    /// `Network`, which is the tempting one: it looks like this crate's own connection failure,
+    /// but it describes a backend this crate never contacted and knows nothing about.
+    #[test]
+    fn no_external_shape_is_ever_connection_class() {
+        for kind in [
+            ExternalErrorKind::Network,
+            ExternalErrorKind::Timeout,
+            ExternalErrorKind::Auth,
+            ExternalErrorKind::RateLimit,
+            ExternalErrorKind::ServerError,
+            ExternalErrorKind::Other,
+        ] {
+            assert!(
+                !is_connection(&ProviderError::external("x", kind)),
+                "{kind:?} must never license a run-wide consequence"
+            );
+        }
+    }
 
     #[test]
     fn a_zero_threshold_warns_always_and_does_not_disable() {

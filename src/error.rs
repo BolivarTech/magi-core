@@ -2,6 +2,7 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
+use crate::provider::TRUNCATION_MARKER;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -146,6 +147,126 @@ pub enum ProviderError {
         /// Attempts made before abandoning.
         attempts: u32,
     },
+
+    /// Failure reported by an [`LlmProvider`] implemented OUTSIDE this crate.
+    ///
+    /// [`LlmProvider`]: crate::provider::LlmProvider
+    ///
+    /// Build it with [`ProviderError::external`] — the only constructor reachable from another
+    /// crate, and deliberately the only one.
+    ///
+    /// # The message is third-party text, and this crate cannot redact it
+    ///
+    /// It travels into the report like any other error message, but this crate does not author it
+    /// and **cannot** clean it: recognising a secret inside arbitrary prose is not something a
+    /// library can do. **Do not put credentials in it.** The cap below limits the blast radius; it
+    /// does not prevent a leak.
+    ///
+    /// # It names a shape; the core decides the consequences
+    ///
+    /// An external crate says *what kind* of failure happened. Whether that is retried, and
+    /// whether it condemns a lineage, stays here — see [`ExternalErrorKind`].
+    #[error("external provider error ({kind:?}): {message}")]
+    #[non_exhaustive]
+    External {
+        /// Third-party diagnostic text, capped and marked when cut.
+        message: String,
+        /// The SHAPE of the failure.
+        kind: ExternalErrorKind,
+    },
+}
+
+/// Upper bound, in bytes, for the text an external provider may attach to a failure.
+pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;
+
+/// How an external provider's failure should be treated.
+///
+/// Deliberately **coarser** than [`ProviderError`]: a third party names the shape of its failure,
+/// and this crate keeps ownership of retry classification and lineage condemnation. That split is
+/// the whole design — it is why an external provider can fail in a typed way without acquiring the
+/// ability to decide what happens next.
+///
+/// # There is no `Schema` variant, on purpose
+///
+/// A provider returns a `String`; it does not validate verdicts. Schema failures belong to this
+/// crate's own path, and letting a third party claim them would misattribute the adherence
+/// telemetry that exists to answer *which model stops following the contract*.
+///
+/// # When all three seats share one external backend
+///
+/// Each seat condemns the lineage **locally** and rotates on its own; the endpoint-down latch
+/// never fires, because a third-party backend's failure says nothing this crate can verify about
+/// the lineages the *other* seats are using. The waste is **bounded** — by each mage's rotation
+/// cap and by the timeouts you configured — so the run finishes and degrades honestly rather than
+/// hanging.
+///
+/// The worse case is not a clean outage but an **intermittent** backend: each seat rotates, finds
+/// it healthy again, and drains budget in small steps without ever reaching a fast fail. If your
+/// seats share a backend, the lineage diversity that rotation promises does not exist — and that
+/// is a configuration decision this crate cannot infer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ExternalErrorKind {
+    /// Connection-level failure reaching the backend.
+    Network,
+    /// The backend did not answer in time.
+    Timeout,
+    /// Rejected credentials or insufficient permissions.
+    Auth,
+    /// Rate limited. Retryable, but the scheduling stays here: this carries no `Retry-After`.
+    RateLimit,
+    /// The backend failed on its own side — the 5xx shape.
+    ServerError,
+    /// Anything else. **Not** retryable: an escape hatch must not silently buy retries.
+    Other,
+}
+
+impl ProviderError {
+    /// Builds a failure from an [`LlmProvider`] implemented outside this crate.
+    ///
+    /// [`LlmProvider`]: crate::provider::LlmProvider
+    ///
+    /// # Parameters
+    /// - `message`: third-party diagnostic text. Truncated to [`MAX_EXTERNAL_MESSAGE_BYTES`] with
+    ///   a visible marker. **Must not contain credentials** — see [`ProviderError::External`].
+    /// - `kind`: the shape of the failure. It does **not** decide the consequences.
+    ///
+    /// # Returns
+    /// A [`ProviderError::External`]. Never fails, never panics — including on multi-byte input,
+    /// where the cut lands on a character boundary.
+    ///
+    /// # Why this exists at all
+    ///
+    /// Every variant of this enum is `#[non_exhaustive]`, so none can be built with a struct
+    /// expression from another crate. Without a constructor an external provider could *compile*
+    /// but could not **fail in a typed way** — which pushed implementors toward lying with an
+    /// unrelated variant or panicking. `#[non_exhaustive]` and this constructor are a pair;
+    /// either alone is broken.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use magi_core::error::{ExternalErrorKind, ProviderError};
+    ///
+    /// let err = ProviderError::external("backend unreachable", ExternalErrorKind::Network);
+    /// assert!(err.to_string().contains("backend unreachable"));
+    /// ```
+    pub fn external(message: impl Into<String>, kind: ExternalErrorKind) -> Self {
+        let raw: String = message.into();
+        let message = if raw.len() <= MAX_EXTERNAL_MESSAGE_BYTES {
+            raw
+        } else {
+            // The marker is paid for INSIDE the budget. A cap that its own suffix can push past
+            // is a cap that lies about its name — and this one is quoted in the rustdoc as a
+            // bound, so it has to hold literally.
+            let budget = MAX_EXTERNAL_MESSAGE_BYTES.saturating_sub(TRUNCATION_MARKER.len());
+            // `floor_char_boundary`, never a raw slice: the budget lands mid-character for any
+            // multi-byte text, and slicing there panics.
+            let cut = raw.floor_char_boundary(budget);
+            format!("{}{TRUNCATION_MARKER}", &raw[..cut])
+        };
+        Self::External { message, kind }
+    }
 }
 
 /// Unified error type for the magi-core crate.
@@ -531,5 +652,63 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
         let me: MagiError = io_err.into();
         assert!(matches!(me, MagiError::Io(_)), "Should produce Io variant");
+    }
+
+    // -- external provider errors (Eje C) --
+
+    fn external_message(err: &ProviderError) -> String {
+        match err {
+            ProviderError::External { message, .. } => message.clone(),
+            other => panic!("expected External, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_short_external_message_survives_untouched() {
+        let err = ProviderError::external("backend unreachable", ExternalErrorKind::Network);
+        assert_eq!(external_message(&err), "backend unreachable");
+        assert!(
+            !err.to_string().contains("truncated"),
+            "nothing was cut, so nothing may claim it was"
+        );
+    }
+
+    #[test]
+    fn an_oversized_external_message_is_cut_and_says_so() {
+        let err = ProviderError::external(
+            "x".repeat(MAX_EXTERNAL_MESSAGE_BYTES * 2),
+            ExternalErrorKind::Other,
+        );
+        let message = external_message(&err);
+        assert!(
+            message.len() <= MAX_EXTERNAL_MESSAGE_BYTES,
+            "a cap its own marker can push past is a cap that lies about its name: {}",
+            message.len()
+        );
+        assert!(
+            message.contains("truncated"),
+            "a cut message must never read as a complete one"
+        );
+    }
+
+    #[test]
+    fn truncation_never_splits_a_multibyte_character() {
+        // The cut lands mid-character unless it is moved to a boundary — and slicing a `String`
+        // there panics. Three-byte characters do not divide the cap evenly, which is the point.
+        let err = ProviderError::external(
+            "\u{4f60}".repeat(MAX_EXTERNAL_MESSAGE_BYTES),
+            ExternalErrorKind::ServerError,
+        );
+        let message = external_message(&err);
+        assert!(message.len() <= MAX_EXTERNAL_MESSAGE_BYTES);
+        assert!(message.contains("truncated"));
+    }
+
+    #[test]
+    fn the_kind_reaches_the_rendered_message() {
+        // The shape is diagnostic: a reader of `failed_agents` must be able to tell an auth
+        // failure from an outage without the third party having spelled it out in prose.
+        let err = ProviderError::external("nope", ExternalErrorKind::Auth);
+        assert!(err.to_string().contains("Auth"), "{err}");
     }
 }

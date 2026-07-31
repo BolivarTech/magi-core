@@ -11,7 +11,9 @@
 //! ```
 
 // Error types
-pub use crate::error::{AbandonReason, MagiError, ProviderError};
+pub use crate::error::{
+    AbandonReason, ExternalErrorKind, MAX_EXTERNAL_MESSAGE_BYTES, MagiError, ProviderError,
+};
 
 // Backoff / retry policy
 pub use crate::backoff::RetryClass;
