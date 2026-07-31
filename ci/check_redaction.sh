@@ -374,15 +374,31 @@ fi
 # `let (a, b) = match outcome { … };` shape; a `match outcome { … }` used as a statement closes
 # with a bare `}`, so `inblock` was never cleared and leaked to end of file — every later `_ =>`
 # in the file would have been blamed on a match it has nothing to do with.
+#     COVERS THE ERROR CLASSIFIERS TOO, not just the outcome dispatch. Watching one of the two
+#     was a gap found by probing rather than by reading: a `_ =>` restored to the function that
+#     maps a provider error onto an outcome passed cleanly, and that function is where a new error
+#     variant would silently inherit the run-wide consequence — the exact regression this file was
+#     extended to prevent, one release earlier, in the review that introduced the fix.
+#
+#     A nested `match` inside an arm is NOT a false positive: the terminator is indent-aware, so a
+#     deeper catch-all belongs to the inner match and is ignored. Verified by injecting one.
 if [ -f "$SRC/orchestrator.rs" ]; then
     prod_only "$SRC/orchestrator.rs" | awk '
-      /match outcome \{/ { match($0, /^[ 	]*/); ind = RLENGTH; inblock = 1; next }
+      /match (outcome|err) \{/ { match($0, /^[ 	]*/); ind = RLENGTH; inblock = 1; next }
       inblock && /^[ 	]*\}[;]?[ 	]*$/ {
           match($0, /^[ 	]*/)
           if (RLENGTH <= ind) { inblock = 0 }
           next
       }
-      inblock && /^[ 	]*_[ 	]*=>/ { print "catch-all arm at line " NR; bad = 1 }
+      inblock && /^[ 	]*_[ 	]*=>/ {
+          # AT THE ARM LEVEL, not merely inside the block. A `match` nested in an arm is entitled
+          # to its own catch-all, and its arms sit a further level in; flagging those made the
+          # rule fire on correct code the moment it was widened to a second match. One indent
+          # step past the `match` line is the arm level; anything deeper belongs to someone else.
+          match($0, /^[ 	]*/)
+          if (RLENGTH <= ind + 4) { print "catch-all arm at line " NR; bad = 1 }
+          next
+      }
       END { exit bad ? 1 : 0 }
     ' || fail "a catch-all arm would silence the outcome decision"
 fi

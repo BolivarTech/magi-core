@@ -265,8 +265,11 @@
   "263": "Duration",
   "264": ".send",
   "265": "described",
+  "266": "Result",
   "267": "AgentName",
   "268": ".new_checked",
+  "269": "mock_server.rs",
+  "270": "body_bounds.rs",
   "271": "pattern8bnospace_bad.rs",
   "272": "pattern8bnospace_good.rs",
   "273": "Arc",
@@ -286,5 +289,12 @@
   "287": "Send",
   "288": "String",
   "289": "Vec",
-  "291": "String"
+  "290": "serve_once",
+  "291": "String",
+  "292": "accept_one",
+  "293": "pattern7builderalias_bad.rs",
+  "294": "pattern7builderalias_good.rs",
+  "295": "pattern7default_bad.rs",
+  "296": "pattern7default_good.rs",
+  "297": "String"
 }
