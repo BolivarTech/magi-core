@@ -226,7 +226,6 @@
   "224": "String",
   "225": "Vec",
   "226": ".with_limits",
-  "227": "AgentOutput",
   "228": "Duration",
   "229": "Error",
   "230": "Mode",

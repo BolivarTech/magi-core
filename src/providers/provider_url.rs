@@ -418,7 +418,22 @@ impl ProviderResponse {
                 }
             }
         }
-        Ok(String::from_utf8_lossy(&acc).into_owned())
+        // STRICT, unlike the diagnostic reader. Lossy conversion is wrong on this path twice
+        // over: each invalid byte becomes a 3-byte replacement character, so a body that fitted
+        // the cap in bytes can leave it as a String up to 3x larger — the bound this whole
+        // function exists for, defeated on the way out. And a verdict silently sprinkled with
+        // replacement characters fails downstream as a SCHEMA error, blaming the model's JSON for
+        // what was an encoding fault, which is exactly the misattribution this crate's telemetry
+        // was rebuilt to avoid.
+        //
+        // The zero status is the standing sentinel for "a response arrived and is unusable":
+        // non-retryable and mage-local, the same treatment a body that will not parse receives.
+        String::from_utf8(acc).map_err(|_| ProviderError::Http {
+            status: crate::provider::PARSE_FAILURE_STATUS,
+            body: "response body was not valid UTF-8".to_string(),
+            retry_after_raw: vec![],
+            received_at: None,
+        })
     }
 
     /// Reads a **probe** body: bounded, and degrading to `None` on any problem.

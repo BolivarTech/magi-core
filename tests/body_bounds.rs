@@ -287,6 +287,29 @@ async fn a_chunked_probe_body_degrades_from_the_streaming_branch() {
     );
 }
 
+#[tokio::test]
+async fn a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled() {
+    // Lossy conversion would turn each invalid byte into a 3-byte replacement character, so a
+    // body that fitted the cap in bytes could leave this function as a String three times larger
+    // — and the mangled text would then fail downstream as a *schema* error, blaming the model
+    // for an encoding fault.
+    let (addr, server) = serve_framed("200 OK", vec![0xff, 0xfe, 0xfd], Framing::Length);
+    let provider =
+        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+
+    let err = provider
+        .complete("sys", "usr", &CompletionConfig::default())
+        .await
+        .expect_err("invalid UTF-8 must not be silently replaced");
+    server.join().expect("server thread");
+
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains("not valid UTF-8"),
+        "the cause must name the encoding fault rather than a schema one: {rendered}"
+    );
+}
+
 #[cfg(feature = "ollama")]
 #[tokio::test]
 async fn a_chunked_probe_body_under_the_cap_is_read_and_parsed() {
