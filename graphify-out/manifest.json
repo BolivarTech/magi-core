@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785491188.7293303,
-    "ast_hash": "bb63fe52b9ef90436490c0a275333ee8",
+    "mtime": 1785492953.795312,
+    "ast_hash": "66b04ff2814546d1740a382305a23162",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -592,6 +592,11 @@
   "tests/common/mod.rs": {
     "mtime": 1785492169.9581637,
     "ast_hash": "08eb8c034ea5d19642b2311bfba4d988",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/README.md": {
+    "mtime": 1785492953.8378272,
+    "ast_hash": "b60f54d4ce33adb77520cde1a7e468c7",
     "semantic_hash": ""
   }
 }

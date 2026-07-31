@@ -39,15 +39,23 @@ MIN_FIXTURE_PAIRS=20
 
 fail() { echo "check_redaction: $1" >&2; exit 1; }
 
-# Deny-by-default over the directory, RECURSIVE: a provider that grows into a submodule
-# (providers/gemini/mod.rs) must not fall outside the net silently.
-# Scope, not exception: only files that actually speak HTTP can hold an error carrying a URL. A
-# subprocess provider has no URL to leak, so including it would be noise — and a check that cries
-# wolf is a check that gets silenced.
+# A SECOND exception, and the reason it is safe is CHECKED rather than asserted. The subprocess
+# provider composes error text from `std::io::Error` and from a parse failure, neither of which can
+# carry a URL, because that provider has none — it spawns a program. Excluding it on that basis
+# alone would rot the moment it grew one, so the rule below fails loudly if it ever names an HTTP
+# client or the URL type. The exception is then a condition, not a memory.
+NO_URL="claude_cli.rs"
+
+# Deny-by-default over the directory, RECURSIVE: EVERY `.rs` under it except the two allowlisted by
+# name, so a provider that grows into `providers/gemini/mod.rs` is covered the day it appears
+# rather than the day someone remembers to add it.
+#
+# An earlier version also required the file to mention `reqwest`, which put an allow-by-default
+# filter INSIDE a deny-by-default check: a provider file that interpolated an error without naming
+# that crate was never scanned at all, and one such file was already here. The filter bought
+# nothing — the rules match code shapes, so a file with none of them passes in microseconds.
 provider_files() {
-    for f in $(find "$PROVIDERS" -name '*.rs' ! -name "$ALLOW" 2>/dev/null || true); do
-        grep -q 'reqwest' "$f" 2>/dev/null && echo "$f"
-    done
+    find "$PROVIDERS" -name '*.rs' ! -name "$ALLOW" ! -name "$NO_URL" 2>/dev/null || true
 }
 
 # Production half of a file: everything before `#[cfg(test)]`. Test assertions legitimately print
@@ -101,7 +109,13 @@ prod_only() {
       # literal was cut and the rest of the line vanished from every rule. Walking the quotes is
       # the only way to tell the two apart, and a corrupted line is a false NEGATIVE — the
       # direction that hides a leak.
+      #
+      # A RAW string (`r#"…"#`) defeats the quote walk: its `"` characters are ordinary, and
+      # `\` does not escape, so tracking them inverts `inq` and can cut a line that had no
+      # comment at all — a false NEGATIVE. Such a line is therefore left ALONE. That is the
+      # safe direction: an unstripped comment can only add a false positive.
       function strip_comment(line,   i, c, inq, esc) {
+          if (index(line, "r\"") || index(line, "r#\"") || index(line, "\"#")) { return line }
           for (i = 1; i <= length(line); i++) {
               c = substr(line, i, 1)
               if (esc)            { esc = 0; continue }
@@ -115,6 +129,11 @@ prod_only() {
       }
       /^#\[cfg[^)]*[^a-z_"]test[^a-z_-]/ { pending = 1; print ""; next }
       pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
+      # A FURTHER attribute or a blank line between the cfg and the `mod` does NOT cancel it.
+      # Clearing on any non-`mod` line meant `#[cfg(test)]` followed by `#[allow(…)]` left the
+      # module unrecognised, so its whole body was scanned as production — a false positive, and
+      # one that arrives with no clue as to why, since the offending line is a test.
+      pending && /^([[:space:]]*$|#\[)/  { print ""; next }
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
       skipping                      { print ""; next }
@@ -221,8 +240,13 @@ self_test() {
 #     people reach for first and which the named-capture pattern never saw. Four spellings for one
 #     operation is why the structural rules (1c, 1d) matter more than this list: they make the
 #     shared mapper the only way to build a transport error at all, whatever the spelling.
+#
+#     The tracing sigil has TWO spellings and only one was covered. `warn!(err = %e, …)` names the
+#     field; `warn!(%e, …)` lets the sigil name it, which is the shorter form and therefore the
+#     likelier one. Requiring the `=` matched the verbose spelling and missed the terse one — a
+#     false negative, in a crate that already logs with `tracing`.
 for f in $(provider_files); do
-    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b|\{[0-9]*(:#?\?)?\}[^"]*"[^;]*[(,][[:space:]]*&?(e|err|error|source)[,);[:space:]]'; then
+    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|[=(,][[:space:]]*[%?](e|err|error|source)\b|\{[0-9]*(:#?\?)?\}[^"]*"[^;]*[(,][[:space:]]*&?(e|err|error|source)[,);[:space:]]'; then
         fail "raw error interpolation in $f (compose from a redacted URL instead)"
     fi
 done
@@ -269,6 +293,16 @@ done
 
 # 2 / 2b — nothing that carries the URL crosses the module boundary, and only `redacted` may
 #          return a string. POSIX classes, not \s: the latter is a GNU extension.
+# 2c — the no-URL exception must STAY a no-URL file. The subprocess provider is skipped by rule 1
+#      because nothing it interpolates can carry a URL. The day it gains an HTTP client or holds a
+#      `ProviderUrl`, that premise is false and its exemption has to go — so the premise is checked
+#      instead of remembered. An exception nobody re-examines is how a covered file goes quiet.
+if [ -f "$PROVIDERS/$NO_URL" ]; then
+    if prod_only "$PROVIDERS/$NO_URL" | grep -nE '(^|[^A-Za-z_])(reqwest|ProviderUrl)([^A-Za-z0-9_]|$)'; then
+        fail "$NO_URL is exempt from rule 1 only because it has no URL; it now does — remove it from the exemption and compose its errors through the shared mapper"
+    fi
+fi
+
 if [ -f "$PROVIDERS/$ALLOW" ]; then
     # `( +async)?` is load-bearing: nearly every function in that module is async, so a pattern
     # anchored on `pub(crate) fn` alone sees almost none of them. A `pub(crate) async fn

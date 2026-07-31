@@ -4,14 +4,176 @@
   "graph": {},
   "nodes": [
     {
+      "label": "check_redaction.sh",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction",
+      "community": 73,
+      "norm_label": "check_redaction.sh"
+    },
+    {
+      "label": "check_redaction.sh script",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_sh__entry",
+      "community": 73,
+      "norm_label": "check_redaction.sh script"
+    },
+    {
+      "label": "fail()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L40",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_fail",
+      "community": 73,
+      "norm_label": "fail()"
+    },
+    {
+      "label": "provider_files()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L47",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_provider_files",
+      "community": 73,
+      "norm_label": "provider_files()"
+    },
+    {
+      "label": "prod_only()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L97",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_prod_only",
+      "community": 73,
+      "norm_label": "prod_only()"
+    },
+    {
+      "label": "skeleton()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L132",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_skeleton",
+      "community": 73,
+      "norm_label": "skeleton()"
+    },
+    {
+      "label": "fixture_meta()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L150",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_fixture_meta",
+      "community": 73,
+      "norm_label": "fixture_meta()"
+    },
+    {
+      "label": "self_test()",
+      "file_type": "code",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L152",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_check_redaction_self_test",
+      "community": 73,
+      "norm_label": "self_test()"
+    },
+    {
+      "label": "README.md",
+      "file_type": "document",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_readme",
+      "community": 27,
+      "norm_label": "readme.md"
+    },
+    {
+      "label": "Redaction-gate fixtures",
+      "file_type": "document",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_readme_redaction_gate_fixtures",
+      "community": 27,
+      "norm_label": "redaction-gate fixtures"
+    },
+    {
+      "label": "Adding a pair",
+      "file_type": "document",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L7",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_readme_adding_a_pair",
+      "community": 27,
+      "norm_label": "adding a pair"
+    },
+    {
+      "label": "One pair per ALTERNATIVE, not per rule",
+      "file_type": "document",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L24",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_readme_one_pair_per_alternative_not_per_rule",
+      "community": 27,
+      "norm_label": "one pair per alternative, not per rule"
+    },
+    {
+      "label": "Verifying a change",
+      "file_type": "document",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L30",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_readme_verifying_a_change",
+      "community": 27,
+      "norm_label": "verifying a change"
+    },
+    {
       "label": "body_bounds.rs",
       "file_type": "code",
       "source_file": "tests/body_bounds.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "tests_body_bounds",
       "community": 177,
-      "norm_label": "body_bounds.rs"
+      "norm_label": "body_bounds.rs",
+      "id": "tests_body_bounds"
     },
     {
       "label": "Framing",
@@ -19,9 +181,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L49",
       "_origin": "ast",
-      "id": "tests_body_bounds_framing",
       "community": 177,
-      "norm_label": "framing"
+      "norm_label": "framing",
+      "id": "tests_body_bounds_framing"
     },
     {
       "label": "serve_one_body()",
@@ -29,9 +191,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L65",
       "_origin": "ast",
-      "id": "tests_body_bounds_serve_one_body",
       "community": 177,
-      "norm_label": "serve_one_body()"
+      "norm_label": "serve_one_body()",
+      "id": "tests_body_bounds_serve_one_body"
     },
     {
       "label": "String",
@@ -39,9 +201,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_body_bounds_rs_string",
       "community": 177,
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "tests_body_bounds_rs_string"
     },
     {
       "label": "JoinHandle",
@@ -49,9 +211,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "joinhandle",
       "community": 239,
-      "norm_label": "joinhandle"
+      "norm_label": "joinhandle",
+      "id": "joinhandle"
     },
     {
       "label": "serve_framed()",
@@ -59,9 +221,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L69",
       "_origin": "ast",
-      "id": "tests_body_bounds_serve_framed",
       "community": 177,
-      "norm_label": "serve_framed()"
+      "norm_label": "serve_framed()",
+      "id": "tests_body_bounds_serve_framed"
     },
     {
       "label": "Vec",
@@ -69,9 +231,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "vec",
       "community": 9,
-      "norm_label": "vec"
+      "norm_label": "vec",
+      "id": "vec"
     },
     {
       "label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
@@ -79,9 +241,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L126",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
       "community": 177,
-      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()"
+      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
+      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
     },
     {
       "label": "a_success_body_at_the_cap_is_read_whole()",
@@ -89,9 +251,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L154",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
       "community": 177,
-      "norm_label": "a_success_body_at_the_cap_is_read_whole()"
+      "norm_label": "a_success_body_at_the_cap_is_read_whole()",
+      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
     },
     {
       "label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
@@ -99,9 +261,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L174",
       "_origin": "ast",
-      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
       "community": 177,
-      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()"
+      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
+      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
     },
     {
       "label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
@@ -109,9 +271,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L206",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
       "community": 177,
-      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()"
+      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
+      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
     },
     {
       "label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
@@ -119,9 +281,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L228",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
       "community": 177,
-      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()"
+      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
+      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
     },
     {
       "label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
@@ -129,9 +291,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L263",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
       "community": 177,
-      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()"
+      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
+      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
     },
     {
       "label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
@@ -139,9 +301,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L287",
       "_origin": "ast",
-      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
       "community": 177,
-      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()"
+      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
+      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
     },
     {
       "label": "mod.rs",
@@ -149,9 +311,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "tests_common_mod",
       "community": 251,
-      "norm_label": "mod.rs"
+      "norm_label": "mod.rs",
+      "id": "tests_common_mod"
     },
     {
       "label": "bind_loopback()",
@@ -159,9 +321,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L51",
       "_origin": "ast",
-      "id": "tests_common_mod_bind_loopback",
       "community": 251,
-      "norm_label": "bind_loopback()"
+      "norm_label": "bind_loopback()",
+      "id": "tests_common_mod_bind_loopback"
     },
     {
       "label": "TcpListener",
@@ -169,9 +331,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_common_mod_rs_tcplistener",
       "community": 251,
-      "norm_label": "tcplistener"
+      "norm_label": "tcplistener",
+      "id": "tests_common_mod_rs_tcplistener"
     },
     {
       "label": "String",
@@ -179,9 +341,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_common_mod_rs_string",
       "community": 251,
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "tests_common_mod_rs_string"
     },
     {
       "label": "accept_one()",
@@ -189,9 +351,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L63",
       "_origin": "ast",
-      "id": "tests_common_mod_accept_one",
       "community": 251,
-      "norm_label": "accept_one()"
+      "norm_label": "accept_one()",
+      "id": "tests_common_mod_accept_one"
     },
     {
       "label": "Option",
@@ -199,9 +361,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_common_mod_rs_option",
       "community": 251,
-      "norm_label": "option"
+      "norm_label": "option",
+      "id": "tests_common_mod_rs_option"
     },
     {
       "label": "TcpStream",
@@ -209,9 +371,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tcpstream",
       "community": 251,
-      "norm_label": "tcpstream"
+      "norm_label": "tcpstream",
+      "id": "tcpstream"
     },
     {
       "label": "hang_up()",
@@ -219,9 +381,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L91",
       "_origin": "ast",
-      "id": "tests_common_mod_hang_up",
       "community": 251,
-      "norm_label": "hang_up()"
+      "norm_label": "hang_up()",
+      "id": "tests_common_mod_hang_up"
     },
     {
       "label": "upstream_reqwest_contract.rs",
@@ -229,9 +391,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract",
       "community": 238,
-      "norm_label": "upstream_reqwest_contract.rs"
+      "norm_label": "upstream_reqwest_contract.rs",
+      "id": "tests_upstream_reqwest_contract"
     },
     {
       "label": "redirect_to()",
@@ -239,9 +401,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L49",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_redirect_to",
       "community": 238,
-      "norm_label": "redirect_to()"
+      "norm_label": "redirect_to()",
+      "id": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "label": "String",
@@ -249,9 +411,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_rs_string",
       "community": 238,
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "tests_upstream_reqwest_contract_rs_string"
     },
     {
       "label": "serve_once()",
@@ -259,9 +421,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L63",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_serve_once",
       "community": 238,
-      "norm_label": "serve_once()"
+      "norm_label": "serve_once()",
+      "id": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "label": "TcpListener",
@@ -269,9 +431,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_rs_tcplistener",
       "community": 238,
-      "norm_label": "tcplistener"
+      "norm_label": "tcplistener",
+      "id": "tests_upstream_reqwest_contract_rs_tcplistener"
     },
     {
       "label": "Option",
@@ -279,9 +441,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_rs_option",
       "community": 238,
-      "norm_label": "option"
+      "norm_label": "option",
+      "id": "tests_upstream_reqwest_contract_rs_option"
     },
     {
       "label": "authorization_is_stripped_across_origins()",
@@ -289,9 +451,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L71",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
       "community": 238,
-      "norm_label": "authorization_is_stripped_across_origins()"
+      "norm_label": "authorization_is_stripped_across_origins()",
+      "id": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins"
     },
     {
       "label": "authorization_survives_a_same_origin_redirect()",
@@ -299,9 +461,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L98",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
       "community": 238,
-      "norm_label": "authorization_survives_a_same_origin_redirect()"
+      "norm_label": "authorization_survives_a_same_origin_redirect()",
+      "id": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect"
     },
     {
       "label": "the_default_client_does_leak_a_query_secret_through_referer()",
@@ -309,9 +471,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L125",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
       "community": 238,
-      "norm_label": "the_default_client_does_leak_a_query_secret_through_referer()"
+      "norm_label": "the_default_client_does_leak_a_query_secret_through_referer()",
+      "id": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer"
     },
     {
       "label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()",
@@ -319,9 +481,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L166",
       "_origin": "ast",
-      "id": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
       "community": 238,
-      "norm_label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()"
+      "norm_label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()",
+      "id": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing"
     },
     {
       "label": "check_calibration.sh",
@@ -364,118 +526,6 @@
       "community": 139,
       "norm_label": "fail()",
       "id": "ci_check_calibration_fail"
-    },
-    {
-      "label": "check_redaction.sh",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "file"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "check_redaction.sh",
-      "id": "ci_check_redaction"
-    },
-    {
-      "label": "check_redaction.sh script",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_entrypoint"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "check_redaction.sh script",
-      "id": "ci_check_redaction_sh__entry"
-    },
-    {
-      "label": "fail()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L40",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "fail()",
-      "id": "ci_check_redaction_fail"
-    },
-    {
-      "label": "provider_files()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L47",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "provider_files()",
-      "id": "ci_check_redaction_provider_files"
-    },
-    {
-      "label": "prod_only()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L90",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "prod_only()",
-      "id": "ci_check_redaction_prod_only"
-    },
-    {
-      "label": "skeleton()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L125",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "skeleton()",
-      "id": "ci_check_redaction_skeleton"
-    },
-    {
-      "label": "fixture_meta()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L143",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "fixture_meta()",
-      "id": "ci_check_redaction_fixture_meta"
-    },
-    {
-      "label": "self_test()",
-      "file_type": "code",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L145",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 73,
-      "norm_label": "self_test()",
-      "id": "ci_check_redaction_self_test"
     },
     {
       "label": "pattern0strlit_bad.rs",
@@ -973,7 +1023,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 182,
+      "community": 116,
       "norm_label": "debug",
       "id": "debug"
     },
@@ -1183,7 +1233,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 9,
+      "community": 116,
       "norm_label": "instant",
       "id": "instant"
     },
@@ -1703,7 +1753,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "provider_url.rs",
       "id": "src_providers_provider_url"
     },
@@ -1713,7 +1763,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L55",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "providerurl",
       "id": "src_providers_provider_url_providerurl"
     },
@@ -1723,7 +1773,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "url",
       "id": "url"
     },
@@ -1733,7 +1783,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L70",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": ".parse()",
       "id": "src_providers_provider_url_providerurl_parse"
     },
@@ -1743,7 +1793,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 183,
+      "community": 6,
       "norm_label": "result",
       "id": "result"
     },
@@ -1753,7 +1803,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "self",
       "id": "self"
     },
@@ -1763,7 +1813,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 183,
+      "community": 6,
       "norm_label": "providererror",
       "id": "providererror"
     },
@@ -1773,7 +1823,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L92",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": ".redacted()",
       "id": "src_providers_provider_url_providerurl_redacted"
     },
@@ -1793,7 +1843,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L122",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": ".join_path()",
       "id": "src_providers_provider_url_providerurl_join_path"
     },
@@ -1803,7 +1853,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L155",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": ".with_segments()",
       "id": "src_providers_provider_url_providerurl_with_segments"
     },
@@ -1813,7 +1863,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L173",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": ".ends_with_segment()",
       "id": "src_providers_provider_url_providerurl_ends_with_segment"
     },
@@ -1823,7 +1873,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L188",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": ".parent()",
       "id": "src_providers_provider_url_providerurl_parent"
     },
@@ -1833,7 +1883,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L198",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": ".request()",
       "id": "src_providers_provider_url_providerurl_request"
     },
@@ -1843,7 +1893,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "client",
       "id": "client"
     },
@@ -1853,7 +1903,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "method",
       "id": "method"
     },
@@ -1863,7 +1913,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L222",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "strip_trailing_slash()",
       "id": "src_providers_provider_url_strip_trailing_slash"
     },
@@ -1903,7 +1953,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L302",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "mark_truncated()",
       "id": "src_providers_provider_url_mark_truncated"
     },
@@ -1913,7 +1963,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L310",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "truncate_diagnostic()",
       "id": "src_providers_provider_url_truncate_diagnostic"
     },
@@ -1923,7 +1973,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L325",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "providerrequest",
       "id": "src_providers_provider_url_providerrequest"
     },
@@ -1933,7 +1983,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "requestbuilder",
       "id": "requestbuilder"
     },
@@ -1963,7 +2013,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L338",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": ".json()",
       "id": "src_providers_provider_url_providerrequest_json"
     },
@@ -1973,7 +2023,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "t",
       "id": "t"
     },
@@ -1983,7 +2033,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L344",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": ".header()",
       "id": "src_providers_provider_url_providerrequest_header"
     },
@@ -1993,7 +2043,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L354",
       "_origin": "ast",
-      "community": 183,
+      "community": 6,
       "norm_label": ".send()",
       "id": "src_providers_provider_url_providerrequest_send"
     },
@@ -2063,7 +2113,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L516",
       "_origin": "ast",
-      "community": 183,
+      "community": 6,
       "norm_label": ".fmt()",
       "id": "src_providers_provider_url_providerurl_fmt"
     },
@@ -2073,7 +2123,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "display",
       "id": "display"
     },
@@ -2083,7 +2133,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L534",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "redacted_hides_userinfo_and_keeps_host()",
       "id": "src_providers_provider_url_redacted_hides_userinfo_and_keeps_host"
     },
@@ -2093,7 +2143,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L545",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "redacted_hides_all_query_values_and_keeps_names()",
       "id": "src_providers_provider_url_redacted_hides_all_query_values_and_keeps_names"
     },
@@ -2103,7 +2153,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L559",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "redacted_placeholder_is_url_safe_and_not_percent_encoded()",
       "id": "src_providers_provider_url_redacted_placeholder_is_url_safe_and_not_percent_encoded"
     },
@@ -2113,7 +2163,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L573",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "debug_and_display_are_both_redacted()",
       "id": "src_providers_provider_url_debug_and_display_are_both_redacted"
     },
@@ -2123,7 +2173,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L580",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "parse_rejects_non_http_scheme_without_echoing_the_input()",
       "id": "src_providers_provider_url_parse_rejects_non_http_scheme_without_echoing_the_input"
     },
@@ -2133,7 +2183,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L594",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "parse_error_never_echoes_the_raw_input()",
       "id": "src_providers_provider_url_parse_error_never_echoes_the_raw_input"
     },
@@ -2143,7 +2193,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L605",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "ends_with_segment_is_case_sensitive_and_ignores_a_trailing_slash()",
       "id": "src_providers_provider_url_ends_with_segment_is_case_sensitive_and_ignores_a_trailing_slash"
     },
@@ -2153,7 +2203,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L627",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "parent_climbs_one_level_and_stops_at_the_root()",
       "id": "src_providers_provider_url_parent_climbs_one_level_and_stops_at_the_root"
     },
@@ -2163,7 +2213,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L647",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "parent_keeps_the_credentials_the_query_and_the_fragment()",
       "id": "src_providers_provider_url_parent_keeps_the_credentials_the_query_and_the_fragment"
     },
@@ -2173,7 +2223,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L660",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "push_within_cap_admits_exactly_up_to_the_cap()",
       "id": "src_providers_provider_url_push_within_cap_admits_exactly_up_to_the_cap"
     },
@@ -2183,7 +2233,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L675",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "push_within_cap_rejects_one_byte_over_and_leaves_the_buffer_untouched()",
       "id": "src_providers_provider_url_push_within_cap_rejects_one_byte_over_and_leaves_the_buffer_untouched"
     },
@@ -2193,7 +2243,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L687",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "push_within_cap_rejects_a_single_oversized_chunk_from_empty()",
       "id": "src_providers_provider_url_push_within_cap_rejects_a_single_oversized_chunk_from_empty"
     },
@@ -2203,7 +2253,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L695",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "push_within_cap_admits_a_chunk_when_the_cap_is_unbounded()",
       "id": "src_providers_provider_url_push_within_cap_admits_a_chunk_when_the_cap_is_unbounded"
     },
@@ -2213,7 +2263,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L711",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "a_partial_read_stays_within_the_cap_including_its_marker()",
       "id": "src_providers_provider_url_a_partial_read_stays_within_the_cap_including_its_marker"
     },
@@ -2223,7 +2273,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L725",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "marking_a_short_text_does_not_pad_it()",
       "id": "src_providers_provider_url_marking_a_short_text_does_not_pad_it"
     },
@@ -2233,7 +2283,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L731",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "marking_never_splits_a_multibyte_character()",
       "id": "src_providers_provider_url_marking_never_splits_a_multibyte_character"
     },
@@ -2243,7 +2293,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L741",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "parse_canonicalizes_the_trailing_slash()",
       "id": "src_providers_provider_url_parse_canonicalizes_the_trailing_slash"
     },
@@ -2253,7 +2303,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L758",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "canonicalizing_does_not_touch_the_query_or_the_fragment()",
       "id": "src_providers_provider_url_canonicalizing_does_not_touch_the_query_or_the_fragment"
     },
@@ -2263,7 +2313,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L767",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "parse_normalizes_dot_segments()",
       "id": "src_providers_provider_url_parse_normalizes_dot_segments"
     },
@@ -2273,7 +2323,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L775",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "with_segments_keeps_the_real_credentials()",
       "id": "src_providers_provider_url_with_segments_keeps_the_real_credentials"
     },
@@ -2283,7 +2333,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L789",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "with_segments_produces_one_separator_not_two()",
       "id": "src_providers_provider_url_with_segments_produces_one_separator_not_two"
     },
@@ -2293,7 +2343,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L806",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "with_segments_keeps_the_query_and_the_fragment()",
       "id": "src_providers_provider_url_with_segments_keeps_the_query_and_the_fragment"
     },
@@ -2303,7 +2353,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L817",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "join_path_preserves_query_and_appends_segments()",
       "id": "src_providers_provider_url_join_path_preserves_query_and_appends_segments"
     },
@@ -2313,7 +2363,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L825",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "join_path_is_idempotent_over_trailing_slash()",
       "id": "src_providers_provider_url_join_path_is_idempotent_over_trailing_slash"
     },
@@ -2323,7 +2373,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L841",
       "_origin": "ast",
-      "community": 27,
+      "community": 6,
       "norm_label": "join_path_preserves_fragment()",
       "id": "src_providers_provider_url_join_path_preserves_fragment"
     },
@@ -2333,7 +2383,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L847",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "body_cap_is_bounded_below_and_above()",
       "id": "src_providers_provider_url_body_cap_is_bounded_below_and_above"
     },
@@ -2343,7 +2393,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L866",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "diagnostic_truncation_is_announced_and_utf8_safe()",
       "id": "src_providers_provider_url_diagnostic_truncation_is_announced_and_utf8_safe"
     },
@@ -2353,7 +2403,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L878",
       "_origin": "ast",
-      "community": 104,
+      "community": 6,
       "norm_label": "diagnostic_under_the_cap_is_untouched()",
       "id": "src_providers_provider_url_diagnostic_under_the_cap_is_untouched"
     },
@@ -2363,7 +2413,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L884",
       "_origin": "ast",
-      "community": 182,
+      "community": 6,
       "norm_label": "send_composes_a_redacted_error_on_connection_failure()",
       "id": "src_providers_provider_url_send_composes_a_redacted_error_on_connection_failure"
     },
@@ -2393,7 +2443,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L18",
       "_origin": "ast",
-      "community": 70,
+      "community": 33,
       "norm_label": "completionconfig",
       "id": "src_provider_completionconfig"
     },
@@ -2403,7 +2453,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 44,
+      "community": 33,
       "norm_label": "default",
       "id": "default"
     },
@@ -2413,7 +2463,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L26",
       "_origin": "ast",
-      "community": 70,
+      "community": 33,
       "norm_label": ".default()",
       "id": "src_provider_completionconfig_default"
     },
@@ -2423,7 +2473,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 70,
+      "community": 24,
       "norm_label": "self",
       "id": "src_provider_rs_self"
     },
@@ -2433,7 +2483,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L79",
       "_origin": "ast",
-      "community": 44,
+      "community": 33,
       "norm_label": "llmprovider",
       "id": "src_provider_llmprovider"
     },
@@ -2443,7 +2493,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 44,
+      "community": 33,
       "norm_label": "send",
       "id": "send"
     },
@@ -2453,7 +2503,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 44,
+      "community": 33,
       "norm_label": "sync",
       "id": "sync"
     },
@@ -2543,7 +2593,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 44,
+      "community": 70,
       "norm_label": "retryclass",
       "id": "retryclass"
     },
@@ -3213,7 +3263,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1432",
       "_origin": "ast",
-      "community": 44,
+      "community": 70,
       "norm_label": "mockprovider",
       "id": "src_provider_mockprovider"
     },
@@ -3233,7 +3283,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 44,
+      "community": 70,
       "norm_label": "atomicu32",
       "id": "atomicu32"
     },
@@ -3263,7 +3313,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1465",
       "_origin": "ast",
-      "community": 44,
+      "community": 70,
       "norm_label": ".call_count()",
       "id": "src_provider_mockprovider_call_count"
     },
@@ -6923,7 +6973,7 @@
       "source_file": "ci/fixtures/redaction/pattern2builder_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2builder_good_x"
     },
@@ -6933,7 +6983,7 @@
       "source_file": "ci/fixtures/redaction/pattern2builder_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": ".build()",
       "id": "ci_fixtures_redaction_pattern2builder_good_x_build"
     },
@@ -7033,7 +7083,7 @@
       "source_file": "ci/fixtures/redaction/pattern2request_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2request_good_x"
     },
@@ -7043,7 +7093,7 @@
       "source_file": "ci/fixtures/redaction/pattern2request_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 56,
+      "community": 6,
       "norm_label": ".request()",
       "id": "ci_fixtures_redaction_pattern2request_good_x_request"
     },
@@ -7503,7 +7553,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L52",
       "_origin": "ast",
-      "community": 0,
+      "community": 23,
       "norm_label": "magiconfig",
       "id": "src_orchestrator_magiconfig"
     },
@@ -7523,7 +7573,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L161",
       "_origin": "ast",
-      "community": 0,
+      "community": 23,
       "norm_label": "exceeds_warn_threshold()",
       "id": "src_orchestrator_exceeds_warn_threshold"
     },
@@ -7533,7 +7583,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L176",
       "_origin": "ast",
-      "community": 0,
+      "community": 23,
       "norm_label": "warn_threshold_is_unreachable()",
       "id": "src_orchestrator_warn_threshold_is_unreachable"
     },
@@ -7543,7 +7593,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 0,
+      "community": 23,
       "norm_label": "default",
       "id": "src_orchestrator_rs_default"
     },
@@ -7603,7 +7653,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": "agentname",
       "id": "src_orchestrator_rs_agentname"
     },
@@ -7633,7 +7683,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": "string",
       "id": "src_orchestrator_rs_string"
     },
@@ -7733,7 +7783,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 23,
+      "community": 25,
       "norm_label": "providerprobe",
       "id": "src_orchestrator_rs_providerprobe"
     },
@@ -7763,7 +7813,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L281",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": ".with_agent()",
       "id": "src_orchestrator_magibuilder_with_agent"
     },
@@ -7913,7 +7963,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L519",
       "_origin": "ast",
-      "community": 23,
+      "community": 0,
       "norm_label": ".with_input_warn_tokens()",
       "id": "src_orchestrator_magibuilder_with_input_warn_tokens"
     },
@@ -8043,7 +8093,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L742",
       "_origin": "ast",
-      "community": 25,
+      "community": 23,
       "norm_label": "magi",
       "id": "src_orchestrator_magi"
     },
@@ -8053,7 +8103,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 23,
       "norm_label": "agentfactory",
       "id": "agentfactory"
     },
@@ -8073,7 +8123,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 23,
       "norm_label": "consensusengine",
       "id": "consensusengine"
     },
@@ -8083,7 +8133,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 23,
       "norm_label": "reportformatter",
       "id": "reportformatter"
     },
@@ -8093,7 +8143,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": "mutex",
       "id": "src_orchestrator_rs_mutex"
     },
@@ -8123,7 +8173,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L786",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": ".builder()",
       "id": "src_orchestrator_magi_builder"
     },
@@ -8203,7 +8253,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1238",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": ".overrides()",
       "id": "src_orchestrator_magi_overrides"
     },
@@ -8223,7 +8273,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 0,
       "norm_label": "agentoutput",
       "id": "agentoutput"
     },
@@ -8293,7 +8343,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1463",
       "_origin": "ast",
-      "community": 25,
+      "community": 158,
       "norm_label": "modeloutcome",
       "id": "src_orchestrator_modeloutcome"
     },
@@ -8303,7 +8353,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 158,
       "norm_label": "rotationkind",
       "id": "rotationkind"
     },
@@ -8313,7 +8363,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 158,
       "norm_label": "externalerrorkind",
       "id": "externalerrorkind"
     },
@@ -8433,7 +8483,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1894",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": ".new()",
       "id": "src_orchestrator_parsefailure_new"
     },
@@ -8463,7 +8513,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1984",
       "_origin": "ast",
-      "community": 25,
+      "community": 0,
       "norm_label": "parse_validate_and_check()",
       "id": "src_orchestrator_parse_validate_and_check"
     },
@@ -8653,7 +8703,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2301",
       "_origin": "ast",
-      "community": 158,
+      "community": 4,
       "norm_label": ".mixed()",
       "id": "src_orchestrator_mockprovider_mixed"
     },
@@ -8673,7 +8723,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2317",
       "_origin": "ast",
-      "community": 25,
+      "community": 158,
       "norm_label": ".complete()",
       "id": "src_orchestrator_mockprovider_complete"
     },
@@ -8723,7 +8773,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2381",
       "_origin": "ast",
-      "community": 25,
+      "community": 0,
       "norm_label": ".lines()",
       "id": "src_orchestrator_eventlog_lines"
     },
@@ -8733,7 +8783,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2391",
       "_origin": "ast",
-      "community": 134,
+      "community": 56,
       "norm_label": "fieldwriter",
       "id": "src_orchestrator_fieldwriter"
     },
@@ -8743,7 +8793,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 134,
+      "community": 56,
       "norm_label": "visit",
       "id": "visit"
     },
@@ -8753,7 +8803,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2394",
       "_origin": "ast",
-      "community": 134,
+      "community": 56,
       "norm_label": ".record_debug()",
       "id": "src_orchestrator_fieldwriter_record_debug"
     },
@@ -8763,7 +8813,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 134,
+      "community": 56,
       "norm_label": "field",
       "id": "field"
     },
@@ -8773,7 +8823,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 134,
+      "community": 56,
       "norm_label": "debug",
       "id": "src_orchestrator_rs_debug"
     },
@@ -8913,7 +8963,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2428",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "trio()",
       "id": "src_orchestrator_trio"
     },
@@ -8933,7 +8983,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2478",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "staying_under_the_threshold_announces_nothing()",
       "id": "src_orchestrator_staying_under_the_threshold_announces_nothing"
     },
@@ -8943,7 +8993,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2502",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_same_primary_lineage_warns_not_errors()",
       "id": "src_orchestrator_test_same_primary_lineage_warns_not_errors"
     },
@@ -8953,7 +9003,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2524",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_empty_primary_lineage_fails_build()",
       "id": "src_orchestrator_test_empty_primary_lineage_fails_build"
     },
@@ -8963,7 +9013,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2540",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_empty_pool_lineage_fails_build()",
       "id": "src_orchestrator_test_empty_pool_lineage_fails_build"
     },
@@ -9083,7 +9133,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2902",
       "_origin": "ast",
-      "community": 158,
+      "community": 4,
       "norm_label": "test_analyze_one_agent_timeout_degrades_gracefully()",
       "id": "src_orchestrator_test_analyze_one_agent_timeout_degrades_gracefully"
     },
@@ -9103,7 +9153,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2954",
       "_origin": "ast",
-      "community": 158,
+      "community": 4,
       "norm_label": "test_analyze_two_agents_fail_returns_insufficient_agents()",
       "id": "src_orchestrator_test_analyze_two_agents_fail_returns_insufficient_agents"
     },
@@ -9113,7 +9163,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2985",
       "_origin": "ast",
-      "community": 158,
+      "community": 4,
       "norm_label": "test_analyze_all_agents_fail_returns_insufficient_agents()",
       "id": "src_orchestrator_test_analyze_all_agents_fail_returns_insufficient_agents"
     },
@@ -9213,7 +9263,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3284",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "test_complexity_gate_default_no_gate_preserves_v04_behavior()",
       "id": "src_orchestrator_test_complexity_gate_default_no_gate_preserves_v04_behavior"
     },
@@ -9253,7 +9303,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3424",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "test_analyze_populates_retried_agents_on_recovery()",
       "id": "src_orchestrator_test_analyze_populates_retried_agents_on_recovery"
     },
@@ -9263,7 +9313,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3462",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "test_analyze_retry_also_fails_lands_in_both_sets()",
       "id": "src_orchestrator_test_analyze_retry_also_fails_lands_in_both_sets"
     },
@@ -9273,7 +9323,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3494",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "test_analyze_no_retry_on_timeout_keeps_retried_empty()",
       "id": "src_orchestrator_test_analyze_no_retry_on_timeout_keeps_retried_empty"
     },
@@ -9553,7 +9603,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4160",
       "_origin": "ast",
-      "community": 25,
+      "community": 0,
       "norm_label": "test_wrong_case_agent_name_fails_before_the_identity_check()",
       "id": "src_orchestrator_test_wrong_case_agent_name_fails_before_the_identity_check"
     },
@@ -9593,7 +9643,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4227",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": "capturingmockprovider",
       "id": "src_orchestrator_capturingmockprovider"
     },
@@ -9603,7 +9653,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": "hashmap",
       "id": "src_orchestrator_rs_hashmap"
     },
@@ -9613,7 +9663,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4238",
       "_origin": "ast",
-      "community": 23,
+      "community": 37,
       "norm_label": ".for_default_prompts()",
       "id": "src_orchestrator_capturingmockprovider_for_default_prompts"
     },
@@ -9623,7 +9673,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4261",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": ".with_routing()",
       "id": "src_orchestrator_capturingmockprovider_with_routing"
     },
@@ -9633,7 +9683,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4291",
       "_origin": "ast",
-      "community": 25,
+      "community": 37,
       "norm_label": ".complete()",
       "id": "src_orchestrator_capturingmockprovider_complete"
     },
@@ -9663,7 +9713,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4330",
       "_origin": "ast",
-      "community": 37,
+      "community": 0,
       "norm_label": "test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call()",
       "id": "src_orchestrator_test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call"
     },
@@ -9763,7 +9813,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4540",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_with_rng_source_injects_nonce_observable_in_user_prompt()",
       "id": "src_orchestrator_test_with_rng_source_injects_nonce_observable_in_user_prompt"
     },
@@ -9793,7 +9843,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4638",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_analyze_nonce_collision_returns_invalid_input()",
       "id": "src_orchestrator_test_analyze_nonce_collision_returns_invalid_input"
     },
@@ -9813,7 +9863,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4723",
       "_origin": "ast",
-      "community": 23,
+      "community": 37,
       "norm_label": "test_analyze_respects_prompts_dir_loaded_files()",
       "id": "src_orchestrator_test_analyze_respects_prompts_dir_loaded_files"
     },
@@ -9823,7 +9873,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4786",
       "_origin": "ast",
-      "community": 23,
+      "community": 4,
       "norm_label": "test_analyze_shares_same_nonce_across_all_three_agents()",
       "id": "src_orchestrator_test_analyze_shares_same_nonce_across_all_three_agents"
     },
@@ -10831,7 +10881,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "external_provider.rs",
       "id": "examples_external_provider"
     },
@@ -10841,7 +10891,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L25",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "mybackend",
       "id": "examples_external_provider_mybackend"
     },
@@ -10851,7 +10901,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L29",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": ".complete()",
       "id": "examples_external_provider_mybackend_complete"
     },
@@ -10861,7 +10911,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "result",
       "id": "examples_external_provider_rs_result"
     },
@@ -10871,7 +10921,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "string",
       "id": "examples_external_provider_rs_string"
     },
@@ -10881,7 +10931,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "providererror",
       "id": "examples_external_provider_rs_providererror"
     },
@@ -10891,7 +10941,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L48",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": ".name()",
       "id": "examples_external_provider_mybackend_name"
     },
@@ -10901,7 +10951,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L52",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": ".model()",
       "id": "examples_external_provider_mybackend_model"
     },
@@ -10911,7 +10961,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L63",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "describe()",
       "id": "examples_external_provider_describe"
     },
@@ -10921,7 +10971,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L72",
       "_origin": "ast",
-      "community": 237,
+      "community": 33,
       "norm_label": "main()",
       "id": "examples_external_provider_main"
     },
@@ -19701,7 +19751,7 @@
       "source_file": "tests/timeout_integration.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 239,
+      "community": 192,
       "norm_label": "timeout_integration.rs",
       "id": "tests_timeout_integration"
     },
@@ -19711,7 +19761,7 @@
       "source_file": "tests/timeout_integration.rs",
       "source_location": "L14",
       "_origin": "ast",
-      "community": 239,
+      "community": 192,
       "norm_label": "test_hanging_body_produces_timeout_error()",
       "id": "tests_timeout_integration_test_hanging_body_produces_timeout_error"
     },
@@ -21108,15 +21158,169 @@
   ],
   "links": [
     {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L40",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_fail",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L150",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_fixture_meta",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L97",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_prod_only",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L47",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_provider_files",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L152",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_self_test",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_sh__entry",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L132",
+      "weight": 1.0,
+      "source": "ci_check_redaction",
+      "target": "ci_check_redaction_skeleton",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L226",
+      "weight": 1.0,
+      "context": "call",
+      "source": "ci_check_redaction_sh__entry",
+      "target": "ci_check_redaction_fail",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L225",
+      "weight": 1.0,
+      "context": "call",
+      "source": "ci_check_redaction_sh__entry",
+      "target": "ci_check_redaction_prod_only",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L217",
+      "weight": 1.0,
+      "context": "call",
+      "source": "ci_check_redaction_sh__entry",
+      "target": "ci_check_redaction_self_test",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_redaction.sh",
+      "source_location": "L178",
+      "weight": 1.0,
+      "context": "call",
+      "source": "ci_check_redaction_self_test",
+      "target": "ci_check_redaction_skeleton",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_readme",
+      "target": "ci_fixtures_redaction_readme_redaction_gate_fixtures",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L7",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_readme_redaction_gate_fixtures",
+      "target": "ci_fixtures_redaction_readme_adding_a_pair",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L24",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_readme_redaction_gate_fixtures",
+      "target": "ci_fixtures_redaction_readme_one_pair_per_alternative_not_per_rule",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/README.md",
+      "source_location": "L30",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_readme_redaction_gate_fixtures",
+      "target": "ci_fixtures_redaction_readme_verifying_a_change",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "imports_from",
       "confidence": "EXTRACTED",
       "source_file": "tests/body_bounds.rs",
       "source_location": "L31",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "src_prelude",
-      "confidence_score": 1.0
+      "target": "src_prelude"
     },
     {
       "relation": "imports_from",
@@ -21125,9 +21329,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tcplistener",
-      "confidence_score": 1.0
+      "target": "tcplistener"
     },
     {
       "relation": "contains",
@@ -21135,9 +21339,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L228",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
     },
     {
       "relation": "contains",
@@ -21145,9 +21349,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L287",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
     },
     {
       "relation": "contains",
@@ -21155,9 +21359,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L206",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
     },
     {
       "relation": "contains",
@@ -21165,9 +21369,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L154",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
     },
     {
       "relation": "contains",
@@ -21175,9 +21379,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L126",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
     },
     {
       "relation": "contains",
@@ -21185,9 +21389,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L263",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
     },
     {
       "relation": "contains",
@@ -21195,9 +21399,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L174",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
     },
     {
       "relation": "contains",
@@ -21205,9 +21409,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L49",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_framing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_framing"
     },
     {
       "relation": "contains",
@@ -21215,9 +21419,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L69",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "contains",
@@ -21225,9 +21429,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L65",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "references",
@@ -21236,9 +21440,9 @@
       "source_location": "L69",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_framing",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_framing"
     },
     {
       "relation": "calls",
@@ -21247,9 +21451,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L213",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -21258,9 +21462,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L157",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -21269,9 +21473,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L130",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "calls",
@@ -21280,9 +21484,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L178",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
-      "target": "tests_body_bounds_serve_one_body",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_one_body"
     },
     {
       "relation": "references",
@@ -21291,9 +21495,9 @@
       "source_location": "L65",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "joinhandle",
-      "confidence_score": 1.0
+      "target": "joinhandle"
     },
     {
       "relation": "references",
@@ -21302,9 +21506,9 @@
       "source_location": "L65",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "tests_body_bounds_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_rs_string"
     },
     {
       "relation": "calls",
@@ -21313,9 +21517,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L66",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_one_body",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "references",
@@ -21324,9 +21528,9 @@
       "source_location": "L69",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_rs_string"
     },
     {
       "relation": "references",
@@ -21335,9 +21539,9 @@
       "source_location": "L69",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "joinhandle",
-      "confidence_score": 1.0
+      "target": "joinhandle"
     },
     {
       "relation": "imports_from",
@@ -21379,9 +21583,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L249",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "calls",
@@ -21390,9 +21594,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L295",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "calls",
@@ -21401,9 +21605,9 @@
       "source_file": "tests/body_bounds.rs",
       "source_location": "L268",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
-      "target": "tests_body_bounds_serve_framed",
-      "confidence_score": 1.0
+      "target": "tests_body_bounds_serve_framed"
     },
     {
       "relation": "calls",
@@ -21434,9 +21638,9 @@
       "source_location": "L69",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_body_bounds_serve_framed",
-      "target": "vec",
-      "confidence_score": 1.0
+      "target": "vec"
     },
     {
       "relation": "references",
@@ -21477,9 +21681,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_accept_one",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_accept_one"
     },
     {
       "relation": "contains",
@@ -21487,9 +21691,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L51",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_bind_loopback",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_bind_loopback"
     },
     {
       "relation": "contains",
@@ -21497,9 +21701,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L91",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_hang_up",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_hang_up"
     },
     {
       "relation": "imports_from",
@@ -21508,9 +21712,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_rs_tcplistener",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_tcplistener"
     },
     {
       "relation": "references",
@@ -21519,9 +21723,9 @@
       "source_location": "L51",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_bind_loopback",
-      "target": "tests_common_mod_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_string"
     },
     {
       "relation": "references",
@@ -21530,9 +21734,9 @@
       "source_location": "L51",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_bind_loopback",
-      "target": "tests_common_mod_rs_tcplistener",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_tcplistener"
     },
     {
       "relation": "references",
@@ -21541,9 +21745,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tests_common_mod_rs_tcplistener",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_tcplistener"
     },
     {
       "relation": "references",
@@ -21552,9 +21756,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "generic_arg",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tests_common_mod_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_string"
     },
     {
       "relation": "references",
@@ -21563,9 +21767,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "generic_arg",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tcpstream",
-      "confidence_score": 1.0
+      "target": "tcpstream"
     },
     {
       "relation": "references",
@@ -21574,9 +21778,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tests_common_mod_rs_option",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_rs_option"
     },
     {
       "relation": "calls",
@@ -21596,9 +21800,9 @@
       "source_location": "L91",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_hang_up",
-      "target": "tcpstream",
-      "confidence_score": 1.0
+      "target": "tcpstream"
     },
     {
       "relation": "calls",
@@ -21617,9 +21821,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L166",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing"
     },
     {
       "relation": "contains",
@@ -21627,9 +21831,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L71",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins"
     },
     {
       "relation": "contains",
@@ -21637,9 +21841,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L98",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect"
     },
     {
       "relation": "contains",
@@ -21647,9 +21851,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L49",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_redirect_to",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "relation": "imports_from",
@@ -21658,9 +21862,9 @@
       "source_location": "L32",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_rs_tcplistener",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_rs_tcplistener"
     },
     {
       "relation": "contains",
@@ -21668,9 +21872,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_serve_once",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "relation": "contains",
@@ -21678,9 +21882,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L125",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer"
     },
     {
       "relation": "calls",
@@ -21689,9 +21893,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L178",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
-      "target": "tests_upstream_reqwest_contract_redirect_to",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "relation": "calls",
@@ -21700,9 +21904,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L81",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
-      "target": "tests_upstream_reqwest_contract_redirect_to",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "relation": "calls",
@@ -21711,9 +21915,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L108",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
-      "target": "tests_upstream_reqwest_contract_redirect_to",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "relation": "references",
@@ -21722,9 +21926,9 @@
       "source_location": "L49",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_redirect_to",
-      "target": "tests_upstream_reqwest_contract_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_rs_string"
     },
     {
       "relation": "calls",
@@ -21733,9 +21937,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
-      "target": "tests_upstream_reqwest_contract_redirect_to",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_redirect_to"
     },
     {
       "relation": "references",
@@ -21744,9 +21948,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "generic_arg",
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tests_upstream_reqwest_contract_rs_string",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_rs_string"
     },
     {
       "relation": "calls",
@@ -21755,9 +21959,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L178",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
-      "target": "tests_upstream_reqwest_contract_serve_once",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "relation": "calls",
@@ -21766,9 +21970,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L81",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
-      "target": "tests_upstream_reqwest_contract_serve_once",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "relation": "calls",
@@ -21777,9 +21981,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L108",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
-      "target": "tests_upstream_reqwest_contract_serve_once",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "relation": "references",
@@ -21788,9 +21992,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tests_upstream_reqwest_contract_rs_option",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_rs_option"
     },
     {
       "relation": "references",
@@ -21799,9 +22003,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tests_upstream_reqwest_contract_rs_tcplistener",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_rs_tcplistener"
     },
     {
       "relation": "calls",
@@ -21810,9 +22014,9 @@
       "source_file": "tests/upstream_reqwest_contract.rs",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
-      "target": "tests_upstream_reqwest_contract_serve_once",
-      "confidence_score": 1.0
+      "target": "tests_upstream_reqwest_contract_serve_once"
     },
     {
       "relation": "defines",
@@ -21844,120 +22048,6 @@
       "confidence_score": 1.0,
       "source": "ci_check_calibration_sh__entry",
       "target": "ci_check_calibration_fail"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L40",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_fail"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L143",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_fixture_meta"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L90",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_prod_only"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L47",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_provider_files"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L145",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_self_test"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L1",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_sh__entry"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L125",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction",
-      "target": "ci_check_redaction_skeleton"
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L219",
-      "weight": 1.0,
-      "context": "call",
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_fail"
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L218",
-      "weight": 1.0,
-      "context": "call",
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_prod_only"
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L210",
-      "weight": 1.0,
-      "context": "call",
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_self_test"
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_redaction.sh",
-      "source_location": "L171",
-      "weight": 1.0,
-      "context": "call",
-      "confidence_score": 1.0,
-      "source": "ci_check_redaction_self_test",
-      "target": "ci_check_redaction_skeleton"
     },
     {
       "relation": "contains",
@@ -69956,5 +70046,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "0318d8af1edfa0eff1302c594b9834fd9bdd95d4"
+  "built_at_commit": "928c5cd6eacdb483ca9d28b9513337a85e501901"
 }
