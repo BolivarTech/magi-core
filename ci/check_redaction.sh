@@ -42,6 +42,7 @@ fail() { echo "check_redaction: $1" >&2; exit 1; }
 # A missing tree is a FAILURE, not a clean run. Every provider-scoped rule iterates a `find`, so a
 # wrong path or a moved directory made all of them pass over nothing and the script reported OK —
 # the same vacuous success the fixture floor exists to prevent, one level up.
+[ -d "$SRC" ] || fail "$SRC not found — update this script"
 [ -d "$PROVIDERS" ] || fail "$PROVIDERS not found — update this script"
 
 # A SECOND exception, and the reason it is safe is CHECKED rather than asserted. The subprocess
@@ -384,13 +385,19 @@ fi
 #     deeper catch-all belongs to the inner match and is ignored. Verified by injecting one.
 if [ -f "$SRC/orchestrator.rs" ]; then
     prod_only "$SRC/orchestrator.rs" | awk '
-      /match (outcome|err) \{/ { match($0, /^[ 	]*/); ind = RLENGTH; inblock = 1; next }
-      inblock && /^[ 	]*\}[;]?[ 	]*$/ {
+      # A STACK, not a single depth. A `match` on the same subject nested inside an arm of another
+      # overwrote the outer one, so when the inner closed the walker considered itself out of the
+      # block entirely — and every remaining arm of the OUTER match went unguarded, a catch-all
+      # among them. Pushing and popping keeps the outer alive underneath.
+      /match (outcome|err) \{/ {
+          match($0, /^[ 	]*/); depth++; stack[depth] = RLENGTH; ind = RLENGTH; next
+      }
+      depth > 0 && /^[ 	]*\}[;]?[ 	]*$/ {
           match($0, /^[ 	]*/)
-          if (RLENGTH <= ind) { inblock = 0 }
+          if (RLENGTH <= ind) { depth--; ind = depth > 0 ? stack[depth] : -1 }
           next
       }
-      inblock && /^[ 	]*_[ 	]*=>/ {
+      depth > 0 && /^[ 	]*_[ 	]*=>/ {
           # AT THE ARM LEVEL, not merely inside the block. A `match` nested in an arm is entitled
           # to its own catch-all, and its arms sit a further level in; flagging those made the
           # rule fire on correct code the moment it was widened to a second match. One indent
