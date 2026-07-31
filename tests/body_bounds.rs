@@ -25,21 +25,20 @@
 
 #![cfg(feature = "openai-compat")]
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
 
 use magi_core::prelude::*;
 
-/// Generous: two orders of magnitude above a loopback exchange, so exceeding it means something is
-/// actually broken rather than that the runner was busy.
-const DEADLINE: Duration = Duration::from_secs(10);
-
-/// Bounds the post-response drain; the peer has been told the connection closes.
-const DRAIN: Duration = Duration::from_millis(500);
+mod common;
+use common::{accept_one, hang_up};
 
 /// The floor of the verdict cap. With the default `max_tokens` the derived cap never rises above
 /// it, so this is what a body has to exceed.
+///
+/// Duplicated rather than imported: the production constant is `pub(crate)` and an integration
+/// test compiles as a separate crate. If it ever drifts, the over-cap test stops failing and the
+/// at-the-cap test starts — the pair is what makes drift visible rather than silent.
 const VERDICT_CAP: usize = 1 << 20;
 
 /// The diagnostic prefix cap — far smaller, because an error body is read by a human.
@@ -78,73 +77,46 @@ fn serve_framed(
     let status = status.to_string();
 
     let handle = std::thread::spawn(move || {
-        listener.set_nonblocking(true).expect("nonblocking");
-        let start = Instant::now();
-        loop {
-            match listener.accept() {
-                Ok((mut stream, _)) => {
-                    // MUST come before the first read: on Windows an accepted socket inherits the
-                    // listener's non-blocking mode, so a read issued before the request bytes land
-                    // returns `WouldBlock` — not an error, but it reads like one.
-                    stream.set_nonblocking(false).expect("blocking");
-                    stream.set_read_timeout(Some(DEADLINE)).ok();
-
-                    let mut buf = [0u8; 4096];
-                    let _ = stream.read(&mut buf);
-
-                    let framing_header = match framing {
-                        Framing::Length => format!("Content-Length: {body_len}\r\n"),
-                        #[cfg(feature = "ollama")]
-                        Framing::Chunked => "Transfer-Encoding: chunked\r\n".to_string(),
-                    };
-                    let head = format!(
-                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
+        let (mut stream, _head) = accept_one(&listener).expect("a client connected in time");
+        {
+            let framing_header = match framing {
+                Framing::Length => format!("Content-Length: {body_len}\r\n"),
+                #[cfg(feature = "ollama")]
+                Framing::Chunked => "Transfer-Encoding: chunked\r\n".to_string(),
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
                          {framing_header}Connection: close\r\n\r\n"
-                    );
-                    if stream.write_all(head.as_bytes()).is_ok() {
-                        match framing {
-                            Framing::Length => {
-                                let _ = stream.write_all(&body);
-                            }
-                            #[cfg(feature = "ollama")]
-                            Framing::Chunked => {
-                                // Several chunks, so the cap is crossed part-way through the
-                                // stream rather than on the very first read.
-                                let chunk = 64 * 1024;
-                                let mut sent = 0;
-                                while sent < body_len {
-                                    let n = chunk.min(body_len - sent);
-                                    let ok = stream
-                                        .write_all(format!("{n:x}\r\n").as_bytes())
-                                        .and_then(|_| stream.write_all(&body[sent..sent + n]))
-                                        .and_then(|_| stream.write_all(b"\r\n"))
-                                        .is_ok();
-                                    if !ok {
-                                        break;
-                                    }
-                                    sent += n;
-                                }
-                                let _ = stream.write_all(b"0\r\n\r\n");
-                            }
-                        }
+            );
+            if stream.write_all(head.as_bytes()).is_ok() {
+                match framing {
+                    Framing::Length => {
+                        let _ = stream.write_all(&body);
                     }
-                    let _ = stream.flush();
-
-                    // Hang up cleanly: dropping a socket with unread bytes makes the OS send RST
-                    // instead of FIN, and a client that takes an RST mid-response reports a
-                    // connection error rather than the response it already had.
-                    let _ = stream.shutdown(std::net::Shutdown::Write);
-                    let _ = stream.set_read_timeout(Some(DRAIN));
-                    while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
-                    return;
+                    #[cfg(feature = "ollama")]
+                    Framing::Chunked => {
+                        // Several chunks, so the cap is crossed part-way through the
+                        // stream rather than on the very first read.
+                        let chunk = 64 * 1024;
+                        let mut sent = 0;
+                        while sent < body_len {
+                            let n = chunk.min(body_len - sent);
+                            let ok = stream
+                                .write_all(format!("{n:x}\r\n").as_bytes())
+                                .and_then(|_| stream.write_all(&body[sent..sent + n]))
+                                .and_then(|_| stream.write_all(b"\r\n"))
+                                .is_ok();
+                            if !ok {
+                                break;
+                            }
+                            sent += n;
+                        }
+                        let _ = stream.write_all(b"0\r\n\r\n");
+                    }
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    assert!(start.elapsed() <= DEADLINE, "no client connected");
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-                Err(e) => panic!("accept failed: {e}"),
             }
         }
+        hang_up(stream);
     });
 
     (addr, handle)

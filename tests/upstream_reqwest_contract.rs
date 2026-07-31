@@ -28,77 +28,43 @@
 //!
 //! No network: everything is loopback, with the OS assigning ports.
 
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::TcpListener;
-use std::time::{Duration, Instant};
 
-/// Generous on purpose: two orders of magnitude above a loopback handshake, so exceeding it means
-/// something is actually broken rather than that the runner was busy. If this ever flakes, raise
-/// the deadline — do not add retries, which start averaging away a real failure.
-const DEADLINE: Duration = Duration::from_secs(10);
-
-/// Bounds the post-response drain. Short on purpose: by then the peer has been told the connection
-/// closes, so reaching EOF is the expected case and this only caps the pathological one.
-const DRAIN: Duration = Duration::from_millis(500);
+mod common;
+use common::{accept_one, hang_up};
 
 /// `Connection: close` is load-bearing, not decoration. Without it the client keeps the socket in
 /// its pool and reuses it for the redirect — but this server serves exactly one request and then
 /// hangs up, so the reused socket is already dead.
-const OK_RESPONSE: &str = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+const OK_RESPONSE: &str = concat!(
+    "HTTP/1.1 200 OK\r\n",
+    "Content-Length: 0\r\n",
+    "Connection: close\r\n",
+    "\r\n"
+);
 
 /// Minimal but VALID: CRLF terminators and an explicit length, not a fragment that relies on the
 /// parser being lenient.
 fn redirect_to(url: &str) -> String {
     format!(
-        "HTTP/1.1 302 Found\r\nLocation: {url}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        concat!(
+            "HTTP/1.1 302 Found\r\n",
+            "Location: {url}\r\n",
+            "Content-Length: 0\r\n",
+            "Connection: close\r\n",
+            "\r\n"
+        ),
+        url = url
     )
 }
 
 /// Accepts one connection, returns the request head, and replies with `response`.
-///
-/// Non-blocking with an explicit deadline: a plain `accept()` blocks forever, which would hang CI —
-/// the worst possible failure mode for a security tripwire, because nobody can tell a hang from a
-/// dead runner.
 fn serve_once(listener: &TcpListener, response: &str) -> Option<String> {
-    listener.set_nonblocking(true).ok()?;
-    let start = Instant::now();
-    loop {
-        match listener.accept() {
-            Ok((mut stream, _)) => {
-                // MUST come before the first read, and is not redundant with the timeout below.
-                // On Windows an accepted socket INHERITS the listener's non-blocking mode (on Linux
-                // it does not), and the listener is non-blocking so that the accept loop can honour
-                // a deadline. Left inherited, a read issued before the request bytes land returns
-                // `WouldBlock` — which is not an error, but reads exactly like one, aborting this
-                // handler. The visible symptom appeared on the *next* listener, which then waited
-                // out the full deadline for a connection the client had already given up on.
-                stream.set_nonblocking(false).ok()?;
-                stream.set_read_timeout(Some(DEADLINE)).ok()?;
-                let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).ok()?;
-                let head = String::from_utf8_lossy(&buf[..n]).into_owned();
-                stream.write_all(response.as_bytes()).ok()?;
-                let _ = stream.flush();
-                // Hang up CLEANLY. Dropping a socket that still has unread bytes makes the OS send
-                // RST instead of FIN, and a client that takes an RST mid-response reports a
-                // connection error rather than the 302 it had already received — so it never
-                // follows the redirect, the next origin is never reached, and the test times out
-                // blaming the wrong thing. Half-close to send a real FIN, then read to EOF so
-                // nothing is left pending, and only then drop.
-                let _ = stream.shutdown(std::net::Shutdown::Write);
-                let _ = stream.set_read_timeout(Some(DRAIN));
-                while matches!(stream.read(&mut buf), Ok(k) if k > 0) {}
-                return Some(head);
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if start.elapsed() > DEADLINE {
-                    return None;
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(_) => return None,
-        }
-    }
+    let (mut stream, head) = accept_one(listener)?;
+    stream.write_all(response.as_bytes()).ok()?;
+    hang_up(stream);
+    Some(head)
 }
 
 #[tokio::test]
