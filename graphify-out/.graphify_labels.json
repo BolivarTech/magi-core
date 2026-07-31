@@ -265,7 +265,6 @@
   "263": "Duration",
   "264": ".send",
   "265": "described",
-  "266": ".new",
   "267": "AgentName",
   "268": ".new_checked",
   "271": "pattern8bnospace_bad.rs",
@@ -287,6 +286,5 @@
   "287": "Send",
   "288": "String",
   "289": "Vec",
-  "290": "accept_one",
   "291": "String"
 }

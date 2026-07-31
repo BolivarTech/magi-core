@@ -62,8 +62,14 @@ RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 # doctest harness still held handles on artefacts in `target/`. Both examples built fine in
 # isolation and failed only in sequence, which is the shape of an ordering bug rather than a code
 # one: it reports a linker failure, so the first instinct is to look at the code it names.
-step "doctests"
+step "doctests (all features)"
 cargo test --doc --all-features
+
+# Both sets here too, for the same reason as everything else: a doctest on an item behind a feature
+# gate is the one a default-features consumer never sees compiled, and a doctest that only exists
+# under `--all-features` is a promise made to the smaller audience without being checked for them.
+step "doctests (default features)"
+cargo test --doc
 
 step "verdict-search rule"
 sh ci/check_r0.sh

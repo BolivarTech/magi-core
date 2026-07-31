@@ -298,9 +298,15 @@ done
 #      forbidden does not fail the build. That is not hypothetical here: this file's own rationale
 #      names the impl, and an earlier crate-wide check had to be re-anchored to a definition for
 #      exactly the same reason — documenting an invariant should never break it.
-if grep -rnE '^[[:space:]]*impl( +[^ ]+)? +From<reqwest::Error>' "$SRC" 2>/dev/null; then
-    fail "From<reqwest::Error> would bypass the mapper via \`?\`"
-fi
+#
+#      Routed through `prod_only` like every other rule, which is both consistency and correctness:
+#      an impl written inside a test module exists only in test builds, so it cannot be the `?` a
+#      release binary takes. Flagging it would be a false positive on code that is already safe.
+for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
+    if prod_only "$f" | grep -nE '^[[:space:]]*impl( +[^ ]+)? +From<reqwest::Error>'; then
+        fail "From<reqwest::Error> in $f would bypass the mapper via \`?\`"
+    fi
+done
 
 # 1d — transport errors are built in ONE place. Verify the variant names still exist first, so a
 #      rename makes this SHOUT instead of silently matching nothing.

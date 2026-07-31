@@ -115,13 +115,13 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1785489095.9693887,
-    "ast_hash": "1a648214aef1e16f91de1e2b0e899763",
+    "mtime": 1785505372.806213,
+    "ast_hash": "b519401c30ba6d54014eb1c0f19160c6",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
-    "mtime": 1785470725.0050576,
-    "ast_hash": "bc83a9325f78b81659dd61a58ee6696c",
+    "mtime": 1785505434.084654,
+    "ast_hash": "69e50b6cdd8dfc76fdc30fa114a43d3b",
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
@@ -325,8 +325,8 @@
     "semantic_hash": ""
   },
   "ci/check_calibration.sh": {
-    "mtime": 1785497388.5613468,
-    "ast_hash": "fbdf3bfe21eb38d6162436a18fee8456",
+    "mtime": 1785503824.368748,
+    "ast_hash": "54b08fcb60f553a3de7dd00e23c0210e",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern0boundary_bad.rs": {
@@ -662,6 +662,11 @@
   "ci/fixtures/redaction/pattern8bnospace_good.rs": {
     "mtime": 1785497484.3059824,
     "ast_hash": "c8e9ece894e7524a193426336d3b3c7d",
+    "semantic_hash": ""
+  },
+  "ci/run_all_checks.sh": {
+    "mtime": 1785504089.8789082,
+    "ast_hash": "0ac0c774969a80c18610d1a2131e3a84",
     "semantic_hash": ""
   }
 }
