@@ -96,7 +96,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      # Pinned to the declared MSRV like every other job. On `stable` this job would prove the
+      # example compiles on a toolchain no consumer is promised, which is not the claim it makes.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.91"
       - run: cargo build --all-features --examples
 
   audit:

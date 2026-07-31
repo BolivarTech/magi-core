@@ -11,6 +11,20 @@
 #
 # Run `--self-test` to verify each pattern still matches what it claims to match: a check that
 # silently stopped matching is worse than no check, because it reports success.
+#
+# # The maintenance cost is real, and accepted with a condition
+#
+# Grep and awk over Rust is fragile: every rule here has been wrong at least once, and four of them
+# were wrong in the direction that reports success. The cost is paid deliberately, because the
+# alternative on offer today is nothing — the leaks this guards are not expressible as a type, and
+# the one that mattered most (`referer(false)`) is a call whose ABSENCE no test can observe.
+#
+# The condition: every rule carries a fixture pair, the self-test asserts the rule that fired by
+# NAME, and a rule change is verified by injecting the defect it guards into the real tree — not by
+# re-running the fixtures it was written against. Without those three, this file is theatre.
+#
+# If a Dylint lint or a sealed-trait formulation can express these invariants once the provider API
+# settles, it should replace this wholesale. That is a better tool, not a different opinion.
 set -euo pipefail
 
 SRC="${SRC:-src}"
@@ -170,7 +184,7 @@ self_test() {
 # 1 — error interpolation, in its three syntaxes: Display, Debug, and tracing sigils.
 #     Three syntaxes for one operation is why the positive rule below matters more than this list.
 for f in $(provider_files); do
-    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b'; then
+    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b'; then
         fail "raw error interpolation in $f (compose from a redacted URL instead)"
     fi
 done

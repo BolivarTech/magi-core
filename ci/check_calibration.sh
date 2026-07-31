@@ -37,7 +37,7 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 
 # Model rows are the backticked identifiers in the evidence table. Counting distinct ones keeps a
 # single model repeated across rows from passing as three.
-models="$(echo "$block" | grep -oE '`[a-z0-9]+[a-z0-9.:_-]*`' | sort -u | wc -l)"
+models="$(echo "$block" | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`' | sort -u | wc -l)"
 [ "$models" -ge "$MIN_MODELS" ] \
     || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest"
 
