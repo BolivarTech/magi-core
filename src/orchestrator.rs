@@ -1423,8 +1423,17 @@ fn default_rotations(
 /// cannot. A test asserts every mage-local outcome carries it.
 ///
 /// This does NOT make the telemetry equivalent to a typed variant. Reading it still means reading
-/// a string. It makes the information present rather than absent, which is the most a frozen enum
-/// allows until the next major.
+/// a string, and a consumer that greps for it is coupled to prose. It makes the information
+/// present rather than absent, which is the most a frozen enum allows.
+///
+/// # What replaces this
+///
+/// The right shape is dedicated rotation kinds for the mage-local causes, so the distinction is
+/// carried by the type and no one has to parse anything. That is a breaking change to a public,
+/// exhaustively-matchable enum, so it waits for the next major — where it is recorded as planned
+/// work, not left as an idea in a comment. No helper is offered for detecting the prefix: nothing
+/// in this crate consumes it, and a predicate written for a caller that does not exist is dead
+/// code that makes a convention look like an interface.
 const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
 
 /// The rotation detail for an oversized response body.
