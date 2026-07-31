@@ -39,6 +39,11 @@ MIN_FIXTURE_PAIRS=20
 
 fail() { echo "check_redaction: $1" >&2; exit 1; }
 
+# A missing tree is a FAILURE, not a clean run. Every provider-scoped rule iterates a `find`, so a
+# wrong path or a moved directory made all of them pass over nothing and the script reported OK —
+# the same vacuous success the fixture floor exists to prevent, one level up.
+[ -d "$PROVIDERS" ] || fail "$PROVIDERS not found — update this script"
+
 # A SECOND exception, and the reason it is safe is CHECKED rather than asserted. The subprocess
 # provider composes error text from `std::io::Error` and from a parse failure, neither of which can
 # carry a URL, because that provider has none — it spawns a program. Excluding it on that basis
@@ -94,8 +99,11 @@ provider_files() {
 #   * BLOCK comments (`/* … */`) are not stripped, only line comments;
 #   * a string literal spanning lines can leave its contents visible to the line-wise rules.
 #
-# The compound `#[cfg(all(feature = "x", test))]` IS handled, in either argument order, and
-# `#[cfg(feature = "test-utils")]` is correctly NOT treated as a test module — both verified.
+# HANDLED, each verified against the regex rather than assumed: `#[cfg(test)]`, the compound in
+# either argument order, a compound with a NESTED paren before the token
+# (`all(not(feature = "y"), test)`), and `any(test, doc)`. Correctly NOT treated as test modules:
+# `#[cfg(feature = "test-utils")]`, `#[cfg(feature = "my_test")]`, `#[cfg(test_helper)]`, and
+# `#[cfg(not(test))]` — the last of which is production code, and skipping it was a real leak.
 #
 # LINE COMMENTS ARE STRIPPED. Every rule here looks for a code shape, and a comment that mentions
 # one is prose, not the thing. It matters most for the per-builder count: a comment naming
@@ -127,7 +135,15 @@ prod_only() {
           }
           return line
       }
-      /^#\[cfg[^)]*[^a-z_"]test[^a-z_-]/ { pending = 1; print ""; next }
+      # `[^)]*` could not cross a nested `)`, so `#[cfg(all(not(feature = "y"), test))]` was not
+      # recognised and that module was scanned as production. `.*` crosses it; the optional group
+      # is what keeps the bare `#[cfg(test)]` matching, since there the `(` IS the separator.
+      #
+      # `not(test)` is EXCLUDED, and that one was wrong in the unsafe direction from the start:
+      # it marks code compiled only OUTSIDE tests — production by definition — and skipping it
+      # hid real production lines from every rule below.
+      /^#\[cfg\((.*[^a-z_"])?test[^a-z_-]/ &&
+      !/not[[:space:]]*\([[:space:]]*test[^a-z_-]/ { pending = 1; print ""; next }
       pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
       # A FURTHER attribute or a blank line between the cfg and the `mod` does NOT cancel it.
       # Clearing on any non-`mod` line meant `#[cfg(test)]` followed by `#[allow(…)]` left the

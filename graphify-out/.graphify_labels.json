@@ -103,6 +103,7 @@
   "101": "report",
   "102": "mod.rs",
   "103": "Debug",
+  "104": "ProviderResponse",
   "105": "Formatter",
   "106": "ProviderError",
   "107": "Result",
@@ -180,6 +181,8 @@
   "179": "Display",
   "180": "Formatter",
   "181": "BTreeSet",
+  "182": "ProviderRequest",
+  "183": "provider_url.rs",
   "184": "serve_once",
   "185": "AgentName",
   "186": "pattern0nonterminal_bad.rs",
@@ -233,6 +236,7 @@
   "234": "Into",
   "235": "Option",
   "236": "ProviderUrl",
+  "237": ".send",
   "238": "serve_once",
   "239": "mock_server.rs",
   "240": "Debug",
@@ -248,6 +252,9 @@
   "250": "pattern7comment_good.rs",
   "251": "accept_one",
   "252": "Vec",
+  "253": "log_failure",
   "254": "pattern1latearg_bad.rs",
-  "255": "pattern1latearg_good.rs"
+  "255": "pattern1latearg_good.rs",
+  "256": "pattern5attrgap_good.rs",
+  "257": "pattern1sigilbare_good.rs"
 }
