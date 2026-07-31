@@ -219,5 +219,10 @@
   "217": "ProviderError",
   "218": "RequestBuilder",
   "219": "Response",
-  "220": "Url"
+  "220": "Url",
+  "221": "FieldWriter",
+  "222": "Option",
+  "223": "Result",
+  "224": "String",
+  "225": "Vec"
 }

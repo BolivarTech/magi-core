@@ -225,8 +225,8 @@
     "semantic_hash": ""
   },
   "src/providers/provider_url.rs": {
-    "mtime": 1785483616.054129,
-    "ast_hash": "74954fd89ecf3a31100194e63ee66f41",
+    "mtime": 1785484422.138917,
+    "ast_hash": "4cb190e3e2ffd5d6be71f90085404884",
     "semantic_hash": ""
   },
   "tests/redaction_negative.rs": {
