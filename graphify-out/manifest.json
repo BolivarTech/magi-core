@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1785485066.9080954,
-    "ast_hash": "68b6a7e8b7aed1cfe35dc9c5aebe8df6",
+    "mtime": 1785485812.892378,
+    "ast_hash": "69206a0b27ea85d396e979b606f288d0",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
-    "mtime": 1785464942.8207984,
-    "ast_hash": "c97c6ca2c67e3c3f549e9b7857dac571",
+    "mtime": 1785485659.026752,
+    "ast_hash": "685521bfdea42d338b5ade6b4722d6e7",
     "semantic_hash": ""
   },
   "src/reporting.rs": {

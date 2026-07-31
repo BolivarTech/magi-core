@@ -232,5 +232,8 @@
   "230": "Mode",
   "231": "Self",
   "232": "String",
-  "233": "Vec"
+  "233": "Vec",
+  "234": "Into",
+  "235": "Option",
+  "236": "ProviderUrl"
 }
