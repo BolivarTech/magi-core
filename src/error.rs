@@ -185,6 +185,13 @@ pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
 /// Upper bound, in bytes, for the text an external provider may attach to a failure.
 pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;
 
+// The cap must leave room for the marker, or the budget subtraction below it underflows to zero
+// and the truncated message would be the marker alone — a diagnostic that says only that there
+// was one. The relation was load-bearing and implicit, held by the happy accident that 400 is far
+// above fourteen; stated here it becomes a compile error rather than a surprise, which is the
+// same move this milestone makes everywhere else it can.
+const _: () = assert!(MAX_EXTERNAL_MESSAGE_BYTES > TRUNCATION_MARKER.len());
+
 /// How an external provider's failure should be treated.
 ///
 /// Deliberately **coarser** than [`ProviderError`]: a third party names the shape of its failure,
@@ -206,7 +213,7 @@ pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;
 /// cap and by the timeouts you configured — so the run finishes and degrades honestly rather than
 /// hanging.
 ///
-/// The worse case is not a clean outage but an **intermittent** backend: each seat rotates, finds
+/// The worst case is not a clean outage but an **intermittent** backend: each seat rotates, finds
 /// it healthy again, and drains budget in small steps without ever reaching a fast fail. If your
 /// seats share a backend, the lineage diversity that rotation promises does not exist — and that
 /// is a configuration decision this crate cannot infer.

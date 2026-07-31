@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1785497432.8385346,
-    "ast_hash": "39aaa8ef5e28c405d0b0cf91354fed04",
+    "mtime": 1785498905.404467,
+    "ast_hash": "d4ae6e9f481fa73569b4b2971236663f",
     "semantic_hash": ""
   },
   "src/finding_id.rs": {
@@ -290,8 +290,8 @@
     "semantic_hash": ""
   },
   "examples/external_provider.rs": {
-    "mtime": 1785459042.5501795,
-    "ast_hash": "bb0ad02ba86fb1fd7b3237e33c608e50",
+    "mtime": 1785498850.0952878,
+    "ast_hash": "6f8f21b2276f9efc0eaefb22fde6fe82",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern5_bad.rs": {
