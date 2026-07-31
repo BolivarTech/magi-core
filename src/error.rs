@@ -2,7 +2,6 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use crate::provider::TRUNCATION_MARKER;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -175,6 +174,13 @@ pub enum ProviderError {
         kind: ExternalErrorKind,
     },
 }
+
+/// Marker appended when text is cut, so a truncated message never reads as a complete one.
+///
+/// Lives here rather than beside the retry machinery because this is the foundation layer: the
+/// error type must not import from the layers above it, and both of the crate's truncation sites
+/// need this constant. It sat in `provider.rs` briefly and made `error.rs` depend upwards.
+pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
 
 /// Upper bound, in bytes, for the text an external provider may attach to a failure.
 pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;

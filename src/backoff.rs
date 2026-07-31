@@ -144,6 +144,12 @@ pub enum RetryClass {
     ResponseTooLarge,
     /// Failure reported by a provider implemented outside this crate.
     ///
+    /// Adding this and `ResponseTooLarge` was additive rather than a break, because the enum is
+    /// `#[non_exhaustive]` (see the attribute above) — verified rather than assumed, since a
+    /// review flagged it as a SemVer risk worth checking. `RotationKind`, which looks similar,
+    /// is NOT `#[non_exhaustive]`, and that asymmetry is why mage-local outcomes report
+    /// `RotationKind::Transport` with the precision in their `detail` instead of gaining a variant.
+    ///
     /// One class for all of them, regardless of the shape the third party declared: the shape
     /// informs retryability, but backoff policy stays configurable per-class by THIS crate's
     /// vocabulary, not by a vocabulary an external crate can extend.

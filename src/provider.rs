@@ -403,9 +403,6 @@ fn is_retryable(error: &ProviderError) -> bool {
     }
 }
 
-/// Marker appended when text is cut, so a truncated message never reads as a complete one.
-pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
-
 /// Upper bound for a composed transport error message, in bytes.
 // Serves the HTTP providers only. Gated with them rather than left ungated: with no HTTP
 // provider compiled in there is nothing to compose an error for, and an item that is dead
@@ -436,9 +433,9 @@ pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chai
         return full;
     }
     // Reserve the marker inside the budget: a cap its own suffix can exceed lies about its name.
-    let budget = MAX_TRANSPORT_MESSAGE_BYTES.saturating_sub(TRUNCATION_MARKER.len());
+    let budget = MAX_TRANSPORT_MESSAGE_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
     let cut = full.floor_char_boundary(budget);
-    format!("{}{TRUNCATION_MARKER}", &full[..cut])
+    format!("{}{}", &full[..cut], crate::error::TRUNCATION_MARKER)
 }
 
 /// Joins an error's `source()` chain, **starting at the first source**.

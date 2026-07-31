@@ -285,6 +285,17 @@ fn body_cap(max_tokens: u32) -> usize {
     MAX_RESPONSE_BODY_BYTES.max(clamped * BYTES_PER_TOKEN_CEILING)
 }
 
+/// Appends the truncation marker, trimming the text first so the total stays within the cap.
+///
+/// Cutting on a character boundary, never a byte index: this crate has already shipped a release
+/// to fix an offset landing inside a codepoint, and a server's error body is the likeliest place
+/// for unexpected multi-byte text.
+fn mark_truncated(text: &str) -> String {
+    let budget = MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
+    let cut = text.floor_char_boundary(budget.min(text.len()));
+    format!("{}{}", &text[..cut], crate::error::TRUNCATION_MARKER)
+}
+
 /// Truncates diagnostic text at a character boundary, announcing the cut.
 fn truncate_diagnostic(raw: &str) -> String {
     if raw.len() <= MAX_ERROR_BODY_PREFIX_BYTES {
@@ -292,10 +303,9 @@ fn truncate_diagnostic(raw: &str) -> String {
     }
     // Reserve the marker inside the budget, and cut on a character boundary: a byte-index cut is
     // the bug class that already cost this project a release.
-    let budget =
-        MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::provider::TRUNCATION_MARKER.len());
+    let budget = MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
     let cut = raw.floor_char_boundary(budget);
-    format!("{}{}", &raw[..cut], crate::provider::TRUNCATION_MARKER)
+    format!("{}{}", &raw[..cut], crate::error::TRUNCATION_MARKER)
 }
 
 /// A request that cannot be printed.
@@ -465,8 +475,13 @@ impl ProviderResponse {
         // `truncate_diagnostic` only marks what IT cut. Rejecting an over-cap chunk leaves `acc`
         // below the limit, so without this the cut would go unannounced — which is the failure
         // this reader is supposed to be immune to.
-        if partial && !text.ends_with(crate::provider::TRUNCATION_MARKER) {
-            return format!("{text}{}", crate::provider::TRUNCATION_MARKER);
+        //
+        // The marker is paid for INSIDE the budget, not appended on top of it. Appending after the
+        // fact let the result reach `MAX_ERROR_BODY_PREFIX_BYTES + marker`, so the constant named
+        // as the cap was not the cap — a bound that its own annotation can push past is not a
+        // bound, and this one is quoted as one in the changelog.
+        if partial && !text.ends_with(crate::error::TRUNCATION_MARKER) {
+            return mark_truncated(&text);
         }
         text
     }
@@ -611,6 +626,83 @@ mod tests {
                 .parent(),
             ProviderUrl::parse("http://u:p@h/base?key=S#frag").expect("parses")
         );
+    }
+
+    /// The memory bound lives in this pure helper precisely so it can be proven without a server,
+    /// and until now the proof lived in another module gated on a feature the helper does not need
+    /// — so under `--features openai-compat` the function ran with no coverage at all.
+    #[test]
+    fn push_within_cap_admits_exactly_up_to_the_cap() {
+        let mut acc = Vec::new();
+        assert!(
+            push_within_cap(&mut acc, b"", 4),
+            "an empty chunk always fits"
+        );
+        assert!(push_within_cap(&mut acc, b"abc", 4));
+        assert!(
+            push_within_cap(&mut acc, b"d", 4),
+            "a chunk that exactly fills it fits"
+        );
+        assert_eq!(acc, b"abcd");
+    }
+
+    #[test]
+    fn push_within_cap_rejects_one_byte_over_and_leaves_the_buffer_untouched() {
+        // Leaving `acc` alone on rejection is what lets the diagnostic reader keep a coherent
+        // prefix instead of a partly-appended chunk.
+        let mut acc = b"abcd".to_vec();
+        assert!(!push_within_cap(&mut acc, b"e", 4));
+        assert_eq!(
+            acc, b"abcd",
+            "a rejected chunk must not be partially applied"
+        );
+    }
+
+    #[test]
+    fn push_within_cap_rejects_a_single_oversized_chunk_from_empty() {
+        // The out-of-memory case: the first chunk alone exceeds the cap.
+        let mut acc = Vec::new();
+        assert!(!push_within_cap(&mut acc, &[0u8; 9], 8));
+        assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn push_within_cap_treats_an_overflowing_sum_as_over_cap() {
+        // `acc.len() + chunk.len()` cannot overflow with real buffers, but the guard decides the
+        // ANSWER when it would, and it must be "over cap". This pins the direction.
+        let mut acc = Vec::new();
+        assert!(push_within_cap(&mut acc, b"x", usize::MAX));
+        assert_eq!(acc, b"x");
+    }
+
+    #[test]
+    fn a_partial_read_stays_within_the_cap_including_its_marker() {
+        // The bound the marker used to break: appending it after truncation pushed the result to
+        // cap + marker, so the constant named as the cap was not the cap.
+        let text = "y".repeat(MAX_ERROR_BODY_PREFIX_BYTES);
+        let marked = mark_truncated(&text);
+        assert!(
+            marked.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "marked length {} exceeds the cap {MAX_ERROR_BODY_PREFIX_BYTES}",
+            marked.len()
+        );
+        assert!(marked.ends_with(crate::error::TRUNCATION_MARKER));
+    }
+
+    #[test]
+    fn marking_a_short_text_does_not_pad_it() {
+        let marked = mark_truncated("brief");
+        assert_eq!(marked, format!("brief{}", crate::error::TRUNCATION_MARKER));
+    }
+
+    #[test]
+    fn marking_never_splits_a_multibyte_character() {
+        // Three-byte characters do not divide the budget evenly, which is the point: a byte-index
+        // cut here would panic, and a server's error body is arbitrary text.
+        let text = "\u{4f60}".repeat(MAX_ERROR_BODY_PREFIX_BYTES);
+        let marked = mark_truncated(&text);
+        assert!(marked.len() <= MAX_ERROR_BODY_PREFIX_BYTES);
+        assert!(marked.ends_with(crate::error::TRUNCATION_MARKER));
     }
 
     #[test]
