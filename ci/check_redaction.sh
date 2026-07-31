@@ -415,6 +415,11 @@ if [ -f "$SRC/orchestrator.rs" ]; then
           #
           # Flagging every catch-all inside the block, watched subject or not, made the rule fire on
           # correct code the moment it was widened to a second subject.
+          #
+          # The step of 4 is rustfmt output, and that is a DEPENDENCY, not an assumption: the gate
+          # script runs the format check first, so by the time this rule reads a file the indent is
+          # settled. Run this script on its own against unformatted source and the arm level is
+          # wherever the author put it, which this cannot know.
           match($0, /^[ 	]*/)
           if (RLENGTH <= ind + 4) { print "catch-all arm at line " NR; bad = 1 }
           next

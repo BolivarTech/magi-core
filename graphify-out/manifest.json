@@ -30,7 +30,7 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1785517944.7581894,
+    "mtime": 1785519632.6603067,
     "ast_hash": "183356e3f45d2ec72c6219cd3c25a1c4",
     "semantic_hash": ""
   },
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785510628.7713537,
-    "ast_hash": "63a3c91e6283759e735da67f933c833f",
+    "mtime": 1785519882.1523569,
+    "ast_hash": "39b1935d727e904564c1ed84d72283ce",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -697,6 +697,11 @@
   "ci/fixtures/redaction/pattern5nestedmatch_good.rs": {
     "mtime": 1785516711.470145,
     "ast_hash": "098e677ba2b5053d69cc72b5d481f095",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern5nestedwatched_bad.rs": {
+    "mtime": 1785519681.7834702,
+    "ast_hash": "194cded77d574bdb1ebf294b86abb39b",
     "semantic_hash": ""
   }
 }

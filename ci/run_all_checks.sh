@@ -59,6 +59,10 @@ step() { printf '\n=== %s ===\n' "$1"; }
 ALL_DIR="${CARGO_TARGET_DIR:-target}/gate-all"
 DEF_DIR="${CARGO_TARGET_DIR:-target}/gate-default"
 
+# Announced rather than discovered: without this the first failure is `no such subcommand`, from a
+# step whose real subject is the crate. Checked here so the message names the missing tool.
+command -v cargo-nextest >/dev/null 2>&1     || { echo "cargo-nextest is required: cargo install cargo-nextest" >&2; exit 1; }
+
 step "format"
 cargo fmt --check
 
