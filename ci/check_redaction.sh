@@ -168,4 +168,29 @@ for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
         || fail "$f builds an HTTP client without referer(false) — on a redirect the default leaks the full URL, query included, to the target origin"
 done
 
+# 8 — the asymmetry this release opens: `External` is CONSTRUCTIBLE from another crate, every
+#     other variant is not.
+#
+# Only the POSITIVE half is testable: `examples/external_provider.rs` compiles, which proves the
+# door exists. The negative half cannot be — a test asserting that `ProviderError::Http { .. }`
+# fails to compile from outside would be testing `rustc`, not this crate. So it is enforced through
+# its two causes, both of which are greppable.
+#
+# It lives in this file rather than its own because `Http.status` is what drives lineage
+# condemnation: letting a third party build one would hand it a run-wide consequence, which is the
+# same ownership question the rest of these checks defend.
+if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
+    # 8a — no variant may quietly lose the attribute. Listed by name so that DELETING a variant
+    #      breaks this check too, instead of silently shrinking what is verified.
+    for v in Http Network Timeout Auth Process ResponseTooLarge RetryAbandoned External; do
+        grep -B1 "^    $v {" "$SRC/error.rs" | grep -q 'non_exhaustive' \
+            || fail "variant $v lost #[non_exhaustive] — it would become constructible from any crate"
+    done
+    # 8b — exactly ONE door. `error.rs` holds the only public constructor, so whatever it builds is
+    #      what the outside world can build.
+    built="$(prod_only "$SRC/error.rs" | grep -oE 'Self::[A-Za-z]+ \{' | sort -u | tr '\n' ' ')"
+    [ "$built" = "Self::External { " ] \
+        || fail "error.rs must construct External and nothing else, found: ${built:-<none>}"
+fi
+
 echo "check_redaction: OK"
