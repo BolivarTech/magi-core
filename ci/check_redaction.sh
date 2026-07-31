@@ -394,6 +394,7 @@ if [ -f "$SRC/orchestrator.rs" ]; then
       # block entirely — and every remaining arm of the OUTER match went unguarded, a catch-all
       # among them. Pushing and popping keeps the outer alive underneath.
       /match (outcome|err) \{/ {
+          seen++
           match($0, /^[ 	]*/); depth++; stack[depth] = RLENGTH; ind = RLENGTH; next
       }
       depth > 0 && /^[ 	]*\}[;]?[ 	]*$/ {
@@ -402,16 +403,40 @@ if [ -f "$SRC/orchestrator.rs" ]; then
           next
       }
       depth > 0 && /^[ 	]*_[ 	]*=>/ {
-          # AT THE ARM LEVEL, not merely inside the block. A `match` nested in an arm is entitled
-          # to its own catch-all, and its arms sit a further level in; flagging those made the
-          # rule fire on correct code the moment it was widened to a second match. One indent
-          # step past the `match` line is the arm level; anything deeper belongs to someone else.
+          # AT THE ARM LEVEL of the innermost WATCHED match, which is deliberate and is not the
+          # same thing as "any nested catch-all is fine":
+          #
+          #   * a match on an UNWATCHED subject nested in an arm keeps its own catch-all — its
+          #     arms sit deeper than those of the watched match, so they are ignored. A fixture
+          #     pins it.
+          #   * a match on a WATCHED subject nested in an arm is itself watched, and its catch-all
+          #     IS flagged. That is the intent: the rule is about the subject, not the nesting, and
+          #     a classifier does not stop needing exhaustiveness by being written inside another.
+          #
+          # Flagging every catch-all inside the block, watched subject or not, made the rule fire on
+          # correct code the moment it was widened to a second subject.
           match($0, /^[ 	]*/)
           if (RLENGTH <= ind + 4) { print "catch-all arm at line " NR; bad = 1 }
           next
       }
-      END { exit bad ? 1 : 0 }
-    ' || fail "a catch-all arm would silence the outcome decision"
+      # A CHECK THAT WATCHED NOTHING MUST NOT REPORT SUCCESS. The subjects are matched by NAME, so
+      # renaming them in Rust turns this rule into a silent no-op — it would keep passing while
+      # guarding nothing, which is the failure mode the whole file exists to avoid. Seeing zero is
+      # therefore an error, not a clean run.
+      #
+      # Its limit, stated rather than implied: this catches the file being emptied, moved, or every
+      # subject renamed. Renaming ONE of several classifiers still leaves the others visible and
+      # slips through. A count cannot fix that without hard-coding how many there should be, which
+      # is a number that goes stale on its own. The rest of that gap is carried by the note beside
+      # the match expressions in the Rust source, where the person doing the renaming is reading.
+      END {
+          if (seen == 0) {
+              print "no classifying match found — this rule watches subjects BY NAME, so a rename turned it into a no-op"
+              exit 1
+          }
+          exit bad ? 1 : 0
+      }
+    ' || fail "a catch-all arm would silence the outcome decision, or the subjects this rule watches by name were renamed"
 fi
 
 # 6 — no provider stores the URL as a String: the invariant behind "the secret is not a String".

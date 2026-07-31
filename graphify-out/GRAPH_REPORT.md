@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 138 files · ~135,467 words
+- 138 files · ~135,677 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `35799c7a`
+- Built from commit: `2d95d874`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -684,12 +684,12 @@ Nodes (3): also_configured(), configured(), Client
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `Instant`, `provider_url.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
 - **Why does `AgentName` connect `reporting.rs` to `5. Data Schema and Consensus Protocol`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `.fmt`, `schema.rs`, `error.rs`, `openai_compat.rs`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
-  _High betweenness centrality (0.036) - this node is a cross-community bridge._
+  _High betweenness centrality (0.035) - this node is a cross-community bridge._
+- **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `Instant`, `provider_url.rs`, `LlmProvider`?**
+  _High betweenness centrality (0.030) - this node is a cross-community bridge._
 - **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Duration`, `.new`, `error.rs`, `MockProvider`, `FallbackPool`, `.new_checked`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+  _High betweenness centrality (0.024) - this node is a cross-community bridge._
 - **What connects `Security`, `Fixed`, `Changed` to the rest of the system?**
   _204 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
