@@ -1409,6 +1409,50 @@ fn default_rotations(
         .collect()
 }
 
+/// Marks a rotation whose condemnation reached only the mage that saw it.
+///
+/// # Why the detail carries this and the kind does not
+///
+/// Two rotation causes are mage-local — an oversized body and a failure reported by a third-party
+/// backend — yet both report `RotationKind::Transport`, which elsewhere means a run-wide
+/// condemnation. That enum is public and not `#[non_exhaustive]`, so giving them their own variant
+/// would be a breaking change in a minor release; the distinction rides in the detail instead.
+///
+/// A shared constant rather than the words typed at each site: the point is that a reader — human
+/// or otherwise — can tell the two cases apart, and two hand-written prefixes drift until they
+/// cannot. A test asserts every mage-local outcome carries it.
+///
+/// This does NOT make the telemetry equivalent to a typed variant. Reading it still means reading
+/// a string. It makes the information present rather than absent, which is the most a frozen enum
+/// allows until the next major.
+const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
+
+/// The rotation detail for an oversized response body.
+///
+/// # Parameters
+/// - `limit`: the byte cap the body exceeded.
+///
+/// # Why these are functions and not `format!` at the call site
+///
+/// The call site is the rotation loop, which is `async` and needs a provider, a registry and a
+/// live agent to reach. A test written against that has to stand up the whole machine to check a
+/// string, so in practice it never gets written — and the marker is exactly the kind of detail
+/// that rots unobserved. Pulled out, each mapping is total, pure, and testable in two lines, while
+/// the loop runs this same code. Returning `String` rather than `Option<String>` keeps the caller
+/// from needing a fallback it would have to invent.
+fn oversized_detail(limit: usize) -> String {
+    format!("{MAGE_LOCAL_PREFIX}response body exceeded {limit} bytes")
+}
+
+/// The rotation detail for a failure reported by a third-party backend.
+///
+/// # Parameters
+/// - `kind`: the shape the external provider declared.
+/// - `detail`: the rendered error, already capped by the constructor.
+fn external_failure_detail(kind: ExternalErrorKind, detail: &str) -> String {
+    format!("{MAGE_LOCAL_PREFIX}external ({kind:?}): {detail}")
+}
+
 /// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
 ///. Not precise budgeting — the crate is char-based and adds no tokenizer
 /// dependency; this only rejects candidates smaller than the raw prompt needs.
@@ -1814,10 +1858,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // public and not `#[non_exhaustive]` — a new variant would be a SemVer break — so
                 // the precision rides in `detail` instead.
                 state.failed_lineages.insert(current_lineage.clone());
-                (
-                    RotationKind::Transport,
-                    format!("response body exceeded {limit} bytes"),
-                )
+                (RotationKind::Transport, oversized_detail(limit))
             }
             ModelOutcome::ExternalFailure { detail, kind } => {
                 // Mage-local, exactly like `Schema` and `OversizedResponse`: this seat gives up on
@@ -1828,7 +1869,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 state.failed_lineages.insert(current_lineage.clone());
                 (
                     RotationKind::Transport,
-                    format!("external ({kind:?}): {detail}"),
+                    external_failure_detail(kind, &detail),
                 )
             }
             ModelOutcome::Schema(detail) => {
@@ -2098,6 +2139,33 @@ mod input_threshold_tests {
             }
             _ => panic!("expected OversizedResponse"),
         }
+    }
+
+    #[test]
+    fn every_mage_local_rotation_detail_says_so() {
+        // Both of these report `Transport`, which everywhere else means the whole run was
+        // condemned. Without the marker a reader of `rotations` cannot tell a content failure that
+        // cost one seat from an outage that cost the run — and that is the question the telemetry
+        // is read to answer. Asserted against the functions the rotation loop itself calls, so
+        // this cannot pass while the loop emits something else.
+        let oversized = oversized_detail(4096);
+        let external = external_failure_detail(ExternalErrorKind::Network, "backend refused");
+
+        // The LITERAL, not the constant. Written against `MAGE_LOCAL_PREFIX` this assertion
+        // passed with the constant emptied — `starts_with("")` is true of everything — so the
+        // test agreed with whatever the code did, which is the failure it exists to catch.
+        // Verified by emptying the constant and watching this go red.
+        for detail in [&oversized, &external] {
+            assert!(
+                detail.starts_with("mage-local: "),
+                "a mage-local rotation must announce itself: {detail}"
+            );
+        }
+        // And still say what happened — a marker that replaced the diagnosis would be worse than
+        // no marker.
+        assert!(oversized.contains("4096"), "{oversized}");
+        assert!(external.contains("backend refused"), "{external}");
+        assert!(external.contains("Network"), "{external}");
     }
 
     #[test]
