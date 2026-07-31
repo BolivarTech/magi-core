@@ -71,7 +71,9 @@ impl ProviderUrl {
                 ),
             });
         }
-        Ok(Self { inner: parsed })
+        Ok(Self {
+            inner: strip_trailing_slash(parsed),
+        })
     }
 
     /// The only visible rendering of a URL in this crate.
@@ -147,6 +149,38 @@ impl ProviderUrl {
         }
     }
 
+    /// Whether the path's last non-empty segment is `seg`.
+    ///
+    /// # Parameters
+    /// - `seg`: the segment to test for, a compile-time constant like every other segment here.
+    ///
+    /// Returns a `bool` rather than the segment itself on purpose: handing out a `&str` from this
+    /// module is the shape the redaction rules forbid, and a caller only ever needs the answer.
+    #[cfg(feature = "ollama")]
+    pub(crate) fn ends_with_segment(&self, seg: &'static str) -> bool {
+        self.inner
+            // The empty-segment filter is belt-and-braces: `parse` canonicalises the trailing
+            // slash away, so this only matters for an authority built some other way.
+            .path_segments()
+            .and_then(|mut segments| segments.rfind(|s| !s.is_empty()))
+            .is_some_and(|last| last == seg)
+    }
+
+    /// Derives the authority one path level up, keeping everything else.
+    ///
+    /// At the root this is a no-op — there is nothing above it — which is the right answer rather
+    /// than an error: the caller is asking "what is above this", and for a root the honest reply
+    /// is "the same place".
+    #[cfg(feature = "ollama")]
+    pub(crate) fn parent(&self) -> Self {
+        let mut url = self.inner.clone();
+        if let Ok(mut path) = url.path_segments_mut() {
+            path.pop_if_empty();
+            path.pop();
+        }
+        Self { inner: url }
+    }
+
     /// Builds a request against this URL. The raw URL never leaves this module.
     pub(crate) fn request(
         &self,
@@ -159,6 +193,19 @@ impl ProviderUrl {
             redacted_url: self.redacted(),
         }
     }
+}
+
+/// Drops the empty segment a trailing slash leaves behind, so `…/v1` and `…/v1/` become the same
+/// value.
+///
+/// Canonicalising at construction is what lets equality mean what it looks like. The endpoints
+/// were already identical either way — the request builder pops the empty segment too — but the
+/// stored authorities were not, so two providers pointed at the same daemon compared unequal.
+fn strip_trailing_slash(mut url: reqwest::Url) -> reqwest::Url {
+    if let Ok(mut path) = url.path_segments_mut() {
+        path.pop_if_empty();
+    }
+    url
 }
 
 /// Floor for the response-body cap: 1 MiB.
@@ -477,6 +524,32 @@ mod tests {
         assert!(
             !msg.contains("s3cret"),
             "malformed-input error leaked: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_canonicalizes_the_trailing_slash() {
+        // Equality has to mean "the same daemon". Before this, two providers pointed at one
+        // endpoint compared unequal purely on how the caller had spelled it.
+        for (with, without) in [
+            ("http://h:11434/v1/", "http://h:11434/v1"),
+            ("http://h:11434/", "http://h:11434"),
+            ("http://h/a/b/", "http://h/a/b"),
+        ] {
+            assert_eq!(
+                ProviderUrl::parse(with).expect("parses"),
+                ProviderUrl::parse(without).expect("parses"),
+                "{with} and {without} name the same place"
+            );
+        }
+    }
+
+    #[test]
+    fn canonicalizing_does_not_touch_the_query_or_the_fragment() {
+        let u = ProviderUrl::parse("http://h/v1/?key=S#frag").expect("parses");
+        assert_eq!(
+            u,
+            ProviderUrl::parse("http://h/v1?key=S#frag").expect("parses")
         );
     }
 

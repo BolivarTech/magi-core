@@ -458,8 +458,15 @@ With no rotations the text output is unchanged from the pre-rotation format.
 Enable the `ollama` feature to use `OllamaProvider`, which provides OpenAI-compatible completions plus a native probe:
 
 ```rust
-let ollama = OllamaProvider::new("http://localhost:11434", "qwen3:8b")?;
+// Either spelling works: the OpenAI-compatible endpoint, or the daemon root.
+let ollama = OllamaProvider::new("http://localhost:11434/v1", "qwen3:8b")?;
 ```
+
+`OllamaProvider` accepts **either** `http://localhost:11434/v1` (the OpenAI-compatible endpoint,
+the same shape `OpenAiCompatibleProvider` takes) **or** `http://localhost:11434` (the daemon
+root). Ollama serves `/v1` and `/api` as siblings, so giving one is enough to find the other.
+A reverse-proxy prefix is preserved either way: `https://gw.example.com/ollama/v1` probes
+`https://gw.example.com/ollama/api/*`.
 
 The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
 

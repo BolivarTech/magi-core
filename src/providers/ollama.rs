@@ -39,23 +39,60 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    /// Creates a provider for an Ollama daemon at `base_url` (e.g.
-    /// `http://localhost:11434`). Completions target `{base}/v1`; the probe uses
-    /// the native `{base}/api/*` endpoints. Keyless (Ollama needs no bearer token).
+    /// Creates a provider for an Ollama daemon. Keyless — Ollama needs no bearer token.
+    ///
+    /// # Parameters
+    /// - `base_url`: **either** the OpenAI-compatible endpoint (`http://localhost:11434/v1`)
+    ///   **or** the daemon root (`http://localhost:11434`). Both are accepted and both produce
+    ///   the same endpoints.
+    /// - `model`: the model tag, passed through unchanged.
     ///
     /// # Errors
     /// [`ProviderError::Network`] on an invalid `base_url`/scheme or client build.
+    ///
+    /// # Why both spellings are accepted
+    ///
+    /// Ollama serves its OpenAI-compatible API under `/v1` and its native API under `/api`, and
+    /// this provider needs both — the second is what measures the context window and the weights
+    /// digest. Only one of the two has to be given, since they are siblings.
+    ///
+    /// Earlier versions took the daemon root only, and that surprised people: the sibling
+    /// [`OpenAiCompatibleProvider`] takes its URL **with** `/v1`, so the same-looking parameter
+    /// meant different things in the same crate. Users were not guessing wrong — they were
+    /// applying the convention from the provider next door. Accepting both removes the choice
+    /// rather than documenting it harder.
+    ///
+    /// [`OpenAiCompatibleProvider`]: crate::providers::openai_compat::OpenAiCompatibleProvider
+    ///
+    /// | Given | Completions | Probe |
+    /// |---|---|---|
+    /// | `http://localhost:11434/v1` | `…/v1/chat/completions` | `…/api/show`, `…/api/tags` |
+    /// | `http://localhost:11434` | `…/v1/chat/completions` | `…/api/show`, `…/api/tags` |
+    /// | `https://gw.example.com/ollama/v1` | `…/ollama/v1/chat/completions` | `…/ollama/api/*` |
+    ///
+    /// # The one deployment this reads wrong
+    ///
+    /// A daemon whose root genuinely ends in a segment named `v1` — say
+    /// `https://gw/tenants/v1` — is taken for the OpenAI prefix, so the probe is looked for one
+    /// level too high. It fails **loudly**: the probe 404s, the context window comes back
+    /// unmeasured, and a strict context guard refuses the model rather than running blind. Pass
+    /// such a root through [`OpenAiCompatibleProvider`] instead, which does no probing.
     pub fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
-        let base = ProviderUrl::parse(&base_url.into())?;
-        // Derived authority-to-authority, NEVER `format!("{base}/v1")`: `Display` on the authority
-        // is the redacted rendering, so composing a string would hand the inner provider the
-        // literal placeholder in place of real credentials — a silent 401 — and a doubled path
-        // separator from the normalising trailing slash.
+        let given = ProviderUrl::parse(&base_url.into())?;
+        // Whichever spelling arrived, normalise to the pair this provider needs.
+        let (completions, base) = if given.ends_with_segment(OPENAI_COMPAT_PREFIX) {
+            (given.clone(), given.parent())
+        } else {
+            (given.with_segments(&[OPENAI_COMPAT_PREFIX]), given)
+        };
+        // Passed as an authority, NEVER as `format!("{base}/v1")`: `Display` here is the redacted
+        // rendering, so composing a string would hand the inner provider the literal placeholder
+        // in place of real credentials — a silent 401 — plus a doubled path separator.
         let inner = OpenAiCompatibleProvider::from_authority(
-            base.with_segments(&["v1"]),
+            completions,
             model,
             None,
             DEFAULT_CLIENT_TIMEOUT,
@@ -120,6 +157,9 @@ impl OllamaProvider {
 /// bytes. A real body is a few KB; anything larger is rejected (probe → `None`)
 /// rather than accumulated, preventing memory exhaustion.
 pub(crate) const MAX_SHOW_BODY_BYTES: usize = 1 << 20; // 1 MiB
+
+/// Path segment under which Ollama serves its OpenAI-compatible API, alongside the native `/api`.
+const OPENAI_COMPAT_PREFIX: &str = "v1";
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
@@ -203,18 +243,54 @@ impl ProviderProbe for OllamaProvider {
 mod tests {
     use super::*;
 
-    /// The completions endpoint must come out with ONE separator, from either spelling of the
-    /// daemon URL. Composing it as a string produced `//v1`, because the redacted rendering
-    /// normalises an empty path to `/`.
+    /// Every spelling a user might reasonably pass lands on the SAME pair of endpoints.
+    ///
+    /// The `/v1` forms are the ones users actually reach for, because the sibling
+    /// OpenAI-compatible provider takes its URL that way — accepting only the root is what made
+    /// the two providers disagree about the same-looking parameter.
+    ///
+    /// The root forms also cover the string-composition bug that produced `//v1`: the redacted
+    /// rendering normalises an empty path to `/`.
     #[test]
-    fn new_composes_the_completions_base_with_a_single_separator() {
-        for raw in ["http://localhost:11434", "http://localhost:11434/"] {
+    fn every_accepted_spelling_yields_the_same_endpoints() {
+        let expected_completions = ProviderUrl::parse("http://localhost:11434/v1").expect("parses");
+        let expected_root = ProviderUrl::parse("http://localhost:11434").expect("parses");
+
+        for raw in [
+            "http://localhost:11434/v1",
+            "http://localhost:11434/v1/",
+            "http://localhost:11434",
+            "http://localhost:11434/",
+        ] {
             let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
             assert_eq!(
                 *p.inner.base(),
-                ProviderUrl::parse("http://localhost:11434/v1").expect("parses"),
-                "from {raw}"
+                expected_completions,
+                "completions from {raw}"
             );
+            assert_eq!(p.base_url, expected_root, "probe root from {raw}");
+        }
+    }
+
+    /// A reverse proxy that mounts Ollama under a prefix keeps it, from either spelling — the
+    /// `/v1` and `/api` families stay siblings under that prefix rather than jumping to the origin.
+    #[test]
+    fn a_mounted_prefix_survives_both_spellings() {
+        let expected_completions =
+            ProviderUrl::parse("https://gw.example.com/ollama/v1").expect("parses");
+        let expected_root = ProviderUrl::parse("https://gw.example.com/ollama").expect("parses");
+
+        for raw in [
+            "https://gw.example.com/ollama/v1",
+            "https://gw.example.com/ollama",
+        ] {
+            let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
+            assert_eq!(
+                *p.inner.base(),
+                expected_completions,
+                "completions from {raw}"
+            );
+            assert_eq!(p.base_url, expected_root, "probe root from {raw}");
         }
     }
 
@@ -231,15 +307,29 @@ mod tests {
         );
     }
 
-    /// The probe endpoints are built from the untouched authority, so they must keep the
-    /// credentials too — and must not inherit the `/v1` the completions path adds.
+    /// The probe endpoints must keep the credentials too, and must not inherit the `/v1` that
+    /// belongs to the completions side — from either spelling.
     #[test]
     fn the_probe_authority_keeps_the_credentials_and_stays_at_the_root() {
-        let p = OllamaProvider::new("http://alice:s3cret@localhost:11434", "qwen3:8b")
-            .expect("constructs");
+        let expected = ProviderUrl::parse("http://alice:s3cret@localhost:11434").expect("parses");
+        for raw in [
+            "http://alice:s3cret@localhost:11434",
+            "http://alice:s3cret@localhost:11434/v1",
+        ] {
+            let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
+            assert_eq!(p.base_url, expected, "from {raw}");
+        }
+    }
+
+    /// The documented misread, pinned so it is a known consequence rather than a surprise: a root
+    /// that genuinely ends in `v1` is taken for the OpenAI prefix.
+    #[test]
+    fn a_root_that_really_ends_in_v1_is_read_as_the_prefix() {
+        let p = OllamaProvider::new("https://gw/tenants/v1", "qwen3:8b").expect("constructs");
         assert_eq!(
             p.base_url,
-            ProviderUrl::parse("http://alice:s3cret@localhost:11434").expect("parses")
+            ProviderUrl::parse("https://gw/tenants").expect("parses"),
+            "the probe looks one level up — documented, and it fails loudly with a 404"
         );
     }
 

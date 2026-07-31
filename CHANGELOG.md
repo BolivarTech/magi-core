@@ -35,6 +35,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whether it is retried and whether it condemns a model lineage stays with this crate.
   `Http` and `RetryAbandoned` stay closed: their fields drive lineage condemnation, not
   just retry timing.
+- **`OllamaProvider::new` now accepts the endpoint URL users actually expect to pass.** It took
+  the daemon root (`http://localhost:11434`) and appended `/v1` itself, while the sibling
+  `OpenAiCompatibleProvider` took its URL **with** `/v1` — so the same-looking parameter meant
+  different things in the same crate, and people reported getting it wrong. Both spellings are
+  now accepted and produce identical endpoints, so **no existing call breaks**. A reverse-proxy
+  prefix is preserved either way. The one deployment this reads wrong — a daemon root that
+  genuinely ends in a segment named `v1` — fails loudly with a 404 on the probe, and is
+  documented on the constructor.
 - **Endpoint construction dropped the query string.** The path was appended *after* it,
   producing a URL that could not authenticate.
 - **Response bodies are bounded** — derived from `max_tokens`, with a 1 MiB floor — instead
