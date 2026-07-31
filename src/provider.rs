@@ -40,6 +40,41 @@ impl Default for CompletionConfig {
 ///
 /// The `Send + Sync` bounds are required because `Arc<dyn LlmProvider>` is
 /// shared across `tokio::spawn` tasks.
+///
+/// # Implementing this outside `magi-core` — a supported extension point
+///
+/// ## Report failures with [`ProviderError::external`]
+///
+/// It is the **only** constructor reachable from another crate, and that is deliberate rather
+/// than an accident of visibility. Every variant of [`ProviderError`] is `#[non_exhaustive]`, so
+/// none can be built with a struct expression from outside; the transport variants stay closed
+/// because their fields decide which model **lineages get condemned**, which is a run-level
+/// consequence an external crate should not be able to reach for.
+///
+/// ```
+/// # use magi_core::prelude::*;
+/// let err = ProviderError::external("backend unreachable", ExternalErrorKind::Network);
+/// assert!(err.to_string().contains("unreachable"));
+/// ```
+///
+/// ## The `kind` names a shape; it does not choose a consequence
+///
+/// You declare *what kind* of failure happened. Whether it is retried, and how far its
+/// condemnation reaches, is decided here — see [`ExternalErrorKind`]. In particular
+/// `ExternalErrorKind::Network` never feeds the endpoint-down latch: this crate has no way to
+/// verify what a third-party backend's outage implies about the lineages the **other** agents are
+/// using, and aborting a whole run on that inference is not recoverable.
+///
+/// ## Your message is not redacted
+///
+/// It travels into the report like any other failure text. It is size-capped, but this crate
+/// cannot clean it — recognising a secret inside arbitrary prose is not something a library can
+/// do. **Do not put credentials in it.**
+///
+/// A complete implementation lives in `examples/external_provider.rs`.
+///
+/// [`ProviderError::external`]: crate::error::ProviderError::external
+/// [`ExternalErrorKind`]: crate::error::ExternalErrorKind
 #[async_trait::async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Sends a completion request to the LLM provider.
@@ -159,6 +194,26 @@ pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// `RetryConfig` is `#[non_exhaustive]`: build it from [`Default`] and then
 /// adjust fields (the struct-literal `RetryConfig { .. }` does not compile
 /// outside the crate — that is the 2.0 migration pattern).
+///
+/// # Layering against the per-agent timeout — the defaults do NOT satisfy it
+///
+/// A retry chain costs `operation_budget + client_timeout`, and the client timeout applies **per
+/// attempt**. For this budget to be reachable when a provider hangs:
+///
+/// ```text
+/// operation_budget + client_timeout <= MagiConfig::timeout
+/// ```
+///
+/// The defaults give `600 + 300 = 900` against a 300 s agent timeout, so on a hang the first
+/// attempt consumes the whole agent budget and **none of the retries below ever run**. Every knob
+/// here is then inert for that failure mode — which is worth knowing before tuning them.
+///
+/// Fixing the numbers is a latency trade-off, not a bug fix, and is tracked separately. Said here
+/// as well as on [`MagiConfig::timeout`] deliberately: whoever tunes retries does not necessarily
+/// read the orchestrator's config, and a layering rule documented on one side only is a rule that
+/// gets broken from the other.
+///
+/// [`MagiConfig::timeout`]: crate::orchestrator::MagiConfig::timeout
 ///
 /// ```
 /// use magi_core::prelude::*;

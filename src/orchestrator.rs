@@ -51,6 +51,29 @@ pub const DEFAULT_INPUT_WARN_TOKENS: usize = 150_000;
 #[derive(Debug, Clone)]
 pub struct MagiConfig {
     /// Maximum time to wait for each agent (default: 300 seconds).
+    ///
+    /// # Layering — the shipped defaults do NOT satisfy it
+    ///
+    /// A retry chain costs `operation_budget + client_timeout`, and that client timeout applies
+    /// **per attempt**. For the retry budget to be reachable when a provider hangs:
+    ///
+    /// ```text
+    /// operation_budget + client_timeout <= timeout
+    /// ```
+    ///
+    /// The defaults give `600 + 300 = 900` against a `timeout` of 300 s. On a hang the first
+    /// attempt consumes the whole per-agent budget and **no retry happens** — so describing
+    /// rotation as firing *after the retry chain is exhausted* is inaccurate for that case.
+    ///
+    /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix, and it
+    /// is tracked separately. This is documented in both places that govern it — here and on
+    /// [`RetryConfig`] — because whoever configures one of them does not read the other.
+    ///
+    /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
+    /// providers in one.
+    ///
+    /// [`RetryConfig`]: crate::provider::RetryConfig
+    /// [`RetryProvider`]: crate::provider::RetryProvider
     pub timeout: Duration,
     /// Maximum accepted size of the raw `content` argument to [`Magi::analyze`], in bytes.
     ///

@@ -4,6 +4,72 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-07-30
+
+### Security
+
+- **Credentials in a provider `base_url` are now redacted in every channel this crate
+  produces** — `Debug` output and error messages, and therefore the serialized report.
+  Both forms are covered: `user:pass@` userinfo and secrets carried in the query string.
+  Parameter **names** are kept and their **values** replaced, so a redacted URL still tells
+  you which endpoint failed and how it was called.
+- **A query secret could reach a different origin through the `Referer` header** on an HTTP
+  redirect. The redirect target replaces the URL, so the query is not forwarded *there* —
+  but the default client also sends the original URL, query included, as `Referer`. Every
+  client this crate builds now disables it. If your endpoint authenticates by query
+  parameter and could be redirected, this closed a real exposure.
+- **Scope, stated precisely:** this covers **URLs this crate constructs**. It does **not**
+  cover a message written by a provider you implemented, nor a server error body that
+  echoes your credential back. Both are size-capped; neither is redacted, because
+  recognising a secret inside arbitrary text is not something a library can do. Do not put
+  secrets in either.
+
+### Fixed
+
+- **`ProviderError` is constructible from another crate again**, via
+  `ProviderError::external(message, kind)`. Closing every variant in `2.0.0` removed
+  external construction without offering a replacement — a regression, not a design choice.
+  An external `LlmProvider` could compile but could not **fail in a typed way** (`E0639`),
+  which pushed implementors toward lying with an unrelated variant, returning `Ok` with
+  garbage, or panicking. The new `ExternalErrorKind` names the *shape* of a failure;
+  whether it is retried and whether it condemns a model lineage stays with this crate.
+  `Http` and `RetryAbandoned` stay closed: their fields drive lineage condemnation, not
+  just retry timing.
+- **Endpoint construction dropped the query string.** The path was appended *after* it,
+  producing a URL that could not authenticate.
+- **Response bodies are bounded** — derived from `max_tokens`, with a 1 MiB floor — instead
+  of being buffered whole.
+- **A `content` field that is absent, `null` or empty** now fails as a schema error rather
+  than as an opaque deserialization failure.
+
+### Changed
+
+- **`reqwest` upgraded to 0.13**, which switches the default TLS implementation from the
+  platform's native stack to `rustls`. **Certificate trust is unaffected**: this path uses
+  the platform verifier, so a CA installed in your operating system's trust store keeps
+  working. What changes is the TLS implementation, and therefore the dependency tree —
+  relevant if you audit or pin transitive dependencies.
+- **Provider error messages changed wording.** Parsing error strings was never a supported
+  contract; it is called out because a consumer doing it anyway will break.
+- **Reports carry an estimated input size and a warn-only threshold**
+  (`MagiReport::input_size`, `MagiConfig::input_warn_tokens`, default 150 000 tokens).
+  Crossing it emits a warning and marks the report; **the analysis always runs to
+  completion**. The hard limit that rejects is still `max_input_len`, unchanged. The
+  estimate is `bytes / 4` — it underestimates non-ASCII text and overestimates dense code,
+  so use it for orders of magnitude, not for budgeting a context window.
+
+### Documented
+
+- **The layering relation `operation_budget + client_timeout <= agent timeout`, which the
+  shipped defaults do not satisfy.** With `600 + 300 = 900` against a 300 s agent timeout,
+  a hung provider consumes the whole agent budget on the first attempt and **no retry
+  happens**. This applies only if you opt into `RetryProvider` — `MagiBuilder::build()`
+  does not wrap providers in one.
+- **Correction to the 3.0.x notes on rotation.** Describing rotation as firing *after the
+  retry chain is exhausted* is inaccurate with the shipped defaults: in the hang case the
+  agent timeout cuts first and the chain never exhausts. Choosing better numbers is a
+  latency trade-off, tracked separately.
+
 ## [3.0.2] - 2026-07-30
 
 Documentation only. No code, API, or behavior change — the crate compiles and behaves

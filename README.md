@@ -463,6 +463,45 @@ let ollama = OllamaProvider::new("http://localhost:11434", "qwen3:8b")?;
 
 The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
 
+## Credentials in a provider URL
+
+A `base_url` may carry credentials as userinfo (`https://user:pass@host/v1`) or as a query
+parameter (`https://host/v1?key=…`). Both are supported, and both are redacted anywhere this crate
+prints a URL — `Debug`, error messages, and therefore the serialized report, which is the copy
+people paste into tickets. Parameter **names** are kept and their **values** replaced, so a
+redacted URL still tells you which endpoint failed and how it was called.
+
+Every HTTP client this crate builds also disables the `Referer` header. The default sends the
+original URL — query string included — to the target of a redirect, which would hand a
+query-carried credential to a third origin.
+
+**What redaction does not cover**, said plainly because it is the boundary and not an oversight:
+text this crate did not write. A message from a provider *you* implemented, and a server error body
+that echoes your credential back to you. Both are size-capped; neither is redacted, because
+recognising a secret inside arbitrary prose is not something a library can do. Do not put secrets in
+either.
+
+Values are redacted **whether or not they look secret** — an `api-version` reads as redacted too.
+That is deliberate: a list of secret-looking parameter names ages, and the next name nobody thought
+to enumerate is the one that leaks.
+
+## Implementing your own provider
+
+`LlmProvider` is a supported extension point. Implement it in your own crate and report failures
+with `ProviderError::external`:
+
+```rust,ignore
+use magi_core::prelude::*;
+
+Err(ProviderError::external("backend unreachable", ExternalErrorKind::Network))
+```
+
+That constructor is the **only** way to build a `ProviderError` from outside this crate — the
+transport variants stay closed, because their fields drive which model lineages get condemned. The
+`kind` you pass names the **shape** of the failure; this crate decides the consequences (whether it
+is retried, and how far the condemnation reaches). A complete implementation is in
+[`examples/external_provider.rs`](examples/external_provider.rs).
+
 ## Feature Flags
 
 | Feature          | Default | Description                          |
