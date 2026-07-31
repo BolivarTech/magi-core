@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1785510283.6943548,
-    "ast_hash": "9b70d84a5fac510cfb264f7ac6409114",
+    "mtime": 1785511697.1925936,
+    "ast_hash": "abeed73564f5d9d5fb4c62ea553c4cc0",
     "semantic_hash": ""
   },
   "src/finding_id.rs": {
@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1785470758.7179024,
-    "ast_hash": "e776234212975b2bb347849147647400",
+    "mtime": 1785514782.9217958,
+    "ast_hash": "d43ad484c39f509c0b41e9d44982bc66",
     "semantic_hash": ""
   },
   "README.md": {
@@ -665,8 +665,8 @@
     "semantic_hash": ""
   },
   "ci/run_all_checks.sh": {
-    "mtime": 1785505954.988767,
-    "ast_hash": "79d1d7ba04441bec6db531fa0afb5774",
+    "mtime": 1785512741.486428,
+    "ast_hash": "1c3fe083f849636af97b7df18d4b174a",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern7builderalias_bad.rs": {

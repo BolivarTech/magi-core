@@ -92,7 +92,7 @@ step "doctests (default features)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo test --doc
 
 step "verdict-search rule"
-sh ci/check_r0.sh
+bash ci/check_r0.sh
 
 step "redaction rule (self-test)"
 bash ci/check_redaction.sh --self-test

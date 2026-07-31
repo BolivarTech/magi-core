@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 136 files · ~134,740 words
+- 136 files · ~135,114 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `ba974d86`
+- Built from commit: `e97a0778`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -731,7 +731,7 @@ Cohesion: 0.67
 Nodes (3): also_configured(), configured(), Client
 
 ## Knowledge Gaps
-- **199 isolated node(s):** `ProviderError`, `ProviderError`, `Adding a pair`, `One pair per ALTERNATIVE, not per rule`, `Verifying a change` (+194 more)
+- **199 isolated node(s):** `Security`, `Fixed`, `Changed`, `Documented`, `Fixed` (+194 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **150 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -739,12 +739,12 @@ Nodes (3): also_configured(), configured(), Client
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `Instant`, `provider_url.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
+  _High betweenness centrality (0.037) - this node is a cross-community bridge._
 - **Why does `AgentName` connect `[0.3.0] - 2026-04-18` to `5. Data Schema and Consensus Protocol`, `consensus.rs`, `reporting.rs`, `.fmt`, `schema.rs`, `error.rs`, `openai_compat.rs`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Duration`, `.new`, `error.rs`, `MockProvider`, `FallbackPool`, `.new_checked`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
-- **What connects `ProviderError`, `ProviderError`, `Adding a pair` to the rest of the system?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
+- **What connects `Security`, `Fixed`, `Changed` to the rest of the system?**
   _204 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.0903954802259887 - nodes in this community are weakly interconnected._

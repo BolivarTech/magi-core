@@ -62,6 +62,6 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -E '[0-9]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l || true)"
 models="${models:-0}"
 [ "$models" -ge "$MIN_MODELS" ] \
-    || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest"
+    || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest. A name is counted when it is in backticks and carries BOTH a digit and one of . : - — every model in use is versioned or tagged, and without that requirement ordinary identifiers were being counted. If a real model name has neither, widen the pattern rather than padding the block"
 
 echo "check_calibration: OK ($models models named, date present)"
