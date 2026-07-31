@@ -24,9 +24,17 @@ fail() { echo "check_calibration: $1" >&2; exit 1; }
 [ -f "$FILE" ] || fail "$FILE not found — update this script"
 
 # The rustdoc block is everything from the start of the doc comment down to the definition.
+#
+# Attributes and blank lines between the doc and the definition do NOT reset it. An earlier version
+# cleared the buffer on any non-`///` line, so a `#[cfg(...)]` or a stray blank between the evidence
+# and the constant made the whole block invisible and the seal reported "no rustdoc" — failing for
+# a reason that has nothing to do with the calibration, which is how a check earns a reputation for
+# crying wolf and then gets removed.
 block="$(awk -v c="pub(crate) const $CONST" '
-  index($0, c) { print buf; exit }
-  /^\/\/\// { buf = buf "\n" $0; next }
+  index($0, c)       { print buf; exit }
+  /^[[:space:]]*\/\/\// { buf = buf "\n" $0; next }
+  /^[[:space:]]*$/   { next }
+  /^[[:space:]]*#\[/ { next }
   { buf = "" }
 ' "$FILE")"
 
