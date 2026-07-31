@@ -49,8 +49,12 @@ provider_files() {
 # the earlier ones in the production half. `orchestrator.rs` has two, which is how a test ended up
 # being scanned as production while the whole file below the first module went unchecked.
 #
-# A `#[cfg(test)]` that is NOT followed by a module (`#[cfg(test)] use serial_test::serial;`, which
-# is idiomatic and which this crate uses) skips nothing, because only a module has a body to skip.
+# A `#[cfg(test)]` that is NOT followed by a module with a BODY skips nothing — `#[cfg(test)] use
+# serial_test::serial;` and `#[cfg(test)] mod tests;` both skip zero lines. The brace is required
+# for exactly that reason: a bodyless `mod tests;` has nothing to skip, and without the brace the
+# skip ran until the next unrelated column-0 `}`, blanking real production code — three rules at
+# once. The visibility group also catches `pub(crate) mod tests { … }`, which the earlier form
+# missed entirely.
 #
 # Skipped lines are emitted as BLANK rather than dropped, so `NR` stays aligned with real file line
 # numbers. Pattern 5 and the `grep -n` rules report positions, and shifting them silently would
@@ -58,7 +62,7 @@ provider_files() {
 prod_only() {
     awk '
       /^#\[cfg\((all\()?[ \t]*test/ { pending = 1; print ""; next }
-      pending && /^(pub )?mod /     { skipping = 1; pending = 0; print ""; next }
+      pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
       skipping                      { print ""; next }
