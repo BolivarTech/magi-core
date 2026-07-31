@@ -13,7 +13,13 @@
 //!
 //! No network: port 1 on loopback refuses immediately.
 
+//! Requires the OpenAI-compatible provider: it is the one that accepts a caller-supplied
+//! `base_url`, so it is the only place a credential can enter a URL at all.
+#![cfg(feature = "openai-compat")]
+
 use magi_core::prelude::*;
+#[cfg(feature = "ollama")]
+use magi_core::rotation::ProviderProbe;
 
 const USER: &str = "aliceUser";
 const PASS: &str = "s3cretPass";
@@ -88,4 +94,47 @@ async fn credentials_never_reach_the_serialized_report() {
         Err(e) => e.to_string(),
     };
     assert_clean(&serialized, "serialized report");
+}
+
+// -- the Ollama provider --
+//
+// It composes TWO more endpoints than its sibling (`/api/show`, `/api/tags`) and derives its
+// completions authority from the same base, so every one of those is a place a credential could
+// escape. It is also the provider whose construction was silently replacing credentials with the
+// redaction placeholder until review caught it.
+
+#[cfg(feature = "ollama")]
+fn ollama_with(url: String) -> magi_core::providers::ollama::OllamaProvider {
+    magi_core::providers::ollama::OllamaProvider::new(url, "qwen3:8b").expect("constructs")
+}
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn ollama_credentials_never_appear_in_a_completion_error() {
+    let p = ollama_with(format!("http://{USER}:{PASS}@127.0.0.1:1?key={QKEY}"));
+    let err = p
+        .complete("sys", "usr", &CompletionConfig::default())
+        .await
+        .expect_err("connection refused on port 1");
+    let msg = err.to_string();
+    assert_clean(&msg, "ollama completion error");
+    assert!(
+        msg.contains("127.0.0.1"),
+        "the endpoint must stay identifiable: {msg}"
+    );
+}
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn ollama_credentials_never_appear_in_a_probe_error() {
+    // The probe endpoints are built from the base authority directly, so they are a separate
+    // channel from the completion path and need their own assertion.
+    let p = ollama_with(format!("http://{USER}:{PASS}@127.0.0.1:1?key={QKEY}"));
+
+    for (label, rendered) in [
+        ("window", format!("{:?}", p.window().await)),
+        ("digest", format!("{:?}", p.digest().await)),
+    ] {
+        assert_clean(&rendered, &format!("ollama {label} probe"));
+    }
 }

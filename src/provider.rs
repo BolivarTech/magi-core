@@ -405,6 +405,10 @@ fn is_retryable(error: &ProviderError) -> bool {
 pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
 
 /// Upper bound for a composed transport error message, in bytes.
+// Serves the HTTP providers only. Gated with them rather than left ungated: with no HTTP
+// provider compiled in there is nothing to compose an error for, and an item that is dead
+// under a supported feature set is a warning the default gate run reports.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
 pub(crate) const MAX_TRANSPORT_MESSAGE_BYTES: usize = 2000;
 
 /// Builds a provider error message from parts this crate controls.
@@ -419,6 +423,7 @@ pub(crate) const MAX_TRANSPORT_MESSAGE_BYTES: usize = 2000;
 ///
 /// Operation and endpoint come first, so when the cap bites it eats the tail of the cause chain —
 /// the least critical part — and never the endpoint, which is the first thing a reader needs.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
 pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chain: &str) -> String {
     let head = format!("{op} for {redacted_url}");
     if cause_chain.is_empty() {
@@ -443,6 +448,7 @@ pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chai
 /// HTTP type — and it must be reachable when only the Claude feature is enabled, which does not
 /// compile that module. Duplicating it would put two definitions on the one path that produces
 /// error text.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
 pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
     let mut parts = Vec::new();
     let mut cur = e.source();
@@ -458,6 +464,7 @@ pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
 /// Typed on purpose: it accepts **only** a serde error, so it is structurally impossible to feed it
 /// a network error whose text embeds a URL. That is what lets the CI check forbid interpolating an
 /// error inside provider code without carving out an exception — the safe case has a name.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
 pub(crate) fn describe_parse_error(e: &serde_json::Error) -> String {
     e.to_string()
 }
@@ -691,6 +698,7 @@ mod message_composition_tests {
     }
 
     #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     fn compose_puts_operation_and_url_first_and_truncates_the_cause_tail() {
         let long_cause = "x".repeat(MAX_TRANSPORT_MESSAGE_BYTES * 2);
         let msg = compose_transport_message("request failed", "http://h/v1", &long_cause);
@@ -708,6 +716,7 @@ mod message_composition_tests {
     }
 
     #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     fn compose_does_not_truncate_when_under_the_cap() {
         let msg = compose_transport_message("request failed", "http://h/v1", "connection refused");
         assert!(msg.contains("connection refused"));
@@ -718,6 +727,7 @@ mod message_composition_tests {
     }
 
     #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     fn compose_never_panics_on_multibyte_boundaries() {
         let cause = "ñ".repeat(MAX_TRANSPORT_MESSAGE_BYTES * 2);
         let msg = compose_transport_message("op", "http://h", &cause);
@@ -725,6 +735,7 @@ mod message_composition_tests {
     }
 
     #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     fn cause_chain_skips_the_top_level_error() {
         use std::fmt;
 

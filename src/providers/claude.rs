@@ -6,6 +6,7 @@ use crate::error::ProviderError;
 use crate::provider::{
     CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, resolve_claude_alias,
 };
+use crate::providers::provider_url::ProviderUrl;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -38,6 +39,10 @@ const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// ```
 pub struct ClaudeProvider {
     client: Client,
+    /// The endpoint authority. A constant with no secret in it, yet still held as the authority
+    /// type rather than a `&str`: it is what gives this provider the bounded body readers, and a
+    /// rule that holds "except here" is a rule someone eventually applies wrong.
+    endpoint: ProviderUrl,
     api_key: String,
     model: String,
 }
@@ -139,6 +144,7 @@ impl ClaudeProvider {
             .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {
             client,
+            endpoint: ProviderUrl::parse(API_BASE_URL)?,
             api_key: api_key.into(),
             model: model_id,
         })
@@ -270,34 +276,29 @@ impl LlmProvider for ClaudeProvider {
     ) -> Result<String, ProviderError> {
         let body = self.build_request_body(system_prompt, user_prompt, config);
 
+        // Routed through the URL authority like every other HTTP provider. The endpoint has no
+        // secret to hide, so this is not about redaction here — it is what supplies the BOUNDED
+        // body readers below, and it keeps the transport-error mapping in the one place that owns
+        // it. An exception for the provider that happens not to need redaction is how this
+        // provider silently kept reading unbounded bodies.
         let response = self
-            .client
-            .post(API_BASE_URL)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
+            .endpoint
+            .request(&self.client, reqwest::Method::POST, &[])
+            .header("x-api-key", self.api_key.clone())
+            .header("anthropic-version", ANTHROPIC_VERSION.to_string())
             .json(&body)
             .send()
-            .await
-            // The shared mapper, with no exception for this provider: its URL is a constant with
-            // no secret, but a rule that holds "except here" is a rule someone applies wrong — and
-            // the CI check that forbids building transport errors under `providers/` is
-            // unconditional precisely because this call site is not special.
-            .map_err(|e| crate::provider::to_provider_error("request failed", API_BASE_URL, &e))?;
+            .await?;
 
-        // C3.1 epoch: capture the receipt instant (headers arrived) and the raw
-        // `Retry-After` header, in the same place the status is read.
+        // Capture the receipt instant (headers arrived) and the raw `Retry-After` header in the
+        // same place the status is read.
         let received_at = Instant::now();
-        let status = response.status().as_u16();
-        let retry_after_raw: Vec<String> = response
-            .headers()
-            .get_all(reqwest::header::RETRY_AFTER)
-            .iter()
-            .filter_map(|v| v.to_str().ok())
-            .map(str::to_owned)
-            .collect();
+        let status = response.status();
+        let retry_after_raw: Vec<String> = response.retry_after_raw();
         if !(200..300).contains(&status) {
-            let response_body = response.text().await.unwrap_or_default();
+            // Truncates and says so: an error body is diagnostic text, so losing its tail costs
+            // detail, while dropping it whole costs the reason the error is read at all.
+            let response_body = response.read_diagnostic_body().await;
             return Err(Self::map_status_to_error(
                 status,
                 &response_body,
@@ -306,11 +307,9 @@ impl LlmProvider for ClaudeProvider {
             ));
         }
 
-        // The total timeout can also fire while reading the body (headers arrive, then the server
-        // hangs); the shared mapper classifies that as `Timeout`, not `Network`.
-        let response_body = response.text().await.map_err(|e| {
-            crate::provider::to_provider_error("failed to read response body", API_BASE_URL, &e)
-        })?;
+        // FAILS over the cap rather than truncating: this body carries the verdict, and a cut one
+        // loses its closing marker, which would make the parser blame the model for our cut.
+        let response_body = response.read_verdict_body(config.max_tokens).await?;
 
         Self::parse_response(&response_body)
     }
