@@ -16,7 +16,7 @@
 //! dependency (shared with `claude-api`).
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT};
+use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, PARSE_FAILURE_STATUS};
 use crate::providers::provider_url::ProviderUrl;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -65,10 +65,6 @@ struct OpenAiRespMessage {
     #[serde(default)]
     content: Option<String>,
 }
-
-/// Sentinel status for a response that arrived and is unusable. Never a real HTTP status, and
-/// non-retryable per `is_retryable`.
-const PARSE_FAILURE_STATUS: u16 = 0;
 
 /// Body text when the server sent no usable content.
 const EMPTY_CONTENT_BODY: &str = "response content was empty or absent";

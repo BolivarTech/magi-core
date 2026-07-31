@@ -509,10 +509,37 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
     let message = compose_transport_message(op, redacted_url, &cause_chain(e));
     if e.is_timeout() {
         ProviderError::Timeout { message }
+    } else if e.is_redirect() {
+        // A redirect-policy failure is NOT a connection failure, and the difference has teeth.
+        // `Network` is the connection class: two of them trip the endpoint-down latch and abort
+        // the whole run, which would blame a reachable endpoint for a misconfigured redirect
+        // chain. It is also not transient — the same request follows the same chain and fails the
+        // same way — so retrying only spends budget.
+        //
+        // The zero status is this crate's existing sentinel for "a response arrived and is
+        // unusable": never a real HTTP status, non-retryable, and mage-local in scope. All three
+        // are what this needs, and the message says plainly which of its two causes applies.
+        ProviderError::Http {
+            status: PARSE_FAILURE_STATUS,
+            body: message,
+            retry_after_raw: vec![],
+            received_at: None,
+        }
     } else {
         ProviderError::Network { message }
     }
 }
+
+/// Sentinel status for a response that arrived and cannot be used.
+///
+/// Never a real HTTP status, so it cannot collide with one; non-retryable per [`is_retryable`];
+/// and outside the connection class, so it never reaches the endpoint-down latch. Used for a
+/// response whose body cannot be parsed, and for a redirect chain that exceeded its policy.
+///
+/// Gated with the HTTP providers, its only users: with no HTTP provider compiled in there is no
+/// response to fail on.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+pub(crate) const PARSE_FAILURE_STATUS: u16 = 0;
 
 /// HTTP statuses considered transient (worth retrying).
 const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504];
@@ -1349,6 +1376,19 @@ mod tests {
             }),
             RetryClass::RetryAbandoned
         );
+        // The two variants this release adds. The name of this test says "every variant", and it
+        // stopped being true the moment they landed — a stale exhaustiveness test is a claim that
+        // outlives its evidence.
+        assert_eq!(
+            classify(&ProviderError::ResponseTooLarge { limit: 1 << 20 }),
+            RetryClass::ResponseTooLarge
+        );
+        assert_eq!(
+            classify(&ProviderError::external("x", ExternalErrorKind::Network)),
+            RetryClass::External
+        );
+        // `classify`'s own match is exhaustive in-crate, so a NEW variant breaks the build there
+        // before it can reach this test. This pins the mapping; the compiler pins the coverage.
     }
 
     // -- default_model_for_mode tests (T02) --
