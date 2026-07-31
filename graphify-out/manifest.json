@@ -205,7 +205,7 @@
     "semantic_hash": ""
   },
   "src/providers/ollama.rs": {
-    "mtime": 1785494623.2293966,
+    "mtime": 1785495389.954181,
     "ast_hash": "dad938567ec53ee958778fe9139ac6d9",
     "semantic_hash": ""
   },
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785494531.0074856,
-    "ast_hash": "94a2471700e08225b28a8f45b2264c15",
+    "mtime": 1785495351.7486753,
+    "ast_hash": "5d82f1f73d1bbc115b33e62d94be0b36",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -627,6 +627,21 @@
   "ci/fixtures/redaction/pattern5attrgap_good.rs": {
     "mtime": 1785493527.0411475,
     "ast_hash": "e0319d4c5fe05e855e5fed7290dd65cc",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern5nestedcfg_good.rs": {
+    "mtime": 1785495351.8046775,
+    "ast_hash": "611c8ab40353783e56d97e30a8fce2eb",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern5nottest_bad.rs": {
+    "mtime": 1785495351.851253,
+    "ast_hash": "18e61e83688ff4b940ffdc694aba7da1",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern5nottest_good.rs": {
+    "mtime": 1785495351.893252,
+    "ast_hash": "edb2b7e9ba38b1d698979ca80603b4c8",
     "semantic_hash": ""
   }
 }

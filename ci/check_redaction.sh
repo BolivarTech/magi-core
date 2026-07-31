@@ -425,7 +425,13 @@ if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
     done
     # 8b — exactly ONE door. `error.rs` holds the only public constructor, so whatever it builds is
     #      what the outside world can build.
-    built="$(prod_only "$SRC/error.rs" | grep -oE 'Self::[A-Za-z]+ \{' | sort -u | tr '\n' ' ')"
+    #
+    #      BOTH SPELLINGS. Matching only `Self::` left the fully-qualified `ProviderError::Http {}`
+    #      invisible — and inside `error.rs` the two are interchangeable, so the door the check
+    #      guards had an unwatched second leaf.
+    built="$(prod_only "$SRC/error.rs" \
+        | grep -oE '(Self|ProviderError)::[A-Za-z]+ \{' \
+        | sed 's/^ProviderError::/Self::/' | sort -u | tr '\n' ' ')"
     [ "$built" = "Self::External { " ] \
         || fail "error.rs must construct External and nothing else, found: ${built:-<none>}"
 fi

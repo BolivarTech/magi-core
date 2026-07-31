@@ -45,6 +45,18 @@ pub const DEADLINE: Duration = Duration::from_secs(10);
 /// reaching EOF is the expected case and this only caps the pathological one.
 pub const DRAIN: Duration = Duration::from_millis(500);
 
+/// Ceiling on the accumulated request head, so a peer that never sends the terminator cannot grow
+/// the buffer without bound. Far above any request these tests provoke.
+const MAX_HEAD: usize = 64 * 1024;
+
+/// True once the accumulated bytes contain the end of the HTTP header block.
+///
+/// Only the CRLF form is accepted: these servers talk to one client, which speaks it. A bare-LF
+/// request would time out rather than be misread, which is the direction to fail in.
+fn ends_header(buf: &[u8]) -> bool {
+    buf.windows(4).any(|w| w == b"\r\n\r\n")
+}
+
 /// Binds a loopback listener on an OS-assigned port.
 ///
 /// Port 0 on purpose: a fixed port collides with the environment and with other tests.
@@ -69,10 +81,21 @@ pub fn accept_one(listener: &TcpListener) -> Option<(std::net::TcpStream, String
                 // Fix 1. MUST come before the first read.
                 stream.set_nonblocking(false).ok()?;
                 stream.set_read_timeout(Some(DEADLINE)).ok()?;
+                // Reads until the header terminator, NOT once. A single `read` returns whatever
+                // one TCP segment happened to carry, so a request split across segments could
+                // arrive with `Authorization` in the part not yet read — and the assertion that
+                // the header is ABSENT would then pass while it was merely late. A security test
+                // that can pass without seeing the evidence is worse than no test.
+                let mut head = Vec::new();
                 let mut buf = [0u8; 4096];
-                let n = stream.read(&mut buf).ok()?;
-                let head = String::from_utf8_lossy(&buf[..n]).into_owned();
-                return Some((stream, head));
+                while !ends_header(&head) && head.len() < MAX_HEAD {
+                    match stream.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => head.extend_from_slice(&buf[..n]),
+                        Err(_) => break,
+                    }
+                }
+                return Some((stream, String::from_utf8_lossy(&head).into_owned()));
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if start.elapsed() > DEADLINE {
