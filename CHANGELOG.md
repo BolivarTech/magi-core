@@ -67,6 +67,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   completion**. The hard limit that rejects is still `max_input_len`, unchanged. The
   estimate is `bytes / 4` — it underestimates non-ASCII text and overestimates dense code,
   so use it for orders of magnitude, not for budgeting a context window.
+- **A rotation whose condemnation reached only one agent now says so**, with a `mage-local:`
+  prefix on the `detail` in `MagiReport::rotations`. Two causes — an oversized response body
+  and a failure reported by a provider you implemented — are recorded with the same kind as a
+  run-wide transport condemnation, because that enum is public and exhaustively matchable, so
+  a new variant would break your `match`. Until then the distinction lives in the text: a
+  reader of a rotation report can tell "this cost one agent its lineage" from "the endpoint was
+  unreachable", which is usually the question being asked. Dedicated kinds are planned for the
+  next major, where the change is allowed.
 
 ### Documented
 

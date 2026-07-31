@@ -187,9 +187,10 @@ pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;
 
 // The cap must leave room for the marker, or the budget subtraction below it underflows to zero
 // and the truncated message would be the marker alone — a diagnostic that says only that there
-// was one. The relation was load-bearing and implicit, held by the happy accident that 400 is far
-// above fourteen; stated here it becomes a compile error rather than a surprise, which is the
-// same move this milestone makes everywhere else it can.
+// was one. The relation was load-bearing and implicit, held by the happy accident that 400 sits
+// far above the marker's 16 BYTES (its ellipsis is multi-byte, so that is not its 14 characters —
+// and bytes are what `len()` returns and what the subtraction spends). Stated here it becomes a
+// compile error rather than a surprise, which is the move this milestone makes wherever it can.
 const _: () = assert!(MAX_EXTERNAL_MESSAGE_BYTES > TRUNCATION_MARKER.len());
 
 /// How an external provider's failure should be treated.

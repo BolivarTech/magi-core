@@ -63,7 +63,7 @@
       "label": "prod_only()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L115",
+      "source_location": "L119",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -77,7 +77,7 @@
       "label": "skeleton()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L176",
+      "source_location": "L180",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -91,7 +91,7 @@
       "label": "fixture_meta()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L194",
+      "source_location": "L198",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -105,7 +105,7 @@
       "label": "self_test()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L196",
+      "source_location": "L200",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -21953,7 +21953,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L194",
+      "source_location": "L198",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_fixture_meta",
@@ -21963,7 +21963,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L115",
+      "source_location": "L119",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_prod_only",
@@ -21983,7 +21983,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L196",
+      "source_location": "L200",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_self_test",
@@ -22003,7 +22003,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L176",
+      "source_location": "L180",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_skeleton",
@@ -22024,7 +22024,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L274",
+      "source_location": "L278",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -22035,7 +22035,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L261",
+      "source_location": "L265",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -22046,7 +22046,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L222",
+      "source_location": "L226",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_self_test",
@@ -71680,5 +71680,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "bc6b82fe94ace75a932dc929eae0f43db8c719d3"
+  "built_at_commit": "ba974d86c630dfe7fad09a28227057077483e95a"
 }
