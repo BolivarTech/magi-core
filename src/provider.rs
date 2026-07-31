@@ -85,7 +85,20 @@ pub trait LlmProvider: Send + Sync {
     /// - `config`: Completion parameters (max_tokens, temperature).
     ///
     /// # Returns
-    /// The LLM's text response, or a `ProviderError` on failure.
+    /// The LLM's text response.
+    ///
+    /// # Errors
+    ///
+    /// Any [`ProviderError`]. Which variant depends on who implements this:
+    ///
+    /// - **Implementations in this crate** use the transport variants — `Network`, `Timeout`,
+    ///   `Auth`, `Http`, `ResponseTooLarge`, `Process`, `NestedSession` — whose fields drive retry
+    ///   classification and lineage condemnation.
+    /// - **Implementations outside this crate** use [`ProviderError::external`], the only
+    ///   constructor reachable from another crate. It names the SHAPE of the failure; the
+    ///   consequences stay here.
+    ///
+    /// [`ProviderError::external`]: crate::error::ProviderError::external
     async fn complete(
         &self,
         system_prompt: &str,
@@ -425,10 +438,14 @@ pub(crate) const MAX_TRANSPORT_MESSAGE_BYTES: usize = 2000;
 #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
 pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chain: &str) -> String {
     let head = format!("{op} for {redacted_url}");
-    if cause_chain.is_empty() {
-        return head;
-    }
-    let full = format!("{head}: {cause_chain}");
+    // ONE cap, applied to whatever was composed. Returning the head early when there is no cause
+    // chain skipped the bound entirely, so a pathological URL produced an unbounded message — the
+    // cap held only on the path that happened to have a suffix.
+    let full = if cause_chain.is_empty() {
+        head
+    } else {
+        format!("{head}: {cause_chain}")
+    };
     if full.len() <= MAX_TRANSPORT_MESSAGE_BYTES {
         return full;
     }
@@ -712,6 +729,24 @@ mod message_composition_tests {
             "endpoint survives truncation: {msg}"
         );
         assert!(msg.contains("truncated"), "the cut is announced: {msg}");
+    }
+
+    /// The path that had no test, and therefore no cap: with an empty cause chain the composer
+    /// returned early and skipped the bound entirely.
+    #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    fn compose_caps_the_head_even_with_no_cause_chain() {
+        let long_url = format!("http://{}/v1", "h".repeat(MAX_TRANSPORT_MESSAGE_BYTES));
+        let msg = compose_transport_message("request failed", &long_url, "");
+        assert!(
+            msg.len() <= MAX_TRANSPORT_MESSAGE_BYTES,
+            "an empty cause chain must not exempt the message from its cap: {} bytes",
+            msg.len()
+        );
+        assert!(
+            msg.contains("request failed"),
+            "the operation survives the cut"
+        );
     }
 
     #[test]
