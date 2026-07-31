@@ -184,8 +184,10 @@
   "182": ".complete",
   "183": "serve_once",
   "184": "mock_server.rs",
+  "185": ".new",
   "186": "pattern0nonterminal_bad.rs",
   "187": "pattern0nonterminal_good.rs",
+  "188": ".new_checked",
   "189": "pattern5stmt_good.rs",
   "190": "pattern5stmt_bad.rs",
   "191": "ProviderUrl",
@@ -196,5 +198,14 @@
   "196": "HashMap",
   "197": "Lineage",
   "198": "MagiReport",
-  "199": "Mutex"
+  "199": "Mutex",
+  "200": "AgentOutput",
+  "201": ".format_dissent",
+  "202": "P",
+  "203": ".new",
+  "204": ".new",
+  "205": "pattern7missing_bad.rs",
+  "206": "pattern7missing_good.rs",
+  "207": "pattern5moddecl_bad.rs",
+  "208": "pattern5moddecl_good.rs"
 }
