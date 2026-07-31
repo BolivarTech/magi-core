@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1785483843.2858915,
-    "ast_hash": "017a4447f7c1612fc05a76d6fc2726a1",
+    "mtime": 1785485066.9080954,
+    "ast_hash": "68b6a7e8b7aed1cfe35dc9c5aebe8df6",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
