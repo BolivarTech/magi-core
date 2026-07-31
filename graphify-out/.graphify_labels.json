@@ -238,6 +238,7 @@
   "236": "ProviderUrl",
   "237": "Option",
   "238": "serve_once",
+  "239": "prelude.rs",
   "240": "Debug",
   "241": "Duration",
   "242": "Formatter",
@@ -249,6 +250,7 @@
   "248": "pattern1pretty_bad.rs",
   "249": "pattern1pretty_good.rs",
   "250": "pattern7comment_good.rs",
+  "251": "redaction_negative.rs",
   "252": "Vec",
   "253": "log_failure",
   "254": "pattern1latearg_bad.rs",
@@ -257,8 +259,10 @@
   "257": "pattern1sigilbare_good.rs",
   "258": "String",
   "259": "TcpListener",
+  "260": "body_bounds.rs",
   "261": ".complete",
   "262": "SlowFailingProvider",
+  "263": "Duration",
   "264": ".send",
   "265": "described",
   "266": ".new",
@@ -284,5 +288,7 @@
   "286": "Self",
   "287": "Send",
   "288": "String",
-  "289": "Vec"
+  "289": "Vec",
+  "290": "accept_one",
+  "291": "String"
 }

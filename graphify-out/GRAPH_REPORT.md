@@ -1,16 +1,16 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 131 files · ~132,296 words
+- 131 files · ~132,384 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2164 nodes · 4643 edges · 286 communities (141 shown, 145 thin omitted)
+- 2164 nodes · 4643 edges · 292 communities (145 shown, 147 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1061897b`
+- Built from commit: `4505ffdf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -229,12 +229,15 @@
 - Instant
 - Vec
 - ProviderProbe
+- redaction_negative.rs
 - Vec
 - log_failure
 - String
 - TcpListener
+- body_bounds.rs
 - .complete
 - SlowFailingProvider
+- Duration
 - .send
 - described
 - .new
@@ -261,6 +264,8 @@
 - Send
 - String
 - Vec
+- accept_one
+- String
 
 ## God Nodes (most connected - your core abstractions)
 1. `AgentName` - 48 edges
@@ -289,15 +294,15 @@
 ## Import Cycles
 - None detected.
 
-## Communities (286 total, 145 thin omitted)
+## Communities (292 total, 147 thin omitted)
 
 ### Community 0 - "orchestrator.rs"
 Cohesion: 0.09
 Nodes (54): AgentOutput, ExtractionFailureCause, a_threshold_is_unreachable_when_the_smallest_warning_input_is_already_rejected(), a_threshold_that_can_never_fire_is_detected(), a_zero_threshold_warns_always_and_does_not_disable(), an_empty_input_never_exceeds_even_a_zero_threshold(), dispatch_one_agent(), echoed_example_response() (+46 more)
 
 ### Community 1 - "reporting.rs"
-Cohesion: 0.08
-Nodes (21): a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), fit_content(), report_text(), report_with_no_telemetry(), tail_cut() (+13 more)
+Cohesion: 0.07
+Nodes (23): a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), fit_content(), report_text(), report_with_no_telemetry(), tail_cut() (+15 more)
 
 ### Community 2 - "consensus.rs"
 Cohesion: 0.10
@@ -316,8 +321,8 @@ Cohesion: 0.13
 Nodes (9): Barrier, FailingProbe, MockProbe, MockProvider, OverlapProbe, AtomicUsize, Formatter, ProviderError (+1 more)
 
 ### Community 6 - "provider.rs"
-Cohesion: 0.20
-Nodes (14): AgentName, P, Mode, Mutex, CapturingMockProvider, contract_prompt(), test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_per_mode_override_supersedes_all_modes() (+6 more)
+Cohesion: 0.16
+Nodes (20): AgentFactory, AgentName, P, ConsensusEngine, Mode, Mutex, ReportFormatter, CapturingMockProvider (+12 more)
 
 ### Community 7 - "schema.rs"
 Cohesion: 0.05
@@ -329,7 +334,7 @@ Nodes (27): AgentRotationState, Candidate, cap(), caps_map(), digest_case(), dig
 
 ### Community 9 - "claude.rs"
 Cohesion: 0.09
-Nodes (36): Debug, Field, Instant, ClaudeMessage, ClaudeProvider, ClaudeRequest, ClaudeResponse, ContentBlock (+28 more)
+Nodes (35): Debug, Field, ClaudeMessage, ClaudeProvider, ClaudeRequest, ClaudeResponse, ContentBlock, Client (+27 more)
 
 ### Community 10 - "user_prompt.rs"
 Cohesion: 0.06
@@ -372,20 +377,20 @@ Cohesion: 0.40
 Nodes (4): Exemption from CLAUDE.local.md §0.2 file-header rule, Local divergence from the pinned reference (F0, 2026-07-16), Regeneration, `src/prompts_md/` — Embedded prompt data
 
 ### Community 22 - "finding_id.rs"
-Cohesion: 0.06
-Nodes (30): OllamaProvider, OpenAiCompatibleProvider, a_mounted_prefix_survives_both_spellings(), a_root_that_really_ends_in_v1_is_read_as_the_prefix(), every_accepted_spelling_yields_the_same_endpoints(), new_gives_the_inner_provider_the_real_credentials(), OllamaProvider, Client (+22 more)
+Cohesion: 0.12
+Nodes (18): OpenAiCompatibleProvider, a_mounted_prefix_survives_both_spellings(), a_root_that_really_ends_in_v1_is_read_as_the_prefix(), every_accepted_spelling_yields_the_same_endpoints(), new_gives_the_inner_provider_the_real_credentials(), OllamaProvider, Client, CompletionConfig (+10 more)
 
 ### Community 23 - ".cmp"
 Cohesion: 0.11
-Nodes (24): AgentFactory, Arc, Box, ComplexityGate, ConsensusConfig, ConsensusEngine, FallbackPool, Lineage (+16 more)
+Nodes (21): Arc, Box, ComplexityGate, ConsensusConfig, FallbackPool, Lineage, LlmProvider, P (+13 more)
 
 ### Community 24 - "dispatch_one_agent"
-Cohesion: 0.28
+Cohesion: 0.30
 Nodes (19): Self, test_base_zero_with_three_retries_emits_exactly_four_requests(), test_budget_exhaustion_abandons_with_typed_reason(), test_honored_retry_after_can_overrun_a_small_budget(), test_max_retries_zero_does_not_retry(), test_operation_budget_zero_yields_single_attempt(), test_retry_after_beyond_cap_abandons_with_typed_reason(), test_retry_provider_does_not_retry_on_auth() (+11 more)
 
 ### Community 25 - "LlmProvider"
-Cohesion: 0.12
-Nodes (29): AbortHandle, Agent, AgentRotation, BTreeMap, CompletionConfig, DispatchOutcome, Drop, Duration (+21 more)
+Cohesion: 0.16
+Nodes (22): AbortHandle, Agent, AgentRotation, BTreeMap, DispatchOutcome, Drop, ExtractionFailure, JoinError (+14 more)
 
 ### Community 27 - "make_output"
 Cohesion: 0.40
@@ -412,7 +417,7 @@ Cohesion: 0.29
 Nodes (7): [0.4.0] - 2026-05-16, Added, Backward compatibility, Changed, Documentation, Performance, Test count
 
 ### Community 33 - "[0.3.0] - 2026-04-18"
-Cohesion: 0.09
+Cohesion: 0.10
 Nodes (33): Agent, AgentFactory, MockProvider, Arc, AtomicUsize, BTreeMap, Default, Option (+25 more)
 
 ### Community 34 - "[0.6.0] - 2026-05-21"
@@ -452,8 +457,8 @@ Cohesion: 0.29
 Nodes (4): 8. Evangelion Correspondence Table, 9. Relationship to the MAGI Python Plugin, MAGI System — Complete Technical Documentation, Multi-Perspective Analysis Library for Rust
 
 ### Community 44 - "FallbackPool"
-Cohesion: 0.24
-Nodes (4): AtomicU32, MockProvider, RetryConfig, RetryProvider
+Cohesion: 0.15
+Nodes (8): Default, RetryClass, RetryConfig, RetryProvider, test_dangerous_config_is_announced_for_retry_after_cap_over_budget(), test_dangerous_config_is_announced_for_zero_base_delay(), test_dangerous_config_is_announced_for_zero_cap(), test_dangerous_config_is_announced_for_zero_retry_after_cap()
 
 ### Community 45 - "String"
 Cohesion: 0.18
@@ -465,7 +470,7 @@ Nodes (3): build(), ProviderError, Self
 
 ### Community 47 - "error.rs"
 Cohesion: 0.08
-Nodes (15): describe(), main(), MyBackend, String, a_message_of_exactly_the_cap_is_kept_whole(), a_short_external_message_survives_untouched(), AbandonReason, an_oversized_external_message_is_cut_and_says_so() (+7 more)
+Nodes (15): describe(), main(), MyBackend, String, Instant, a_message_of_exactly_the_cap_is_kept_whole(), a_short_external_message_survives_untouched(), AbandonReason (+7 more)
 
 ### Community 48 - "Lineage"
 Cohesion: 0.11
@@ -509,7 +514,7 @@ Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
 
 ### Community 70 - "7. Design Philosophy"
 Cohesion: 0.05
-Nodes (45): X, X, X, ProviderError, Result, X, Client, Display (+37 more)
+Nodes (43): X, X, X, ProviderError, Result, X, Display, Method (+35 more)
 
 ### Community 72 - "3. The Three Agents in Detail"
 Cohesion: 0.67
@@ -569,7 +574,7 @@ Nodes (5): 4.1 Module Structure, 4.2 Dependency Flow, 4.3 Execution Pipeline, 4.
 
 ### Community 116 - "Instant"
 Cohesion: 0.08
-Nodes (31): P, Cli, Formatter, Into, Option, ProviderUrl, absent_null_and_empty_content_are_all_a_named_schema_failure(), OpenAiChoice (+23 more)
+Nodes (32): P, Cli, Client, Formatter, Into, Option, ProviderUrl, absent_null_and_empty_content_are_all_a_named_schema_failure() (+24 more)
 
 ### Community 117 - "Into"
 Cohesion: 0.38
@@ -616,8 +621,8 @@ Cohesion: 0.50
 Nodes (4): Declaring fallbacks, Model Rotation, Ollama probe (feature `ollama`), What a rotation looks like
 
 ### Community 134 - "Option"
-Cohesion: 0.17
-Nodes (9): Attributes, Event, Id, Metadata, Record, EventLog, FieldWriter, Subscriber (+1 more)
+Cohesion: 0.20
+Nodes (7): Attributes, Event, Id, Metadata, Record, EventLog, Subscriber
 
 ### Community 137 - "String"
 Cohesion: 0.50
@@ -632,8 +637,8 @@ Cohesion: 0.67
 Nodes (3): Architecture, Module Dependency Graph, Prompt Injection Defense
 
 ### Community 158 - "String"
-Cohesion: 0.13
-Nodes (12): ExternalErrorKind, ProviderError, RotationKind, an_oversized_response_routes_to_its_own_mage_local_outcome(), every_external_shape_routes_to_its_own_mage_local_outcome(), is_connection(), MockProvider, ModelOutcome (+4 more)
+Cohesion: 0.10
+Nodes (18): CompletionConfig, ExternalErrorKind, ProviderError, Result, RotationKind, an_oversized_response_routes_to_its_own_mage_local_outcome(), every_external_shape_routes_to_its_own_mage_local_outcome(), exceeds_warn_threshold() (+10 more)
 
 ### Community 165 - ".fmt"
 Cohesion: 0.24
@@ -644,8 +649,8 @@ Cohesion: 0.67
 Nodes (3): [1.1.0] - 2026-05-25, Added, Notes
 
 ### Community 177 - "Into"
-Cohesion: 0.08
-Nodes (30): JoinHandle, TcpListener, TcpStream, a_chunked_probe_body_degrades_from_the_streaming_branch(), a_chunked_probe_body_under_the_cap_is_read_and_parsed(), a_probe_body_over_the_cap_degrades_instead_of_failing(), a_success_body_at_the_cap_is_read_whole(), a_success_body_over_the_cap_fails_rather_than_arriving_truncated() (+22 more)
+Cohesion: 0.19
+Nodes (4): JoinHandle, String, spawn_429_with_retry_after(), spawn_hanging_headers()
 
 ### Community 183 - "provider_url.rs"
 Cohesion: 0.18
@@ -660,28 +665,36 @@ Cohesion: 0.50
 Nodes (3): Error, String, spawn_failure()
 
 ### Community 228 - "Duration"
-Cohesion: 0.11
-Nodes (13): AtomicUsize, Default, RetryClass, classify(), CompletionConfig, FailingProvider, is_retryable(), RetryAfterProvider (+5 more)
+Cohesion: 0.15
+Nodes (12): AtomicU32, AtomicUsize, classify(), CompletionConfig, FailingProvider, is_retryable(), MockProvider, RetryAfterProvider (+4 more)
+
+### Community 251 - "redaction_negative.rs"
+Cohesion: 0.36
+Nodes (12): OllamaProvider, a_query_secret_never_appears_in_debug_but_its_name_does(), assert_clean(), both_forms_in_one_url_are_both_redacted_in_debug(), credentials_never_appear_in_a_transport_error(), credentials_never_reach_the_serialized_report(), ollama_credentials_never_appear_in_a_completion_error(), ollama_credentials_never_appear_in_a_probe_error() (+4 more)
+
+### Community 260 - "body_bounds.rs"
+Cohesion: 0.32
+Nodes (11): a_chunked_probe_body_degrades_from_the_streaming_branch(), a_chunked_probe_body_under_the_cap_is_read_and_parsed(), a_probe_body_over_the_cap_degrades_instead_of_failing(), a_success_body_at_the_cap_is_read_whole(), a_success_body_over_the_cap_fails_rather_than_arriving_truncated(), a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled(), an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut(), Framing (+3 more)
 
 ### Community 262 - "SlowFailingProvider"
-Cohesion: 0.40
-Nodes (4): test_dangerous_config_is_announced_for_retry_after_cap_over_budget(), test_dangerous_config_is_announced_for_zero_base_delay(), test_dangerous_config_is_announced_for_zero_cap(), test_dangerous_config_is_announced_for_zero_retry_after_cap()
+Cohesion: 0.42
+Nodes (9): a_client_configured_the_way_this_crate_does_it_leaks_nothing(), authorization_is_stripped_across_origins(), authorization_survives_a_same_origin_redirect(), redirect_to(), Option, String, TcpListener, serve_once() (+1 more)
 
 ### Community 266 - ".new"
 Cohesion: 0.20
 Nodes (30): make_agent(), make_consensus(), test_agent_display_fallback_to_agent_name_methods(), test_agent_line_format(), test_banner_all_lines_are_exactly_banner_width(), test_banner_consensus_line_includes_split_for_go_with_caveats(), test_banner_labels_are_column_aligned_to_max_label_len(), test_banner_lines_are_exactly_52_chars_wide() (+22 more)
 
 ### Community 267 - "AgentName"
-Cohesion: 0.22
-Nodes (13): ExtractionFailure, InputSize, MagiReport, ReportFormatter, BTreeMap, BTreeSet, Option, String (+5 more)
+Cohesion: 0.17
+Nodes (19): Condition, ConsensusResult, DedupFinding, Dissent, BTreeMap, Option, String, Vec (+11 more)
 
 ### Community 268 - ".new_checked"
 Cohesion: 0.16
 Nodes (13): ReportConfig, ReportError, Default, Display, Formatter, Result, Self, test_new_checked_accepts_all_ascii_titles() (+5 more)
 
 ### Community 269 - "ConsensusResult"
-Cohesion: 0.23
-Nodes (11): Condition, ConsensusResult, DedupFinding, Dissent, BTreeMap, Option, String, Vec (+3 more)
+Cohesion: 0.50
+Nodes (3): test_dissent_line_contains_summary_not_reasoning(), test_dissent_section_has_blank_line_after(), test_dissent_shows_one_line_per_dissenter()
 
 ### Community 270 - "AgentOutput"
 Cohesion: 0.39
@@ -695,25 +708,29 @@ Nodes (4): build(), ProviderError, Self, sneak()
 Cohesion: 0.50
 Nodes (3): build(), ProviderError, Self
 
+### Community 290 - "accept_one"
+Cohesion: 0.48
+Nodes (6): TcpListener, TcpStream, accept_one(), bind_loopback(), ends_header(), hang_up()
+
 ## Knowledge Gaps
 - **199 isolated node(s):** `ProviderError`, `ProviderError`, `Adding a pair`, `One pair per ALTERNATIVE, not per rule`, `Verifying a change` (+194 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **145 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **147 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `Instant`, `provider_url.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Duration`, `.new`, `error.rs`, `MockProvider`, `FallbackPool`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`?**
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Duration`, `.new`, `Duration`, `error.rs`, `MockProvider`, `FallbackPool`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`?**
   _High betweenness centrality (0.030) - this node is a cross-community bridge._
-- **Why does `AgentName` connect `AgentName` to `5. Data Schema and Consensus Protocol`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `.fmt`, `schema.rs`, `error.rs`, `openai_compat.rs`, `.new`, `.new_checked`, `ConsensusResult`, `AgentOutput`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
+- **Why does `AgentName` connect `AgentName` to `5. Data Schema and Consensus Protocol`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `.fmt`, `schema.rs`, `error.rs`, `openai_compat.rs`, `.new`, `.new_checked`, `AgentOutput`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
   _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **What connects `ProviderError`, `ProviderError`, `Adding a pair` to the rest of the system?**
   _204 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.09398907103825137 - nodes in this community are weakly interconnected._
 - **Should `reporting.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.07899159663865546 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07254623044096728 - nodes in this community are weakly interconnected._
 - **Should `consensus.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.0989648033126294 - nodes in this community are weakly interconnected._

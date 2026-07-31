@@ -151,17 +151,36 @@ pub struct MagiConfig {
     pub input_warn_tokens: usize,
 }
 
-/// True when `content`'s estimate exceeds `cfg`'s warning threshold.
+/// The comparison, over a count already taken.
 ///
-/// The same predicate `analyze` uses, extracted so it is testable without a run.
+/// # Parameters
+/// - `estimated_tokens`: a count from [`estimate_tokens`].
+/// - `cfg`: the configuration whose `input_warn_tokens` applies.
+fn exceeds(estimated_tokens: usize, cfg: &MagiConfig) -> bool {
+    // Strictly greater: at exactly the threshold nothing is wrong yet. It also means an empty
+    // input never warns, not even against a threshold of 0.
+    estimated_tokens > cfg.input_warn_tokens
+}
+
+/// Measures `content` once and reports it against the configured threshold.
 ///
 /// # Parameters
 /// - `content`: the analysis input.
 /// - `cfg`: the configuration whose `input_warn_tokens` applies.
-pub(crate) fn exceeds_warn_threshold(content: &str, cfg: &MagiConfig) -> bool {
-    // Strictly greater: at exactly the threshold nothing is wrong yet. It also means an empty
-    // input never warns, not even against a threshold of 0.
-    estimate_tokens(content) > cfg.input_warn_tokens
+///
+/// # Why this exists rather than three field assignments
+///
+/// `exceeded` restates a relation between the other two fields, so the only way it can ever be
+/// wrong is if it is computed from a different measurement than the one reported. Taking the count
+/// once and deriving the flag from that same value makes disagreement impossible instead of
+/// merely unlikely — and it drops a second pass over the input from the hot path.
+pub(crate) fn measure_input(content: &str, cfg: &MagiConfig) -> InputSize {
+    let estimated_tokens = estimate_tokens(content);
+    InputSize {
+        estimated_tokens,
+        warn_threshold: cfg.input_warn_tokens,
+        exceeded: exceeds(estimated_tokens, cfg),
+    }
 }
 
 /// True when the warning threshold can never fire, because the validator rejects first.
@@ -850,11 +869,7 @@ impl Magi {
         // 2.5. Measure the input. Telemetry only: this can mark the report and emit a warning,
         //      and it can NEVER stop the run. The single place that rejects on size is the
         //      `max_input_len` check in step 1, and it has already run.
-        let input_size = InputSize {
-            estimated_tokens: estimate_tokens(content),
-            warn_threshold: self.config.input_warn_tokens,
-            exceeded: exceeds_warn_threshold(content, &self.config),
-        };
+        let input_size = measure_input(content, &self.config);
         if input_size.exceeded {
             tracing::warn!(
                 estimated_tokens = input_size.estimated_tokens,
@@ -1618,24 +1633,35 @@ async fn attempt_model(
 /// error, feed the endpoint-down latch. It gets its own outcome so the consequence is decided here
 /// rather than inherited.
 fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
-    if let ProviderError::ResponseTooLarge { limit } = err {
-        return ModelOutcome::OversizedResponse { limit };
-    }
-    if let ProviderError::External { kind, .. } = err {
-        return ModelOutcome::ExternalFailure {
+    // EXHAUSTIVE, with no catch-all, and that is the whole point of the shape. An `if let` chain
+    // ending in a fallthrough sent every unrecognised variant to `Transport` — which is run-wide
+    // and feeds the endpoint-down latch, so the most consequential routing in this function was
+    // also its default. A variant added later would have inherited it in silence.
+    //
+    // The sibling classifiers are already exhaustive for the same reason; this one was the gap.
+    // Adding a variant now stops the build here and asks what its consequence should be.
+    let connection = is_connection(&err);
+    match err {
+        ProviderError::ResponseTooLarge { limit } => ModelOutcome::OversizedResponse { limit },
+        ProviderError::External { kind, .. } => ModelOutcome::ExternalFailure {
             detail: MagiError::Provider(err).to_string(),
             kind,
-        };
-    }
-    let connection = is_connection(&err);
-    let kind = match err {
-        ProviderError::Timeout { .. } => RotationKind::Timeout,
-        _ => RotationKind::Transport,
-    };
-    ModelOutcome::Transport {
-        detail: MagiError::Provider(err).to_string(),
-        connection,
-        kind,
+        },
+        ProviderError::Timeout { .. } => ModelOutcome::Transport {
+            detail: MagiError::Provider(err).to_string(),
+            connection,
+            kind: RotationKind::Timeout,
+        },
+        ProviderError::Http { .. }
+        | ProviderError::Network { .. }
+        | ProviderError::Auth { .. }
+        | ProviderError::Process { .. }
+        | ProviderError::RetryAbandoned { .. }
+        | ProviderError::NestedSession => ModelOutcome::Transport {
+            detail: MagiError::Provider(err).to_string(),
+            connection,
+            kind: RotationKind::Transport,
+        },
     }
 }
 
@@ -2119,7 +2145,7 @@ mod input_threshold_tests {
             ..Default::default()
         };
         assert!(
-            exceeds_warn_threshold("some content", &cfg),
+            measure_input("some content", &cfg).exceeded,
             "0 warns; it does not switch the warning off"
         );
     }
@@ -2132,13 +2158,35 @@ mod input_threshold_tests {
             input_warn_tokens: 0,
             ..Default::default()
         };
-        assert!(!exceeds_warn_threshold("", &cfg));
+        assert!(!measure_input("", &cfg).exceeded);
     }
 
     #[test]
     fn the_default_threshold_does_not_warn_on_ordinary_input() {
         let cfg = MagiConfig::default();
-        assert!(!exceeds_warn_threshold("a short review request", &cfg));
+        assert!(!measure_input("a short review request", &cfg).exceeded);
+    }
+
+    #[test]
+    fn the_reported_flag_always_agrees_with_the_reported_count() {
+        // `exceeded` restates a relation between the other two fields, so the failure it invites
+        // is a flag computed from a different measurement than the one shown. Asserted across the
+        // boundary and both sides of it, since a disagreement would be invisible in the report:
+        // the number and the flag would each look reasonable on their own.
+        let cfg = MagiConfig {
+            input_warn_tokens: 10,
+            ..Default::default()
+        };
+        for len in [0, 40, 43, 44, 45, 400] {
+            let size = measure_input(&"x".repeat(len), &cfg);
+            assert_eq!(
+                size.exceeded,
+                size.estimated_tokens > size.warn_threshold,
+                "a {len}-byte input reported {} tokens against a threshold of {}",
+                size.estimated_tokens,
+                size.warn_threshold
+            );
+        }
     }
 
     #[test]
