@@ -44,14 +44,26 @@ provider_files() {
 # at all, so that file's entire test module was scanned as production. The split was correct by
 # luck in one file and by construction in none.
 #
-# Cuts at the LAST such attribute, not the first. Cutting at the first still let a column-0
-# `#[cfg(test)] use serial_test::serial;` near the top of a file — idiomatic, and this crate uses
-# `serial_test` — blind every rule for everything below it. Only the terminal test module should
-# be excluded, and the terminal one is the last.
+# SKIPS TEST MODULES; it does not truncate. Truncation cannot be right for a file with more than
+# one test module — cutting at the first blinds everything below it, and cutting at the last leaves
+# the earlier ones in the production half. `orchestrator.rs` has two, which is how a test ended up
+# being scanned as production while the whole file below the first module went unchecked.
+#
+# A `#[cfg(test)]` that is NOT followed by a module (`#[cfg(test)] use serial_test::serial;`, which
+# is idiomatic and which this crate uses) skips nothing, because only a module has a body to skip.
+#
+# Skipped lines are emitted as BLANK rather than dropped, so `NR` stays aligned with real file line
+# numbers. Pattern 5 and the `grep -n` rules report positions, and shifting them silently would
+# make every future report point at the wrong line.
 prod_only() {
-    local n
-    n="$(grep -n '^#\[cfg(\(all(\)\?[[:space:]]*test' "$1" | tail -1 | cut -d: -f1)"
-    if [ -n "$n" ]; then head -n "$((n - 1))" "$1"; else cat "$1"; fi
+    awk '
+      /^#\[cfg\((all\()?[ \t]*test/ { pending = 1; print ""; next }
+      pending && /^(pub )?mod /     { skipping = 1; pending = 0; print ""; next }
+      pending                       { pending = 0 }
+      skipping && /^\}/             { skipping = 0; print ""; next }
+      skipping                      { print ""; next }
+                                    { print }
+    ' "$1"
 }
 
 # Builds a minimal tree that passes EVERY check, so a fixture placed into it is the only thing
@@ -222,9 +234,13 @@ fi
 # in the file would have been blamed on a match it has nothing to do with.
 if [ -f "$SRC/orchestrator.rs" ]; then
     prod_only "$SRC/orchestrator.rs" | awk '
-      /match outcome \{/                          { inblock = 1; next }
-      inblock && /^[[:space:]]*\}[;]?[[:space:]]*$/ { inblock = 0 }
-      inblock && /^[[:space:]]*_[[:space:]]*=>/   { print "catch-all arm at line " NR; bad = 1 }
+      /match outcome \{/ { match($0, /^[ 	]*/); ind = RLENGTH; inblock = 1; next }
+      inblock && /^[ 	]*\}[;]?[ 	]*$/ {
+          match($0, /^[ 	]*/)
+          if (RLENGTH <= ind) { inblock = 0 }
+          next
+      }
+      inblock && /^[ 	]*_[ 	]*=>/ { print "catch-all arm at line " NR; bad = 1 }
       END { exit bad ? 1 : 0 }
     ' || fail "a catch-all arm would silence the outcome decision"
 fi
