@@ -293,8 +293,13 @@ done
 
 # 1c — no implicit conversion. Without this impl, `?` on a client Result does not compile, so the
 #      compiler itself forces the mapper. This is the check that closes the `?`/match evasion.
-if grep -rn 'impl From<reqwest::Error>' "$SRC" 2>/dev/null; then
-    fail "From<reqwest::Error> would bypass the mapper via `?`"
+#
+#      ANCHORED at the start of a line, so the sentence in a comment explaining why this impl is
+#      forbidden does not fail the build. That is not hypothetical here: this file's own rationale
+#      names the impl, and an earlier crate-wide check had to be re-anchored to a definition for
+#      exactly the same reason — documenting an invariant should never break it.
+if grep -rnE '^[[:space:]]*impl( +[^ ]+)? +From<reqwest::Error>' "$SRC" 2>/dev/null; then
+    fail "From<reqwest::Error> would bypass the mapper via \`?\`"
 fi
 
 # 1d — transport errors are built in ONE place. Verify the variant names still exist first, so a
@@ -437,9 +442,14 @@ if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
     #      BOTH SPELLINGS. Matching only `Self::` left the fully-qualified `ProviderError::Http {}`
     #      invisible — and inside `error.rs` the two are interchangeable, so the door the check
     #      guards had an unwatched second leaf.
+    #      The brace may follow WITHOUT a space — `Self::Http{ .. }` is ordinary Rust, and requiring
+    #      the space let it through. The trailing `|| true` matters just as much: under `pipefail`
+    #      a grep that matches nothing kills the script, so a file constructing NOTHING exited
+    #      silently instead of reaching the message written for that case.
     built="$(prod_only "$SRC/error.rs" \
-        | grep -oE '(Self|ProviderError)::[A-Za-z]+ \{' \
-        | sed 's/^ProviderError::/Self::/' | sort -u | tr '\n' ' ')"
+        | grep -oE '(Self|ProviderError)::[A-Za-z]+[[:space:]]*\{' \
+        | sed -e 's/^ProviderError::/Self::/' -e 's/[[:space:]]*{$/ {/' \
+        | sort -u | tr '\n' ' ' || true)"
     [ "$built" = "Self::External { " ] \
         || fail "error.rs must construct External and nothing else, found: ${built:-<none>}"
 fi

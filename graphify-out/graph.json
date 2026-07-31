@@ -63,7 +63,7 @@
       "label": "prod_only()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L113",
+      "source_location": "L114",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -77,7 +77,7 @@
       "label": "skeleton()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L167",
+      "source_location": "L175",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -91,7 +91,7 @@
       "label": "fixture_meta()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L185",
+      "source_location": "L193",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -105,7 +105,7 @@
       "label": "self_test()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L187",
+      "source_location": "L195",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -116,44 +116,34 @@
       "norm_label": "self_test()"
     },
     {
-      "label": "mod.rs",
+      "label": "pattern5featurename_bad.rs",
       "file_type": "code",
-      "source_file": "tests/common/mod.rs",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "tests_common_mod",
-      "community": 251,
-      "norm_label": "mod.rs"
+      "id": "ci_fixtures_redaction_pattern5featurename_bad",
+      "community": 183,
+      "norm_label": "pattern5featurename_bad.rs"
     },
     {
-      "label": "ends_header()",
+      "label": "leaky()",
       "file_type": "code",
-      "source_file": "tests/common/mod.rs",
-      "source_location": "L56",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_bad.rs",
+      "source_location": "L8",
       "_origin": "ast",
-      "id": "tests_common_mod_ends_header",
-      "community": 251,
-      "norm_label": "ends_header()"
+      "id": "ci_fixtures_redaction_pattern5featurename_bad_leaky",
+      "community": 183,
+      "norm_label": "leaky()"
     },
     {
-      "label": "bind_loopback()",
-      "file_type": "code",
-      "source_file": "tests/common/mod.rs",
-      "source_location": "L63",
-      "_origin": "ast",
-      "id": "tests_common_mod_bind_loopback",
-      "community": 251,
-      "norm_label": "bind_loopback()"
-    },
-    {
-      "label": "TcpListener",
+      "label": "Error",
       "file_type": "code",
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tcplistener",
-      "community": 251,
-      "norm_label": "tcplistener"
+      "id": "error",
+      "community": 183,
+      "norm_label": "error"
     },
     {
       "label": "String",
@@ -161,9 +151,89 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "string",
-      "community": 251,
+      "id": "ci_fixtures_redaction_pattern5featurename_bad_rs_string",
+      "community": 183,
       "norm_label": "string"
+    },
+    {
+      "label": "pattern5featurename_good.rs",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_good.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern5featurename_good",
+      "community": 265,
+      "norm_label": "pattern5featurename_good.rs"
+    },
+    {
+      "label": "described()",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_good.rs",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern5featurename_good_described",
+      "community": 265,
+      "norm_label": "described()"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern5featurename_good_rs_string",
+      "community": 265,
+      "norm_label": "string"
+    },
+    {
+      "label": "mod.rs",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 251,
+      "norm_label": "mod.rs",
+      "id": "tests_common_mod"
+    },
+    {
+      "label": "ends_header()",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L56",
+      "_origin": "ast",
+      "community": 251,
+      "norm_label": "ends_header()",
+      "id": "tests_common_mod_ends_header"
+    },
+    {
+      "label": "bind_loopback()",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "_origin": "ast",
+      "community": 251,
+      "norm_label": "bind_loopback()",
+      "id": "tests_common_mod_bind_loopback"
+    },
+    {
+      "label": "TcpListener",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 251,
+      "norm_label": "tcplistener",
+      "id": "tcplistener"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 251,
+      "norm_label": "string",
+      "id": "string"
     },
     {
       "label": "accept_one()",
@@ -171,9 +241,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L75",
       "_origin": "ast",
-      "id": "tests_common_mod_accept_one",
       "community": 251,
-      "norm_label": "accept_one()"
+      "norm_label": "accept_one()",
+      "id": "tests_common_mod_accept_one"
     },
     {
       "label": "Option",
@@ -181,9 +251,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "option",
       "community": 116,
-      "norm_label": "option"
+      "norm_label": "option",
+      "id": "option"
     },
     {
       "label": "TcpStream",
@@ -191,9 +261,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "tcpstream",
       "community": 251,
-      "norm_label": "tcpstream"
+      "norm_label": "tcpstream",
+      "id": "tcpstream"
     },
     {
       "label": "hang_up()",
@@ -201,9 +271,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L114",
       "_origin": "ast",
-      "id": "tests_common_mod_hang_up",
       "community": 251,
-      "norm_label": "hang_up()"
+      "norm_label": "hang_up()",
+      "id": "tests_common_mod_hang_up"
     },
     {
       "label": "pattern5nestedcfg_good.rs",
@@ -254,16 +324,6 @@
       "community": 183,
       "norm_label": "leaky()",
       "id": "ci_fixtures_redaction_pattern5nottest_bad_leaky"
-    },
-    {
-      "label": "Error",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 75,
-      "norm_label": "error",
-      "id": "error"
     },
     {
       "label": "String",
@@ -1183,7 +1243,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "redaction_negative.rs",
       "id": "tests_redaction_negative"
     },
@@ -1193,7 +1253,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L29",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "assert_clean()",
       "id": "tests_redaction_negative_assert_clean"
     },
@@ -1203,7 +1263,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L38",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "provider_with()",
       "id": "tests_redaction_negative_provider_with"
     },
@@ -1223,7 +1283,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L43",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "userinfo_never_appears_in_debug()",
       "id": "tests_redaction_negative_userinfo_never_appears_in_debug"
     },
@@ -1233,7 +1293,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L51",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "a_query_secret_never_appears_in_debug_but_its_name_does()",
       "id": "tests_redaction_negative_a_query_secret_never_appears_in_debug_but_its_name_does"
     },
@@ -1243,7 +1303,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L62",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "both_forms_in_one_url_are_both_redacted_in_debug()",
       "id": "tests_redaction_negative_both_forms_in_one_url_are_both_redacted_in_debug"
     },
@@ -1253,7 +1313,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L69",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "credentials_never_appear_in_a_transport_error()",
       "id": "tests_redaction_negative_credentials_never_appear_in_a_transport_error"
     },
@@ -1263,7 +1323,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L84",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "credentials_never_reach_the_serialized_report()",
       "id": "tests_redaction_negative_credentials_never_reach_the_serialized_report"
     },
@@ -1273,7 +1333,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L107",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "ollama_with()",
       "id": "tests_redaction_negative_ollama_with"
     },
@@ -1283,7 +1343,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "ollamaprovider",
       "id": "ollamaprovider"
     },
@@ -1293,7 +1353,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L113",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "ollama_credentials_never_appear_in_a_completion_error()",
       "id": "tests_redaction_negative_ollama_credentials_never_appear_in_a_completion_error"
     },
@@ -1303,7 +1363,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L129",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "ollama_credentials_never_appear_in_a_probe_error()",
       "id": "tests_redaction_negative_ollama_credentials_never_appear_in_a_probe_error"
     },
@@ -1313,7 +1373,7 @@
       "source_file": "tests/redaction_negative.rs",
       "source_location": "L144",
       "_origin": "ast",
-      "community": 104,
+      "community": 22,
       "norm_label": "ollama_credentials_never_reach_the_serialized_report()",
       "id": "tests_redaction_negative_ollama_credentials_never_reach_the_serialized_report"
     },
@@ -1373,7 +1433,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 9,
+      "community": 260,
       "norm_label": "debug",
       "id": "debug"
     },
@@ -1393,7 +1453,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 9,
+      "community": 260,
       "norm_label": "formatter",
       "id": "formatter"
     },
@@ -1513,7 +1573,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": "duration",
       "id": "duration"
     },
@@ -2103,7 +2163,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "provider_url.rs",
       "id": "src_providers_provider_url"
     },
@@ -2113,7 +2173,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L55",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "providerurl",
       "id": "src_providers_provider_url_providerurl"
     },
@@ -2143,7 +2203,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "result",
       "id": "result"
     },
@@ -2153,7 +2213,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": "self",
       "id": "self"
     },
@@ -2163,7 +2223,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "providererror",
       "id": "providererror"
     },
@@ -2173,7 +2233,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L92",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": ".redacted()",
       "id": "src_providers_provider_url_providerurl_redacted"
     },
@@ -2183,7 +2243,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "string",
       "id": "src_providers_provider_url_rs_string"
     },
@@ -2213,7 +2273,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L173",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": ".ends_with_segment()",
       "id": "src_providers_provider_url_providerurl_ends_with_segment"
     },
@@ -2223,7 +2283,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L188",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": ".parent()",
       "id": "src_providers_provider_url_providerurl_parent"
     },
@@ -2233,7 +2293,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L198",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": ".request()",
       "id": "src_providers_provider_url_providerurl_request"
     },
@@ -2243,7 +2303,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 116,
+      "community": 167,
       "norm_label": "client",
       "id": "client"
     },
@@ -2253,7 +2313,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "method",
       "id": "method"
     },
@@ -2273,7 +2333,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L279",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "push_within_cap()",
       "id": "src_providers_provider_url_push_within_cap"
     },
@@ -2283,7 +2343,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "vec",
       "id": "src_providers_provider_url_rs_vec"
     },
@@ -2293,7 +2353,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L292",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "body_cap()",
       "id": "src_providers_provider_url_body_cap"
     },
@@ -2303,7 +2363,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L302",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "mark_truncated()",
       "id": "src_providers_provider_url_mark_truncated"
     },
@@ -2313,7 +2373,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L310",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "truncate_diagnostic()",
       "id": "src_providers_provider_url_truncate_diagnostic"
     },
@@ -2323,7 +2383,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L325",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "providerrequest",
       "id": "src_providers_provider_url_providerrequest"
     },
@@ -2333,7 +2393,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "requestbuilder",
       "id": "requestbuilder"
     },
@@ -2343,7 +2403,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L331",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "providerresponse",
       "id": "src_providers_provider_url_providerresponse"
     },
@@ -2353,7 +2413,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "response",
       "id": "response"
     },
@@ -2363,7 +2423,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L338",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": ".json()",
       "id": "src_providers_provider_url_providerrequest_json"
     },
@@ -2373,7 +2433,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": "t",
       "id": "t"
     },
@@ -2383,7 +2443,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L344",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": ".header()",
       "id": "src_providers_provider_url_providerrequest_header"
     },
@@ -2393,7 +2453,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L354",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": ".send()",
       "id": "src_providers_provider_url_providerrequest_send"
     },
@@ -2403,7 +2463,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L373",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".status()",
       "id": "src_providers_provider_url_providerresponse_status"
     },
@@ -2413,7 +2473,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L378",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".retry_after_raw()",
       "id": "src_providers_provider_url_providerresponse_retry_after_raw"
     },
@@ -2423,7 +2483,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L398",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".read_verdict_body()",
       "id": "src_providers_provider_url_providerresponse_read_verdict_body"
     },
@@ -2433,7 +2493,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L450",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".read_probe_body()",
       "id": "src_providers_provider_url_providerresponse_read_probe_body"
     },
@@ -2443,7 +2503,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L476",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".read_diagnostic_body()",
       "id": "src_providers_provider_url_providerresponse_read_diagnostic_body"
     },
@@ -2453,7 +2513,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L516",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": ".fmt()",
       "id": "src_providers_provider_url_providerurl_fmt"
     },
@@ -2463,7 +2523,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "display",
       "id": "display"
     },
@@ -2473,7 +2533,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L534",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "redacted_hides_userinfo_and_keeps_host()",
       "id": "src_providers_provider_url_redacted_hides_userinfo_and_keeps_host"
     },
@@ -2483,7 +2543,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L545",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "redacted_hides_all_query_values_and_keeps_names()",
       "id": "src_providers_provider_url_redacted_hides_all_query_values_and_keeps_names"
     },
@@ -2493,7 +2553,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L559",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "redacted_placeholder_is_url_safe_and_not_percent_encoded()",
       "id": "src_providers_provider_url_redacted_placeholder_is_url_safe_and_not_percent_encoded"
     },
@@ -2533,7 +2593,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L605",
       "_origin": "ast",
-      "community": 6,
+      "community": 260,
       "norm_label": "ends_with_segment_is_case_sensitive_and_ignores_a_trailing_slash()",
       "id": "src_providers_provider_url_ends_with_segment_is_case_sensitive_and_ignores_a_trailing_slash"
     },
@@ -2543,7 +2603,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L627",
       "_origin": "ast",
-      "community": 6,
+      "community": 263,
       "norm_label": "parent_climbs_one_level_and_stops_at_the_root()",
       "id": "src_providers_provider_url_parent_climbs_one_level_and_stops_at_the_root"
     },
@@ -2553,7 +2613,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L647",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "parent_keeps_the_credentials_the_query_and_the_fragment()",
       "id": "src_providers_provider_url_parent_keeps_the_credentials_the_query_and_the_fragment"
     },
@@ -2563,7 +2623,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L660",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "push_within_cap_admits_exactly_up_to_the_cap()",
       "id": "src_providers_provider_url_push_within_cap_admits_exactly_up_to_the_cap"
     },
@@ -2573,7 +2633,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L675",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "push_within_cap_rejects_one_byte_over_and_leaves_the_buffer_untouched()",
       "id": "src_providers_provider_url_push_within_cap_rejects_one_byte_over_and_leaves_the_buffer_untouched"
     },
@@ -2583,7 +2643,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L687",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "push_within_cap_rejects_a_single_oversized_chunk_from_empty()",
       "id": "src_providers_provider_url_push_within_cap_rejects_a_single_oversized_chunk_from_empty"
     },
@@ -2593,7 +2653,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L695",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "push_within_cap_admits_a_chunk_when_the_cap_is_unbounded()",
       "id": "src_providers_provider_url_push_within_cap_admits_a_chunk_when_the_cap_is_unbounded"
     },
@@ -2603,7 +2663,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L711",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "a_partial_read_stays_within_the_cap_including_its_marker()",
       "id": "src_providers_provider_url_a_partial_read_stays_within_the_cap_including_its_marker"
     },
@@ -2613,7 +2673,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L725",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "marking_a_short_text_does_not_pad_it()",
       "id": "src_providers_provider_url_marking_a_short_text_does_not_pad_it"
     },
@@ -2623,7 +2683,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L731",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "marking_never_splits_a_multibyte_character()",
       "id": "src_providers_provider_url_marking_never_splits_a_multibyte_character"
     },
@@ -2633,7 +2693,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L741",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "parse_canonicalizes_the_trailing_slash()",
       "id": "src_providers_provider_url_parse_canonicalizes_the_trailing_slash"
     },
@@ -2723,7 +2783,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L847",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "body_cap_is_bounded_below_and_above()",
       "id": "src_providers_provider_url_body_cap_is_bounded_below_and_above"
     },
@@ -2733,7 +2793,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L866",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "diagnostic_truncation_is_announced_and_utf8_safe()",
       "id": "src_providers_provider_url_diagnostic_truncation_is_announced_and_utf8_safe"
     },
@@ -2743,7 +2803,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L878",
       "_origin": "ast",
-      "community": 6,
+      "community": 70,
       "norm_label": "diagnostic_under_the_cap_is_untouched()",
       "id": "src_providers_provider_url_diagnostic_under_the_cap_is_untouched"
     },
@@ -2753,7 +2813,7 @@
       "source_file": "src/providers/provider_url.rs",
       "source_location": "L884",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "send_composes_a_redacted_error_on_connection_failure()",
       "id": "src_providers_provider_url_send_composes_a_redacted_error_on_connection_failure"
     },
@@ -2783,7 +2843,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L18",
       "_origin": "ast",
-      "community": 33,
+      "community": 228,
       "norm_label": "completionconfig",
       "id": "src_provider_completionconfig"
     },
@@ -2793,7 +2853,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 228,
       "norm_label": "default",
       "id": "default"
     },
@@ -2803,7 +2863,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L26",
       "_origin": "ast",
-      "community": 33,
+      "community": 228,
       "norm_label": ".default()",
       "id": "src_provider_completionconfig_default"
     },
@@ -2813,7 +2873,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 24,
+      "community": 228,
       "norm_label": "self",
       "id": "src_provider_rs_self"
     },
@@ -2873,7 +2933,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": "string",
       "id": "src_provider_rs_string"
     },
@@ -2923,7 +2983,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": "vec",
       "id": "src_provider_rs_vec"
     },
@@ -2933,7 +2993,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 228,
+      "community": 44,
       "norm_label": "retryclass",
       "id": "retryclass"
     },
@@ -2953,7 +3013,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L295",
       "_origin": "ast",
-      "community": 70,
+      "community": 75,
       "norm_label": ".dangerous_settings()",
       "id": "src_provider_retryconfig_dangerous_settings"
     },
@@ -3033,7 +3093,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L475",
       "_origin": "ast",
-      "community": 75,
+      "community": 183,
       "norm_label": "cause_chain()",
       "id": "src_provider_cause_chain"
     },
@@ -3043,7 +3103,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L491",
       "_origin": "ast",
-      "community": 75,
+      "community": 183,
       "norm_label": "describe_parse_error()",
       "id": "src_provider_describe_parse_error"
     },
@@ -3053,7 +3113,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L502",
       "_origin": "ast",
-      "community": 75,
+      "community": 183,
       "norm_label": "client_build_error()",
       "id": "src_provider_client_build_error"
     },
@@ -3063,7 +3123,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L515",
       "_origin": "ast",
-      "community": 75,
+      "community": 183,
       "norm_label": "to_provider_error()",
       "id": "src_provider_to_provider_error"
     },
@@ -3073,7 +3133,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L562",
       "_origin": "ast",
-      "community": 228,
+      "community": 44,
       "norm_label": "classify()",
       "id": "src_provider_classify"
     },
@@ -3163,7 +3223,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L807",
       "_origin": "ast",
-      "community": 75,
+      "community": 183,
       "norm_label": "cause_chain_skips_the_top_level_error()",
       "id": "src_provider_cause_chain_skips_the_top_level_error"
     },
@@ -3183,7 +3243,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": "atomicusize",
       "id": "atomicusize"
     },
@@ -3243,7 +3303,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L892",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": "slowfailingprovider",
       "id": "src_provider_slowfailingprovider"
     },
@@ -3253,7 +3313,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L900",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": ".new()",
       "id": "src_provider_slowfailingprovider_new"
     },
@@ -3263,7 +3323,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L908",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": ".calls()",
       "id": "src_provider_slowfailingprovider_calls"
     },
@@ -3273,7 +3333,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L911",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": ".peak_in_flight()",
       "id": "src_provider_slowfailingprovider_peak_in_flight"
     },
@@ -3293,7 +3353,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L933",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": ".name()",
       "id": "src_provider_slowfailingprovider_name"
     },
@@ -3303,7 +3363,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L936",
       "_origin": "ast",
-      "community": 228,
+      "community": 262,
       "norm_label": ".model()",
       "id": "src_provider_slowfailingprovider_model"
     },
@@ -3313,7 +3373,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L944",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": "retryafterprovider",
       "id": "src_provider_retryafterprovider"
     },
@@ -3323,7 +3383,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L951",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": ".new()",
       "id": "src_provider_retryafterprovider_new"
     },
@@ -3333,7 +3393,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L962",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": ".complete()",
       "id": "src_provider_retryafterprovider_complete"
     },
@@ -3343,7 +3403,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L979",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": ".name()",
       "id": "src_provider_retryafterprovider_name"
     },
@@ -3353,7 +3413,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L982",
       "_origin": "ast",
-      "community": 70,
+      "community": 228,
       "norm_label": ".model()",
       "id": "src_provider_retryafterprovider_model"
     },
@@ -3493,7 +3553,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1279",
       "_origin": "ast",
-      "community": 70,
+      "community": 75,
       "norm_label": "test_dangerous_config_is_announced_for_zero_base_delay()",
       "id": "src_provider_test_dangerous_config_is_announced_for_zero_base_delay"
     },
@@ -3503,7 +3563,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1292",
       "_origin": "ast",
-      "community": 70,
+      "community": 75,
       "norm_label": "test_dangerous_config_is_announced_for_zero_cap()",
       "id": "src_provider_test_dangerous_config_is_announced_for_zero_cap"
     },
@@ -3513,7 +3573,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1302",
       "_origin": "ast",
-      "community": 70,
+      "community": 75,
       "norm_label": "test_dangerous_config_is_announced_for_zero_retry_after_cap()",
       "id": "src_provider_test_dangerous_config_is_announced_for_zero_retry_after_cap"
     },
@@ -3523,7 +3583,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L1316",
       "_origin": "ast",
-      "community": 70,
+      "community": 75,
       "norm_label": "test_dangerous_config_is_announced_for_retry_after_cap_over_budget()",
       "id": "src_provider_test_dangerous_config_is_announced_for_retry_after_cap_over_budget"
     },
@@ -4373,7 +4433,7 @@
       "source_file": "src/backoff.rs",
       "source_location": "L17",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "retryafter",
       "id": "src_backoff_retryafter"
     },
@@ -4383,7 +4443,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "duration",
       "id": "src_backoff_rs_duration"
     },
@@ -4393,7 +4453,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "string",
       "id": "src_backoff_rs_string"
     },
@@ -4403,7 +4463,7 @@
       "source_file": "src/backoff.rs",
       "source_location": "L52",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "parse_retry_after()",
       "id": "src_backoff_parse_retry_after"
     },
@@ -4463,7 +4523,7 @@
       "source_file": "src/backoff.rs",
       "source_location": "L272",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "v()",
       "id": "src_backoff_v"
     },
@@ -4473,7 +4533,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "vec",
       "id": "src_backoff_rs_vec"
     },
@@ -4503,7 +4563,7 @@
       "source_file": "src/backoff.rs",
       "source_location": "L360",
       "_origin": "ast",
-      "community": 167,
+      "community": 54,
       "norm_label": "test_parse_retry_after_never_panics()",
       "id": "src_backoff_test_parse_retry_after_never_panics"
     },
@@ -7303,7 +7363,7 @@
       "source_file": "ci/fixtures/redaction/pattern2builder_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2builder_good_x"
     },
@@ -7313,7 +7373,7 @@
       "source_file": "ci/fixtures/redaction/pattern2builder_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": ".build()",
       "id": "ci_fixtures_redaction_pattern2builder_good_x_build"
     },
@@ -7413,7 +7473,7 @@
       "source_file": "ci/fixtures/redaction/pattern2request_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2request_good_x"
     },
@@ -7423,7 +7483,7 @@
       "source_file": "ci/fixtures/redaction/pattern2request_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 6,
+      "community": 167,
       "norm_label": ".request()",
       "id": "ci_fixtures_redaction_pattern2request_good_x_request"
     },
@@ -7523,7 +7583,7 @@
       "source_file": "ci/fixtures/redaction/pattern2response_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2response_good_x"
     },
@@ -7533,7 +7593,7 @@
       "source_file": "ci/fixtures/redaction/pattern2response_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 6,
+      "community": 104,
       "norm_label": ".recv()",
       "id": "ci_fixtures_redaction_pattern2response_good_x_recv"
     },
@@ -7633,7 +7693,7 @@
       "source_file": "ci/fixtures/redaction/pattern2url_good.rs",
       "source_location": "L4",
       "_origin": "ast",
-      "community": 6,
+      "community": 264,
       "norm_label": "x",
       "id": "ci_fixtures_redaction_pattern2url_good_x"
     },
@@ -7643,7 +7703,7 @@
       "source_file": "ci/fixtures/redaction/pattern2url_good.rs",
       "source_location": "L5",
       "_origin": "ast",
-      "community": 6,
+      "community": 264,
       "norm_label": ".send()",
       "id": "ci_fixtures_redaction_pattern2url_good_x_send"
     },
@@ -7653,7 +7713,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 264,
       "norm_label": "result",
       "id": "ci_fixtures_redaction_pattern2url_good_rs_result"
     },
@@ -7663,7 +7723,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 6,
+      "community": 264,
       "norm_label": "providererror",
       "id": "ci_fixtures_redaction_pattern2url_good_rs_providererror"
     },
@@ -11211,7 +11271,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "external_provider.rs",
       "id": "examples_external_provider"
     },
@@ -11221,7 +11281,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L25",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "mybackend",
       "id": "examples_external_provider_mybackend"
     },
@@ -11231,7 +11291,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L29",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": ".complete()",
       "id": "examples_external_provider_mybackend_complete"
     },
@@ -11241,7 +11301,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "result",
       "id": "examples_external_provider_rs_result"
     },
@@ -11251,7 +11311,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "string",
       "id": "examples_external_provider_rs_string"
     },
@@ -11261,7 +11321,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "providererror",
       "id": "examples_external_provider_rs_providererror"
     },
@@ -11271,7 +11331,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L48",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": ".name()",
       "id": "examples_external_provider_mybackend_name"
     },
@@ -11281,7 +11341,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L52",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": ".model()",
       "id": "examples_external_provider_mybackend_model"
     },
@@ -11291,7 +11351,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L63",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "describe()",
       "id": "examples_external_provider_describe"
     },
@@ -11301,7 +11361,7 @@
       "source_file": "examples/external_provider.rs",
       "source_location": "L72",
       "_origin": "ast",
-      "community": 33,
+      "community": 261,
       "norm_label": "main()",
       "id": "examples_external_provider_main"
     },
@@ -11891,7 +11951,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L33",
       "_origin": "ast",
-      "community": 2,
+      "community": 1,
       "norm_label": "consensusresult",
       "id": "src_consensus_consensusresult"
     },
@@ -11951,7 +12011,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L92",
       "_origin": "ast",
-      "community": 2,
+      "community": 1,
       "norm_label": "dissent",
       "id": "src_consensus_dissent"
     },
@@ -11961,7 +12021,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L109",
       "_origin": "ast",
-      "community": 2,
+      "community": 1,
       "norm_label": "condition",
       "id": "src_consensus_condition"
     },
@@ -21491,7 +21551,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L185",
+      "source_location": "L193",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_fixture_meta",
@@ -21501,7 +21561,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L113",
+      "source_location": "L114",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_prod_only",
@@ -21521,7 +21581,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L187",
+      "source_location": "L195",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_self_test",
@@ -21541,7 +21601,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L167",
+      "source_location": "L175",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_skeleton",
@@ -21562,7 +21622,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L265",
+      "source_location": "L273",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -21573,7 +21633,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L252",
+      "source_location": "L260",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -21584,11 +21644,152 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L213",
+      "source_location": "L221",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_self_test",
       "target": "ci_check_redaction_skeleton",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_bad.rs",
+      "source_location": "L8",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_pattern5featurename_bad",
+      "target": "ci_fixtures_redaction_pattern5featurename_bad_leaky",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_bad.rs",
+      "source_location": "L8",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "ci_fixtures_redaction_pattern5featurename_bad_leaky",
+      "target": "ci_fixtures_redaction_pattern5featurename_bad_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_bad.rs",
+      "source_location": "L8",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "ci_fixtures_redaction_pattern5featurename_bad_leaky",
+      "target": "error",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5nottest_bad.rs",
+      "source_location": "L7",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "ci_fixtures_redaction_pattern5nottest_bad_leaky",
+      "target": "error"
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "src/orchestrator.rs",
+      "source_location": "L14",
+      "weight": 1.0,
+      "context": "import",
+      "confidence_score": 1.0,
+      "source": "src_orchestrator",
+      "target": "error"
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "src/provider.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "import",
+      "confidence_score": 1.0,
+      "source": "src_provider",
+      "target": "error"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/provider.rs",
+      "source_location": "L475",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_provider_cause_chain",
+      "target": "error"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/provider.rs",
+      "source_location": "L502",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_provider_client_build_error",
+      "target": "error"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/provider.rs",
+      "source_location": "L491",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_provider_describe_parse_error",
+      "target": "error"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/provider.rs",
+      "source_location": "L515",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_provider_to_provider_error",
+      "target": "error"
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "src/test_support.rs",
+      "source_location": "L20",
+      "weight": 1.0,
+      "context": "import",
+      "confidence_score": 1.0,
+      "source": "src_test_support",
+      "target": "error"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_good.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_pattern5featurename_good",
+      "target": "ci_fixtures_redaction_pattern5featurename_good_described",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern5featurename_good.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "ci_fixtures_redaction_pattern5featurename_good_described",
+      "target": "ci_fixtures_redaction_pattern5featurename_good_rs_string",
       "confidence_score": 1.0
     },
     {
@@ -21598,9 +21799,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "context": "import",
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tcplistener",
-      "confidence_score": 1.0
+      "target": "tcplistener"
     },
     {
       "relation": "contains",
@@ -21608,9 +21809,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L75",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_accept_one",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_accept_one"
     },
     {
       "relation": "contains",
@@ -21618,9 +21819,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L63",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_bind_loopback",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_bind_loopback"
     },
     {
       "relation": "contains",
@@ -21628,9 +21829,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L56",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_ends_header",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_ends_header"
     },
     {
       "relation": "contains",
@@ -21638,9 +21839,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L114",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod",
-      "target": "tests_common_mod_hang_up",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_hang_up"
     },
     {
       "relation": "calls",
@@ -21649,9 +21850,9 @@
       "source_file": "tests/common/mod.rs",
       "source_location": "L91",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tests_common_mod_ends_header",
-      "confidence_score": 1.0
+      "target": "tests_common_mod_ends_header"
     },
     {
       "relation": "references",
@@ -21660,9 +21861,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_bind_loopback",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -21671,9 +21872,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_bind_loopback",
-      "target": "tcplistener",
-      "confidence_score": 1.0
+      "target": "tcplistener"
     },
     {
       "relation": "imports_from",
@@ -21693,9 +21894,9 @@
       "source_location": "L75",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tcplistener",
-      "confidence_score": 1.0
+      "target": "tcplistener"
     },
     {
       "relation": "imports_from",
@@ -21726,9 +21927,9 @@
       "source_location": "L75",
       "weight": 1.0,
       "context": "generic_arg",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -21770,9 +21971,9 @@
       "source_location": "L75",
       "weight": 1.0,
       "context": "return_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -21781,9 +21982,9 @@
       "source_location": "L75",
       "weight": 1.0,
       "context": "generic_arg",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_accept_one",
-      "target": "tcpstream",
-      "confidence_score": 1.0
+      "target": "tcpstream"
     },
     {
       "relation": "calls",
@@ -21891,9 +22092,9 @@
       "source_location": "L114",
       "weight": 1.0,
       "context": "parameter_type",
+      "confidence_score": 1.0,
       "source": "tests_common_mod_hang_up",
-      "target": "tcpstream",
-      "confidence_score": 1.0
+      "target": "tcpstream"
     },
     {
       "relation": "calls",
@@ -21957,94 +22158,6 @@
       "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern5nottest_bad_leaky",
       "target": "ci_fixtures_redaction_pattern5nottest_bad_rs_string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/fixtures/redaction/pattern5nottest_bad.rs",
-      "source_location": "L7",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "ci_fixtures_redaction_pattern5nottest_bad_leaky",
-      "target": "error"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "src/orchestrator.rs",
-      "source_location": "L14",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "src_orchestrator",
-      "target": "error"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "src/provider.rs",
-      "source_location": "L6",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "src_provider",
-      "target": "error"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/provider.rs",
-      "source_location": "L475",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_provider_cause_chain",
-      "target": "error"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/provider.rs",
-      "source_location": "L502",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_provider_client_build_error",
-      "target": "error"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/provider.rs",
-      "source_location": "L491",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_provider_describe_parse_error",
-      "target": "error"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/provider.rs",
-      "source_location": "L515",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_provider_to_provider_error",
-      "target": "error"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "src/test_support.rs",
-      "source_location": "L20",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "src_test_support",
-      "target": "error"
     },
     {
       "relation": "contains",
@@ -70637,5 +70750,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "99eb34bd34ee22f7dc9614dea8fe1b547bad25e7"
+  "built_at_commit": "e61a602aab3fd11ee8039e304205746f0f704da6"
 }

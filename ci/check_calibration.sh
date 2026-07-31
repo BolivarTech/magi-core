@@ -50,7 +50,12 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 # (`qwen3.5:397b`, `gpt-oss:120b`, `nemotron-3-super`). Without that requirement the count picked up
 # ordinary code identifiers from the same rustdoc — `max_tokens`, the constant's own name — so a
 # block naming ONE model could pass a floor of three. It counted backticks, not evidence.
-models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l)"
+# The `|| true` is load-bearing under `pipefail`: with no matches a grep exits non-zero and takes
+# the whole script with it, so a rustdoc block naming ZERO models died here instead of reaching the
+# message written for exactly that case. The seal would then have failed for the right reason with
+# the wrong explanation — and an unexplained failure is how a check gets deleted.
+models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l || true)"
+models="${models:-0}"
 [ "$models" -ge "$MIN_MODELS" ] \
     || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest"
 

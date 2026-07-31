@@ -258,5 +258,11 @@
   "256": "pattern5attrgap_good.rs",
   "257": "pattern1sigilbare_good.rs",
   "258": "String",
-  "259": "TcpListener"
+  "259": "TcpListener",
+  "260": "ProviderUrl",
+  "261": ".complete",
+  "262": "SlowFailingProvider",
+  "263": "Self",
+  "264": ".send",
+  "265": "described"
 }
