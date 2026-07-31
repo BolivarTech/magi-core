@@ -1,16 +1,16 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 107 files · ~128,376 words
+- 109 files · ~128,542 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2080 nodes · 4565 edges · 250 communities (138 shown, 112 thin omitted)
+- 2084 nodes · 4567 edges · 251 communities (139 shown, 112 thin omitted)
 - Extraction: 100% EXTRACTED · 0% INFERRED · 0% AMBIGUOUS · INFERRED: 22 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e9633316`
+- Built from commit: `4e4fe03c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -261,7 +261,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (250 total, 112 thin omitted)
+## Communities (251 total, 112 thin omitted)
 
 ### Community 0 - "orchestrator.rs"
 Cohesion: 0.06
@@ -680,7 +680,7 @@ Cohesion: 0.42
 Nodes (9): TcpListener, a_client_configured_the_way_this_crate_does_it_leaks_nothing(), authorization_is_stripped_across_origins(), authorization_survives_a_same_origin_redirect(), redirect_to(), Option, String, serve_once() (+1 more)
 
 ### Community 239 - "mock_server.rs"
-Cohesion: 0.31
+Cohesion: 0.19
 Nodes (4): JoinHandle, String, spawn_429_with_retry_after(), spawn_hanging_headers()
 
 ### Community 246 - "FieldWriter"
@@ -696,11 +696,11 @@ Nodes (4): Field, FieldWriter, Debug, Visit
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Finding`, `RoutingMockProvider`, `7. Design Philosophy`, `Duration`, `error.rs`, `.new`, `MockProvider`, `FallbackPool`, `.complete`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`, `LlmProvider`, `String`?**
-  _High betweenness centrality (0.084) - this node is a cross-community bridge._
+  _High betweenness centrality (0.090) - this node is a cross-community bridge._
 - **Why does `OpenAiCompatibleProvider` connect `Instant` to `[0.3.0] - 2026-04-18`, `compose_transport_message`?**
-  _High betweenness centrality (0.068) - this node is a cross-community bridge._
-- **Why does `RetryClass` connect `backoff.rs` to `prelude.rs`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+  _High betweenness centrality (0.070) - this node is a cross-community bridge._
+- **Why does `ProviderUrl` connect `compose_transport_message` to `ClaudeProvider`, `bytes`, `make_output`, `.complete`?**
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `ProviderError`, `ProviderError`, `P` to the rest of the system?**
   _199 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**

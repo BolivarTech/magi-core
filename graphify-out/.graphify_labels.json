@@ -248,5 +248,6 @@
   "246": "FieldWriter",
   "247": "retry_after_integration.rs",
   "248": "pattern1pretty_bad.rs",
-  "249": "pattern1pretty_good.rs"
+  "249": "pattern1pretty_good.rs",
+  "250": "pattern7comment_good.rs"
 }

@@ -187,10 +187,13 @@ self_test() {
 
 [ "${1:-}" = "--self-test" ] && self_test
 
-# 1 — error interpolation, in its three syntaxes: Display, Debug, and tracing sigils.
-#     Three syntaxes for one operation is why the positive rule below matters more than this list.
+# 1 — error interpolation, in its FOUR syntaxes: named Display, named Debug (plain and pretty),
+#     the tracing sigils, and POSITIONAL — `format!("failed: {}", e)`, which is the form most
+#     people reach for first and which the named-capture pattern never saw. Four spellings for one
+#     operation is why the structural rules (1c, 1d) matter more than this list: they make the
+#     shared mapper the only way to build a transport error at all, whatever the spelling.
 for f in $(provider_files); do
-    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b'; then
+    if prod_only "$f" | grep -nE '\{(e|err|error|source)(:#?\?)?\}|\b(e|err|error|source)\.to_string\(\)|= *[%?](e|err|error|source)\b|\{[0-9]*(:#?\?)?\}[^"]*",[[:space:]]*&?(e|err|error|source)[,)[:space:]]'; then
         fail "raw error interpolation in $f (compose from a redacted URL instead)"
     fi
 done

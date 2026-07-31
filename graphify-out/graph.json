@@ -4,48 +4,6 @@
   "graph": {},
   "nodes": [
     {
-      "label": "check_calibration.sh",
-      "file_type": "code",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "file"
-      },
-      "_origin": "ast",
-      "id": "ci_check_calibration",
-      "community": 139,
-      "norm_label": "check_calibration.sh"
-    },
-    {
-      "label": "check_calibration.sh script",
-      "file_type": "code",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_entrypoint"
-      },
-      "_origin": "ast",
-      "id": "ci_check_calibration_sh__entry",
-      "community": 139,
-      "norm_label": "check_calibration.sh script"
-    },
-    {
-      "label": "fail()",
-      "file_type": "code",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L22",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "id": "ci_check_calibration_fail",
-      "community": 139,
-      "norm_label": "fail()"
-    },
-    {
       "label": "check_redaction.sh",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
@@ -105,7 +63,7 @@
       "label": "prod_only()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L79",
+      "source_location": "L85",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -119,7 +77,7 @@
       "label": "skeleton()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L97",
+      "source_location": "L103",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -133,7 +91,7 @@
       "label": "fixture_meta()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L115",
+      "source_location": "L121",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -147,7 +105,7 @@
       "label": "self_test()",
       "file_type": "code",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L117",
+      "source_location": "L123",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
@@ -158,14 +116,96 @@
       "norm_label": "self_test()"
     },
     {
+      "label": "pattern7comment_bad.rs",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern7comment_bad.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern7comment_bad",
+      "community": 247,
+      "norm_label": "pattern7comment_bad.rs"
+    },
+    {
+      "label": "f()",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern7comment_bad.rs",
+      "source_location": "L6",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern7comment_bad_f",
+      "community": 247,
+      "norm_label": "f()"
+    },
+    {
+      "label": "pattern7comment_good.rs",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern7comment_good.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern7comment_good",
+      "community": 250,
+      "norm_label": "pattern7comment_good.rs"
+    },
+    {
+      "label": "f()",
+      "file_type": "code",
+      "source_file": "ci/fixtures/redaction/pattern7comment_good.rs",
+      "source_location": "L3",
+      "_origin": "ast",
+      "id": "ci_fixtures_redaction_pattern7comment_good_f",
+      "community": 250,
+      "norm_label": "f()"
+    },
+    {
+      "label": "check_calibration.sh",
+      "file_type": "code",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "_origin": "ast",
+      "community": 139,
+      "norm_label": "check_calibration.sh",
+      "id": "ci_check_calibration"
+    },
+    {
+      "label": "check_calibration.sh script",
+      "file_type": "code",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "_origin": "ast",
+      "community": 139,
+      "norm_label": "check_calibration.sh script",
+      "id": "ci_check_calibration_sh__entry"
+    },
+    {
+      "label": "fail()",
+      "file_type": "code",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L22",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "community": 139,
+      "norm_label": "fail()",
+      "id": "ci_check_calibration_fail"
+    },
+    {
       "label": "pattern1pretty_bad.rs",
       "file_type": "code",
       "source_file": "ci/fixtures/redaction/pattern1pretty_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern1pretty_bad",
       "community": 248,
-      "norm_label": "pattern1pretty_bad.rs"
+      "norm_label": "pattern1pretty_bad.rs",
+      "id": "ci_fixtures_redaction_pattern1pretty_bad"
     },
     {
       "label": "f()",
@@ -173,9 +213,9 @@
       "source_file": "ci/fixtures/redaction/pattern1pretty_bad.rs",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern1pretty_bad_f",
       "community": 248,
-      "norm_label": "f()"
+      "norm_label": "f()",
+      "id": "ci_fixtures_redaction_pattern1pretty_bad_f"
     },
     {
       "label": "pattern1pretty_good.rs",
@@ -183,9 +223,9 @@
       "source_file": "ci/fixtures/redaction/pattern1pretty_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern1pretty_good",
       "community": 249,
-      "norm_label": "pattern1pretty_good.rs"
+      "norm_label": "pattern1pretty_good.rs",
+      "id": "ci_fixtures_redaction_pattern1pretty_good"
     },
     {
       "label": "f()",
@@ -193,9 +233,9 @@
       "source_file": "ci/fixtures/redaction/pattern1pretty_good.rs",
       "source_location": "L3",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern1pretty_good_f",
       "community": 249,
-      "norm_label": "f()"
+      "norm_label": "f()",
+      "id": "ci_fixtures_redaction_pattern1pretty_good_f"
     },
     {
       "label": "pattern7missing_bad.rs",
@@ -19251,7 +19291,7 @@
       "source_file": "tests/retry_after_integration.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 247,
+      "community": 239,
       "norm_label": "retry_after_integration.rs",
       "id": "tests_retry_after_integration"
     },
@@ -19261,7 +19301,7 @@
       "source_file": "tests/retry_after_integration.rs",
       "source_location": "L19",
       "_origin": "ast",
-      "community": 247,
+      "community": 239,
       "norm_label": "test_real_429_with_header_waits_what_the_server_asked()",
       "id": "tests_retry_after_integration_test_real_429_with_header_waits_what_the_server_asked"
     },
@@ -19271,7 +19311,7 @@
       "source_file": "tests/retry_after_integration.rs",
       "source_location": "L50",
       "_origin": "ast",
-      "community": 247,
+      "community": 239,
       "norm_label": "test_unintelligible_header_abandons_end_to_end()",
       "id": "tests_retry_after_integration_test_unintelligible_header_abandons_end_to_end"
     },
@@ -19281,7 +19321,7 @@
       "source_file": "tests/retry_after_integration.rs",
       "source_location": "L77",
       "_origin": "ast",
-      "community": 247,
+      "community": 239,
       "norm_label": "test_retry_after_zero_falls_back_to_jittered_formula()",
       "id": "tests_retry_after_integration_test_retry_after_zero_falls_back_to_jittered_formula"
     },
@@ -20860,37 +20900,6 @@
     {
       "relation": "defines",
       "confidence": "EXTRACTED",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L22",
-      "weight": 1.0,
-      "source": "ci_check_calibration",
-      "target": "ci_check_calibration_fail",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "ci_check_calibration",
-      "target": "ci_check_calibration_sh__entry",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/check_calibration.sh",
-      "source_location": "L24",
-      "weight": 1.0,
-      "context": "call",
-      "source": "ci_check_calibration_sh__entry",
-      "target": "ci_check_calibration_fail",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
       "source_location": "L40",
       "weight": 1.0,
@@ -20902,7 +20911,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L115",
+      "source_location": "L121",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_fixture_meta",
@@ -20912,7 +20921,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L79",
+      "source_location": "L85",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_prod_only",
@@ -20932,7 +20941,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L117",
+      "source_location": "L123",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_self_test",
@@ -20952,7 +20961,7 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L97",
+      "source_location": "L103",
       "weight": 1.0,
       "source": "ci_check_redaction",
       "target": "ci_check_redaction_skeleton",
@@ -20962,7 +20971,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L188",
+      "source_location": "L194",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -20973,7 +20982,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L187",
+      "source_location": "L193",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -20984,7 +20993,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L182",
+      "source_location": "L188",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_sh__entry",
@@ -20995,7 +21004,7 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_redaction.sh",
-      "source_location": "L143",
+      "source_location": "L149",
       "weight": 1.0,
       "context": "call",
       "source": "ci_check_redaction_self_test",
@@ -21005,12 +21014,63 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern7comment_bad.rs",
+      "source_location": "L6",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_pattern7comment_bad",
+      "target": "ci_fixtures_redaction_pattern7comment_bad_f",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/fixtures/redaction/pattern7comment_good.rs",
+      "source_location": "L3",
+      "weight": 1.0,
+      "source": "ci_fixtures_redaction_pattern7comment_good",
+      "target": "ci_fixtures_redaction_pattern7comment_good_f",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L22",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "ci_check_calibration",
+      "target": "ci_check_calibration_fail"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L1",
+      "weight": 1.0,
+      "confidence_score": 1.0,
+      "source": "ci_check_calibration",
+      "target": "ci_check_calibration_sh__entry"
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/check_calibration.sh",
+      "source_location": "L24",
+      "weight": 1.0,
+      "context": "call",
+      "confidence_score": 1.0,
+      "source": "ci_check_calibration_sh__entry",
+      "target": "ci_check_calibration_fail"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
       "source_file": "ci/fixtures/redaction/pattern1pretty_bad.rs",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern1pretty_bad",
-      "target": "ci_fixtures_redaction_pattern1pretty_bad_f",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern1pretty_bad_f"
     },
     {
       "relation": "contains",
@@ -21018,9 +21078,9 @@
       "source_file": "ci/fixtures/redaction/pattern1pretty_good.rs",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern1pretty_good",
-      "target": "ci_fixtures_redaction_pattern1pretty_good_f",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern1pretty_good_f"
     },
     {
       "relation": "contains",
@@ -69442,5 +69502,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "e96333168a354c41cc6acb08a4c3993bbbcbef61"
+  "built_at_commit": "4e4fe03c8798e8631605a5260bde0ee862707b8d"
 }
