@@ -1412,6 +1412,11 @@ fn default_rotations(
 /// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
 ///. Not precise budgeting — the crate is char-based and adds no tokenizer
 /// dependency; this only rejects candidates smaller than the raw prompt needs.
+///
+/// Deliberately SEPARATE from the report's byte-based divisor, despite both being 4 today. This
+/// one counts characters and rounds up, because a pre-filter that under-estimates would admit a
+/// candidate whose window cannot hold the prompt; that one counts bytes and rounds down, because
+/// telemetry must not overstate. Unifying them would force one of the two to round the wrong way.
 const CHARS_PER_TOKEN_EST: usize = 4;
 
 /// Collects the preflight probe targets: each probing PRIMARY (paired with its
@@ -1625,13 +1630,16 @@ async fn attempt_model(
 
 /// Maps a surfaced [`ProviderError`] to a [`ModelOutcome`].
 ///
-/// # Why one variant is singled out
+/// # Why two variants are singled out
+///
+/// Both are failures this crate must not let condemn a lineage **run-wide** — taking it away from
+/// the other two seats over what one seat observed — and, for a connection-class error, feed the
+/// endpoint-down latch. Each gets its own outcome so the consequence is decided here rather than
+/// inherited.
 ///
 /// An oversized body is a **content** failure, not a transport one: the server answered perfectly,
-/// it answered too much. Routing it through `Transport` would condemn the lineage **run-wide** —
-/// taking it away from the other two seats over what one seat observed — and, for a connection-class
-/// error, feed the endpoint-down latch. It gets its own outcome so the consequence is decided here
-/// rather than inherited.
+/// it answered too much. An external failure is a report from a backend this crate did not write,
+/// so it cannot say anything about the lineages the other seats are using.
 fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
     // EXHAUSTIVE, with no catch-all, and that is the whole point of the shape. An `if let` chain
     // ending in a fallthrough sent every unrecognised variant to `Transport` — which is run-wide
@@ -2196,6 +2204,20 @@ mod input_threshold_tests {
         // leaves the knob mute. Both sides of the boundary are asserted, so a future
         // simplification that drops the `+ 1` fails here rather than going quiet.
         let smallest_warning_input = TOKENS_PER_BYTE_DIVISOR * (100 + 1);
+
+        // The predicate INVERTS the estimator's formula, and nothing in the type system ties the
+        // two together: change `estimate_tokens` and this arithmetic quietly becomes wrong while
+        // still compiling. So the inversion is checked against the estimator itself, not assumed.
+        // A different formula fails here, next to the code that depends on it.
+        assert!(
+            estimate_tokens(&"x".repeat(smallest_warning_input)) > 100,
+            "the estimator must warn at the size the predicate calls the smallest warning input"
+        );
+        assert!(
+            estimate_tokens(&"x".repeat(smallest_warning_input - 1)) <= 100,
+            "and must not warn one byte below it, or the predicate is off by more than it thinks"
+        );
+
         for (limit, unreachable) in [
             (smallest_warning_input - 1, true),
             (smallest_warning_input, false),
