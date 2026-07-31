@@ -25,6 +25,15 @@
 //!
 //! Path and fragment are **out of scope**: no known LLM API authenticates there, and redacting the
 //! path would destroy the only diagnostic the message carries.
+//!
+//! # Two things reviewers keep flagging here, both verified and both fine
+//!
+//! * **`let`-chains and `floor_char_boundary`** need Rust 1.88 and 1.91 respectively. The crate's
+//!   `rust-version` is **1.91**, so both are within the declared floor rather than ahead of it.
+//! * **The transport-error rules are gated on `any(claude-api, openai-compat)`**, which looks like
+//!   it omits Ollama. It does not: `ollama = ["openai-compat"]`, so enabling Ollama enables the
+//!   gate. `cargo clippy --all-targets --features ollama` is clean, which is the empirical form of
+//!   the same statement.
 
 use std::fmt;
 
@@ -667,9 +676,16 @@ mod tests {
     }
 
     #[test]
-    fn push_within_cap_treats_an_overflowing_sum_as_over_cap() {
-        // `acc.len() + chunk.len()` cannot overflow with real buffers, but the guard decides the
-        // ANSWER when it would, and it must be "over cap". This pins the direction.
+    fn push_within_cap_admits_a_chunk_when_the_cap_is_unbounded() {
+        // Named for what it actually checks. An earlier version of this test claimed to exercise
+        // the `checked_add` overflow guard and then asserted the opposite of what it observed —
+        // the name said "over cap", the assertion said it fits, and the assertion was right.
+        //
+        // The overflow branch is **unreachable with real buffers**: it would need `acc` and
+        // `chunk` to sum past `usize::MAX`, which no allocation can reach. It stays because it
+        // decides the ANSWER if it ever could — over cap, never under — and because saturating
+        // there would silently say "fits", which is the wrong direction for a bound. That is a
+        // property of the code, not something a test can demonstrate, so no test pretends to.
         let mut acc = Vec::new();
         assert!(push_within_cap(&mut acc, b"x", usize::MAX));
         assert_eq!(acc, b"x");
