@@ -321,4 +321,20 @@ async fn an_oversized_response_is_mage_local_and_the_run_completes() {
         caspar.chain[0].detail()
     );
     assert!(!report.degraded, "all three seats produced a verdict");
+
+    // The mage-local half, asserted rather than left to the test's name: the OTHER two seats never
+    // rotated, so the failure stayed with the seat that saw it. Without this the name promised
+    // more than the body checked.
+    for seat in [AgentName::Melchior, AgentName::Balthasar] {
+        let other = &report.rotations[&seat];
+        assert!(
+            other.chain.is_empty(),
+            "{seat:?} must be untouched by another seat's oversized response: {:?}",
+            other.chain
+        );
+        assert_eq!(
+            other.model_used, other.model_configured,
+            "{seat:?} kept the model it was configured with"
+        );
+    }
 }

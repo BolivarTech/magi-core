@@ -43,7 +43,16 @@ provider_files() {
 # together. The mirror error was equally real: `#[cfg(all(test, feature = "ollama"))]` did not match
 # at all, so that file's entire test module was scanned as production. The split was correct by
 # luck in one file and by construction in none.
-prod_only() { awk '/^#\[cfg\((all\()?[[:space:]]*test/ { exit } { print }' "$1"; }
+#
+# Cuts at the LAST such attribute, not the first. Cutting at the first still let a column-0
+# `#[cfg(test)] use serial_test::serial;` near the top of a file — idiomatic, and this crate uses
+# `serial_test` — blind every rule for everything below it. Only the terminal test module should
+# be excluded, and the terminal one is the last.
+prod_only() {
+    local n
+    n="$(grep -n '^#\[cfg(\(all(\)\?[[:space:]]*test' "$1" | tail -1 | cut -d: -f1)"
+    if [ -n "$n" ]; then head -n "$((n - 1))" "$1"; else cat "$1"; fi
+}
 
 # Builds a minimal tree that passes EVERY check, so a fixture placed into it is the only thing
 # that can make the run fail.
@@ -201,13 +210,23 @@ fi
 
 # 5 — the compiler-forces-a-decision invariant stays on: no catch-all inside the outcome match.
 #     A line-wise grep cannot express "inside a block", so this walks it.
+#
+# THROUGH `prod_only`, like every other file-scoped rule. This one alone scanned the whole file,
+# which nobody noticed until a test legitimately matched on an outcome and had every right to a
+# catch-all: a test asserting "this is NOT the Transport arm" must be able to say `_ => panic!`.
+# The rule is about production dispatch, not about how tests read the enum.
+#
+# The terminator accepts BOTH closing forms. `};` alone matches only the
+# `let (a, b) = match outcome { … };` shape; a `match outcome { … }` used as a statement closes
+# with a bare `}`, so `inblock` was never cleared and leaked to end of file — every later `_ =>`
+# in the file would have been blamed on a match it has nothing to do with.
 if [ -f "$SRC/orchestrator.rs" ]; then
-    awk '
-      /match outcome \{/                        { inblock = 1; next }
-      inblock && /^[[:space:]]*\};/             { inblock = 0 }
-      inblock && /^[[:space:]]*_[[:space:]]*=>/ { print "catch-all arm at line " NR; bad = 1 }
+    prod_only "$SRC/orchestrator.rs" | awk '
+      /match outcome \{/                          { inblock = 1; next }
+      inblock && /^[[:space:]]*\}[;]?[[:space:]]*$/ { inblock = 0 }
+      inblock && /^[[:space:]]*_[[:space:]]*=>/   { print "catch-all arm at line " NR; bad = 1 }
       END { exit bad ? 1 : 0 }
-    ' "$SRC/orchestrator.rs" || fail "a catch-all arm would silence the outcome decision"
+    ' || fail "a catch-all arm would silence the outcome decision"
 fi
 
 # 6 — no provider stores the URL as a String: the invariant behind "the secret is not a String".

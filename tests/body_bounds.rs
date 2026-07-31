@@ -45,11 +45,34 @@ const VERDICT_CAP: usize = 1 << 20;
 /// The diagnostic prefix cap — far smaller, because an error body is read by a human.
 const DIAGNOSTIC_CAP: usize = 8 * 1024;
 
+/// How the body is framed, which decides WHICH branch of the reader runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Framing {
+    /// `Content-Length`. The probe reader short-circuits on this before reading a byte.
+    Length,
+    /// `Transfer-Encoding: chunked`. No length is known up front, so the reader has to accumulate
+    /// and hit the cap mid-stream — the branch a `Content-Length` test never reaches.
+    ///
+    /// Gated with the tests that use it: the probe reader is the only one with a `Content-Length`
+    /// short-circuit to bypass, and it ships with the Ollama provider.
+    #[cfg(feature = "ollama")]
+    Chunked,
+}
+
 /// Serves ONE request with `status` and a body of `body_len` bytes, then hangs up cleanly.
 ///
 /// Returns the address to point a client at, and a handle that must be joined so a server-side
 /// failure surfaces instead of being swallowed.
 fn serve_one_body(status: &str, body_len: usize) -> (String, std::thread::JoinHandle<()>) {
+    serve_framed(status, vec![b'x'; body_len], Framing::Length)
+}
+
+fn serve_framed(
+    status: &str,
+    body: Vec<u8>,
+    framing: Framing,
+) -> (String, std::thread::JoinHandle<()>) {
+    let body_len = body.len();
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().expect("addr").to_string();
     let status = status.to_string();
@@ -69,12 +92,41 @@ fn serve_one_body(status: &str, body_len: usize) -> (String, std::thread::JoinHa
                     let mut buf = [0u8; 4096];
                     let _ = stream.read(&mut buf);
 
+                    let framing_header = match framing {
+                        Framing::Length => format!("Content-Length: {body_len}\r\n"),
+                        #[cfg(feature = "ollama")]
+                        Framing::Chunked => "Transfer-Encoding: chunked\r\n".to_string(),
+                    };
                     let head = format!(
                         "HTTP/1.1 {status}\r\nContent-Type: application/json\r\n\
-                         Content-Length: {body_len}\r\nConnection: close\r\n\r\n"
+                         {framing_header}Connection: close\r\n\r\n"
                     );
                     if stream.write_all(head.as_bytes()).is_ok() {
-                        let _ = stream.write_all(&vec![b'x'; body_len]);
+                        match framing {
+                            Framing::Length => {
+                                let _ = stream.write_all(&body);
+                            }
+                            #[cfg(feature = "ollama")]
+                            Framing::Chunked => {
+                                // Several chunks, so the cap is crossed part-way through the
+                                // stream rather than on the very first read.
+                                let chunk = 64 * 1024;
+                                let mut sent = 0;
+                                while sent < body_len {
+                                    let n = chunk.min(body_len - sent);
+                                    let ok = stream
+                                        .write_all(format!("{n:x}\r\n").as_bytes())
+                                        .and_then(|_| stream.write_all(&body[sent..sent + n]))
+                                        .and_then(|_| stream.write_all(b"\r\n"))
+                                        .is_ok();
+                                    if !ok {
+                                        break;
+                                    }
+                                    sent += n;
+                                }
+                                let _ = stream.write_all(b"0\r\n\r\n");
+                            }
+                        }
                     }
                     let _ = stream.flush();
 
@@ -196,5 +248,65 @@ async fn a_probe_body_over_the_cap_degrades_instead_of_failing() {
     assert!(
         matches!(window, Ok(None)),
         "an over-cap probe body degrades to `None`, it does not error: {window:?}"
+    );
+}
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn a_chunked_probe_body_degrades_from_the_streaming_branch() {
+    // The sibling above is answered with `Content-Length`, so the reader rejects it before reading
+    // a byte — the early check, not the accumulation loop. Without a length the reader has to
+    // stream and notice the cap mid-body, which is the branch that actually bounds memory.
+    //
+    // The body is VALID, oversized JSON, and that is what makes this test discriminating. With a
+    // junk body both outcomes look the same: over-cap degrades to `None`, and so does a body that
+    // parsed to nothing. A first version of this test used junk and passed with the streaming
+    // branch deliberately broken — the exact "green for the wrong reason" it was written against.
+    // Parse it and the window is `Some(4096)`; bound it and it is `None`.
+    use magi_core::rotation::ProviderProbe;
+
+    let mut body = br#"{"model_info":{"llama.context_length":4096},"pad":""#.to_vec();
+    body.resize(VERDICT_CAP + 1 - 2, b'p');
+    body.extend_from_slice(br#""}"#);
+    assert_eq!(body.len(), VERDICT_CAP + 1, "the body must exceed the cap");
+    assert!(
+        serde_json::from_slice::<serde_json::Value>(&body).is_ok(),
+        "and it must be parseable, or this test cannot tell the two outcomes apart"
+    );
+
+    let (addr, server) = serve_framed("200 OK", body, Framing::Chunked);
+    let provider = magi_core::providers::ollama::OllamaProvider::new(format!("http://{addr}"), "m")
+        .expect("constructs");
+
+    let window = provider.window().await;
+    server.join().expect("server thread");
+
+    assert!(
+        matches!(window, Ok(None)),
+        "the streaming branch must bound the body — a window here means it was read whole: {window:?}"
+    );
+}
+
+#[cfg(feature = "ollama")]
+#[tokio::test]
+async fn a_chunked_probe_body_under_the_cap_is_read_and_parsed() {
+    // The positive half of the pair, and what makes the negative half mean something. On its own,
+    // "over-cap chunked gives None" is satisfied by a reader that fails on ALL chunked responses.
+    // This shows the same framing parses fine when it fits, so the `None` above is the cap talking
+    // and not the transfer encoding.
+    use magi_core::rotation::ProviderProbe;
+
+    let body = br#"{"model_info":{"llama.context_length":4096}}"#.to_vec();
+    let (addr, server) = serve_framed("200 OK", body, Framing::Chunked);
+    let provider = magi_core::providers::ollama::OllamaProvider::new(format!("http://{addr}"), "m")
+        .expect("constructs");
+
+    let window = provider.window().await;
+    server.join().expect("server thread");
+
+    assert_eq!(
+        window.expect("no transport error"),
+        Some(4096),
+        "a chunked body within the cap must be read and parsed"
     );
 }

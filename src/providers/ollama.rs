@@ -80,7 +80,7 @@ impl OllamaProvider {
     ///
     /// | Channel | What happens |
     /// |---|---|
-    /// | **Completions** | 404 → a non-retryable HTTP error → the lineage is condemned and the seat rotates. **This is the loud one.** |
+    /// | **Completions** | 404 → a non-retryable HTTP error → the lineage is condemned **run-wide** and the seat rotates. **This is the loud one.** |
     /// | **Probe** | 404 → `Ok(None)`, by design. It is fail-open: an unmeasurable window is a valid result, so nothing refuses here. |
     ///
     /// The probe's silence surfaces only as the report's *estimated window* note — a disclosure,

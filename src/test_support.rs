@@ -440,13 +440,6 @@ pub fn build_two_network_failing_no_fallback() -> Magi {
         .unwrap()
 }
 
-/// The TWIN of [`build_two_network_failing_no_fallback`], differing in exactly one thing: the two
-/// failing seats report `ProviderError::External` instead of `ProviderError::Network`.
-///
-/// Everything else — the lineages, the empty pool, the healthy middle seat — is identical on
-/// purpose. The endpoint-down latch fires for the twin and must NOT fire here, and holding every
-/// other variable still is what makes that difference attributable to the error class rather than
-/// to the topology.
 /// One seat hits an oversized response and rotates to another lineage; the other two are healthy.
 ///
 /// Mirrors the schema-failure builder rather than the transport one, because that is the claim:
@@ -458,6 +451,13 @@ pub fn build_oversized_case() -> Magi {
     )
 }
 
+/// The TWIN of [`build_two_network_failing_no_fallback`], differing in exactly one thing: the two
+/// failing seats report `ProviderError::External` instead of `ProviderError::Network`.
+///
+/// Everything else — the lineages, the empty pool, the healthy middle seat — is identical on
+/// purpose. The endpoint-down latch fires for the twin and must NOT fire here, and holding every
+/// other variable still is what makes that difference attributable to the error class rather than
+/// to the topology.
 pub fn build_two_external_failing_no_fallback() -> Magi {
     MagiBuilder::new(ok("default") as Arc<dyn LlmProvider>)
         .with_agent(
