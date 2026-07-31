@@ -264,5 +264,12 @@
   "262": "SlowFailingProvider",
   "263": "Self",
   "264": ".send",
-  "265": "described"
+  "265": "described",
+  "266": ".new",
+  "267": "AgentName",
+  "268": ".new_checked",
+  "269": "ConsensusResult",
+  "270": "AgentOutput",
+  "271": "pattern8bnospace_bad.rs",
+  "272": "pattern8bnospace_good.rs"
 }

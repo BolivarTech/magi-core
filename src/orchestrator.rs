@@ -180,9 +180,17 @@ pub(crate) fn warn_threshold_is_unreachable(cfg: &MagiConfig) -> bool {
     // Saturating, because the interesting input is an absurd threshold: `usize::MAX * 4` wraps
     // to a small number, which would answer "reachable" for the single most unreachable value
     // there is — the exact inversion this check exists to catch.
+    //
+    // The `+ 1` is the whole predicate, and leaving it out was wrong by up to three bytes.
+    // Warning requires `len / 4 > T`, and integer division makes the smallest such input
+    // `4 * (T + 1)` bytes — not `4 * T`. So the threshold is unreachable exactly when that
+    // smallest input is already too large for the validator. Comparing `4 * T` instead called a
+    // configuration reachable whenever the limit sat in the three bytes above it, which is
+    // precisely the silence this check exists to announce.
     cfg.input_warn_tokens
+        .saturating_add(1)
         .saturating_mul(TOKENS_PER_BYTE_DIVISOR)
-        >= cfg.max_input_len
+        > cfg.max_input_len
 }
 
 impl Default for MagiConfig {
@@ -2059,6 +2067,33 @@ mod input_threshold_tests {
     }
 
     #[test]
+    fn every_external_shape_routes_to_its_own_mage_local_outcome() {
+        // The mirror of the oversized-response test above, and its absence was an asymmetry: the
+        // latch was pinned but the ROUTING was not, so a refactor could send an external failure
+        // down the transport path and hand a third-party crate a run-wide consequence — the exact
+        // inheritance the dedicated variant exists to prevent. Pinned per shape, because the
+        // routing must not depend on which one arrived.
+        for kind in [
+            ExternalErrorKind::Network,
+            ExternalErrorKind::Timeout,
+            ExternalErrorKind::Auth,
+            ExternalErrorKind::RateLimit,
+            ExternalErrorKind::ServerError,
+            ExternalErrorKind::Other,
+        ] {
+            let outcome = provider_err_outcome(ProviderError::external("backend refused", kind));
+            match outcome {
+                ModelOutcome::ExternalFailure { kind: got, .. } => assert_eq!(got, kind),
+                ModelOutcome::Transport { .. } => panic!(
+                    "Transport is run-wide and feeds the endpoint-down latch — {kind:?} must not \
+                     reach it"
+                ),
+                _ => panic!("expected ExternalFailure for {kind:?}"),
+            }
+        }
+    }
+
+    #[test]
     fn no_external_shape_is_ever_connection_class() {
         for kind in [
             ExternalErrorKind::Network,
@@ -2107,9 +2142,33 @@ mod input_threshold_tests {
     }
 
     #[test]
+    fn a_threshold_is_unreachable_when_the_smallest_warning_input_is_already_rejected() {
+        // The three-byte band the earlier `threshold * 4 >= limit` form called reachable. With
+        // T tokens, the smallest input that warns is 4 * (T + 1) bytes; any limit below that
+        // leaves the knob mute. Both sides of the boundary are asserted, so a future
+        // simplification that drops the `+ 1` fails here rather than going quiet.
+        let smallest_warning_input = TOKENS_PER_BYTE_DIVISOR * (100 + 1);
+        for (limit, unreachable) in [
+            (smallest_warning_input - 1, true),
+            (smallest_warning_input, false),
+        ] {
+            let cfg = MagiConfig {
+                input_warn_tokens: 100,
+                max_input_len: limit,
+                ..Default::default()
+            };
+            assert_eq!(
+                warn_threshold_is_unreachable(&cfg),
+                unreachable,
+                "limit {limit} against the smallest warning input {smallest_warning_input}"
+            );
+        }
+    }
+
+    #[test]
     fn a_threshold_that_can_never_fire_is_detected() {
-        // threshold * 4 >= max_input_len means the validator rejects first, so the warning is
-        // mute. Saturating: an absurd threshold must not overflow into the opposite verdict.
+        // Saturating is the point here: the widest threshold there is must not overflow into
+        // the opposite verdict, which is what a plain multiply would do.
         let cfg = MagiConfig {
             input_warn_tokens: usize::MAX,
             max_input_len: 4 * 1024 * 1024,
@@ -2487,7 +2546,12 @@ mod tests {
 
         let size = report.input_size.expect("measured even when small");
         assert!(!size.exceeded);
-        assert_eq!(size.estimated_tokens, "fn main() {}".len() / 4);
+        // Via the constant, not the literal: hard-coding 4 would let a change to the divisor
+        // shift the estimate while this assertion kept agreeing with the old value.
+        assert_eq!(
+            size.estimated_tokens,
+            "fn main() {}".len() / TOKENS_PER_BYTE_DIVISOR
+        );
         assert!(
             !log.lines().iter().any(|l| l.contains("threshold")),
             "silence below the threshold: {:?}",

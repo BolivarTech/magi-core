@@ -1,16 +1,16 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 129 files · ~131,262 words
+- 131 files · ~131,673 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2148 nodes · 4625 edges · 266 communities (149 shown, 117 thin omitted)
+- 2157 nodes · 4633 edges · 273 communities (156 shown, 117 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e61a602a`
+- Built from commit: `a3d38d88`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -240,6 +240,13 @@
 - Self
 - .send
 - described
+- .new
+- AgentName
+- .new_checked
+- ConsensusResult
+- AgentOutput
+- pattern8bnospace_bad.rs
+- pattern8bnospace_good.rs
 
 ## God Nodes (most connected - your core abstractions)
 1. `AgentName` - 48 edges
@@ -268,19 +275,19 @@
 ## Import Cycles
 - None detected.
 
-## Communities (266 total, 117 thin omitted)
+## Communities (273 total, 117 thin omitted)
 
 ### Community 0 - "orchestrator.rs"
 Cohesion: 0.06
 Nodes (57): AgentOutput, ExtractionFailureCause, a_threshold_that_can_never_fire_is_detected(), a_zero_threshold_warns_always_and_does_not_disable(), an_empty_input_never_exceeds_even_a_zero_threshold(), dispatch_one_agent(), echoed_example_response(), exceeding_the_threshold_warns_and_still_completes() (+49 more)
 
 ### Community 1 - "reporting.rs"
-Cohesion: 0.05
-Nodes (86): Condition, ConsensusResult, Dissent, a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), ExtractionFailure (+78 more)
+Cohesion: 0.08
+Nodes (21): a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), fit_content(), report_text(), report_with_no_telemetry(), tail_cut() (+13 more)
 
 ### Community 2 - "consensus.rs"
-Cohesion: 0.09
-Nodes (66): ConsensusConfig, ConsensusEngine, dedup_key(), DedupFinding, DedupKey, finding_key(), make_output(), BTreeMap (+58 more)
+Cohesion: 0.10
+Nodes (61): ConsensusConfig, ConsensusEngine, dedup_key(), DedupKey, finding_key(), make_output(), Default, Result (+53 more)
 
 ### Community 3 - "validate.rs"
 Cohesion: 0.07
@@ -702,8 +709,36 @@ Nodes (3): Self, parent_climbs_one_level_and_stops_at_the_root(), T
 Cohesion: 0.50
 Nodes (3): ProviderError, Result, X
 
+### Community 266 - ".new"
+Cohesion: 0.20
+Nodes (30): make_agent(), make_consensus(), test_agent_display_fallback_to_agent_name_methods(), test_agent_line_format(), test_banner_all_lines_are_exactly_banner_width(), test_banner_consensus_line_includes_split_for_go_with_caveats(), test_banner_labels_are_column_aligned_to_max_label_len(), test_banner_lines_are_exactly_52_chars_wide() (+22 more)
+
+### Community 267 - "AgentName"
+Cohesion: 0.22
+Nodes (13): ExtractionFailure, InputSize, MagiReport, ReportFormatter, BTreeMap, BTreeSet, Option, String (+5 more)
+
+### Community 268 - ".new_checked"
+Cohesion: 0.16
+Nodes (13): ReportConfig, ReportError, Default, Display, Formatter, Result, Self, test_new_checked_accepts_all_ascii_titles() (+5 more)
+
+### Community 269 - "ConsensusResult"
+Cohesion: 0.23
+Nodes (11): Condition, ConsensusResult, DedupFinding, Dissent, BTreeMap, Option, String, Vec (+3 more)
+
+### Community 270 - "AgentOutput"
+Cohesion: 0.39
+Nodes (3): AgentOutput, Vec, Verdict
+
+### Community 271 - "pattern8bnospace_bad.rs"
+Cohesion: 0.50
+Nodes (4): build(), ProviderError, Self, sneak()
+
+### Community 272 - "pattern8bnospace_good.rs"
+Cohesion: 0.50
+Nodes (3): build(), ProviderError, Self
+
 ## Knowledge Gaps
-- **197 isolated node(s):** `Adding a pair`, `One pair per ALTERNATIVE, not per rule`, `Verifying a change`, `ProviderError`, `ProviderError` (+192 more)
+- **199 isolated node(s):** `ProviderError`, `ProviderError`, `Adding a pair`, `One pair per ALTERNATIVE, not per rule`, `Verifying a change` (+194 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **117 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -711,16 +746,16 @@ Nodes (3): ProviderError, Result, X
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Finding`, `RoutingMockProvider`, `.complete`, `Duration`, `SlowFailingProvider`, `error.rs`, `.new`, `MockProvider`, `FallbackPool`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`, `LlmProvider`, `String`?**
-  _High betweenness centrality (0.086) - this node is a cross-community bridge._
+  _High betweenness centrality (0.083) - this node is a cross-community bridge._
 - **Why does `OpenAiCompatibleProvider` connect `Instant` to `[0.3.0] - 2026-04-18`, `ProviderUrl`, `RequestBuilder`?**
-  _High betweenness centrality (0.052) - this node is a cross-community bridge._
-- **Why does `AgentName` connect `reporting.rs` to `5. Data Schema and Consensus Protocol`, `[0.3.0] - 2026-04-18`, `consensus.rs`, `.fmt`, `schema.rs`, `error.rs`, `openai_compat.rs`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
-- **What connects `Adding a pair`, `One pair per ALTERNATIVE, not per rule`, `Verifying a change` to the rest of the system?**
-  _202 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _High betweenness centrality (0.069) - this node is a cross-community bridge._
+- **Why does `ProviderUrl` connect `ProviderUrl` to `RequestBuilder`, `Self`, `7. Design Philosophy`, `provider.rs`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
+- **What connects `ProviderError`, `ProviderError`, `Adding a pair` to the rest of the system?**
+  _204 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `orchestrator.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.06394230769230769 - nodes in this community are weakly interconnected._
 - **Should `reporting.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.052355396541443056 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07899159663865546 - nodes in this community are weakly interconnected._
 - **Should `consensus.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.08972972972972973 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0989648033126294 - nodes in this community are weakly interconnected._

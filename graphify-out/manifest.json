@@ -15,7 +15,7 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1785496058.3451502,
+    "mtime": 1785497432.8385346,
     "ast_hash": "39aaa8ef5e28c405d0b0cf91354fed04",
     "semantic_hash": ""
   },
@@ -45,7 +45,7 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1785486259.3902125,
+    "mtime": 1785497444.7153504,
     "ast_hash": "ae0c29d21c6ede2424beff139425ca2a",
     "semantic_hash": ""
   },
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785496671.9311118,
-    "ast_hash": "11e7e5f5ba267cc9d190c5ece8962a0b",
+    "mtime": 1785497360.3526974,
+    "ast_hash": "1e2225c29aa496713c3e469729e0aeeb",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -325,8 +325,8 @@
     "semantic_hash": ""
   },
   "ci/check_calibration.sh": {
-    "mtime": 1785491789.0057688,
-    "ast_hash": "e961f8027b46b384c74092053df9ea8b",
+    "mtime": 1785497388.5613468,
+    "ast_hash": "fbdf3bfe21eb38d6162436a18fee8456",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern0boundary_bad.rs": {
@@ -652,6 +652,16 @@
   "ci/fixtures/redaction/pattern5featurename_good.rs": {
     "mtime": 1785496672.039153,
     "ast_hash": "079a404474cbf215d307ae5c4775d738",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern8bnospace_bad.rs": {
+    "mtime": 1785497484.224824,
+    "ast_hash": "95f3efa8a7fd7efca603c376c9b87083",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern8bnospace_good.rs": {
+    "mtime": 1785497484.3059824,
+    "ast_hash": "c8e9ece894e7524a193426336d3b3c7d",
     "semantic_hash": ""
   }
 }
