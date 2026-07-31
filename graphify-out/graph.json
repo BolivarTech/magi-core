@@ -4,6 +4,326 @@
   "graph": {},
   "nodes": [
     {
+      "label": "body_bounds.rs",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "tests_body_bounds",
+      "community": 177,
+      "norm_label": "body_bounds.rs"
+    },
+    {
+      "label": "Framing",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L49",
+      "_origin": "ast",
+      "id": "tests_body_bounds_framing",
+      "community": 177,
+      "norm_label": "framing"
+    },
+    {
+      "label": "serve_one_body()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L65",
+      "_origin": "ast",
+      "id": "tests_body_bounds_serve_one_body",
+      "community": 177,
+      "norm_label": "serve_one_body()"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_body_bounds_rs_string",
+      "community": 177,
+      "norm_label": "string"
+    },
+    {
+      "label": "JoinHandle",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "joinhandle",
+      "community": 239,
+      "norm_label": "joinhandle"
+    },
+    {
+      "label": "serve_framed()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "_origin": "ast",
+      "id": "tests_body_bounds_serve_framed",
+      "community": 177,
+      "norm_label": "serve_framed()"
+    },
+    {
+      "label": "Vec",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "vec",
+      "community": 9,
+      "norm_label": "vec"
+    },
+    {
+      "label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L126",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
+      "community": 177,
+      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()"
+    },
+    {
+      "label": "a_success_body_at_the_cap_is_read_whole()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L154",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
+      "community": 177,
+      "norm_label": "a_success_body_at_the_cap_is_read_whole()"
+    },
+    {
+      "label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L174",
+      "_origin": "ast",
+      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
+      "community": 177,
+      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()"
+    },
+    {
+      "label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L206",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
+      "community": 177,
+      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()"
+    },
+    {
+      "label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L228",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
+      "community": 177,
+      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()"
+    },
+    {
+      "label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L263",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
+      "community": 177,
+      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()"
+    },
+    {
+      "label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
+      "file_type": "code",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L287",
+      "_origin": "ast",
+      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
+      "community": 177,
+      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()"
+    },
+    {
+      "label": "mod.rs",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "tests_common_mod",
+      "community": 251,
+      "norm_label": "mod.rs"
+    },
+    {
+      "label": "bind_loopback()",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L51",
+      "_origin": "ast",
+      "id": "tests_common_mod_bind_loopback",
+      "community": 251,
+      "norm_label": "bind_loopback()"
+    },
+    {
+      "label": "TcpListener",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_common_mod_rs_tcplistener",
+      "community": 251,
+      "norm_label": "tcplistener"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_common_mod_rs_string",
+      "community": 251,
+      "norm_label": "string"
+    },
+    {
+      "label": "accept_one()",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "_origin": "ast",
+      "id": "tests_common_mod_accept_one",
+      "community": 251,
+      "norm_label": "accept_one()"
+    },
+    {
+      "label": "Option",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_common_mod_rs_option",
+      "community": 251,
+      "norm_label": "option"
+    },
+    {
+      "label": "TcpStream",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tcpstream",
+      "community": 251,
+      "norm_label": "tcpstream"
+    },
+    {
+      "label": "hang_up()",
+      "file_type": "code",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L91",
+      "_origin": "ast",
+      "id": "tests_common_mod_hang_up",
+      "community": 251,
+      "norm_label": "hang_up()"
+    },
+    {
+      "label": "upstream_reqwest_contract.rs",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract",
+      "community": 238,
+      "norm_label": "upstream_reqwest_contract.rs"
+    },
+    {
+      "label": "redirect_to()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L49",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_redirect_to",
+      "community": 238,
+      "norm_label": "redirect_to()"
+    },
+    {
+      "label": "String",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_rs_string",
+      "community": 238,
+      "norm_label": "string"
+    },
+    {
+      "label": "serve_once()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L63",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_serve_once",
+      "community": 238,
+      "norm_label": "serve_once()"
+    },
+    {
+      "label": "TcpListener",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_rs_tcplistener",
+      "community": 238,
+      "norm_label": "tcplistener"
+    },
+    {
+      "label": "Option",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_rs_option",
+      "community": 238,
+      "norm_label": "option"
+    },
+    {
+      "label": "authorization_is_stripped_across_origins()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L71",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
+      "community": 238,
+      "norm_label": "authorization_is_stripped_across_origins()"
+    },
+    {
+      "label": "authorization_survives_a_same_origin_redirect()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L98",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
+      "community": 238,
+      "norm_label": "authorization_survives_a_same_origin_redirect()"
+    },
+    {
+      "label": "the_default_client_does_leak_a_query_secret_through_referer()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L125",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
+      "community": 238,
+      "norm_label": "the_default_client_does_leak_a_query_secret_through_referer()"
+    },
+    {
+      "label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()",
+      "file_type": "code",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L166",
+      "_origin": "ast",
+      "id": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
+      "community": 238,
+      "norm_label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()"
+    },
+    {
       "label": "check_calibration.sh",
       "file_type": "code",
       "source_file": "ci/check_calibration.sh",
@@ -13,9 +333,9 @@
         "kind": "file"
       },
       "_origin": "ast",
-      "id": "ci_check_calibration",
       "community": 139,
-      "norm_label": "check_calibration.sh"
+      "norm_label": "check_calibration.sh",
+      "id": "ci_check_calibration"
     },
     {
       "label": "check_calibration.sh script",
@@ -27,9 +347,9 @@
         "kind": "bash_entrypoint"
       },
       "_origin": "ast",
-      "id": "ci_check_calibration_sh__entry",
       "community": 139,
-      "norm_label": "check_calibration.sh script"
+      "norm_label": "check_calibration.sh script",
+      "id": "ci_check_calibration_sh__entry"
     },
     {
       "label": "fail()",
@@ -41,9 +361,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_calibration_fail",
       "community": 139,
-      "norm_label": "fail()"
+      "norm_label": "fail()",
+      "id": "ci_check_calibration_fail"
     },
     {
       "label": "check_redaction.sh",
@@ -55,9 +375,9 @@
         "kind": "file"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction",
       "community": 73,
-      "norm_label": "check_redaction.sh"
+      "norm_label": "check_redaction.sh",
+      "id": "ci_check_redaction"
     },
     {
       "label": "check_redaction.sh script",
@@ -69,9 +389,9 @@
         "kind": "bash_entrypoint"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_sh__entry",
       "community": 73,
-      "norm_label": "check_redaction.sh script"
+      "norm_label": "check_redaction.sh script",
+      "id": "ci_check_redaction_sh__entry"
     },
     {
       "label": "fail()",
@@ -83,9 +403,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_fail",
       "community": 73,
-      "norm_label": "fail()"
+      "norm_label": "fail()",
+      "id": "ci_check_redaction_fail"
     },
     {
       "label": "provider_files()",
@@ -97,9 +417,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_provider_files",
       "community": 73,
-      "norm_label": "provider_files()"
+      "norm_label": "provider_files()",
+      "id": "ci_check_redaction_provider_files"
     },
     {
       "label": "prod_only()",
@@ -111,9 +431,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_prod_only",
       "community": 73,
-      "norm_label": "prod_only()"
+      "norm_label": "prod_only()",
+      "id": "ci_check_redaction_prod_only"
     },
     {
       "label": "skeleton()",
@@ -125,9 +445,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_skeleton",
       "community": 73,
-      "norm_label": "skeleton()"
+      "norm_label": "skeleton()",
+      "id": "ci_check_redaction_skeleton"
     },
     {
       "label": "fixture_meta()",
@@ -139,9 +459,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_fixture_meta",
       "community": 73,
-      "norm_label": "fixture_meta()"
+      "norm_label": "fixture_meta()",
+      "id": "ci_check_redaction_fixture_meta"
     },
     {
       "label": "self_test()",
@@ -153,9 +473,9 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
-      "id": "ci_check_redaction_self_test",
       "community": 73,
-      "norm_label": "self_test()"
+      "norm_label": "self_test()",
+      "id": "ci_check_redaction_self_test"
     },
     {
       "label": "pattern0strlit_bad.rs",
@@ -163,9 +483,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern0strlit_bad",
       "community": 22,
-      "norm_label": "pattern0strlit_bad.rs"
+      "norm_label": "pattern0strlit_bad.rs",
+      "id": "ci_fixtures_redaction_pattern0strlit_bad"
     },
     {
       "label": "P",
@@ -173,9 +493,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_bad.rs",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern0strlit_bad_p",
       "community": 22,
-      "norm_label": "p"
+      "norm_label": "p",
+      "id": "ci_fixtures_redaction_pattern0strlit_bad_p"
     },
     {
       "label": "String",
@@ -183,9 +503,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "string",
       "community": 22,
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "string"
     },
     {
       "label": "pattern0strlit_good.rs",
@@ -193,9 +513,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern0strlit_good",
       "community": 116,
-      "norm_label": "pattern0strlit_good.rs"
+      "norm_label": "pattern0strlit_good.rs",
+      "id": "ci_fixtures_redaction_pattern0strlit_good"
     },
     {
       "label": "P",
@@ -203,9 +523,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_good.rs",
       "source_location": "L3",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern0strlit_good_p",
       "community": 116,
-      "norm_label": "p"
+      "norm_label": "p",
+      "id": "ci_fixtures_redaction_pattern0strlit_good_p"
     },
     {
       "label": "ProviderUrl",
@@ -213,9 +533,9 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "providerurl",
       "community": 116,
-      "norm_label": "providerurl"
+      "norm_label": "providerurl",
+      "id": "providerurl"
     },
     {
       "label": "pattern1latearg_bad.rs",
@@ -698,16 +1018,6 @@
       "id": "src_providers_claude_clauderequest"
     },
     {
-      "label": "Vec",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 9,
-      "norm_label": "vec",
-      "id": "vec"
-    },
-    {
       "label": "ClaudeMessage",
       "file_type": "code",
       "source_file": "src/providers/claude.rs",
@@ -873,7 +1183,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 47,
+      "community": 9,
       "norm_label": "instant",
       "id": "instant"
     },
@@ -2058,144 +2368,14 @@
       "id": "src_providers_provider_url_send_composes_a_redacted_error_on_connection_failure"
     },
     {
-      "label": "body_bounds.rs",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "body_bounds.rs",
-      "id": "tests_body_bounds"
-    },
-    {
-      "label": "Framing",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L50",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "framing",
-      "id": "tests_body_bounds_framing"
-    },
-    {
-      "label": "serve_one_body()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L66",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "serve_one_body()",
-      "id": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "label": "String",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "string",
-      "id": "tests_body_bounds_rs_string"
-    },
-    {
-      "label": "JoinHandle",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 239,
-      "norm_label": "joinhandle",
-      "id": "joinhandle"
-    },
-    {
-      "label": "serve_framed()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "serve_framed()",
-      "id": "tests_body_bounds_serve_framed"
-    },
-    {
       "label": "Vec",
       "file_type": "code",
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 177,
+      "community": 252,
       "norm_label": "vec",
       "id": "tests_body_bounds_rs_vec"
-    },
-    {
-      "label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L154",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_success_body_over_the_cap_fails_rather_than_arriving_truncated()",
-      "id": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
-    },
-    {
-      "label": "a_success_body_at_the_cap_is_read_whole()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L182",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_success_body_at_the_cap_is_read_whole()",
-      "id": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
-    },
-    {
-      "label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L202",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut()",
-      "id": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
-    },
-    {
-      "label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L234",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_probe_body_over_the_cap_degrades_instead_of_failing()",
-      "id": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
-    },
-    {
-      "label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L256",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_chunked_probe_body_degrades_from_the_streaming_branch()",
-      "id": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
-    },
-    {
-      "label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L291",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled()",
-      "id": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
-    },
-    {
-      "label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
-      "file_type": "code",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L315",
-      "_origin": "ast",
-      "community": 177,
-      "norm_label": "a_chunked_probe_body_under_the_cap_is_read_and_parsed()",
-      "id": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
     },
     {
       "label": "provider.rs",
@@ -2223,7 +2403,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 70,
+      "community": 44,
       "norm_label": "default",
       "id": "default"
     },
@@ -2253,7 +2433,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L79",
       "_origin": "ast",
-      "community": 33,
+      "community": 44,
       "norm_label": "llmprovider",
       "id": "src_provider_llmprovider"
     },
@@ -2263,7 +2443,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 44,
       "norm_label": "send",
       "id": "send"
     },
@@ -2273,7 +2453,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 33,
+      "community": 44,
       "norm_label": "sync",
       "id": "sync"
     },
@@ -2363,7 +2543,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 70,
+      "community": 44,
       "norm_label": "retryclass",
       "id": "retryclass"
     },
@@ -2453,7 +2633,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L446",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "compose_transport_message()",
       "id": "src_provider_compose_transport_message"
     },
@@ -2563,7 +2743,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L752",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "compose_puts_operation_and_url_first_and_truncates_the_cause_tail()",
       "id": "src_provider_compose_puts_operation_and_url_first_and_truncates_the_cause_tail"
     },
@@ -2573,7 +2753,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L772",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "compose_caps_the_head_even_with_no_cause_chain()",
       "id": "src_provider_compose_caps_the_head_even_with_no_cause_chain"
     },
@@ -2583,7 +2763,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L788",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "compose_does_not_truncate_when_under_the_cap()",
       "id": "src_provider_compose_does_not_truncate_when_under_the_cap"
     },
@@ -2593,7 +2773,7 @@
       "source_file": "src/provider.rs",
       "source_location": "L799",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "compose_never_panics_on_multibyte_boundaries()",
       "id": "src_provider_compose_never_panics_on_multibyte_boundaries"
     },
@@ -6513,7 +6693,7 @@
       "source_file": "ci/fixtures/redaction/pattern1debug_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "pattern1debug_good.rs",
       "id": "ci_fixtures_redaction_pattern1debug_good"
     },
@@ -6523,7 +6703,7 @@
       "source_file": "ci/fixtures/redaction/pattern1debug_good.rs",
       "source_location": "L3",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "f()",
       "id": "ci_fixtures_redaction_pattern1debug_good_f"
     },
@@ -6553,7 +6733,7 @@
       "source_file": "ci/fixtures/redaction/pattern1display_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "pattern1display_good.rs",
       "id": "ci_fixtures_redaction_pattern1display_good"
     },
@@ -6563,7 +6743,7 @@
       "source_file": "ci/fixtures/redaction/pattern1display_good.rs",
       "source_location": "L3",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "f()",
       "id": "ci_fixtures_redaction_pattern1display_good_f"
     },
@@ -6633,7 +6813,7 @@
       "source_file": "ci/fixtures/redaction/pattern1tostring_good.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "pattern1tostring_good.rs",
       "id": "ci_fixtures_redaction_pattern1tostring_good"
     },
@@ -6643,7 +6823,7 @@
       "source_file": "ci/fixtures/redaction/pattern1tostring_good.rs",
       "source_location": "L3",
       "_origin": "ast",
-      "community": 224,
+      "community": 75,
       "norm_label": "f()",
       "id": "ci_fixtures_redaction_pattern1tostring_good_f"
     },
@@ -7323,7 +7503,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L52",
       "_origin": "ast",
-      "community": 23,
+      "community": 0,
       "norm_label": "magiconfig",
       "id": "src_orchestrator_magiconfig"
     },
@@ -7343,7 +7523,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L161",
       "_origin": "ast",
-      "community": 23,
+      "community": 0,
       "norm_label": "exceeds_warn_threshold()",
       "id": "src_orchestrator_exceeds_warn_threshold"
     },
@@ -7353,7 +7533,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L176",
       "_origin": "ast",
-      "community": 23,
+      "community": 0,
       "norm_label": "warn_threshold_is_unreachable()",
       "id": "src_orchestrator_warn_threshold_is_unreachable"
     },
@@ -7363,7 +7543,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 23,
+      "community": 0,
       "norm_label": "default",
       "id": "src_orchestrator_rs_default"
     },
@@ -7423,7 +7603,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": "agentname",
       "id": "src_orchestrator_rs_agentname"
     },
@@ -7453,7 +7633,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": "string",
       "id": "src_orchestrator_rs_string"
     },
@@ -7553,7 +7733,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 25,
+      "community": 23,
       "norm_label": "providerprobe",
       "id": "src_orchestrator_rs_providerprobe"
     },
@@ -7583,7 +7763,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L281",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": ".with_agent()",
       "id": "src_orchestrator_magibuilder_with_agent"
     },
@@ -7733,7 +7913,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L519",
       "_origin": "ast",
-      "community": 0,
+      "community": 23,
       "norm_label": ".with_input_warn_tokens()",
       "id": "src_orchestrator_magibuilder_with_input_warn_tokens"
     },
@@ -7863,7 +8043,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L742",
       "_origin": "ast",
-      "community": 23,
+      "community": 25,
       "norm_label": "magi",
       "id": "src_orchestrator_magi"
     },
@@ -7873,7 +8053,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 23,
+      "community": 25,
       "norm_label": "agentfactory",
       "id": "agentfactory"
     },
@@ -7893,7 +8073,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 23,
+      "community": 25,
       "norm_label": "consensusengine",
       "id": "consensusengine"
     },
@@ -7903,7 +8083,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 23,
+      "community": 25,
       "norm_label": "reportformatter",
       "id": "reportformatter"
     },
@@ -7913,7 +8093,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": "mutex",
       "id": "src_orchestrator_rs_mutex"
     },
@@ -7943,7 +8123,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L786",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": ".builder()",
       "id": "src_orchestrator_magi_builder"
     },
@@ -8023,7 +8203,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1238",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": ".overrides()",
       "id": "src_orchestrator_magi_overrides"
     },
@@ -8043,7 +8223,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 0,
+      "community": 25,
       "norm_label": "agentoutput",
       "id": "agentoutput"
     },
@@ -8113,7 +8293,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1463",
       "_origin": "ast",
-      "community": 158,
+      "community": 25,
       "norm_label": "modeloutcome",
       "id": "src_orchestrator_modeloutcome"
     },
@@ -8123,7 +8303,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 158,
+      "community": 25,
       "norm_label": "rotationkind",
       "id": "rotationkind"
     },
@@ -8133,7 +8313,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 158,
+      "community": 25,
       "norm_label": "externalerrorkind",
       "id": "externalerrorkind"
     },
@@ -8253,7 +8433,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1894",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": ".new()",
       "id": "src_orchestrator_parsefailure_new"
     },
@@ -8283,7 +8463,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L1984",
       "_origin": "ast",
-      "community": 0,
+      "community": 25,
       "norm_label": "parse_validate_and_check()",
       "id": "src_orchestrator_parse_validate_and_check"
     },
@@ -8473,7 +8653,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2301",
       "_origin": "ast",
-      "community": 4,
+      "community": 158,
       "norm_label": ".mixed()",
       "id": "src_orchestrator_mockprovider_mixed"
     },
@@ -8493,7 +8673,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2317",
       "_origin": "ast",
-      "community": 158,
+      "community": 25,
       "norm_label": ".complete()",
       "id": "src_orchestrator_mockprovider_complete"
     },
@@ -8543,7 +8723,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2381",
       "_origin": "ast",
-      "community": 0,
+      "community": 25,
       "norm_label": ".lines()",
       "id": "src_orchestrator_eventlog_lines"
     },
@@ -8553,7 +8733,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2391",
       "_origin": "ast",
-      "community": 167,
+      "community": 134,
       "norm_label": "fieldwriter",
       "id": "src_orchestrator_fieldwriter"
     },
@@ -8563,7 +8743,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 134,
       "norm_label": "visit",
       "id": "visit"
     },
@@ -8573,7 +8753,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2394",
       "_origin": "ast",
-      "community": 167,
+      "community": 134,
       "norm_label": ".record_debug()",
       "id": "src_orchestrator_fieldwriter_record_debug"
     },
@@ -8583,7 +8763,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 134,
       "norm_label": "field",
       "id": "field"
     },
@@ -8593,7 +8773,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 167,
+      "community": 134,
       "norm_label": "debug",
       "id": "src_orchestrator_rs_debug"
     },
@@ -8733,7 +8913,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2428",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "trio()",
       "id": "src_orchestrator_trio"
     },
@@ -8753,7 +8933,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2478",
       "_origin": "ast",
-      "community": 4,
+      "community": 0,
       "norm_label": "staying_under_the_threshold_announces_nothing()",
       "id": "src_orchestrator_staying_under_the_threshold_announces_nothing"
     },
@@ -8763,7 +8943,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2502",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_same_primary_lineage_warns_not_errors()",
       "id": "src_orchestrator_test_same_primary_lineage_warns_not_errors"
     },
@@ -8773,7 +8953,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2524",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_empty_primary_lineage_fails_build()",
       "id": "src_orchestrator_test_empty_primary_lineage_fails_build"
     },
@@ -8783,7 +8963,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2540",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_empty_pool_lineage_fails_build()",
       "id": "src_orchestrator_test_empty_pool_lineage_fails_build"
     },
@@ -8903,7 +9083,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2902",
       "_origin": "ast",
-      "community": 4,
+      "community": 158,
       "norm_label": "test_analyze_one_agent_timeout_degrades_gracefully()",
       "id": "src_orchestrator_test_analyze_one_agent_timeout_degrades_gracefully"
     },
@@ -8923,7 +9103,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2954",
       "_origin": "ast",
-      "community": 4,
+      "community": 158,
       "norm_label": "test_analyze_two_agents_fail_returns_insufficient_agents()",
       "id": "src_orchestrator_test_analyze_two_agents_fail_returns_insufficient_agents"
     },
@@ -8933,7 +9113,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L2985",
       "_origin": "ast",
-      "community": 4,
+      "community": 158,
       "norm_label": "test_analyze_all_agents_fail_returns_insufficient_agents()",
       "id": "src_orchestrator_test_analyze_all_agents_fail_returns_insufficient_agents"
     },
@@ -9033,7 +9213,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3284",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "test_complexity_gate_default_no_gate_preserves_v04_behavior()",
       "id": "src_orchestrator_test_complexity_gate_default_no_gate_preserves_v04_behavior"
     },
@@ -9073,7 +9253,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3424",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "test_analyze_populates_retried_agents_on_recovery()",
       "id": "src_orchestrator_test_analyze_populates_retried_agents_on_recovery"
     },
@@ -9083,7 +9263,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3462",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "test_analyze_retry_also_fails_lands_in_both_sets()",
       "id": "src_orchestrator_test_analyze_retry_also_fails_lands_in_both_sets"
     },
@@ -9093,7 +9273,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L3494",
       "_origin": "ast",
-      "community": 0,
+      "community": 4,
       "norm_label": "test_analyze_no_retry_on_timeout_keeps_retried_empty()",
       "id": "src_orchestrator_test_analyze_no_retry_on_timeout_keeps_retried_empty"
     },
@@ -9373,7 +9553,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4160",
       "_origin": "ast",
-      "community": 0,
+      "community": 25,
       "norm_label": "test_wrong_case_agent_name_fails_before_the_identity_check()",
       "id": "src_orchestrator_test_wrong_case_agent_name_fails_before_the_identity_check"
     },
@@ -9413,7 +9593,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4227",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": "capturingmockprovider",
       "id": "src_orchestrator_capturingmockprovider"
     },
@@ -9423,7 +9603,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": "hashmap",
       "id": "src_orchestrator_rs_hashmap"
     },
@@ -9433,7 +9613,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4238",
       "_origin": "ast",
-      "community": 37,
+      "community": 23,
       "norm_label": ".for_default_prompts()",
       "id": "src_orchestrator_capturingmockprovider_for_default_prompts"
     },
@@ -9443,7 +9623,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4261",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": ".with_routing()",
       "id": "src_orchestrator_capturingmockprovider_with_routing"
     },
@@ -9453,7 +9633,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4291",
       "_origin": "ast",
-      "community": 37,
+      "community": 25,
       "norm_label": ".complete()",
       "id": "src_orchestrator_capturingmockprovider_complete"
     },
@@ -9483,7 +9663,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4330",
       "_origin": "ast",
-      "community": 0,
+      "community": 37,
       "norm_label": "test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call()",
       "id": "src_orchestrator_test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call"
     },
@@ -9583,7 +9763,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4540",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_with_rng_source_injects_nonce_observable_in_user_prompt()",
       "id": "src_orchestrator_test_with_rng_source_injects_nonce_observable_in_user_prompt"
     },
@@ -9613,7 +9793,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4638",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_analyze_nonce_collision_returns_invalid_input()",
       "id": "src_orchestrator_test_analyze_nonce_collision_returns_invalid_input"
     },
@@ -9633,7 +9813,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4723",
       "_origin": "ast",
-      "community": 37,
+      "community": 23,
       "norm_label": "test_analyze_respects_prompts_dir_loaded_files()",
       "id": "src_orchestrator_test_analyze_respects_prompts_dir_loaded_files"
     },
@@ -9643,7 +9823,7 @@
       "source_file": "src/orchestrator.rs",
       "source_location": "L4786",
       "_origin": "ast",
-      "community": 4,
+      "community": 23,
       "norm_label": "test_analyze_shares_same_nonce_across_all_three_agents()",
       "id": "src_orchestrator_test_analyze_shares_same_nonce_across_all_three_agents"
     },
@@ -10891,7 +11071,7 @@
       "source_file": "src/agent.rs",
       "source_location": "L167",
       "_origin": "ast",
-      "community": 1,
+      "community": 33,
       "norm_label": ".name()",
       "id": "src_agent_agent_name"
     },
@@ -11331,7 +11511,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L33",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "consensusresult",
       "id": "src_consensus_consensusresult"
     },
@@ -11341,7 +11521,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "string",
       "id": "src_consensus_rs_string"
     },
@@ -11351,7 +11531,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "btreemap",
       "id": "src_consensus_rs_btreemap"
     },
@@ -11361,7 +11541,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 2,
+      "community": 224,
       "norm_label": "vec",
       "id": "src_consensus_rs_vec"
     },
@@ -11371,7 +11551,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L61",
       "_origin": "ast",
-      "community": 2,
+      "community": 224,
       "norm_label": "dedupfinding",
       "id": "src_consensus_dedupfinding"
     },
@@ -11381,7 +11561,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 2,
+      "community": 224,
       "norm_label": "option",
       "id": "src_consensus_rs_option"
     },
@@ -11391,7 +11571,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L92",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "dissent",
       "id": "src_consensus_dissent"
     },
@@ -11401,7 +11581,7 @@
       "source_file": "src/consensus.rs",
       "source_location": "L109",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "condition",
       "id": "src_consensus_condition"
     },
@@ -13331,7 +13511,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L18",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "reporterror",
       "id": "src_reporting_reporterror"
     },
@@ -13341,7 +13521,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "string",
       "id": "src_reporting_rs_string"
     },
@@ -13351,7 +13531,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "display",
       "id": "src_reporting_rs_display"
     },
@@ -13361,7 +13541,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L45",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".fmt()",
       "id": "src_reporting_reporterror_fmt"
     },
@@ -13371,7 +13551,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "formatter",
       "id": "src_reporting_rs_formatter"
     },
@@ -13381,7 +13561,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "result",
       "id": "src_reporting_rs_result"
     },
@@ -13411,7 +13591,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L218",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "reportconfig",
       "id": "src_reporting_reportconfig"
     },
@@ -13421,7 +13601,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "btreemap",
       "id": "src_reporting_rs_btreemap"
     },
@@ -13431,7 +13611,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L232",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "reportformatter",
       "id": "src_reporting_reportformatter"
     },
@@ -13451,7 +13631,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L288",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "inputsize",
       "id": "src_reporting_inputsize"
     },
@@ -13461,7 +13641,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L311",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "magireport",
       "id": "src_reporting_magireport"
     },
@@ -13471,7 +13651,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "vec",
       "id": "src_reporting_rs_vec"
     },
@@ -13481,7 +13661,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "btreeset",
       "id": "src_reporting_rs_btreeset"
     },
@@ -13491,7 +13671,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "option",
       "id": "src_reporting_rs_option"
     },
@@ -13511,7 +13691,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L434",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "extractionfailure",
       "id": "src_reporting_extractionfailure"
     },
@@ -13521,7 +13701,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L477",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".new_checked()",
       "id": "src_reporting_reportconfig_new_checked"
     },
@@ -13531,7 +13711,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "self",
       "id": "src_reporting_rs_self"
     },
@@ -13541,7 +13721,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L500",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".check_parts()",
       "id": "src_reporting_reportconfig_check_parts"
     },
@@ -13551,7 +13731,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "default",
       "id": "src_reporting_rs_default"
     },
@@ -13561,7 +13741,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L531",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".default()",
       "id": "src_reporting_reportconfig_default"
     },
@@ -13571,7 +13751,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L554",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".from_valid_config()",
       "id": "src_reporting_reportformatter_from_valid_config"
     },
@@ -13581,7 +13761,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L566",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": ".new()",
       "id": "src_reporting_reportformatter_new"
     },
@@ -13591,7 +13771,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L589",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".with_config()",
       "id": "src_reporting_reportformatter_with_config"
     },
@@ -13601,7 +13781,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L615",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": ".format_banner()",
       "id": "src_reporting_reportformatter_format_banner"
     },
@@ -13611,7 +13791,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L666",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_init_banner()",
       "id": "src_reporting_reportformatter_format_init_banner"
     },
@@ -13621,7 +13801,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L706",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": ".format_report()",
       "id": "src_reporting_reportformatter_format_report"
     },
@@ -13631,7 +13811,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L719",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_report_with_rotations()",
       "id": "src_reporting_reportformatter_format_report_with_rotations"
     },
@@ -13641,7 +13821,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L740",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_report_with_telemetry()",
       "id": "src_reporting_reportformatter_format_report_with_telemetry"
     },
@@ -13651,7 +13831,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L776",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_report_with_input_size()",
       "id": "src_reporting_reportformatter_format_report_with_input_size"
     },
@@ -13661,7 +13841,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L849",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_extraction_failures()",
       "id": "src_reporting_reportformatter_format_extraction_failures"
     },
@@ -13671,7 +13851,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L892",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_model_rotations()",
       "id": "src_reporting_reportformatter_format_model_rotations"
     },
@@ -13681,7 +13861,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L940",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_input_size()",
       "id": "src_reporting_reportformatter_format_input_size"
     },
@@ -13691,7 +13871,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L968",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_estimated_note()",
       "id": "src_reporting_reportformatter_format_estimated_note"
     },
@@ -13701,7 +13881,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L979",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_separator()",
       "id": "src_reporting_reportformatter_format_separator"
     },
@@ -13711,7 +13891,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L986",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_line()",
       "id": "src_reporting_reportformatter_format_line"
     },
@@ -13721,7 +13901,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1003",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".agent_display()",
       "id": "src_reporting_reportformatter_agent_display"
     },
@@ -13741,7 +13921,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1052",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": ".format_dissent()",
       "id": "src_reporting_reportformatter_format_dissent"
     },
@@ -13751,7 +13931,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1064",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_conditions()",
       "id": "src_reporting_reportformatter_format_conditions"
     },
@@ -13761,7 +13941,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1076",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".format_recommendations()",
       "id": "src_reporting_reportformatter_format_recommendations"
     },
@@ -13771,7 +13951,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1088",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": ".default()",
       "id": "src_reporting_reportformatter_default"
     },
@@ -13811,7 +13991,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1163",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "make_agent()",
       "id": "src_reporting_make_agent"
     },
@@ -13851,7 +14031,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1265",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "make_consensus()",
       "id": "src_reporting_make_consensus"
     },
@@ -13861,7 +14041,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1305",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_lines_are_exactly_52_chars_wide()",
       "id": "src_reporting_test_banner_lines_are_exactly_52_chars_wide"
     },
@@ -13871,7 +14051,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1344",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_with_long_content_fits_52_chars()",
       "id": "src_reporting_test_banner_with_long_content_fits_52_chars"
     },
@@ -13881,7 +14061,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1372",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_with_mixed_consensus_contains_all_headers()",
       "id": "src_reporting_test_report_with_mixed_consensus_contains_all_headers"
     },
@@ -13891,7 +14071,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1450",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_does_not_contain_consensus_summary_heading()",
       "id": "src_reporting_test_report_does_not_contain_consensus_summary_heading"
     },
@@ -13901,7 +14081,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1487",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_section_order_banner_then_findings_or_dissent_or_conditions_or_actions()",
       "id": "src_reporting_test_report_section_order_banner_then_findings_or_dissent_or_conditions_or_actions"
     },
@@ -13911,7 +14091,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1596",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_without_dissent_omits_dissent_section()",
       "id": "src_reporting_test_report_without_dissent_omits_dissent_section"
     },
@@ -13921,7 +14101,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1632",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_without_conditions_omits_conditions_section()",
       "id": "src_reporting_test_report_without_conditions_omits_conditions_section"
     },
@@ -13931,7 +14111,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1668",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_report_without_findings_omits_findings_section()",
       "id": "src_reporting_test_report_without_findings_omits_findings_section"
     },
@@ -13941,7 +14121,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1706",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_format_banner_has_correct_structure()",
       "id": "src_reporting_test_format_banner_has_correct_structure"
     },
@@ -13951,7 +14131,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1725",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "test_format_init_banner_shows_mode_model_timeout()",
       "id": "src_reporting_test_format_init_banner_shows_mode_model_timeout"
     },
@@ -13961,7 +14141,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1742",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "test_separator_format()",
       "id": "src_reporting_test_separator_format"
     },
@@ -13971,7 +14151,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1762",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_agent_line_format()",
       "id": "src_reporting_test_agent_line_format"
     },
@@ -13981,7 +14161,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1791",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_findings_section_format()",
       "id": "src_reporting_test_findings_section_format"
     },
@@ -13991,7 +14171,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1830",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_dissent_section_format()",
       "id": "src_reporting_test_dissent_section_format"
     },
@@ -14001,7 +14181,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1873",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_conditions_section_format()",
       "id": "src_reporting_test_conditions_section_format"
     },
@@ -14011,7 +14191,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1910",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_recommendations_section_format()",
       "id": "src_reporting_test_recommendations_section_format"
     },
@@ -14021,7 +14201,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1945",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_agent_display_fallback_to_agent_name_methods()",
       "id": "src_reporting_test_agent_display_fallback_to_agent_name_methods"
     },
@@ -14041,7 +14221,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L1986",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_serializes_to_json()",
       "id": "src_reporting_test_magi_report_serializes_to_json"
     },
@@ -14051,7 +14231,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2019",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_not_degraded_with_three_agents()",
       "id": "src_reporting_test_magi_report_not_degraded_with_three_agents"
     },
@@ -14061,7 +14241,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2054",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_retried_agents_default_empty()",
       "id": "src_reporting_test_magi_report_retried_agents_default_empty"
     },
@@ -14071,7 +14251,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2075",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_skip_serializing_empty_retried_agents()",
       "id": "src_reporting_test_magi_report_skip_serializing_empty_retried_agents"
     },
@@ -14081,7 +14261,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2100",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_serializes_non_empty_retried_agents_alphabetically()",
       "id": "src_reporting_test_magi_report_serializes_non_empty_retried_agents_alphabetically"
     },
@@ -14091,7 +14271,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2136",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_retried_agents_not_rendered_in_markdown()",
       "id": "src_reporting_test_magi_report_retried_agents_not_rendered_in_markdown"
     },
@@ -14111,7 +14291,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2215",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_degraded_with_failed_agents()",
       "id": "src_reporting_test_magi_report_degraded_with_failed_agents"
     },
@@ -14121,7 +14301,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2250",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "test_dissent_shows_one_line_per_dissenter()",
       "id": "src_reporting_test_dissent_shows_one_line_per_dissenter"
     },
@@ -14131,7 +14311,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2283",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "test_dissent_line_contains_summary_not_reasoning()",
       "id": "src_reporting_test_dissent_line_contains_summary_not_reasoning"
     },
@@ -14141,7 +14321,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2305",
       "_origin": "ast",
-      "community": 1,
+      "community": 224,
       "norm_label": "test_dissent_section_has_blank_line_after()",
       "id": "src_reporting_test_dissent_section_has_blank_line_after"
     },
@@ -14281,7 +14461,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2686",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_labels_are_column_aligned_to_max_label_len()",
       "id": "src_reporting_test_banner_labels_are_column_aligned_to_max_label_len"
     },
@@ -14291,7 +14471,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2734",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_verdict_preserved_when_label_exceeds_width()",
       "id": "src_reporting_test_banner_verdict_preserved_when_label_exceeds_width"
     },
@@ -14301,7 +14481,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2778",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_consensus_line_includes_split_for_go_with_caveats()",
       "id": "src_reporting_test_banner_consensus_line_includes_split_for_go_with_caveats"
     },
@@ -14311,7 +14491,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2812",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_banner_all_lines_are_exactly_banner_width()",
       "id": "src_reporting_test_banner_all_lines_are_exactly_banner_width"
     },
@@ -14321,7 +14501,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2851",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_json_agent_names_lowercase()",
       "id": "src_reporting_test_magi_report_json_agent_names_lowercase"
     },
@@ -14331,7 +14511,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2882",
       "_origin": "ast",
-      "community": 1,
+      "community": 167,
       "norm_label": "test_magi_report_confidence_rounded()",
       "id": "src_reporting_test_magi_report_confidence_rounded"
     },
@@ -14341,7 +14521,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2914",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_new_checked_accepts_all_ascii_titles()",
       "id": "src_reporting_test_new_checked_accepts_all_ascii_titles"
     },
@@ -14351,7 +14531,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2937",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_new_checked_rejects_non_ascii_display_name()",
       "id": "src_reporting_test_new_checked_rejects_non_ascii_display_name"
     },
@@ -14361,7 +14541,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2963",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_new_checked_rejects_non_ascii_title_field()",
       "id": "src_reporting_test_new_checked_rejects_non_ascii_title_field"
     },
@@ -14371,7 +14551,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L2990",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_new_checked_rejects_banner_width_too_small()",
       "id": "src_reporting_test_new_checked_rejects_banner_width_too_small"
     },
@@ -14391,7 +14571,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L3019",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_with_config_rejects_banner_width_too_small()",
       "id": "src_reporting_test_with_config_rejects_banner_width_too_small"
     },
@@ -14401,7 +14581,7 @@
       "source_file": "src/reporting.rs",
       "source_location": "L3038",
       "_origin": "ast",
-      "community": 1,
+      "community": 188,
       "norm_label": "test_with_config_rejects_non_ascii_agent_title()",
       "id": "src_reporting_test_with_config_rejects_non_ascii_agent_title"
     },
@@ -14951,7 +15131,7 @@
       "source_file": "src/rotation.rs",
       "source_location": "L457",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "agentrotation",
       "id": "src_rotation_agentrotation"
     },
@@ -16071,7 +16251,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L49",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": "verdict",
       "id": "src_schema_verdict"
     },
@@ -16081,7 +16261,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L64",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": ".weight()",
       "id": "src_schema_verdict_weight"
     },
@@ -16091,7 +16271,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L75",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": ".effective()",
       "id": "src_schema_verdict_effective"
     },
@@ -16261,7 +16441,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L195",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": "agentname",
       "id": "src_schema_agentname"
     },
@@ -16271,7 +16451,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L210",
       "_origin": "ast",
-      "community": 1,
+      "community": 185,
       "norm_label": ".title()",
       "id": "src_schema_agentname_title"
     },
@@ -16391,7 +16571,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L370",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": "agentoutput",
       "id": "src_schema_agentoutput"
     },
@@ -16401,7 +16581,7 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": "vec",
       "id": "src_schema_rs_vec"
     },
@@ -16411,7 +16591,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L389",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": ".is_approving()",
       "id": "src_schema_agentoutput_is_approving"
     },
@@ -16421,7 +16601,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L394",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": ".is_dissenting()",
       "id": "src_schema_agentoutput_is_dissenting"
     },
@@ -16431,7 +16611,7 @@
       "source_file": "src/schema.rs",
       "source_location": "L399",
       "_origin": "ast",
-      "community": 1,
+      "community": 246,
       "norm_label": ".effective_verdict()",
       "id": "src_schema_agentoutput_effective_verdict"
     },
@@ -18231,7 +18411,7 @@
       "source_file": "src/validate.rs",
       "source_location": "L381",
       "_origin": "ast",
-      "community": 3,
+      "community": 168,
       "norm_label": "test_validate_accepts_confidence_at_boundaries()",
       "id": "src_validate_test_validate_accepts_confidence_at_boundaries"
     },
@@ -18251,7 +18431,7 @@
       "source_file": "src/validate.rs",
       "source_location": "L395",
       "_origin": "ast",
-      "community": 168,
+      "community": 3,
       "norm_label": "test_validate_rejects_infinity_confidence()",
       "id": "src_validate_test_validate_rejects_infinity_confidence"
     },
@@ -19536,104 +19716,14 @@
       "id": "tests_timeout_integration_test_hanging_body_produces_timeout_error"
     },
     {
-      "label": "upstream_reqwest_contract.rs",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "upstream_reqwest_contract.rs",
-      "id": "tests_upstream_reqwest_contract"
-    },
-    {
-      "label": "redirect_to()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L51",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "redirect_to()",
-      "id": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "label": "String",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "string",
-      "id": "tests_upstream_reqwest_contract_rs_string"
-    },
-    {
-      "label": "serve_once()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L62",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "serve_once()",
-      "id": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
       "label": "TcpListener",
       "file_type": "code",
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "community": 238,
+      "community": 239,
       "norm_label": "tcplistener",
       "id": "tcplistener"
-    },
-    {
-      "label": "Option",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "option",
-      "id": "tests_upstream_reqwest_contract_rs_option"
-    },
-    {
-      "label": "authorization_is_stripped_across_origins()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L105",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "authorization_is_stripped_across_origins()",
-      "id": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins"
-    },
-    {
-      "label": "authorization_survives_a_same_origin_redirect()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L132",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "authorization_survives_a_same_origin_redirect()",
-      "id": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect"
-    },
-    {
-      "label": "the_default_client_does_leak_a_query_secret_through_referer()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L159",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "the_default_client_does_leak_a_query_secret_through_referer()",
-      "id": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer"
-    },
-    {
-      "label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()",
-      "file_type": "code",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L200",
-      "_origin": "ast",
-      "community": 238,
-      "norm_label": "a_client_configured_the_way_this_crate_does_it_leaks_nothing()",
-      "id": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing"
     },
     {
       "label": "README.md",
@@ -21018,14 +21108,721 @@
   ],
   "links": [
     {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L31",
+      "weight": 1.0,
+      "context": "import",
+      "source": "tests_body_bounds",
+      "target": "src_prelude",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L29",
+      "weight": 1.0,
+      "context": "import",
+      "source": "tests_body_bounds",
+      "target": "tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L228",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L287",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L206",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L154",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L126",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L263",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L174",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L49",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_framing",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_serve_framed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L65",
+      "weight": 1.0,
+      "source": "tests_body_bounds",
+      "target": "tests_body_bounds_serve_one_body",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "tests_body_bounds_serve_framed",
+      "target": "tests_body_bounds_framing",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L213",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
+      "target": "tests_body_bounds_serve_one_body",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L157",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
+      "target": "tests_body_bounds_serve_one_body",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L130",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
+      "target": "tests_body_bounds_serve_one_body",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L178",
+      "weight": 1.0,
+      "source": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
+      "target": "tests_body_bounds_serve_one_body",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L65",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_body_bounds_serve_one_body",
+      "target": "joinhandle",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L65",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_body_bounds_serve_one_body",
+      "target": "tests_body_bounds_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L66",
+      "weight": 1.0,
+      "source": "tests_body_bounds_serve_one_body",
+      "target": "tests_body_bounds_serve_framed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_body_bounds_serve_framed",
+      "target": "tests_body_bounds_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_body_bounds_serve_framed",
+      "target": "joinhandle",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/support/mock_server.rs",
+      "source_location": "L12",
+      "weight": 1.0,
+      "context": "import",
+      "confidence_score": 1.0,
+      "source": "tests_support_mock_server",
+      "target": "joinhandle"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/support/mock_server.rs",
+      "source_location": "L44",
+      "weight": 1.0,
+      "context": "return_type",
+      "confidence_score": 1.0,
+      "source": "tests_support_mock_server_spawn_429_with_retry_after",
+      "target": "joinhandle"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/support/mock_server.rs",
+      "source_location": "L20",
+      "weight": 1.0,
+      "context": "return_type",
+      "confidence_score": 1.0,
+      "source": "tests_support_mock_server_spawn_hanging_headers",
+      "target": "joinhandle"
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L249",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
+      "target": "tests_body_bounds_serve_framed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L295",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
+      "target": "tests_body_bounds_serve_framed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L268",
+      "weight": 1.0,
+      "source": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
+      "target": "tests_body_bounds_serve_framed",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L80",
+      "weight": 1.0,
+      "source": "tests_body_bounds_serve_framed",
+      "target": "tests_common_mod_accept_one"
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L119",
+      "weight": 1.0,
+      "source": "tests_body_bounds_serve_framed",
+      "target": "tests_common_mod_hang_up"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/body_bounds.rs",
+      "source_location": "L69",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "tests_body_bounds_serve_framed",
+      "target": "vec",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/providers/claude.rs",
+      "source_location": "L239",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "confidence_score": 1.0,
+      "source": "src_providers_claude_claudeprovider_map_status_to_error",
+      "target": "vec"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/providers/claude.rs",
+      "source_location": "L75",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_providers_claude_clauderequest",
+      "target": "vec"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "src/providers/claude.rs",
+      "source_location": "L93",
+      "weight": 1.0,
+      "context": "field",
+      "confidence_score": 1.0,
+      "source": "src_providers_claude_clauderesponse",
+      "target": "vec"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "source": "tests_common_mod",
+      "target": "tests_common_mod_accept_one",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L51",
+      "weight": 1.0,
+      "source": "tests_common_mod",
+      "target": "tests_common_mod_bind_loopback",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L91",
+      "weight": 1.0,
+      "source": "tests_common_mod",
+      "target": "tests_common_mod_hang_up",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L36",
+      "weight": 1.0,
+      "context": "import",
+      "source": "tests_common_mod",
+      "target": "tests_common_mod_rs_tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L51",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_common_mod_bind_loopback",
+      "target": "tests_common_mod_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L51",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_common_mod_bind_loopback",
+      "target": "tests_common_mod_rs_tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "tests_common_mod_accept_one",
+      "target": "tests_common_mod_rs_tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "tests_common_mod_accept_one",
+      "target": "tests_common_mod_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "tests_common_mod_accept_one",
+      "target": "tcpstream",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_common_mod_accept_one",
+      "target": "tests_common_mod_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L64",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_serve_once",
+      "target": "tests_common_mod_accept_one"
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/common/mod.rs",
+      "source_location": "L91",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "tests_common_mod_hang_up",
+      "target": "tcpstream",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "INFERRED",
+      "confidence_score": 0.8,
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L66",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_serve_once",
+      "target": "tests_common_mod_hang_up"
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L166",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L71",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L98",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L49",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_redirect_to",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L32",
+      "weight": 1.0,
+      "context": "import",
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_rs_tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_serve_once",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L125",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract",
+      "target": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L178",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
+      "target": "tests_upstream_reqwest_contract_redirect_to",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L81",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
+      "target": "tests_upstream_reqwest_contract_redirect_to",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L108",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
+      "target": "tests_upstream_reqwest_contract_redirect_to",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L49",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_upstream_reqwest_contract_redirect_to",
+      "target": "tests_upstream_reqwest_contract_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L145",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
+      "target": "tests_upstream_reqwest_contract_redirect_to",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "generic_arg",
+      "source": "tests_upstream_reqwest_contract_serve_once",
+      "target": "tests_upstream_reqwest_contract_rs_string",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L178",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
+      "target": "tests_upstream_reqwest_contract_serve_once",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L81",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
+      "target": "tests_upstream_reqwest_contract_serve_once",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L108",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
+      "target": "tests_upstream_reqwest_contract_serve_once",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "return_type",
+      "source": "tests_upstream_reqwest_contract_serve_once",
+      "target": "tests_upstream_reqwest_contract_rs_option",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L63",
+      "weight": 1.0,
+      "context": "parameter_type",
+      "source": "tests_upstream_reqwest_contract_serve_once",
+      "target": "tests_upstream_reqwest_contract_rs_tcplistener",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "context": "call",
+      "confidence": "EXTRACTED",
+      "source_file": "tests/upstream_reqwest_contract.rs",
+      "source_location": "L145",
+      "weight": 1.0,
+      "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
+      "target": "tests_upstream_reqwest_contract_serve_once",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_calibration.sh",
       "source_location": "L22",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_calibration",
-      "target": "ci_check_calibration_fail",
-      "confidence_score": 1.0
+      "target": "ci_check_calibration_fail"
     },
     {
       "relation": "contains",
@@ -21033,9 +21830,9 @@
       "source_file": "ci/check_calibration.sh",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_calibration",
-      "target": "ci_check_calibration_sh__entry",
-      "confidence_score": 1.0
+      "target": "ci_check_calibration_sh__entry"
     },
     {
       "relation": "calls",
@@ -21044,9 +21841,9 @@
       "source_location": "L24",
       "weight": 1.0,
       "context": "call",
+      "confidence_score": 1.0,
       "source": "ci_check_calibration_sh__entry",
-      "target": "ci_check_calibration_fail",
-      "confidence_score": 1.0
+      "target": "ci_check_calibration_fail"
     },
     {
       "relation": "defines",
@@ -21054,9 +21851,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L40",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_fail",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_fail"
     },
     {
       "relation": "defines",
@@ -21064,9 +21861,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L143",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_fixture_meta",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_fixture_meta"
     },
     {
       "relation": "defines",
@@ -21074,9 +21871,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L90",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_prod_only",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_prod_only"
     },
     {
       "relation": "defines",
@@ -21084,9 +21881,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L47",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_provider_files",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_provider_files"
     },
     {
       "relation": "defines",
@@ -21094,9 +21891,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L145",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_self_test",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_self_test"
     },
     {
       "relation": "contains",
@@ -21104,9 +21901,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L1",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_sh__entry",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_sh__entry"
     },
     {
       "relation": "defines",
@@ -21114,9 +21911,9 @@
       "source_file": "ci/check_redaction.sh",
       "source_location": "L125",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_check_redaction",
-      "target": "ci_check_redaction_skeleton",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_skeleton"
     },
     {
       "relation": "calls",
@@ -21125,9 +21922,9 @@
       "source_location": "L219",
       "weight": 1.0,
       "context": "call",
+      "confidence_score": 1.0,
       "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_fail",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_fail"
     },
     {
       "relation": "calls",
@@ -21136,9 +21933,9 @@
       "source_location": "L218",
       "weight": 1.0,
       "context": "call",
+      "confidence_score": 1.0,
       "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_prod_only",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_prod_only"
     },
     {
       "relation": "calls",
@@ -21147,9 +21944,9 @@
       "source_location": "L210",
       "weight": 1.0,
       "context": "call",
+      "confidence_score": 1.0,
       "source": "ci_check_redaction_sh__entry",
-      "target": "ci_check_redaction_self_test",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_self_test"
     },
     {
       "relation": "calls",
@@ -21158,9 +21955,9 @@
       "source_location": "L171",
       "weight": 1.0,
       "context": "call",
+      "confidence_score": 1.0,
       "source": "ci_check_redaction_self_test",
-      "target": "ci_check_redaction_skeleton",
-      "confidence_score": 1.0
+      "target": "ci_check_redaction_skeleton"
     },
     {
       "relation": "contains",
@@ -21168,9 +21965,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_bad.rs",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern0strlit_bad",
-      "target": "ci_fixtures_redaction_pattern0strlit_bad_p",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern0strlit_bad_p"
     },
     {
       "relation": "references",
@@ -21179,9 +21976,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "context": "field",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern0strlit_bad_p",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -21211,9 +22008,9 @@
       "source_file": "ci/fixtures/redaction/pattern0strlit_good.rs",
       "source_location": "L3",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern0strlit_good",
-      "target": "ci_fixtures_redaction_pattern0strlit_good_p",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern0strlit_good_p"
     },
     {
       "relation": "references",
@@ -21222,9 +22019,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "context": "field",
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern0strlit_good_p",
-      "target": "providerurl",
-      "confidence_score": 1.0
+      "target": "providerurl"
     },
     {
       "relation": "imports_from",
@@ -22386,39 +23183,6 @@
       "confidence_score": 1.0,
       "source": "src_providers_claude_clauderequest",
       "target": "src_providers_claude_claudemessage"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/providers/claude.rs",
-      "source_location": "L75",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_providers_claude_clauderequest",
-      "target": "vec"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/providers/claude.rs",
-      "source_location": "L239",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "src_providers_claude_claudeprovider_map_status_to_error",
-      "target": "vec"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "src/providers/claude.rs",
-      "source_location": "L93",
-      "weight": 1.0,
-      "context": "field",
-      "confidence_score": 1.0,
-      "source": "src_providers_claude_clauderesponse",
-      "target": "vec"
     },
     {
       "relation": "references",
@@ -25072,315 +25836,6 @@
       "confidence_score": 1.0,
       "source": "src_providers_openai_compat_openairespmessage",
       "target": "option"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L32",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "src_prelude"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L29",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tcplistener"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L256",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L315",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L234",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L182",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L154",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L291",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L202",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L50",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_framing"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_framed"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L66",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds",
-      "target": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_framing"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L241",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_probe_body_over_the_cap_degrades_instead_of_failing",
-      "target": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L185",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_success_body_at_the_cap_is_read_whole",
-      "target": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L158",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_success_body_over_the_cap_fails_rather_than_arriving_truncated",
-      "target": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L206",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut",
-      "target": "tests_body_bounds_serve_one_body"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L66",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_one_body",
-      "target": "joinhandle"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L66",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_one_body",
-      "target": "tests_body_bounds_rs_string"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L67",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_one_body",
-      "target": "tests_body_bounds_serve_framed"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_rs_string"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_framed",
-      "target": "joinhandle"
-    },
-    {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/support/mock_server.rs",
-      "source_location": "L12",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "tests_support_mock_server",
-      "target": "joinhandle"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/support/mock_server.rs",
-      "source_location": "L44",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_support_mock_server_spawn_429_with_retry_after",
-      "target": "joinhandle"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/support/mock_server.rs",
-      "source_location": "L20",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_support_mock_server_spawn_hanging_headers",
-      "target": "joinhandle"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L277",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_chunked_probe_body_degrades_from_the_streaming_branch",
-      "target": "tests_body_bounds_serve_framed"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L323",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_chunked_probe_body_under_the_cap_is_read_and_parsed",
-      "target": "tests_body_bounds_serve_framed"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L296",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled",
-      "target": "tests_body_bounds_serve_framed"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/body_bounds.rs",
-      "source_location": "L70",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "tests_body_bounds_serve_framed",
-      "target": "tests_body_bounds_rs_vec"
     },
     {
       "relation": "imports_from",
@@ -68490,209 +68945,6 @@
       "target": "tests_timeout_integration_test_hanging_body_produces_timeout_error"
     },
     {
-      "relation": "imports_from",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L32",
-      "weight": 1.0,
-      "context": "import",
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tcplistener"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L200",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L105",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L132",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L51",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L62",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L159",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract",
-      "target": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L212",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
-      "target": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L115",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
-      "target": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L142",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
-      "target": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L51",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_redirect_to",
-      "target": "tests_upstream_reqwest_contract_rs_string"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L179",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
-      "target": "tests_upstream_reqwest_contract_redirect_to"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L62",
-      "weight": 1.0,
-      "context": "generic_arg",
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tests_upstream_reqwest_contract_rs_string"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L212",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_a_client_configured_the_way_this_crate_does_it_leaks_nothing",
-      "target": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L115",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_authorization_is_stripped_across_origins",
-      "target": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L142",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_authorization_survives_a_same_origin_redirect",
-      "target": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L62",
-      "weight": 1.0,
-      "context": "parameter_type",
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tcplistener"
-    },
-    {
-      "relation": "references",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L62",
-      "weight": 1.0,
-      "context": "return_type",
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_serve_once",
-      "target": "tests_upstream_reqwest_contract_rs_option"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/upstream_reqwest_contract.rs",
-      "source_location": "L179",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "tests_upstream_reqwest_contract_the_default_client_does_leak_a_query_secret_through_referer",
-      "target": "tests_upstream_reqwest_contract_serve_once"
-    },
-    {
       "relation": "references",
       "confidence": "EXTRACTED",
       "source_file": "README.md",
@@ -69704,5 +69956,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "54b6cd2f53bc08ccc818dad1c8fec0e0cce7874e"
+  "built_at_commit": "0318d8af1edfa0eff1302c594b9834fd9bdd95d4"
 }

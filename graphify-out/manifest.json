@@ -290,8 +290,8 @@
     "semantic_hash": ""
   },
   "tests/upstream_reqwest_contract.rs": {
-    "mtime": 1785454221.6297243,
-    "ast_hash": "f17b24f0d7146341fa15cfa9676667cd",
+    "mtime": 1785492530.1848352,
+    "ast_hash": "9f16e57e22fb6f4b8ef98c09bb923f1f",
     "semantic_hash": ""
   },
   "examples/external_provider.rs": {
@@ -455,8 +455,8 @@
     "semantic_hash": ""
   },
   "tests/body_bounds.rs": {
-    "mtime": 1785486810.5370903,
-    "ast_hash": "2e103e6b735353ef3e3512ef42207bd3",
+    "mtime": 1785492593.587952,
+    "ast_hash": "a1a33cf9a75dbd52920bf5ced23871d1",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern0nonterminal_bad.rs": {
@@ -587,6 +587,11 @@
   "ci/fixtures/redaction/pattern0strlit_good.rs": {
     "mtime": 1785491233.3534617,
     "ast_hash": "5e75a1db9cb6be2188490845f158314e",
+    "semantic_hash": ""
+  },
+  "tests/common/mod.rs": {
+    "mtime": 1785492169.9581637,
+    "ast_hash": "08eb8c034ea5d19642b2311bfba4d988",
     "semantic_hash": ""
   }
 }
