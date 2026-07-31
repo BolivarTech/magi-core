@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785490240.8104699,
-    "ast_hash": "ef4860f18fc6630e4ecb7bd1a4a24dad",
+    "mtime": 1785490736.8622158,
+    "ast_hash": "67d8e1b0eb209b9da6e345cef12a2390",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -567,6 +567,16 @@
   "ci/fixtures/redaction/pattern1positional_good.rs": {
     "mtime": 1785490008.3913183,
     "ast_hash": "193008338f9ab701d7f3636e8c87d03b",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern1latearg_bad.rs": {
+    "mtime": 1785490736.95669,
+    "ast_hash": "8670238cd58a705d1dd8146d33b50e22",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern1latearg_good.rs": {
+    "mtime": 1785490736.9576905,
+    "ast_hash": "79b76441c9037942df231aacd9ec9247",
     "semantic_hash": ""
   }
 }

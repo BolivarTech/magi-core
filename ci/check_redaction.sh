@@ -89,12 +89,29 @@ provider_files() {
 # literal survives intact.
 prod_only() {
     awk '
+      # Strips a line comment WITHOUT touching a `//` inside a string literal. The earlier
+      # whitespace-guard was not enough: `let s = "a // b";` has a space before it too, so the
+      # literal was cut and the rest of the line vanished from every rule. Walking the quotes is
+      # the only way to tell the two apart, and a corrupted line is a false NEGATIVE — the
+      # direction that hides a leak.
+      function strip_comment(line,   i, c, inq, esc) {
+          for (i = 1; i <= length(line); i++) {
+              c = substr(line, i, 1)
+              if (esc)            { esc = 0; continue }
+              if (c == "\\")     { esc = 1; continue }
+              if (c == "\"")      { inq = !inq; continue }
+              if (!inq && c == "/" && substr(line, i + 1, 1) == "/") {
+                  return substr(line, 1, i - 1)
+              }
+          }
+          return line
+      }
       /^#\[cfg[^)]*[^a-z_"]test[^a-z_-]/ { pending = 1; print ""; next }
       pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
       skipping                      { print ""; next }
-                                    { sub(/(^|[ 	])\/\/.*$/, ""); print }
+                                    { print strip_comment($0) }
     ' "$1"
 }
 

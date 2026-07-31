@@ -37,7 +37,12 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 
 # Model rows are the backticked identifiers in the evidence table. Counting distinct ones keeps a
 # single model repeated across rows from passing as three.
-models="$(echo "$block" | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`' | sort -u | wc -l)"
+#
+# A model name must contain a `.`, `-` or `:` — every family in use is versioned or tagged
+# (`qwen3.5:397b`, `gpt-oss:120b`, `nemotron-3-super`). Without that requirement the count picked up
+# ordinary code identifiers from the same rustdoc — `max_tokens`, the constant's own name — so a
+# block naming ONE model could pass a floor of three. It counted backticks, not evidence.
+models="$(echo "$block"     | grep -oE '`[A-Za-z0-9]+[A-Za-z0-9.:_-]*`'     | grep -E '[.:-]'     | grep -vE '`[A-Z_]+`'     | sort -u | wc -l)"
 [ "$models" -ge "$MIN_MODELS" ] \
     || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest"
 
