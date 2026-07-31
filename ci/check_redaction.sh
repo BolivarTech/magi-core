@@ -77,10 +77,17 @@ provider_files() {
 # numbers. Pattern 5 and the `grep -n` rules report positions, and shifting them silently would
 # make every future report point at the wrong line.
 #
-# KNOWN BLIND SPOT, stated rather than implied: the test-module detection is anchored at column 0,
-# so a test module nested inside another module is NOT skipped and its body is scanned as
-# production. That fails in the SAFE direction — false positives, which a fixture catches and a
-# human notices — but a maintainer reading only the regex would assume otherwise.
+# KNOWN BLIND SPOTS, stated rather than implied. All three fail in the SAFE direction — false
+# positives, which are loud — but a maintainer who hits one should know it is a documented limit
+# rather than a bug to chase:
+#
+#   * a test module NESTED inside another module is not skipped (the detection is anchored at
+#     column 0), so its body is scanned as production;
+#   * BLOCK comments (`/* … */`) are not stripped, only line comments;
+#   * a string literal spanning lines can leave its contents visible to the line-wise rules.
+#
+# The compound `#[cfg(all(feature = "x", test))]` IS handled, in either argument order, and
+# `#[cfg(feature = "test-utils")]` is correctly NOT treated as a test module — both verified.
 #
 # LINE COMMENTS ARE STRIPPED. Every rule here looks for a code shape, and a comment that mentions
 # one is prose, not the thing. It matters most for the per-builder count: a comment naming
