@@ -76,6 +76,12 @@ provider_files() {
 # Skipped lines are emitted as BLANK rather than dropped, so `NR` stays aligned with real file line
 # numbers. Pattern 5 and the `grep -n` rules report positions, and shifting them silently would
 # make every future report point at the wrong line.
+#
+# LINE COMMENTS ARE STRIPPED. Every rule here looks for a code shape, and a comment that mentions
+# one is prose, not the thing. It matters most for the per-builder count: a comment naming
+# `Client::builder` inflated the builder tally and failed a correct file, which is the way a check
+# gets switched off. The `//` must follow whitespace or start the line, so a URL inside a string
+# literal survives intact.
 prod_only() {
     awk '
       /^#\[cfg[^)]*[^a-z_"]test[^a-z_-]/ { pending = 1; print ""; next }
@@ -83,7 +89,7 @@ prod_only() {
       pending                       { pending = 0 }
       skipping && /^\}/             { skipping = 0; print ""; next }
       skipping                      { print ""; next }
-                                    { print }
+                                    { sub(/(^|[ 	])\/\/.*$/, ""); print }
     ' "$1"
 }
 

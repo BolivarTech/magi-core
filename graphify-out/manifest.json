@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1785470725.006058,
-    "ast_hash": "652d7c93afe728c2b58baeb984302130",
+    "mtime": 1785489095.9693887,
+    "ast_hash": "1a648214aef1e16f91de1e2b0e899763",
     "semantic_hash": ""
   },
   ".github/workflows/release.yml": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785488528.4988506,
-    "ast_hash": "1a70c6284d7b37429bff56a5471bcef3",
+    "mtime": 1785489141.7471097,
+    "ast_hash": "0d020e901a3a824b8fe131dbd7f5b9b9",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -330,8 +330,8 @@
     "semantic_hash": ""
   },
   "ci/check_calibration.sh": {
-    "mtime": 1785470645.2798288,
-    "ast_hash": "8d6b4214350f354d6074a7ea4debb73f",
+    "mtime": 1785489096.1794417,
+    "ast_hash": "27c45a33b9dd8bb5c8d4354c82ce3987",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern0boundary_bad.rs": {
@@ -537,6 +537,16 @@
   "ci/fixtures/redaction/pattern7second_good.rs": {
     "mtime": 1785488472.274619,
     "ast_hash": "8eb99dac898c77dcc8056c96f4b06999",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern1pretty_bad.rs": {
+    "mtime": 1785489141.692025,
+    "ast_hash": "24c63e566e9e2f2ae5ebce2913695c01",
+    "semantic_hash": ""
+  },
+  "ci/fixtures/redaction/pattern1pretty_good.rs": {
+    "mtime": 1785489141.692025,
+    "ast_hash": "21a5fcd81fe22e681a837af07a696bea",
     "semantic_hash": ""
   }
 }
