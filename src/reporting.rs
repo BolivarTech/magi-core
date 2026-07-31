@@ -234,6 +234,66 @@ pub struct ReportFormatter {
     banner_inner: usize,
 }
 
+/// Bytes assumed per token by the input-size estimate.
+///
+/// Four is the conventional rule of thumb for English prose in byte-pair encodings. It is a
+/// convention, not a measurement — see [`estimate_tokens`] for what that costs.
+pub const TOKENS_PER_BYTE_DIVISOR: usize = 4;
+
+/// Estimates the token count of `content` as `content.len() / 4`, in **bytes**.
+///
+/// # Parameters
+/// - `content`: the analysis input, exactly as passed to `analyze`.
+///
+/// # Returns
+/// A heuristic token estimate. Never fails, never panics.
+///
+/// # This is a heuristic, and the error is not small
+///
+/// It **underestimates** non-ASCII text, where one character occupies 2–4 bytes — CJK or emoji
+/// can come in at a fraction of the real count. It **overestimates** dense source code, which
+/// tokenizes into shorter pieces than prose. Use it for **orders of magnitude**: "is this input
+/// closer to 1k or 100k tokens". Do **not** use it to decide whether a payload fits a context
+/// window — for that, ask the tokenizer that model actually uses.
+///
+/// Saying this plainly matters more than the number: someone will otherwise budget a window
+/// with it, and a silent 4× underestimate on non-ASCII input is exactly how that goes wrong.
+///
+/// # Why bytes and not characters
+///
+/// `.len()` is O(1); `.chars().count()` is O(n) and this runs on every `analyze()`. Paying a
+/// linear scan for a number that is admittedly approximate would buy precision the estimate
+/// does not have anyway.
+pub fn estimate_tokens(content: &str) -> usize {
+    content.len() / TOKENS_PER_BYTE_DIVISOR
+}
+
+/// How large the analysis input was, and how that compared to the configured warning threshold.
+///
+/// Telemetry, never a gate: exceeding the threshold marks this struct and emits a warning, and
+/// the run proceeds. The hard bound is [`MagiConfig::max_input_len`], which is unrelated to this
+/// and is enforced elsewhere.
+///
+/// [`MagiConfig::max_input_len`]: crate::orchestrator::MagiConfig::max_input_len
+///
+/// # Why a struct and not a bare number
+///
+/// The threshold is configurable, so an estimate on its own is **uninterpretable**: a reader
+/// holding someone else's report cannot know what it was compared against, nor what that
+/// version of the crate defaulted to. The report has to state it, not force a reconstruction.
+///
+/// `#[non_exhaustive]` like every public struct since 1.0.0.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub struct InputSize {
+    /// The heuristic estimate — see [`estimate_tokens`] for its accuracy.
+    pub estimated_tokens: usize,
+    /// The threshold it was compared against **on this run**.
+    pub warn_threshold: usize,
+    /// `estimated_tokens > warn_threshold`.
+    pub exceeded: bool,
+}
+
 /// Final output struct returned by the orchestrator's `analyze()` method.
 ///
 /// Contains all analysis data plus the formatted report string.
@@ -328,6 +388,22 @@ pub struct MagiReport {
     ///
     #[serde(default)]
     pub extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>>,
+
+    /// How large the input was, and whether it crossed the warning threshold.
+    ///
+    /// # `None` means "produced before this measurement existed"
+    ///
+    /// Every report this version produces carries `Some`, including for tiny inputs. So `None`
+    /// can only mean the report came from a crate older than 3.1.0 — never "3.1.0 declined to
+    /// measure".
+    ///
+    /// The `Option` is load-bearing rather than decorative. A bare `InputSize` with
+    /// `#[serde(default)]` would need `InputSize: Default`, and that default reads
+    /// `estimated_tokens: 0` — which is not a neutral value but the false claim that the input
+    /// measured zero tokens, **indistinguishable from a real, tiny input**. A field whose job is
+    /// to certify a measurement must not fabricate the one it lacks.
+    #[serde(default)]
+    pub input_size: Option<InputSize>,
 }
 
 /// Maps an [`ExtractionFailureCause`] to a short human label for the
@@ -925,6 +1001,68 @@ impl ReportFormatter {
 impl Default for ReportFormatter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod input_size_tests {
+    use super::*;
+
+    #[test]
+    fn the_estimate_divides_bytes_and_never_counts_characters() {
+        assert_eq!(estimate_tokens("abcd"), 1);
+        assert_eq!(estimate_tokens(""), 0);
+        assert_eq!(
+            estimate_tokens("ñ"),
+            0,
+            "2 bytes / 4 — byte-based on purpose, and this is the underestimate the rustdoc warns about"
+        );
+    }
+
+    #[test]
+    fn the_serialized_field_carries_both_numbers_not_just_the_estimate() {
+        // The struct exists so a reader can interpret the number without knowing this version's
+        // default; serializing only the estimate would silently defeat that.
+        let s = InputSize {
+            estimated_tokens: 42,
+            warn_threshold: 150_000,
+            exceeded: false,
+        };
+        let json = serde_json::to_string(&s).expect("serializes");
+        assert!(
+            json.contains("42") && json.contains("150000"),
+            "both numbers present: {json}"
+        );
+        assert!(json.contains("exceeded"), "and the verdict they produced");
+    }
+
+    #[test]
+    fn a_report_from_the_previous_version_deserializes_as_none_not_zero() {
+        // The distinction the `Option` exists for: absent must not become a fabricated
+        // zero-token measurement, which a real tiny input would be indistinguishable from.
+        //
+        // The pre-3.1.0 document is derived by REMOVING the key from a real one rather than
+        // hand-written. A hand-written fixture pins this test to today's shape of every OTHER
+        // field, so an unrelated schema change breaks it with a misleading message — which is
+        // exactly what happened while writing it.
+        let report = super::tests::report_with_no_telemetry();
+        let current = serde_json::to_string(&report).expect("serializes");
+        assert!(
+            current.contains("\"input_size\""),
+            "this version always states the measurement: {current}"
+        );
+
+        let previous = current.replace(",\"input_size\":null", "");
+        assert!(
+            !previous.contains("input_size"),
+            "the older document must genuinely lack the key, or this test proves nothing"
+        );
+
+        let r: MagiReport = serde_json::from_str(&previous).expect("round-trips");
+        assert!(
+            r.input_size.is_none(),
+            "absent must stay absent, not become a measurement nobody took"
+        );
     }
 }
 
@@ -1738,6 +1876,25 @@ mod tests {
 
     // -- MagiReport tests --
 
+    /// A minimal report with every telemetry field empty, for tests that care about the
+    /// document's SHAPE rather than its contents.
+    pub(super) fn report_with_no_telemetry() -> MagiReport {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.9, 1.0, &[&m]);
+        MagiReport {
+            agents: vec![m],
+            consensus,
+            banner: "banner".to_string(),
+            report: "report".to_string(),
+            degraded: false,
+            failed_agents: BTreeMap::new(),
+            retried_agents: BTreeSet::new(),
+            rotations: BTreeMap::new(),
+            extraction_failures: BTreeMap::new(),
+            input_size: None,
+        }
+    }
+
     /// MagiReport serializes to JSON.
     #[test]
     fn test_magi_report_serializes_to_json() {
@@ -1762,6 +1919,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -1796,6 +1954,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         assert!(!report.degraded);
@@ -1820,6 +1979,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -1840,6 +2000,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1868,6 +2029,7 @@ mod tests {
             retried_agents: retried,
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -1919,6 +2081,7 @@ mod tests {
             retried_agents: retried,
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -1986,6 +2149,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         assert!(report.degraded);
@@ -2613,6 +2777,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2644,6 +2809,7 @@ mod tests {
             retried_agents: BTreeSet::new(),
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
+            input_size: None,
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

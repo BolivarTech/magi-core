@@ -13,7 +13,10 @@ use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
 use crate::error::{MagiError, ProviderError};
 use crate::provider::{CompletionConfig, LlmProvider};
-use crate::reporting::{ExtractionFailure, MagiReport, ReportConfig, ReportFormatter};
+use crate::reporting::{
+    ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
+    TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
+};
 use crate::rotation::{
     ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
     LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
@@ -34,6 +37,12 @@ use tokio::task::AbortHandle;
 /// For public-facing deployments where `content` is untrusted, consider
 /// using [`MagiBuilder::with_max_input_len`] to set a lower limit.
 pub const DEFAULT_MAX_INPUT_LEN: usize = 4 * 1024 * 1024;
+
+/// Default estimated-token count above which `analyze` warns: 150 000.
+///
+/// See [`MagiConfig::input_warn_tokens`] for why this warns rather than rejects, and for when to
+/// raise it.
+pub const DEFAULT_INPUT_WARN_TOKENS: usize = 150_000;
 
 /// Configuration for the MAGI orchestrator.
 ///
@@ -77,6 +86,78 @@ pub struct MagiConfig {
     /// for latency-sensitive deployments where 2× worst-case timeout per
     /// agent is unacceptable.
     pub retry_on_schema_error: bool,
+
+    /// Estimated input size, in **TOKENS**, above which `analyze` emits a warning.
+    ///
+    /// Default: [`DEFAULT_INPUT_WARN_TOKENS`].
+    ///
+    /// # Warns. Never rejects.
+    ///
+    /// Crossing this marks [`MagiReport::input_size`] and emits a `tracing::warn!`; the analysis
+    /// runs to completion either way. The field that **rejects** is [`max_input_len`], and the
+    /// two are deliberately different things sitting next to each other:
+    ///
+    /// | Field | Unit | Effect |
+    /// |---|---|---|
+    /// | [`max_input_len`] | **bytes** | rejects |
+    /// | `input_warn_tokens` | **tokens** | warns |
+    ///
+    /// **The units differ, and that is a trap worth naming.** Any comparison between them has to
+    /// convert (see [`TOKENS_PER_BYTE_DIVISOR`]); a refactor that treats them as the same scale
+    /// produces a check that means nothing.
+    ///
+    /// # `0` warns always — it does not disable
+    ///
+    /// Zero is literally zero, so any non-empty input exceeds it. There is no sentinel value and
+    /// no off switch: the report field is always computed, and only *when it warns* is
+    /// configurable. To silence the warning, set it high — `build()` will then tell you once
+    /// that your threshold can never fire, which is precisely what you asked for.
+    ///
+    /// # Calibrating it
+    ///
+    /// The default is ~15% of the 4 MB hard bound: a reasonable signal for a ~200k-context model,
+    /// and **premature** for a 1M-context one, where it would warn about inputs the model digests
+    /// without effort. Raise it for large-window models. The default favours the common case —
+    /// warning too early is cheap, warning too late is not.
+    ///
+    /// [`max_input_len`]: MagiConfig::max_input_len
+    /// [`MagiReport::input_size`]: crate::reporting::MagiReport::input_size
+    /// [`TOKENS_PER_BYTE_DIVISOR`]: crate::reporting::TOKENS_PER_BYTE_DIVISOR
+    pub input_warn_tokens: usize,
+}
+
+/// True when `content`'s estimate exceeds `cfg`'s warning threshold.
+///
+/// The same predicate `analyze` uses, extracted so it is testable without a run.
+///
+/// # Parameters
+/// - `content`: the analysis input.
+/// - `cfg`: the configuration whose `input_warn_tokens` applies.
+pub(crate) fn exceeds_warn_threshold(content: &str, cfg: &MagiConfig) -> bool {
+    // Strictly greater: at exactly the threshold nothing is wrong yet. It also means an empty
+    // input never warns, not even against a threshold of 0.
+    estimate_tokens(content) > cfg.input_warn_tokens
+}
+
+/// True when the warning threshold can never fire, because the validator rejects first.
+///
+/// # Parameters
+/// - `cfg`: the configuration to inspect.
+///
+/// # Why this is reported rather than corrected
+///
+/// Such a threshold leaves the telemetry mute with nobody the wiser. Silently clamping it would
+/// substitute our guess for the caller's stated intent; saying so once at `build()` does not.
+pub(crate) fn warn_threshold_is_unreachable(cfg: &MagiConfig) -> bool {
+    // The two fields are in DIFFERENT UNITS — tokens here, bytes there — so the comparison has
+    // to convert, and converting up (tokens → bytes) is what keeps the operands honest.
+    //
+    // Saturating, because the interesting input is an absurd threshold: `usize::MAX * 4` wraps
+    // to a small number, which would answer "reachable" for the single most unreachable value
+    // there is — the exact inversion this check exists to catch.
+    cfg.input_warn_tokens
+        .saturating_mul(TOKENS_PER_BYTE_DIVISOR)
+        >= cfg.max_input_len
 }
 
 impl Default for MagiConfig {
@@ -86,6 +167,7 @@ impl Default for MagiConfig {
             max_input_len: DEFAULT_MAX_INPUT_LEN,
             completion: CompletionConfig::default(),
             retry_on_schema_error: true,
+            input_warn_tokens: DEFAULT_INPUT_WARN_TOKENS,
         }
     }
 }
@@ -402,6 +484,18 @@ impl MagiBuilder {
         self
     }
 
+    /// Sets the estimated-token count above which `analyze` warns.
+    ///
+    /// # Parameters
+    /// - `tokens`: the threshold, in **tokens** (not bytes). `0` warns on every non-empty
+    ///   input; it does not disable the warning.
+    ///
+    /// This never causes an input to be rejected — see [`MagiConfig::input_warn_tokens`].
+    pub fn with_input_warn_tokens(mut self, tokens: usize) -> Self {
+        self.config.input_warn_tokens = tokens;
+        self
+    }
+
     /// Sets the completion configuration forwarded to agents.
     ///
     /// # Parameters
@@ -445,6 +539,17 @@ impl MagiBuilder {
     /// # Errors
     /// Returns `MagiError::Io` if `prompts_dir` is set and cannot be read.
     pub fn build(self) -> Result<Magi, MagiError> {
+        // A warning threshold the validator would reject before can never fire, leaving the
+        // telemetry mute with nobody the wiser. Say it once, here — and do NOT clamp it: that
+        // would substitute our guess for what the caller actually asked for.
+        if warn_threshold_is_unreachable(&self.config) {
+            tracing::warn!(
+                input_warn_tokens = self.config.input_warn_tokens,
+                max_input_len = self.config.max_input_len,
+                "input warning threshold can never fire: the size limit rejects first"
+            );
+        }
+
         // MS2 (R3.2) — VALIDITY: reject empty/blank declared lineages before anything
         // else. This is malformed input (a `Lineage` is a declared label), distinct
         // from the G2 diversity warning below; it fires even for a single-provider config.
@@ -709,6 +814,22 @@ impl Magi {
             });
         }
 
+        // 2.5. Measure the input. Telemetry only: this can mark the report and emit a warning,
+        //      and it can NEVER stop the run. The single place that rejects on size is the
+        //      `max_input_len` check in step 1, and it has already run.
+        let input_size = InputSize {
+            estimated_tokens: estimate_tokens(content),
+            warn_threshold: self.config.input_warn_tokens,
+            exceeded: exceeds_warn_threshold(content, &self.config),
+        };
+        if input_size.exceeded {
+            tracing::warn!(
+                estimated_tokens = input_size.estimated_tokens,
+                warn_threshold = input_size.warn_threshold,
+                "input exceeds the configured warning threshold; continuing"
+            );
+        }
+
         // 3. Create agents, resolving system prompts via lookup_prompt so that
         //    overrides registered through with_custom_prompt_for_mode /
         //    with_custom_prompt_all_modes take effect.
@@ -764,6 +885,7 @@ impl Magi {
             retried_agents,
             rotations,
             extraction_failures,
+            input_size: Some(input_size),
         })
     }
 
@@ -1837,6 +1959,64 @@ pub(crate) fn parse_validate_and_check(
 }
 
 #[cfg(test)]
+mod input_threshold_tests {
+    use super::*;
+
+    #[test]
+    fn a_zero_threshold_warns_always_and_does_not_disable() {
+        // No sentinel values: 0 is literally zero, so any non-empty input exceeds it. A value
+        // that flips the meaning of a knob is a hidden rule.
+        let cfg = MagiConfig {
+            input_warn_tokens: 0,
+            ..Default::default()
+        };
+        assert!(
+            exceeds_warn_threshold("some content", &cfg),
+            "0 warns; it does not switch the warning off"
+        );
+    }
+
+    #[test]
+    fn an_empty_input_never_exceeds_even_a_zero_threshold() {
+        // The one input a zero threshold does not catch, because `>` is strict. Pinned so the
+        // boundary is a decision rather than an accident.
+        let cfg = MagiConfig {
+            input_warn_tokens: 0,
+            ..Default::default()
+        };
+        assert!(!exceeds_warn_threshold("", &cfg));
+    }
+
+    #[test]
+    fn the_default_threshold_does_not_warn_on_ordinary_input() {
+        let cfg = MagiConfig::default();
+        assert!(!exceeds_warn_threshold("a short review request", &cfg));
+    }
+
+    #[test]
+    fn a_threshold_that_can_never_fire_is_detected() {
+        // threshold * 4 >= max_input_len means the validator rejects first, so the warning is
+        // mute. Saturating: an absurd threshold must not overflow into the opposite verdict.
+        let cfg = MagiConfig {
+            input_warn_tokens: usize::MAX,
+            max_input_len: 4 * 1024 * 1024,
+            ..Default::default()
+        };
+        assert!(
+            warn_threshold_is_unreachable(&cfg),
+            "a mute knob must be reported, not silently kept"
+        );
+    }
+
+    #[test]
+    fn the_shipped_defaults_are_not_degenerate() {
+        // If this ever goes red, the crate's own defaults would emit a config warning on every
+        // build — the fastest way to teach users to ignore it.
+        assert!(!warn_threshold_is_unreachable(&MagiConfig::default()));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::prompts::lookup_prompt;
@@ -2074,6 +2254,132 @@ mod tests {
                 "no rotation → used == configured"
             );
         }
+    }
+
+    /// Collects `tracing` events as text, so a test can assert one was emitted.
+    ///
+    /// Hand-rolled on the `tracing` facade rather than pulled from `tracing-subscriber`: the
+    /// milestone adds no dependency, dev or otherwise, and the six no-op methods below are the
+    /// whole price of that.
+    #[derive(Clone, Default)]
+    struct EventLog(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl EventLog {
+        fn lines(&self) -> Vec<String> {
+            self.0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+    }
+
+    /// Renders every field of an event, including the message, which `tracing` carries as a
+    /// field literally named `message`.
+    struct FieldWriter<'a>(&'a mut String);
+
+    impl tracing::field::Visit for FieldWriter<'_> {
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            use std::fmt::Write;
+            let _ = write!(self.0, " {}={:?}", field.name(), value);
+        }
+    }
+
+    impl tracing::Subscriber for EventLog {
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            true
+        }
+
+        fn new_span(&self, _attrs: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            // Spans are irrelevant here; every span gets the same id and nothing reads it.
+            tracing::span::Id::from_u64(1)
+        }
+
+        fn record(&self, _span: &tracing::span::Id, _values: &tracing::span::Record<'_>) {}
+
+        fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
+
+        fn event(&self, event: &tracing::Event<'_>) {
+            let mut line = event.metadata().level().to_string();
+            event.record(&mut FieldWriter(&mut line));
+            self.0
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(line);
+        }
+
+        fn enter(&self, _span: &tracing::span::Id) {}
+
+        fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    fn trio() -> Arc<dyn LlmProvider> {
+        Arc::new(MockProvider::success(
+            "mock",
+            "test-model",
+            vec![
+                mock_agent_json("melchior", "approve", 0.9),
+                mock_agent_json("balthasar", "approve", 0.85),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ))
+    }
+
+    /// R10 is warn-ONLY: the event fires **and** the analysis still produces a report.
+    /// Asserting only the flag would leave "someone turned it into a rejection" undetected.
+    #[tokio::test]
+    async fn exceeding_the_threshold_warns_and_still_completes() {
+        let log = EventLog::default();
+        // `set_default` rather than `with_default`: the guard has to survive `.await`, and the
+        // test runtime keeps this future on one thread.
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let magi = MagiBuilder::new(trio())
+            .with_input_warn_tokens(0)
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("warn-only: the analysis must still complete");
+
+        let size = report.input_size.expect("this version always measures");
+        assert!(size.exceeded, "the report states it crossed the threshold");
+        assert_eq!(size.warn_threshold, 0, "and what it was compared against");
+        assert!(
+            !report.agents.is_empty(),
+            "warn-only means the run produced verdicts anyway"
+        );
+
+        let lines = log.lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("WARN") && l.contains("threshold")),
+            "a warning must actually be emitted, not merely recorded in the struct: {lines:?}"
+        );
+    }
+
+    /// The other side of the same requirement: under the threshold, nothing is announced.
+    /// A warning that fires always is a warning nobody reads.
+    #[tokio::test]
+    async fn staying_under_the_threshold_announces_nothing() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("analyze");
+
+        let size = report.input_size.expect("measured even when small");
+        assert!(!size.exceeded);
+        assert_eq!(size.estimated_tokens, "fn main() {}".len() / 4);
+        assert!(
+            !log.lines().iter().any(|l| l.contains("threshold")),
+            "silence below the threshold: {:?}",
+            log.lines()
+        );
     }
 
     /// S23: two primaries with the SAME lineage → `build()` succeeds (emits a

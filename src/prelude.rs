@@ -27,7 +27,8 @@ pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 
 // Reporting
 pub use crate::reporting::{
-    BANNER_INNER, BANNER_WIDTH, MagiReport, ReportConfig, ReportError, ReportFormatter,
+    BANNER_INNER, BANNER_WIDTH, InputSize, MagiReport, ReportConfig, ReportError, ReportFormatter,
+    TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 
 // Provider trait and config
@@ -40,7 +41,9 @@ pub use crate::provider::{
 pub use crate::agent::{Agent, AgentFactory};
 
 // Orchestrator
-pub use crate::orchestrator::{DEFAULT_MAX_INPUT_LEN, Magi, MagiBuilder, MagiConfig};
+pub use crate::orchestrator::{
+    DEFAULT_INPUT_WARN_TOKENS, DEFAULT_MAX_INPUT_LEN, Magi, MagiBuilder, MagiConfig,
+};
 
 // Rotation (MS2): declare fallbacks/lineages and read rotation telemetry.
 pub use crate::rotation::{
