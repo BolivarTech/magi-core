@@ -44,6 +44,14 @@ const VERDICT_CAP: usize = 1 << 20;
 /// The diagnostic prefix cap — far smaller, because an error body is read by a human.
 const DIAGNOSTIC_CAP: usize = 8 * 1024;
 
+/// Size of each chunk when the server frames a body as `chunked`.
+///
+/// Named because the VALUE carries the intent: it has to be small enough that a body over the cap
+/// takes several chunks, so the reader crosses the limit mid-stream instead of on its first read —
+/// which is the branch a `Content-Length` body never reaches. A larger number would still pass the
+/// test while quietly stopping it from testing that.
+const CHUNK_BYTES: usize = 64 * 1024;
+
 /// How the body is framed, which decides WHICH branch of the reader runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Framing {
@@ -97,7 +105,7 @@ fn serve_framed(
                     Framing::Chunked => {
                         // Several chunks, so the cap is crossed part-way through the
                         // stream rather than on the very first read.
-                        let chunk = 64 * 1024;
+                        let chunk = CHUNK_BYTES;
                         let mut sent = 0;
                         while sent < body_len {
                             let n = chunk.min(body_len - sent);

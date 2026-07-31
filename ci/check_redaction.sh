@@ -407,17 +407,24 @@ done
 # in this file because it never passes through anything this crate renders.
 for f in $(find "$SRC" -name '*.rs' 2>/dev/null || true); do
     prod="$(prod_only "$f")"
-    # `Client::new()` is a DEFAULT client: Referer on, and no builder to turn it off. It is
-    # rejected outright rather than asked for a call it has no way to make — and it slipped past
-    # the rule below, which only ever looked for the builder.
-    if echo "$prod" | grep -q 'Client::new()'; then
-        fail "$f uses Client::new(), which cannot disable referer — build the client instead"
+    # Every spelling that yields a DEFAULT client: Referer on, and no builder to turn it off. They
+    # are rejected outright rather than asked for a call they have no way to make.
+    #
+    # `Client::default()` is the same client as `Client::new()` by another name, and listing only
+    # the latter left the shorter spelling as a silent bypass of this whole rule — the same
+    # one-alternative-of-several gap that pattern 1 had, in the check that guards the leak nothing
+    # else can see.
+    if echo "$prod" | grep -qE 'Client::(new|default)\(\)'; then
+        fail "$f builds a default HTTP client, which cannot disable referer — use the builder"
     fi
     # PER BUILDER, not per file. A file-level check is satisfied by one configured client while a
     # second one beside it goes bare — and a provider module holding a completions client and a
     # probe client is exactly the shape this crate has. Counting is enough here: every builder
     # must carry the call, so the counts have to match.
-    builders="$(echo "$prod" | grep -c 'Client::builder' || true)"
+    # Both spellings of "start a builder" count, for the same reason: `ClientBuilder::new()` is
+    # `Client::builder()` written the long way, and a tally that saw only one of them would let a
+    # second, unconfigured client sit beside a configured one without changing the count.
+    builders="$(echo "$prod" | grep -cE 'Client::builder|ClientBuilder::new' || true)"
     [ "${builders:-0}" -gt 0 ] || continue
     configured="$(echo "$prod" | grep -c 'referer(false)' || true)"
     [ "${configured:-0}" -ge "${builders:-0}" ] \
