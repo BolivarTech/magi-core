@@ -116,14 +116,56 @@
       "norm_label": "self_test()"
     },
     {
+      "label": "run_all_checks.sh",
+      "file_type": "code",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "_origin": "ast",
+      "id": "ci_run_all_checks",
+      "community": 263,
+      "norm_label": "run_all_checks.sh"
+    },
+    {
+      "label": "run_all_checks.sh script",
+      "file_type": "code",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L1",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "_origin": "ast",
+      "id": "ci_run_all_checks_sh__entry",
+      "community": 263,
+      "norm_label": "run_all_checks.sh script"
+    },
+    {
+      "label": "step()",
+      "file_type": "code",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L45",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_function"
+      },
+      "_origin": "ast",
+      "id": "ci_run_all_checks_step",
+      "community": 263,
+      "norm_label": "step()"
+    },
+    {
       "label": "pattern5nestedwatched_bad.rs",
       "file_type": "code",
       "source_file": "ci/fixtures/redaction/pattern5nestedwatched_bad.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern5nestedwatched_bad",
       "community": 300,
-      "norm_label": "pattern5nestedwatched_bad.rs"
+      "norm_label": "pattern5nestedwatched_bad.rs",
+      "id": "ci_fixtures_redaction_pattern5nestedwatched_bad"
     },
     {
       "label": "f()",
@@ -131,9 +173,9 @@
       "source_file": "ci/fixtures/redaction/pattern5nestedwatched_bad.rs",
       "source_location": "L6",
       "_origin": "ast",
-      "id": "ci_fixtures_redaction_pattern5nestedwatched_bad_f",
       "community": 300,
-      "norm_label": "f()"
+      "norm_label": "f()",
+      "id": "ci_fixtures_redaction_pattern5nestedwatched_bad_f"
     },
     {
       "label": "check_calibration.sh",
@@ -2666,48 +2708,6 @@
       "community": 158,
       "norm_label": "f()",
       "id": "ci_fixtures_redaction_pattern5nestedmatch_good_f"
-    },
-    {
-      "label": "run_all_checks.sh",
-      "file_type": "code",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "file"
-      },
-      "_origin": "ast",
-      "community": 263,
-      "norm_label": "run_all_checks.sh",
-      "id": "ci_run_all_checks"
-    },
-    {
-      "label": "run_all_checks.sh script",
-      "file_type": "code",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L1",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_entrypoint"
-      },
-      "_origin": "ast",
-      "community": 263,
-      "norm_label": "run_all_checks.sh script",
-      "id": "ci_run_all_checks_sh__entry"
-    },
-    {
-      "label": "step()",
-      "file_type": "code",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L45",
-      "metadata": {
-        "language": "bash",
-        "kind": "bash_function"
-      },
-      "_origin": "ast",
-      "community": 263,
-      "norm_label": "step()",
-      "id": "ci_run_all_checks_step"
     },
     {
       "label": "CHANGELOG.md",
@@ -22116,12 +22116,43 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "ci_run_all_checks",
+      "target": "ci_run_all_checks_sh__entry",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "defines",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L45",
+      "weight": 1.0,
+      "source": "ci_run_all_checks",
+      "target": "ci_run_all_checks_step",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "calls",
+      "confidence": "EXTRACTED",
+      "source_file": "ci/run_all_checks.sh",
+      "source_location": "L66",
+      "weight": 1.0,
+      "context": "call",
+      "source": "ci_run_all_checks_sh__entry",
+      "target": "ci_run_all_checks_step",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
       "source_file": "ci/fixtures/redaction/pattern5nestedwatched_bad.rs",
       "source_location": "L6",
       "weight": 1.0,
+      "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern5nestedwatched_bad",
-      "target": "ci_fixtures_redaction_pattern5nestedwatched_bad_f",
-      "confidence_score": 1.0
+      "target": "ci_fixtures_redaction_pattern5nestedwatched_bad_f"
     },
     {
       "relation": "defines",
@@ -32391,37 +32422,6 @@
       "confidence_score": 1.0,
       "source": "ci_fixtures_redaction_pattern5nestedmatch_good",
       "target": "ci_fixtures_redaction_pattern5nestedmatch_good_f"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L1",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_run_all_checks",
-      "target": "ci_run_all_checks_sh__entry"
-    },
-    {
-      "relation": "defines",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L45",
-      "weight": 1.0,
-      "confidence_score": 1.0,
-      "source": "ci_run_all_checks",
-      "target": "ci_run_all_checks_step"
-    },
-    {
-      "relation": "calls",
-      "confidence": "EXTRACTED",
-      "source_file": "ci/run_all_checks.sh",
-      "source_location": "L62",
-      "weight": 1.0,
-      "context": "call",
-      "confidence_score": 1.0,
-      "source": "ci_run_all_checks_sh__entry",
-      "target": "ci_run_all_checks_step"
     },
     {
       "relation": "contains",
@@ -71770,5 +71770,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "08e2cf6456d7fec5fde285c1587eed93a6962fb7"
+  "built_at_commit": "2b7bc7c0cab84986e694b59639302ae3f5e276bc"
 }

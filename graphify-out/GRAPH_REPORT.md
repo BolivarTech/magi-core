@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-07-31)
 
 ## Corpus Check
-- 139 files · ~135,999 words
+- 139 files · ~136,114 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `08e2cf64`
+- Built from commit: `2b7bc7c0`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -733,7 +733,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Why does `AgentName` connect `[0.3.0] - 2026-04-18` to `5. Data Schema and Consensus Protocol`, `reporting.rs`, `consensus.rs`, `AgentOutput`, `schema.rs`, `error.rs`, `openai_compat.rs`, `Lineage`, `1. Origin: The MAGI Supercomputers from Evangelion`, `mod.rs`?**
   _High betweenness centrality (0.054) - this node is a cross-community bridge._
 - **Why does `MagiError` connect `validate.rs` to `[0.3.0] - 2026-04-18`, `consensus.rs`, `5. Data Schema and Consensus Protocol`, `provider.rs`, `[1.1.1] - 2026-07-17`, `user_prompt.rs`, `error.rs`, `.cmp`, `Instant`, `provider_url.rs`, `LlmProvider`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Why does `LlmProvider` connect `[0.3.0] - 2026-04-18` to `Duration`, `.new`, `error.rs`, `MockProvider`, `FallbackPool`, `.new_checked`, `claude_cli.rs`, `mod.rs`, `RoutingMockProvider`, `Instant`, `.cmp`, `dispatch_one_agent`?**
   _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **What connects `Security`, `Fixed`, `Changed` to the rest of the system?**
