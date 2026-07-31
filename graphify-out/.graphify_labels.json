@@ -190,6 +190,7 @@
   "188": ".new_checked",
   "189": "pattern5stmt_good.rs",
   "190": "pattern5stmt_bad.rs",
+  "191": "FieldWriter",
   "192": "prelude.rs",
   "193": "AgentName",
   "194": "AtomicUsize",
@@ -235,6 +236,7 @@
   "234": "Into",
   "235": "Option",
   "236": "ProviderUrl",
+  "237": "Option",
   "238": "serve_once",
   "239": "mock_server.rs",
   "240": "Debug",
@@ -254,5 +256,7 @@
   "254": "pattern1latearg_bad.rs",
   "255": "pattern1latearg_good.rs",
   "256": "pattern5attrgap_good.rs",
-  "257": "pattern1sigilbare_good.rs"
+  "257": "pattern1sigilbare_good.rs",
+  "258": "String",
+  "259": "TcpListener"
 }

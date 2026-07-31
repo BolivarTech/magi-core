@@ -102,7 +102,8 @@ provider_files() {
 # HANDLED, each verified against the regex rather than assumed: `#[cfg(test)]`, the compound in
 # either argument order, a compound with a NESTED paren before the token
 # (`all(not(feature = "y"), test)`), and `any(test, doc)`. Correctly NOT treated as test modules:
-# `#[cfg(feature = "test-utils")]`, `#[cfg(feature = "my_test")]`, `#[cfg(test_helper)]`, and
+# `#[cfg(test_helper)]`, every `#[cfg(feature = "…test…")]` spelling (the token is blanked with
+# the literal, so `test-utils`, `my_test`, `a-test` and `integration.test` are all inert), and
 # `#[cfg(not(test))]` — the last of which is production code, and skipping it was a real leak.
 #
 # LINE COMMENTS ARE STRIPPED. Every rule here looks for a code shape, and a comment that mentions
@@ -142,8 +143,15 @@ prod_only() {
       # `not(test)` is EXCLUDED, and that one was wrong in the unsafe direction from the start:
       # it marks code compiled only OUTSIDE tests — production by definition — and skipping it
       # hid real production lines from every rule below.
-      /^#\[cfg\((.*[^a-z_"])?test[^a-z_-]/ &&
-      !/not[[:space:]]*\([[:space:]]*test[^a-z_-]/ { pending = 1; print ""; next }
+      # Matched against a copy with STRING LITERALS BLANKED, because the token only means "test
+      # module" when it is a cfg predicate, never when it is part of a feature NAME. Excluding the
+      # quote character alone was not enough: `#[cfg(feature = "a-test")]` and
+      # `#[cfg(feature = "integration.test")]` both put a permitted character before the token, so
+      # a production feature-gated module was skipped entirely — a false negative, and the class
+      # rather than the instance is what gets closed here.
+      { probe = $0; gsub(/"[^"]*"/, "@", probe) }
+      probe ~ /^#\[cfg\((.*[^a-z_"])?test[^a-z_-]/ &&
+      probe !~ /not[[:space:]]*\([[:space:]]*test[^a-z_-]/ { pending = 1; print ""; next }
       pending && /^(pub([(][^)]*[)])? )?mod [A-Za-z0-9_]+[ 	]*\{/ { skipping = 1; pending = 0; print ""; next }
       # A FURTHER attribute or a blank line between the cfg and the `mod` does NOT cancel it.
       # Clearing on any non-`mod` line meant `#[cfg(test)]` followed by `#[allow(…)]` left the

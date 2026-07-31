@@ -15,7 +15,7 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1785486413.5778003,
+    "mtime": 1785496058.3451502,
     "ast_hash": "39aaa8ef5e28c405d0b0cf91354fed04",
     "semantic_hash": ""
   },
@@ -230,8 +230,8 @@
     "semantic_hash": ""
   },
   "ci/check_redaction.sh": {
-    "mtime": 1785495351.7486753,
-    "ast_hash": "5d82f1f73d1bbc115b33e62d94be0b36",
+    "mtime": 1785495964.1533463,
+    "ast_hash": "1f47f6ab4ccb07e66e07038be6a58490",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern1c_bad.rs": {
@@ -585,8 +585,8 @@
     "semantic_hash": ""
   },
   "tests/common/mod.rs": {
-    "mtime": 1785492169.9581637,
-    "ast_hash": "08eb8c034ea5d19642b2311bfba4d988",
+    "mtime": 1785496016.165059,
+    "ast_hash": "fd80ba8b954cd3cd2dc77e03696b7391",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/README.md": {
