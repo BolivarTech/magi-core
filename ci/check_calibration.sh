@@ -62,7 +62,12 @@ echo "$block" | grep -qE '[0-9]{4}-[0-9]{2}-[0-9]{2}' \
 # — and would have excluded a name like `o1` outright. Requiring the separator was a proxy for
 # "looks versioned"; the digit is the property that was meant. The letter start keeps a bare version
 # number such as `0.13` from being read as a model.
-models="$(echo "$block"     | grep -oE '`[A-Za-z][A-Za-z0-9.:_-]*`'     | grep -E '[0-9]'     | grep -vE '`(v[0-9]|[A-Z_]+`)'     | sort -u | wc -l || true)"
+#
+# The two exclusions are written as separate anchored greps rather than one alternation. The
+# combined form produced the same results — verified against every name in the block — but a
+# reviewer read its backtick placement as a bug, and a check whose correctness has to be argued is
+# one that gets edited by someone who is not sure. Legibility is part of the job here.
+models="$(echo "$block"     | grep -oE '`[A-Za-z][A-Za-z0-9.:_-]*`'     | grep -E '[0-9]'     | grep -vE '^`v[0-9]'     | grep -vE '^`[A-Z_]+`$'     | sort -u | wc -l || true)"
 models="${models:-0}"
 [ "$models" -ge "$MIN_MODELS" ] \
     || fail "$CONST's rustdoc names $models model(s); at least $MIN_MODELS are required, since one model says nothing about the rest. A name is counted when it is in backticks, starts with a letter and contains a digit — every model in use carries a version or a parameter count, and the identifiers that were being miscounted carry neither. If a real model name has no digit at all, widen the pattern rather than padding the block"

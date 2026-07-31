@@ -1411,6 +1411,11 @@ fn default_rotations(
 
 /// Marks a rotation whose condemnation reached only the mage that saw it.
 ///
+/// The subject names in this module's classifying `match` expressions — `outcome` and `err` — are
+/// COUPLED to the continuous-integration check that forbids a catch-all arm in them. Renaming
+/// either turns that check into one that watches nothing and still reports success. If a third
+/// classifier appears, it has to be added there or it is unguarded from the day it is written.
+///
 /// # Why the detail carries this and the kind does not
 ///
 /// Two rotation causes are mage-local — an oversized body and a failure reported by a third-party
@@ -2160,10 +2165,15 @@ mod input_threshold_tests {
         let oversized = oversized_detail(4096);
         let external = external_failure_detail(ExternalErrorKind::Network, "backend refused");
 
-        // The LITERAL, not the constant. Written against `MAGE_LOCAL_PREFIX` this assertion
-        // passed with the constant emptied — `starts_with("")` is true of everything — so the
-        // test agreed with whatever the code did, which is the failure it exists to catch.
-        // Verified by emptying the constant and watching this go red.
+        // The LITERAL, not the constant, and this is the one place in the file where naming a
+        // value twice is right. Written as `starts_with(MAGE_LOCAL_PREFIX)` the assertion agrees
+        // with whatever the constant happens to be — empty it and `starts_with("")` is true of
+        // every string, so the test passes while the marker is gone.
+        //
+        // Verified by MUTATION, and stated precisely because the two probes are not the same:
+        // removing the prefix from one of the helpers below turns this red, which is the defect
+        // that matters. (Emptying the constant itself does not compile, so that mutation proves
+        // nothing either way — worth saying, since it is the first one a reader would try.)
         for detail in [&oversized, &external] {
             assert!(
                 detail.starts_with("mage-local: "),
