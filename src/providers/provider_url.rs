@@ -301,7 +301,8 @@ fn body_cap(max_tokens: u32) -> usize {
 /// for unexpected multi-byte text.
 fn mark_truncated(text: &str) -> String {
     let budget = MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
-    let cut = text.floor_char_boundary(budget.min(text.len()));
+    // `floor_char_boundary` already clamps past the end, so the `.min` was noise.
+    let cut = text.floor_char_boundary(budget);
     format!("{}{}", &text[..cut], crate::error::TRUNCATION_MARKER)
 }
 

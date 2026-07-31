@@ -406,13 +406,20 @@ fn is_retryable(error: &ProviderError) -> bool {
         // The third party named a SHAPE; the decision is made here. `Other` is deliberately not
         // retryable: the escape hatch must not become a way to buy retries by declining to
         // classify.
-        ProviderError::External { kind, .. } => matches!(
-            kind,
+        //
+        // An explicit match with NO catch-all, for the same reason the outer one has none. A
+        // `matches!` reads as exhaustive and is not: it is an `_ => false` wearing better
+        // clothes, so a new shape would arrive classified as non-retryable in silence — the
+        // precise defect this release removed one level up. Inside the crate that defines it,
+        // `#[non_exhaustive]` does not block exhaustiveness, so this costs nothing and makes the
+        // compiler demand a decision.
+        ProviderError::External { kind, .. } => match kind {
             ExternalErrorKind::Network
-                | ExternalErrorKind::Timeout
-                | ExternalErrorKind::RateLimit
-                | ExternalErrorKind::ServerError
-        ),
+            | ExternalErrorKind::Timeout
+            | ExternalErrorKind::RateLimit
+            | ExternalErrorKind::ServerError => true,
+            ExternalErrorKind::Auth | ExternalErrorKind::Other => false,
+        },
     }
 }
 
