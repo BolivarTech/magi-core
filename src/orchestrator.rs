@@ -864,12 +864,13 @@ impl Magi {
         let estimated = successful
             .iter()
             .any(|o| rotations.get(&o.agent).is_some_and(|r| r.ran_unmeasured));
-        let report = self.formatter.format_report_with_telemetry(
+        let report = self.formatter.format_report_with_input_size(
             &successful,
             &consensus,
             &rotations,
             estimated,
             &extraction_failures,
+            Some(&input_size),
         );
 
         // 8. Build MagiReport

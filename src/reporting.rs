@@ -745,6 +745,43 @@ impl ReportFormatter {
         estimated: bool,
         extraction_failures: &BTreeMap<AgentName, Vec<ExtractionFailure>>,
     ) -> String {
+        // Delegates with no input measurement, for the same reason this method exists: adding a
+        // parameter to a published signature is a break, and the whole point of 3.1.0 is that it
+        // is additive.
+        self.format_report_with_input_size(
+            agents,
+            consensus,
+            rotations,
+            estimated,
+            extraction_failures,
+            None,
+        )
+    }
+
+    /// Like [`format_report_with_telemetry`](Self::format_report_with_telemetry) but also renders
+    /// `## Input Size`.
+    ///
+    /// The fourth and outermost link in the delegation chain that starts at
+    /// [`format_report`](Self::format_report). Each link exists because its predecessor was
+    /// already published: growing the chain keeps every earlier signature intact, at the cost of
+    /// one more parameter each time.
+    ///
+    /// # Parameters
+    /// - `agents`, `consensus`, `rotations`, `estimated`, `extraction_failures`: as in
+    ///   [`format_report_with_telemetry`](Self::format_report_with_telemetry).
+    /// - `input_size`: the run's input measurement, or `None` for a report that has none.
+    ///
+    /// Passing `None`, or a measurement that stayed under its threshold, produces text
+    /// byte-identical to a report from before this feature existed.
+    pub fn format_report_with_input_size(
+        &self,
+        agents: &[AgentOutput],
+        consensus: &ConsensusResult,
+        rotations: &BTreeMap<AgentName, AgentRotation>,
+        estimated: bool,
+        extraction_failures: &BTreeMap<AgentName, Vec<ExtractionFailure>>,
+        input_size: Option<&InputSize>,
+    ) -> String {
         let mut out = String::new();
 
         // 1. Banner
@@ -757,6 +794,7 @@ impl ReportFormatter {
         out.push_str(&self.format_model_rotations(rotations));
         out.push_str(&self.format_estimated_note(estimated));
         out.push_str(&self.format_extraction_failures(extraction_failures));
+        out.push_str(&self.format_input_size(input_size));
 
         // 2. Key Findings (optional)
         if !consensus.findings.is_empty() {
@@ -872,6 +910,54 @@ impl ReportFormatter {
                 .ok();
             }
         }
+        writeln!(out).ok();
+        out
+    }
+
+    /// Formats the `## Input Size` section, or returns an empty string when the input stayed
+    /// under its threshold — or was never measured at all.
+    ///
+    /// ```text
+    /// ## Input Size
+    ///
+    /// Estimated 200000 tokens, above the configured warning threshold of 150000.
+    /// This is an ESTIMATE (bytes/4) and a warning only - the analysis ran to completion.
+    /// ```
+    ///
+    /// # Parameters
+    /// - `input_size`: the run's measurement, or `None` when there is none.
+    ///
+    /// # Why it disappears when nothing is wrong
+    ///
+    /// Same rule as [`format_model_rotations`](Self::format_model_rotations): a run with nothing
+    /// to report produces text byte-identical to the previous version, so diffing two reports
+    /// shows only what actually changed. A section that always renders would make every report
+    /// differ from every older one, for no information.
+    ///
+    /// Note this is the opposite rule from the `input_size` **field**, which is always present.
+    /// The two are not inconsistent: the field's job is to certify that a measurement happened,
+    /// and prose has no such duty — nobody reads a report to learn that nothing was wrong.
+    pub fn format_input_size(&self, input_size: Option<&InputSize>) -> String {
+        let Some(size) = input_size else {
+            return String::new();
+        };
+        if !size.exceeded {
+            return String::new();
+        }
+
+        let mut out = String::new();
+        writeln!(out, "## Input Size\n").ok();
+        writeln!(
+            out,
+            "Estimated {} tokens, above the configured warning threshold of {}.",
+            size.estimated_tokens, size.warn_threshold
+        )
+        .ok();
+        writeln!(
+            out,
+            "This is an ESTIMATE (bytes/4) and a warning only - the analysis ran to completion."
+        )
+        .ok();
         writeln!(out).ok();
         out
     }
@@ -3030,5 +3116,103 @@ mod tests {
         );
         assert_eq!(finding.id, None, "absent `id` must default to None");
         assert_eq!(finding.title, "Legacy finding");
+    }
+
+    // -- input-size section (Eje B) --
+
+    /// Renders a report with the given input-size telemetry and nothing else going on.
+    fn report_text(size: Option<&InputSize>) -> String {
+        let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
+        let consensus = make_consensus("GO (1-0)", Verdict::Approve, 0.9, 1.0, &[&m]);
+        ReportFormatter::new().format_report_with_input_size(
+            std::slice::from_ref(&m),
+            &consensus,
+            &BTreeMap::new(),
+            false,
+            &BTreeMap::new(),
+            size,
+        )
+    }
+
+    #[test]
+    fn a_clean_run_gains_no_section_at_all() {
+        let size = InputSize {
+            estimated_tokens: 10,
+            warn_threshold: 150_000,
+            exceeded: false,
+        };
+        let out = report_text(Some(&size));
+        assert!(
+            !out.contains("Input Size"),
+            "nothing exceeded, so nothing is announced:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_report_from_before_this_version_also_gains_nothing() {
+        let out = report_text(None);
+        assert!(!out.contains("Input Size"));
+    }
+
+    #[test]
+    fn an_exceeded_run_gains_exactly_one_section_naming_both_numbers() {
+        let size = InputSize {
+            estimated_tokens: 200_000,
+            warn_threshold: 150_000,
+            exceeded: true,
+        };
+        let out = report_text(Some(&size));
+        assert_eq!(
+            out.matches("## Input Size").count(),
+            1,
+            "exactly one section:\n{out}"
+        );
+        assert!(out.contains("200000"), "the estimate is shown:\n{out}");
+        assert!(
+            out.contains("150000"),
+            "and the threshold it was compared against:\n{out}"
+        );
+    }
+
+    /// Audited with a DIFF, not by eye. "Looks the same" is exactly how a stray blank line
+    /// ships: this compares the two strings byte for byte.
+    #[test]
+    fn a_clean_run_is_byte_identical_to_one_that_never_measured() {
+        let below = InputSize {
+            estimated_tokens: 10,
+            warn_threshold: 150_000,
+            exceeded: false,
+        };
+        assert_eq!(
+            report_text(Some(&below)),
+            report_text(None),
+            "measuring and staying under must leave the text untouched"
+        );
+    }
+
+    /// And the section is the ONLY difference when it does fire — it must not disturb the
+    /// sections around it.
+    #[test]
+    fn the_section_is_the_only_thing_an_exceeded_run_adds() {
+        let over = InputSize {
+            estimated_tokens: 200_000,
+            warn_threshold: 150_000,
+            exceeded: true,
+        };
+        let with = report_text(Some(&over));
+        let without = report_text(None);
+
+        // Cut the section back out, using the section's OWN rendering as the unit of removal —
+        // not an offset guessed from the surrounding headings, which silently swallows the
+        // newline that separates them. If what remains is not byte-for-byte the clean report,
+        // the section did more than insert itself, and no amount of reading would reveal it.
+        let section = ReportFormatter::new().format_input_size(Some(&over));
+        assert!(!section.is_empty(), "the section must render at all");
+
+        assert_eq!(
+            with.replace(&section, ""),
+            without,
+            "removing the section must restore the untouched report exactly"
+        );
     }
 }
