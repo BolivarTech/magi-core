@@ -1,21 +1,166 @@
 name: Release
 
+# The version in `Cargo.toml` is the SINGLE SOURCE OF TRUTH for a release.
+#
+# Push a version bump to `main` and this workflow validates it, runs the full gate,
+# publishes to crates.io and only THEN creates the `vX.Y.Z` tag and the GitHub Release.
+# Pushes that do not change the version are a no-op: the gate reports "already released"
+# and nothing downstream runs.
+#
+# Why the tag is created LAST, not first. Until 3.2.0 this workflow triggered on a tag
+# push, so the tag existed before anything had been verified — and it only published to
+# crates.io, leaving the GitHub Release to be created by hand. That is exactly what went
+# wrong with 3.2.0: the crate shipped and the Release did not exist until someone noticed.
+# Creating the tag at the end makes it mean one thing: this version passed the gate,
+# published, and was released.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  # PRs run the GATE ONLY — never a publish, never a release. Without this, a PR that rolls
+  # the version backwards or bumps it without a CHANGELOG entry sails through `ci.yml`
+  # (which does not look at versions) and only blows up AFTER the merge.
+  pull_request:
+    branches: [main]
+  # Manual dry-run: exercises the gate and the full check suite WITHOUT tagging,
+  # publishing or releasing.
+  workflow_dispatch:
+
+# Serialise release runs. Two merges landing seconds apart would otherwise race to publish;
+# `cancel-in-progress: false` lets the first finish rather than killing a run that may
+# already have uploaded to crates.io.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # ── Release gate ────────────────────────────────────────────────────────────────────
+  # Everything hangs off this job, so a bad bump costs ~15 s instead of the whole suite.
+  # It answers one question: "should this push cut a release, and is it safe to?"
+  gate:
+    name: Release gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      tag: ${{ steps.gate.outputs.tag }}
+      # "this ref declares a version never released before" — true on a PR that bumps, so
+      # PR-time checks can key off it.
+      is_new_version: ${{ steps.gate.outputs.is_new_version }}
+      # "…and we are actually allowed to release it" — push to main only.
+      should_release: ${{ steps.gate.outputs.should_release }}
+    steps:
+      # `fetch-depth: 0` for TWO reasons: the rollback check needs the full tag list (a
+      # shallow clone fetches none and would conclude nothing has ever been released), and
+      # the verdict-search rule in the check suite greps across history.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - id: gate
+        name: Resolve version, block rollbacks, decide whether to release
+        run: |
+          set -euo pipefail
+
+          # First `^version = ` in Cargo.toml is the [package] one: dependency versions are
+          # either indented or inline in a table, never at column 0.
+          V="$(grep -m1 '^version = ' Cargo.toml | sed 's/^version = "\(.*\)"/\1/')"
+          if [ -z "$V" ]; then
+            echo "::error::could not extract the package version from Cargo.toml"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=v$V"    >> "$GITHUB_OUTPUT"
+          echo "Cargo.toml version: $V"
+
+          # Reject anything that is not a plain X.Y.Z before it becomes a tag.
+          if ! printf '%s' "$V" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version '$V' is not a plain X.Y.Z — refusing to derive a tag from it."
+            exit 1
+          fi
+
+          NEWVER=true
+
+          # ROLLBACK PROTECTION. Compare against the highest X.Y.Z ever tagged. `sort -V`
+          # orders versions numerically (3.10 > 3.9), which a lexical sort gets wrong.
+          #
+          # The comparison is against MAX and NOT against "does tag vX.Y.Z exist",
+          # deliberately. Asking only whether the tag exists has a hole: rolling Cargo.toml
+          # back to an OLD but already-released version (3.2.0 -> 3.0.1) finds the tag
+          # present and looks like a harmless no-op, so main would silently sit on a stale
+          # version with nobody told. Ordering against MAX catches it as the rollback it is.
+          MAX="$(git tag -l 'v*' | sed 's/^v//' \
+                 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+          echo "highest version released so far: ${MAX:-<none>}"
+
+          if [ -z "$MAX" ]; then
+            echo "No release tags yet — $V will be the first."
+          elif [ "$V" = "$MAX" ]; then
+            # The overwhelmingly common case: most pushes to main do not touch the version.
+            # A NO-OP, never a failure.
+            echo "Version $V is already released as v$MAX — this ref does not bump it. Nothing to release."
+            NEWVER=false
+          elif [ "$(printf '%s\n%s\n' "$V" "$MAX" | sort -V | head -1)" = "$V" ]; then
+            # Fails on a PR too, which is the whole point of running this job on
+            # pull_request: the rollback is caught at review time, not after merge.
+            echo "::error::ROLLBACK BLOCKED — Cargo.toml declares $V but v$MAX is already released. A release version must move forward; bump past $MAX or restore the correct version."
+            exit 1
+          else
+            echo "New version $V > $MAX."
+          fi
+
+          # Belt and braces: MAX only sees well-formed X.Y.Z tags, so an oddly shaped
+          # pre-existing tag could still collide. Never overwrite one.
+          if [ "$NEWVER" = "true" ] && git rev-parse -q --verify "refs/tags/v$V" >/dev/null; then
+            echo "::error::tag v$V already exists but is not the highest release — refusing to overwrite it."
+            exit 1
+          fi
+
+          echo "is_new_version=$NEWVER" >> "$GITHUB_OUTPUT"
+
+          # Releasing requires BOTH a new version and a push to main. A PR or a manual
+          # dispatch validates but never publishes or releases.
+          SHOULD="$NEWVER"
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "Event is '${{ github.event_name }}', not a push to main — validation only, nothing will be published or released."
+            SHOULD=false
+          fi
+          echo "should_release=$SHOULD" >> "$GITHUB_OUTPUT"
+          echo "--> is_new_version=$NEWVER  should_release=$SHOULD"
+
+      # Keyed on `is_new_version`, NOT `should_release`, so a PR that bumps the version is
+      # told about the missing entry at review time. An ordinary push or PR that does not
+      # touch the version is never blocked for lacking a CHANGELOG entry it does not need.
+      #
+      # This is a hard requirement rather than a nicety: the release notes are EXTRACTED
+      # from this section, so without it the GitHub Release ships with nothing in it.
+      - name: Assert CHANGELOG has an entry for this version
+        if: steps.gate.outputs.is_new_version == 'true'
+        run: |
+          set -euo pipefail
+          V="${{ steps.gate.outputs.version }}"
+          if ! grep -q "^## \[$V\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$V]' section. Add one (Keep a Changelog format, e.g. '## [$V] - YYYY-MM-DD') before releasing — the release notes are extracted from it."
+            exit 1
+          fi
+          echo "OK: CHANGELOG.md documents $V."
+
+  # ── The full gate, same script the pull-request workflow runs ───────────────────────
   ci:
     name: CI
+    needs: gate
+    # Only for an actual release or a dry-run. `ci.yml` already runs this exact suite on
+    # every push to main and on every PR; without this condition each ordinary push would
+    # run it TWICE. A no-op push therefore costs just the gate. Skipping this job also
+    # skips everything that needs it, which is precisely the desired behaviour.
+    if: needs.gate.outputs.should_release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          # Full history: the verdict-search rule uses `git grep` across it. Without this the
-          # release path would run that check over a shallow clone and pass by seeing nothing.
+          # The verdict-search rule greps across history; a shallow clone would pass it by
+          # seeing nothing.
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -23,35 +168,78 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
-      # THE SAME script the pull-request workflow runs. This sequence used to be written out here
-      # as well, and the two copies drifted: the checks this crate relies on were present before
-      # merge and ABSENT before publish, so a tag on any commit other than a gated `main` shipped
-      # without them. One list means the publishing path can no longer run fewer checks than the
-      # path that gates the merge — and it cannot be made to, except by deleting them from both,
-      # which a reviewer sees.
+      # THE SAME script the pull-request workflow runs. This sequence used to be written
+      # out here as well, and the two copies drifted: the checks this crate relies on were
+      # present before merge and ABSENT before publish. One list means the publishing path
+      # can no longer run fewer checks than the path that gates the merge.
       - run: bash ci/run_all_checks.sh
+      # `Cargo.lock` is NOT committed — this is a library, so the lock file is
+      # deliberately gitignored and every consumer resolves its own. That is why there is
+      # no `--locked` assertion here (it would fail by construction) and why the lock is
+      # generated on the fly for the audit.
       - run: cargo generate-lockfile
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit
 
   publish:
     name: Publish to crates.io
-    needs: ci
+    needs: [gate, ci]
+    if: needs.gate.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.91"
-      - name: Verify tag matches Cargo.toml version
+      - name: Publish (skip if this version is already on crates.io)
         run: |
-          CARGO_VERSION="v$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')"
-          TAG_VERSION="${GITHUB_REF#refs/tags/}"
-          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
-            echo "ERROR: Tag ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
-            exit 1
+          set -euo pipefail
+          V="${{ needs.gate.outputs.version }}"
+          # Idempotency: if a previous run published but then failed before tagging,
+          # re-running must not die on "crate version already uploaded".
+          if curl -sf -H 'User-Agent: magi-core-release-ci' \
+               "https://crates.io/api/v1/crates/magi-core/$V" > /dev/null; then
+            echo "magi-core $V is already on crates.io — skipping publish."
+          else
+            cargo publish --all-features
           fi
-          echo "Version match: $TAG_VERSION"
-      - run: cargo publish --all-features
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # Creates the tag AND the GitHub Release, together, as the very last action. Reaching
+  # this job means: gate green, full check suite green, crate published.
+  release:
+    name: Tag and GitHub Release
+    needs: [gate, publish]
+    if: needs.gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Extract release notes from CHANGELOG
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.gate.outputs.version }}"
+          awk -v ver="$VERSION" '
+            index($0, "## [" ver "]") == 1 { flag = 1; next }
+            flag && index($0, "## [") == 1 { flag = 0 }
+            flag { print }
+          ' CHANGELOG.md > release-notes.md
+          # The gate already proved the section exists, so an empty file here means the
+          # section is present but blank — worth saying out loud.
+          if [ ! -s release-notes.md ]; then
+            echo "::warning::the CHANGELOG section for $VERSION is empty; falling back to auto-generated notes."
+          fi
+          echo "----- release notes -----"
+          cat release-notes.md
+      # `tag_name` on a branch ref makes this action create the tag at the current SHA and
+      # cut the release in one step — so the tag comes into existence only here, after
+      # everything above has succeeded.
+      - name: Create tag and GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.gate.outputs.tag }}
+          name: ${{ needs.gate.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body_path: release-notes.md
