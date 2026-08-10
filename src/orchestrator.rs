@@ -354,6 +354,10 @@ impl MagiBuilder {
     /// healthy primary look like it collides with a lineage it never touched, or hide a
     /// collision that does exist. A probe that is down or unmeasurable degrades to "not
     /// measured" and never blocks the run (fail-open).
+    ///
+    /// Register **one probe per model**. The preflight keys by model across primaries and
+    /// pool candidates alike, so a model declared here and again as a fallback candidate,
+    /// with two different probes, keeps whichever answered last, in nondeterministic order.
     pub fn with_agent_and_probe(
         mut self,
         agent: AgentName,
@@ -1182,6 +1186,11 @@ impl Magi {
         // this message's remedy ("declare a probe, or turn the guard off") would be wrong advice
         // for a state the consumer chose deliberately. A warning that misdiagnoses gets silenced,
         // and then the real case is invisible.
+        //
+        // This reports a CONFIGURATION condition but has to live here, because it depends on what
+        // the preflight measured — so a long-lived `Magi` re-emits it on every call, unlike the
+        // crate's other config warnings which fire once at construction. Unavoidable, not an
+        // oversight: at `build()` time there are no measurements yet to be missing.
         if rotation.pool.max_rotations() > 0
             && strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities)
         {
@@ -2745,6 +2754,34 @@ mod tests {
         );
     }
 
+    /// The other side of the same requirement: under the threshold, nothing is announced.
+    /// A warning that fires always is a warning nobody reads.
+    #[tokio::test]
+    async fn staying_under_the_threshold_announces_nothing() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("analyze");
+
+        let size = report.input_size.expect("measured even when small");
+        assert!(!size.exceeded);
+        // Via the constant, not the literal: hard-coding 4 would let a change to the divisor
+        // shift the estimate while this assertion kept agreeing with the old value.
+        assert_eq!(
+            size.estimated_tokens,
+            "fn main() {}".len() / TOKENS_PER_BYTE_DIVISOR
+        );
+        assert!(
+            !log.lines().iter().any(|l| l.contains("threshold")),
+            "silence below the threshold: {:?}",
+            log.lines()
+        );
+    }
+
     /// The warning is only worth anything if `analyze` actually reaches it with the run's
     /// real guard setting. Proving the predicate in isolation leaves the wiring untested —
     /// delete the emission and a predicate-only suite stays green.
@@ -2843,34 +2880,6 @@ mod tests {
         assert!(
             !lines.iter().any(|l| l.contains("strict_context_guard")),
             "nothing rotates here because rotation is off, not because of the guard: {lines:?}"
-        );
-    }
-
-    /// The other side of the same requirement: under the threshold, nothing is announced.
-    /// A warning that fires always is a warning nobody reads.
-    #[tokio::test]
-    async fn staying_under_the_threshold_announces_nothing() {
-        let log = EventLog::default();
-        let _guard = tracing::subscriber::set_default(log.clone());
-
-        let magi = MagiBuilder::new(trio()).build().expect("builds");
-        let report = magi
-            .analyze(&Mode::CodeReview, "fn main() {}")
-            .await
-            .expect("analyze");
-
-        let size = report.input_size.expect("measured even when small");
-        assert!(!size.exceeded);
-        // Via the constant, not the literal: hard-coding 4 would let a change to the divisor
-        // shift the estimate while this assertion kept agreeing with the old value.
-        assert_eq!(
-            size.estimated_tokens,
-            "fn main() {}".len() / TOKENS_PER_BYTE_DIVISOR
-        );
-        assert!(
-            !log.lines().iter().any(|l| l.contains("threshold")),
-            "silence below the threshold: {:?}",
-            log.lines()
         );
     }
 
@@ -5275,9 +5284,11 @@ mod tests {
             via_erased.agent_lineages.get(&AgentName::Caspar)
         );
 
-        // Identity, not presence: a delegation that stored the WRONG probe would still be
-        // `Some`, so `contains_key` cannot tell the two doors apart. Compare what each
-        // stored probe answers.
+        // Identity, not presence — and anchored to LITERALS, not to each other. Comparing
+        // the two doors' probes against one another proves nothing: both were handed the
+        // same value, so they are equal by construction whatever the code does. Asserting
+        // the answer each door actually stored is what would catch a delegation that kept
+        // the wrong probe.
         let generic = via_generic
             .primary_probes
             .get(&AgentName::Caspar)
@@ -5286,13 +5297,12 @@ mod tests {
             .primary_probes
             .get(&AgentName::Caspar)
             .expect("probe stored");
-        assert_eq!(
-            generic.window().await.expect("mock never errors"),
-            erased.window().await.expect("mock never errors")
-        );
-        assert_eq!(
-            generic.digest().await.expect("mock never errors"),
-            erased.digest().await.expect("mock never errors")
-        );
+        for probe in [generic, erased] {
+            assert_eq!(probe.window().await.expect("mock never errors"), Some(100));
+            assert_eq!(
+                probe.digest().await.expect("mock never errors").as_deref(),
+                Some("sha:m9")
+            );
+        }
     }
 }

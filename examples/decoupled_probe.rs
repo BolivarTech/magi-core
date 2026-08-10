@@ -111,16 +111,15 @@ fn main() {
         .push(unprobed, Lineage::new("second-vendor"))
         .build();
 
-    // The sibling example states the house rule that an example models the error handling this
-    // crate asks for everywhere else. `assert!` here is not a departure from it: these two lines
-    // are the proof obligation this file exists to discharge, not error handling a reader should
-    // copy — nothing below can fail at runtime for a reason a consumer would ever have to handle.
+    // The proof this file carries is the COMPILATION, per the module doc — not this line. The
+    // assert is a cheap sanity check on the registration, and it uses `assert!` rather than the
+    // error handling the sibling example models on purpose: a failure here would mean the crate
+    // is broken, not that a consumer did something they need to handle.
     assert_eq!(
         pool.len(),
         2,
         "both the probed and the probeless candidate must register"
     );
-    assert!(!pool.is_empty());
     println!(
         "fallback pool holds {} candidates: one measured by a SEPARATE probe object, one unmeasured",
         pool.len()

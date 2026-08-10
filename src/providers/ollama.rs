@@ -112,6 +112,11 @@ impl OllamaProvider {
     /// unchanged: 300 s, which is generous on purpose because a local daemon may be loading a
     /// model from cold on the first call.
     ///
+    /// The timeout covers the entire request, from send to the last body byte, on both clients.
+    /// `Duration::MAX` means "no timeout" and is dangerous for the same reason it is on the
+    /// sibling provider: a model that hangs while generating hangs forever. Nothing validates
+    /// the value here.
+    ///
     /// # Why this exists
     ///
     /// A consumer that derives its per-agent timeouts from a single ceiling needs the client

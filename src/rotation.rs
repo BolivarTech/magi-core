@@ -656,16 +656,23 @@ impl Drop for AgentSlotGuard {
 /// **completions provider** registered alongside this probe.
 ///
 /// While one object served both roles, the two could not disagree. Since they can be
-/// declared apart ([`FallbackPoolBuilder::push_with_probe`] and its primary-side
-/// sibling), keeping them in agreement is the **caller's** responsibility, and the
-/// consequence of breaking it is documented on those constructors — briefly: the
-/// measurement is filed under the other model's name, and because the same key also
-/// feeds the digest collision check, a mis-pointed probe can reject a candidate that
-/// was healthy.
+/// declared apart ([`FallbackPoolBuilder::push_with_probe`] and
+/// [`MagiBuilder::with_agent_and_probe`](crate::orchestrator::MagiBuilder::with_agent_and_probe)),
+/// keeping them in agreement is the **caller's** responsibility, and the consequence of
+/// breaking it is documented on those constructors — briefly: the measurement is filed
+/// under the other model's name, and because the same key also feeds the digest collision
+/// check, a mis-pointed probe can reject a candidate that was healthy.
 ///
 /// An implementation should therefore never guess: answer for the model it was
-/// constructed with, and return `None` rather than a value it is unsure of. `None` is
-/// a valid answer here — the whole path is fail-open.
+/// constructed with, and return `None` rather than a value it is unsure of.
+///
+/// `None` is a valid answer, but the two fields degrade differently and the difference
+/// matters when choosing what to return. An unresolved **digest** is always trusted. An
+/// unmeasured **window** is admitted only while the consumer leaves `strict_context_guard`
+/// off; with it on, the window pre-filter rejects the candidate — so a probe that answers
+/// `None` for every window under a strict guard filters the whole pool out, which is the
+/// state the run warns about. `None` is still better than a guessed number: it degrades a
+/// candidate, whereas a wrong one can be trusted.
 #[async_trait::async_trait]
 pub trait ProviderProbe: Send + Sync {
     /// Context window in tokens, or `None` if it cannot be measured.
@@ -801,6 +808,13 @@ fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
 /// Presence in `capabilities` is not enough: a probe that ran and degraded fail-open leaves
 /// an entry whose `window` is `None`, which is the same dead end as never having probed. The
 /// check is on the measured window, never on the key.
+///
+/// **Scope, so the name is not read as broader than the check.** This detects one route to an
+/// ineligible pool — nothing measured. A pool where every candidate IS measured but every
+/// window falls below the run's minimum is equally ineligible and equally quiet, and this
+/// returns `false` for it. That case is not the reported one and its diagnosis would be
+/// different (the inputs are too large for these models, not "declare a probe"), so it is
+/// deliberately out of scope rather than overlooked.
 pub(crate) fn strict_guard_is_inert(
     strict: bool,
     candidate_models: &[String],
@@ -934,6 +948,11 @@ impl FallbackPoolBuilder {
     /// key also feeds the digest collision check, so a mis-pointed probe can make a
     /// healthy candidate be rejected over a collision that does not actually exist —
     /// the only fail-closed direction in this subsystem.
+    ///
+    /// Register **one probe per model**. The preflight keys by model across primaries and
+    /// pool candidates alike, so the same model declared twice with two different probes
+    /// keeps whichever answered last, in nondeterministic order. That could not happen
+    /// while one object played both roles.
     pub fn push_with_probe(
         mut self,
         provider: Arc<dyn LlmProvider>,

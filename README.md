@@ -447,7 +447,7 @@ let builder = MagiBuilder::new(default_provider)
 roles as independent `Arc`s, so measuring a candidate's context window no longer forces you to
 serve completions through a probe-capable type:
 
-```rust,ignore
+```rust
 FallbackPool::builder()
     .push_with_probe(hosted_model, Lineage::new("vendor"), capability_sidecar)
     .build();
