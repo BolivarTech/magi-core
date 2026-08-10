@@ -475,6 +475,33 @@ mod tests {
         port
     }
 
+    #[test]
+    fn test_new_keeps_the_default_client_timeout() {
+        // Asserts through `Debug`, which reqwest renders including the client's total
+        // timeout — but WITHOUT pinning its rendering. The comparison is what carries the
+        // claim: `new` must be indistinguishable from an explicit default, and
+        // distinguishable from a different timeout. If a future reqwest stopped surfacing
+        // the timeout at all, the second assertion fails rather than passing vacuously,
+        // which is the property that makes this cheap test honest instead of decorative.
+        let base = "http://127.0.0.1:1";
+        let by_new = OllamaProvider::new(base, "m").expect("constructs");
+        let by_default =
+            OllamaProvider::with_timeout(base, "m", DEFAULT_CLIENT_TIMEOUT).expect("constructs");
+        let by_short = OllamaProvider::with_timeout(base, "m", Duration::from_millis(200))
+            .expect("constructs");
+
+        assert_eq!(
+            format!("{:?}", by_new.client),
+            format!("{:?}", by_default.client),
+            "new must still build the client with DEFAULT_CLIENT_TIMEOUT"
+        );
+        assert_ne!(
+            format!("{:?}", by_new.client),
+            format!("{:?}", by_short.client),
+            "a different timeout must be observable, or the assertion above proves nothing"
+        );
+    }
+
     #[tokio::test]
     async fn test_with_timeout_bounds_a_completion_that_never_answers() {
         let port = start_unresponsive_server();
