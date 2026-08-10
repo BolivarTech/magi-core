@@ -111,6 +111,10 @@ fn main() {
         .push(unprobed, Lineage::new("second-vendor"))
         .build();
 
+    // The sibling example states the house rule that an example models the error handling this
+    // crate asks for everywhere else. `assert!` here is not a departure from it: these two lines
+    // are the proof obligation this file exists to discharge, not error handling a reader should
+    // copy — nothing below can fail at runtime for a reason a consumer would ever have to handle.
     assert_eq!(
         pool.len(),
         2,

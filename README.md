@@ -447,11 +447,13 @@ let builder = MagiBuilder::new(default_provider)
 roles as independent `Arc`s, so measuring a candidate's context window no longer forces you to
 serve completions through a probe-capable type:
 
-```rust
+```rust,ignore
 FallbackPool::builder()
     .push_with_probe(hosted_model, Lineage::new("vendor"), capability_sidecar)
     .build();
 ```
+
+A complete, compiling version is `examples/decoupled_probe.rs`.
 
 One rule comes with that freedom: **the probe must measure the model the completions provider
 reports.** The measured window is filed under the provider's model name and that same key drives
