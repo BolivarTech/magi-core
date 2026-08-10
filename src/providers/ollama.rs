@@ -28,6 +28,8 @@
 //! surfaces a [`ProviderError`]. HTTP-thin, no new dependencies (`reqwest` is
 //! already pulled by the `openai-compat` feature this one enables).
 
+use std::time::Duration;
+
 use async_trait::async_trait;
 
 use crate::error::ProviderError;
@@ -128,6 +130,19 @@ impl OllamaProvider {
             base_url: base,
             client,
         })
+    }
+
+    /// Like [`new`](Self::new) but bounds both HTTP clients with `timeout`.
+    pub fn with_timeout(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
+        // RED-phase stub: accepts the timeout and IGNORES it, so the tests below fail on
+        // their deadline assertion rather than on a compile error. The Green phase threads
+        // it through to both clients.
+        let _ = timeout;
+        Self::new(base_url, model)
     }
 
     /// Extracts the context window from a `/api/show` JSON body. Scans the
@@ -433,5 +448,67 @@ mod tests {
             MAX_SHOW_BODY_BYTES
         ));
         assert!(empty.is_empty());
+    }
+
+    /// Starts a TCP listener that accepts connections and never responds, holding each
+    /// accepted stream alive for a few seconds instead of dropping it. Dropping the
+    /// stream immediately would close the connection and the client would fail instantly
+    /// for the WRONG reason — a test that passes because the peer hung up proves nothing
+    /// about client-side timeouts. Returns the port the listener is bound to.
+    fn start_unresponsive_server() -> u16 {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback listener");
+        let port = listener.local_addr().expect("read assigned port").port();
+        std::thread::spawn(move || {
+            while let Ok((stream, _addr)) = listener.accept() {
+                // Keep the stream alive without writing anything so the client-side
+                // timeout, not a connection reset, is what ends the call.
+                std::thread::sleep(Duration::from_secs(5));
+                drop(stream);
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn test_with_timeout_bounds_a_completion_that_never_answers() {
+        let port = start_unresponsive_server();
+        let provider = OllamaProvider::with_timeout(
+            format!("http://127.0.0.1:{port}"),
+            "m",
+            Duration::from_millis(200),
+        )
+        .expect("construct provider");
+
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(3),
+            provider.complete("s", "u", &CompletionConfig::default()),
+        )
+        .await;
+
+        // The outer deadline must NOT be what ends this call — the provider's own timeout
+        // should return first.
+        let inner_result = outcome.expect("provider call should return before the outer deadline");
+
+        // A server that never answers cannot produce a completion.
+        assert!(inner_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_with_timeout_bounds_a_probe_that_never_answers() {
+        let port = start_unresponsive_server();
+        let provider = OllamaProvider::with_timeout(
+            format!("http://127.0.0.1:{port}"),
+            "m",
+            Duration::from_millis(200),
+        )
+        .expect("construct provider");
+
+        let outcome = tokio::time::timeout(Duration::from_secs(3), provider.window()).await;
+
+        // Only the deadline matters here, not how the probe resolved: the probe is
+        // fail-open by design, so an unanswered one may legitimately degrade to `Ok(None)`
+        // instead of `Err`. This proves the call RETURNED within the bounded timeout, not
+        // which variant it returned — hence the deliberately discarded inner result.
+        let _inner = outcome.expect("probe call should return before the outer deadline");
     }
 }
