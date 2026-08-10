@@ -759,7 +759,22 @@ fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
     }
 }
 
-/// Detects the strict-guard foot-gun: strict is on but no candidate has a measured window.
+/// `true` when a strict context guard can admit **no** candidate at all, so rotation is
+/// declared but inert. Pure and total.
+///
+/// [`window_ok`] rejects an unmeasured window under a strict guard, so if nothing was
+/// measured the pre-filter turns every candidate down and the pool never produces one —
+/// with no error and, until this predicate existed, no warning either. A consumer whose
+/// completions provider cannot also probe lands here by default, which is exactly how the
+/// case was reported.
+///
+/// Two states are deliberately NOT inert. An **empty** pool means "no rotation configured",
+/// which is a choice rather than a silent failure. A guard that is **off** admits unmeasured
+/// candidates, so nothing is being filtered away.
+///
+/// Presence in `capabilities` is not enough: a probe that ran and degraded fail-open leaves
+/// an entry whose `window` is `None`, which is the same dead end as never having probed. The
+/// check is on the measured window, never on the key.
 pub(crate) fn strict_guard_is_inert(
     strict: bool,
     candidate_models: &[String],
