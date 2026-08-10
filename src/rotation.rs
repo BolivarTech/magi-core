@@ -868,14 +868,10 @@ impl FallbackPoolBuilder {
         lineage: Lineage,
         probe: Arc<dyn ProviderProbe>,
     ) -> Self {
-        // RED-phase stub: registers the candidate WITHOUT its probe on purpose, so the
-        // tests below fail on an assertion rather than on a panic or a compile error.
-        // The Green phase stores the probe.
-        let _ = probe;
         self.candidates.push(FallbackCandidate {
             provider,
             lineage,
-            probe: None,
+            probe: Some(probe),
         });
         self
     }
