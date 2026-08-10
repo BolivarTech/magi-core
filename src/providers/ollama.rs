@@ -102,6 +102,15 @@ impl OllamaProvider {
         base_url: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self, ProviderError> {
+        Self::with_timeout(base_url, model, DEFAULT_CLIENT_TIMEOUT)
+    }
+
+    /// Like [`new`](Self::new) but bounds both HTTP clients with `timeout`.
+    pub fn with_timeout(
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        timeout: Duration,
+    ) -> Result<Self, ProviderError> {
         let given = ProviderUrl::parse(&base_url.into())?;
         // Whichever spelling arrived, normalise to the pair this provider needs.
         let (completions, base) = if given.ends_with_segment(OPENAI_COMPAT_PREFIX) {
@@ -112,14 +121,9 @@ impl OllamaProvider {
         // Passed as an authority, NEVER as `format!("{base}/v1")`: `Display` here is the redacted
         // rendering, so composing a string would hand the inner provider the literal placeholder
         // in place of real credentials — a silent 401 — plus a doubled path separator.
-        let inner = OpenAiCompatibleProvider::from_authority(
-            completions,
-            model,
-            None,
-            DEFAULT_CLIENT_TIMEOUT,
-        )?;
+        let inner = OpenAiCompatibleProvider::from_authority(completions, model, None, timeout)?;
         let client = reqwest::Client::builder()
-            .timeout(DEFAULT_CLIENT_TIMEOUT)
+            .timeout(timeout)
             // Referer OFF — see the note in the OpenAI-compatible provider: on a redirect the
             // client would send the ORIGINAL url, query string included, to the target origin.
             .referer(false)
@@ -130,19 +134,6 @@ impl OllamaProvider {
             base_url: base,
             client,
         })
-    }
-
-    /// Like [`new`](Self::new) but bounds both HTTP clients with `timeout`.
-    pub fn with_timeout(
-        base_url: impl Into<String>,
-        model: impl Into<String>,
-        timeout: Duration,
-    ) -> Result<Self, ProviderError> {
-        // RED-phase stub: accepts the timeout and IGNORES it, so the tests below fail on
-        // their deadline assertion rather than on a compile error. The Green phase threads
-        // it through to both clients.
-        let _ = timeout;
-        Self::new(base_url, model)
     }
 
     /// Extracts the context window from a `/api/show` JSON body. Scans the
