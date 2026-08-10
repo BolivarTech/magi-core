@@ -861,6 +861,24 @@ impl FallbackPoolBuilder {
         });
         self
     }
+    /// Appends a fallback whose probe is declared separately from its completion view.
+    pub fn push_with_probe(
+        mut self,
+        provider: Arc<dyn LlmProvider>,
+        lineage: Lineage,
+        probe: Arc<dyn ProviderProbe>,
+    ) -> Self {
+        // RED-phase stub: registers the candidate WITHOUT its probe on purpose, so the
+        // tests below fail on an assertion rather than on a panic or a compile error.
+        // The Green phase stores the probe.
+        let _ = probe;
+        self.candidates.push(FallbackCandidate {
+            provider,
+            lineage,
+            probe: None,
+        });
+        self
+    }
     /// Sets the per-mage rotation cap (default [`DEFAULT_MAX_ROTATIONS`]).
     pub fn max_rotations(mut self, n: u32) -> Self {
         self.max_rotations = n;
@@ -1447,6 +1465,59 @@ mod tests {
             )
             .build();
         assert!(pool.candidate(0).probe.is_none());
+    }
+
+    #[test]
+    fn test_push_with_probe_accepts_a_provider_that_cannot_probe() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("c", "m1", "r"));
+        let probe: Arc<dyn ProviderProbe> = Arc::new(MockProbe::new("m1"));
+        let pool = FallbackPool::builder()
+            .push_with_probe(provider, Lineage::new("cloud"), probe)
+            .build();
+        assert!(pool.candidate(0).probe.is_some()); // the whole point: probe declared apart
+        assert_eq!(pool.candidate(0).provider.model(), "m1"); // llm view stays usable
+        assert_eq!(pool.candidate(0).lineage, Lineage::new("cloud")); // lineage survives
+        assert_eq!(pool.len(), 1);
+    }
+
+    #[test]
+    fn test_push_with_probe_matches_push_probing_for_the_same_object() {
+        let pool_a = FallbackPool::builder()
+            .push_probing(Arc::new(MockProbe::new("m1")), Lineage::new("ollama"))
+            .build();
+
+        let both = Arc::new(MockProbe::new("m1"));
+        let provider: Arc<dyn LlmProvider> = both.clone();
+        let probe: Arc<dyn ProviderProbe> = both;
+        let pool_b = FallbackPool::builder()
+            .push_with_probe(provider, Lineage::new("ollama"), probe)
+            .build();
+
+        assert!(pool_a.candidate(0).probe.is_some());
+        assert!(pool_b.candidate(0).probe.is_some()); // both doors must observe a probe
+        assert_eq!(
+            pool_a.candidate(0).provider.model(),
+            pool_b.candidate(0).provider.model()
+        );
+        assert_eq!(pool_a.candidate(0).lineage, pool_b.candidate(0).lineage);
+    }
+
+    #[test]
+    fn test_push_with_probe_mixes_with_plain_push_in_declared_order() {
+        let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::new("c", "m1", "r"));
+        let probe: Arc<dyn ProviderProbe> = Arc::new(MockProbe::new("m1"));
+        let pool = FallbackPool::builder()
+            .push_with_probe(provider, Lineage::new("cloud"), probe)
+            .push(
+                Arc::new(MockProvider::new("c2", "m2", "r")),
+                Lineage::new("other"),
+            )
+            .build();
+        assert_eq!(pool.len(), 2);
+        assert!(pool.candidate(0).probe.is_some()); // decoupled candidate keeps its probe
+        assert!(pool.candidate(1).probe.is_none()); // plain candidate stays probeless
+        assert_eq!(pool.candidate(0).provider.model(), "m1");
+        assert_eq!(pool.candidate(1).provider.model(), "m2"); // declared order preserved
     }
 
     #[test]
