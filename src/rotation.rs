@@ -759,6 +759,18 @@ fn window_ok(window: Option<usize>, min_window: usize, strict: bool) -> bool {
     }
 }
 
+/// Detects the strict-guard foot-gun: strict is on but no candidate has a measured window.
+pub(crate) fn strict_guard_is_inert(
+    strict: bool,
+    candidate_models: &[String],
+    capabilities: &BTreeMap<String, ModelCapability>,
+) -> bool {
+    // RED-phase stub: reports the state as never inert, which is exactly today's
+    // behaviour (nothing warns). The Green phase implements the detection.
+    let _ = (strict, candidate_models, capabilities);
+    false
+}
+
 /// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
 /// (present iff registered via `push_probing`).
 pub(crate) struct FallbackCandidate {
@@ -1830,6 +1842,77 @@ mod tests {
             digest_collision(&[Some("a".into()), Some("a".into())]),
             Some((0, 1))
         );
+    }
+
+    #[test]
+    fn test_strict_guard_is_inert_when_guard_off_and_candidate_unmeasured() {
+        let candidates = vec!["mageA".to_string()];
+        let capabilities: BTreeMap<String, ModelCapability> = BTreeMap::new();
+        let result = strict_guard_is_inert(false, &candidates, &capabilities);
+        assert!(!result); // not strict: an unmeasured candidate is still admitted
+    }
+
+    #[test]
+    fn test_strict_guard_is_inert_when_no_candidates_declared() {
+        let candidates: Vec<String> = Vec::new();
+        let capabilities: BTreeMap<String, ModelCapability> = BTreeMap::new();
+        let result = strict_guard_is_inert(true, &candidates, &capabilities);
+        assert!(!result); // empty pool is a configuration choice, not a silent failure
+    }
+
+    #[test]
+    fn test_strict_guard_is_inert_when_one_candidate_has_a_measured_window() {
+        let candidates = vec!["mageA".to_string(), "mageB".to_string()];
+        let mut capabilities: BTreeMap<String, ModelCapability> = BTreeMap::new();
+        capabilities.insert(
+            "mageA".to_string(),
+            ModelCapability {
+                window: Some(200_000),
+                digest: None,
+                supports_completion: true,
+            },
+        );
+        capabilities.insert(
+            "mageB".to_string(),
+            ModelCapability {
+                window: None,
+                digest: None,
+                supports_completion: true,
+            },
+        );
+        let result = strict_guard_is_inert(true, &candidates, &capabilities);
+        assert!(!result); // at least one candidate can still be admitted
+    }
+
+    #[test]
+    fn test_strict_guard_is_inert_when_no_candidate_was_ever_probed() {
+        let candidates = vec!["mageA".to_string(), "mageB".to_string()];
+        let capabilities: BTreeMap<String, ModelCapability> = BTreeMap::new();
+        let result = strict_guard_is_inert(true, &candidates, &capabilities);
+        assert!(result); // strict, and no candidate has an entry at all: the pool is dead
+    }
+
+    #[test]
+    fn test_strict_guard_is_inert_when_all_candidates_probed_but_window_unmeasurable() {
+        // Not redundant with the "never probed" case above: here every candidate IS
+        // present in the capabilities map (a probe ran for each), but every probe
+        // degraded fail-open to `window: None`. Presence in the map is not the same as
+        // having a window — a naive `contains_key` check would call this admitted when
+        // it is the same dead end as never having been probed at all.
+        let candidates = vec!["mageA".to_string(), "mageB".to_string()];
+        let mut capabilities: BTreeMap<String, ModelCapability> = BTreeMap::new();
+        for m in &candidates {
+            capabilities.insert(
+                m.clone(),
+                ModelCapability {
+                    window: None,
+                    digest: None,
+                    supports_completion: true,
+                },
+            );
+        }
+        let result = strict_guard_is_inert(true, &candidates, &capabilities);
+        assert!(result); // measured-and-unmeasurable is the same dead end as never-probed
     }
 
     #[test]

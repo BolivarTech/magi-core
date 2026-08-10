@@ -20,7 +20,7 @@ use crate::reporting::{
 use crate::rotation::{
     ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
     LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
-    RotationPolicy, digest_collision, run_preflight,
+    RotationPolicy, digest_collision, run_preflight, strict_guard_is_inert,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
@@ -1166,6 +1166,24 @@ impl Magi {
         // the standard rough token estimate — a pre-filter, not precise budgeting.
         let min_window_tokens = user_prompt.chars().count().div_ceil(CHARS_PER_TOKEN_EST);
         let strict_context_guard = rotation.strict_context_guard;
+
+        // A strict guard rejects every UNMEASURED candidate, so with nothing measured the pool
+        // is declared and never eligible: rotation does nothing, and until now it did so in
+        // silence. Naming it is all that happens here — the filter is untouched.
+        let candidate_models: Vec<String> = rotation
+            .pool
+            .candidates()
+            .iter()
+            .map(|c| c.provider.model().to_string())
+            .collect();
+        if strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities) {
+            tracing::warn!(
+                candidates = candidate_models.len(),
+                "strict_context_guard is on and no fallback candidate has a measured context \
+                 window, so every candidate is filtered out and rotation cannot fire; declare a \
+                 probe for the candidates or turn the guard off"
+            );
+        }
 
         // Pre-seed telemetry OUTSIDE any task stack so a panicked agent still has a
         // present, chain-empty record (W1). A normal return replaces its entry.
