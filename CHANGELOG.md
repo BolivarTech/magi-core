@@ -31,6 +31,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   only one that can probe. `new` delegates with the same default, so nothing changes for
   anyone not passing a timeout.
 
+- **`ProviderProbe::declared_model()`**, a trait method with a defaulting body returning
+  `None`, so every existing implementation stays valid and answering is opt-in. A probe that
+  answers lets the preflight check the correspondence the decoupled constructors ask the
+  caller to maintain: when the declared model disagrees with the one the registered
+  completions provider reports, the run **warns**. It never rejects — a probe is not
+  authoritative over what a provider serves, and rejecting would contradict the fail-open
+  discipline the rest of that path follows. `OllamaProvider` answers. The preflight also
+  warns when two probes are registered for one model, where the surviving answer is decided
+  by completion order rather than declaration order.
+
 - **A warning when a strict context guard can admit nothing.** With
   `strict_context_guard` on and no candidate carrying a measured window, the window
   pre-filter turns every candidate down: the pool is declared and never eligible. That was
