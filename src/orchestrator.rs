@@ -335,6 +335,23 @@ impl MagiBuilder {
         self
     }
 
+    /// Registers a primary provider whose probe is declared separately (already-erased `Arc`s).
+    pub fn with_agent_and_probe(
+        mut self,
+        agent: AgentName,
+        provider: Arc<dyn LlmProvider>,
+        lineage: Lineage,
+        probe: Arc<dyn ProviderProbe>,
+    ) -> Self {
+        // RED-phase stub: registers provider and lineage but DROPS the probe on purpose,
+        // so the tests below fail on an assertion rather than on a panic or a compile
+        // error. The Green phase stores it.
+        let _ = probe;
+        self.agent_providers.insert(agent, provider);
+        self.agent_lineages.insert(agent, lineage);
+        self
+    }
+
     /// Declares the shared fallback pool. Without it, rotation is
     /// disabled and behavior is identical to 2.0.x.
     pub fn with_fallback_pool(mut self, pool: FallbackPool) -> Self {
@@ -5023,5 +5040,61 @@ mod tests {
                 "call {idx} user_prompt missing expected nonce"
             );
         }
+    }
+
+    #[test]
+    fn test_with_agent_and_probe_declares_a_probe_for_a_non_probing_primary() {
+        let builder = MagiBuilder::new(Arc::new(RoutingMockProvider::new())).with_agent_and_probe(
+            AgentName::Melchior,
+            Arc::new(RoutingMockProvider::new()),
+            Lineage::new("alibaba"),
+            crate::test_support::MockProbe::with_window("m1", Some(200_000)),
+        );
+        assert!(builder.primary_probes.contains_key(&AgentName::Melchior)); // probe must be stored, not dropped
+        assert_eq!(
+            builder.agent_lineages.get(&AgentName::Melchior),
+            Some(&Lineage::new("alibaba"))
+        );
+        assert!(builder.agent_providers.contains_key(&AgentName::Melchior));
+    }
+
+    #[test]
+    fn test_reregistering_as_plain_primary_drops_a_previously_declared_probe() {
+        let builder = MagiBuilder::new(Arc::new(RoutingMockProvider::new())).with_agent_and_probe(
+            AgentName::Melchior,
+            Arc::new(RoutingMockProvider::new()),
+            Lineage::new("alibaba"),
+            crate::test_support::MockProbe::with_window("m1", Some(200_000)),
+        );
+        assert!(builder.primary_probes.contains_key(&AgentName::Melchior)); // must be stored first
+        let builder = builder.with_agent(
+            AgentName::Melchior,
+            Arc::new(RoutingMockProvider::new()),
+            Lineage::new("alibaba"),
+        );
+        assert!(!builder.primary_probes.contains_key(&AgentName::Melchior)); // with_agent clears the probe
+    }
+
+    #[test]
+    fn test_either_registration_door_produces_equal_builder_state() {
+        let via_generic = MagiBuilder::new(Arc::new(RoutingMockProvider::new()))
+            .with_probing_agent(
+                AgentName::Caspar,
+                crate::test_support::MockProbe::with_window("m9", Some(100)),
+                Lineage::new("deepseek"),
+            );
+
+        let probe_obj = crate::test_support::MockProbe::with_window("m9", Some(100));
+        let llm: Arc<dyn LlmProvider> = probe_obj.clone();
+        let probe: Arc<dyn ProviderProbe> = probe_obj;
+        let via_erased = MagiBuilder::new(Arc::new(RoutingMockProvider::new()))
+            .with_agent_and_probe(AgentName::Caspar, llm, Lineage::new("deepseek"), probe);
+
+        assert!(via_generic.primary_probes.contains_key(&AgentName::Caspar));
+        assert!(via_erased.primary_probes.contains_key(&AgentName::Caspar)); // both doors must store it
+        assert_eq!(
+            via_generic.agent_lineages.get(&AgentName::Caspar),
+            via_erased.agent_lineages.get(&AgentName::Caspar)
+        );
     }
 }
