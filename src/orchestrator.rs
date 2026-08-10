@@ -5074,6 +5074,45 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_a_probe_measuring_another_model_is_filed_under_the_provider_model() {
+        // Pins the contract the decoupled constructors document, in the only way that
+        // matters: by showing what the crate does when that contract is BROKEN.
+        //
+        // The capability key comes from the COMPLETIONS provider and the value comes from
+        // the probe. While one object played both roles those could not disagree; declared
+        // separately they can, and this test fixes the consequence — the disagreement is
+        // STORED, not detected. That is why the agreement is the caller's responsibility
+        // and why both constructors say so. A future change that started rejecting or
+        // renaming on mismatch would break here, which is the point.
+        let provider: Arc<dyn LlmProvider> =
+            crate::test_support::MockProbe::with_window("m1", Some(1));
+        let probe: Arc<dyn ProviderProbe> =
+            crate::test_support::MockProbe::with_digest("m2", "sha256:measured-elsewhere");
+        let pool = FallbackPool::builder()
+            .push_with_probe(provider, Lineage::new("vendor"), probe)
+            .build();
+        let rotation = RotationConfig {
+            primary_lineages: BTreeMap::new(),
+            primary_probes: BTreeMap::new(),
+            pool,
+            strict_context_guard: false,
+        };
+
+        let targets = collect_probe_targets(&BTreeMap::new(), &rotation);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].0, "m1"); // the key is the provider's model, never the probe's
+
+        let caps = run_preflight(targets).await;
+        let entry = caps.get("m1").expect("filed under the provider's model");
+        // ...while the measurement came from a probe that speaks for a different model.
+        assert_eq!(entry.digest.as_deref(), Some("sha256:measured-elsewhere"));
+        assert!(
+            !caps.contains_key("m2"),
+            "nothing is filed under the model the probe actually measures"
+        );
+    }
+
     #[test]
     fn test_with_agent_and_probe_declares_a_probe_for_a_non_probing_primary() {
         let builder = MagiBuilder::new(Arc::new(RoutingMockProvider::new())).with_agent_and_probe(
