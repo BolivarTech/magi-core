@@ -441,6 +441,28 @@ let builder = MagiBuilder::new(default_provider)
     .with_strict_context_guard(true);
 ```
 
+**If your completions provider cannot probe**, declare the probe separately instead —
+`push_with_probe(provider, lineage, probe)` on the pool builder and
+`with_agent_and_probe(agent, provider, lineage, probe)` on the `MagiBuilder`. They take the two
+roles as independent `Arc`s, so measuring a candidate's context window no longer forces you to
+serve completions through a probe-capable type:
+
+```rust
+FallbackPool::builder()
+    .push_with_probe(hosted_model, Lineage::new("vendor"), capability_sidecar)
+    .build();
+```
+
+One rule comes with that freedom: **the probe must measure the model the completions provider
+reports.** The measured window is filed under the provider's model name and that same key drives
+the digest collision check, so a probe pointed at a different model can reject a healthy candidate
+over a collision that does not exist. When one object plays both roles — `push_probing` — it cannot
+disagree with itself, which is why that remains the recommended door.
+
+Note also that `with_strict_context_guard(true)` rejects every **unmeasured** candidate. If nothing
+in your pool is probed, the guard filters out all of it and rotation cannot fire; the crate warns
+when it detects exactly that state.
+
 `max_rotations` is a per-mage cap. A value of `2` allows up to two rotations, meaning up to three models may be tried for that mage. It is a ceiling, not a target: a mage rotates only if it fails and an eligible fallback candidate exists. Diversity is not imposed — you may point every candidate at the same provider and model, and duplicate primary lineages only emit a warning. Only a proven digest collision during rotation is rejected.
 
 ### What a rotation looks like

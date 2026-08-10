@@ -4,6 +4,50 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A rotation probe can now be declared apart from the provider that serves completions.**
+  `FallbackPoolBuilder::push_with_probe` and `MagiBuilder::with_agent_and_probe` take the
+  provider and the probe as two already-erased `Arc`s, so measuring a candidate's context
+  window no longer requires that candidate's *completions* provider to be probe-capable.
+  Until now the only production `ProviderProbe` was the Ollama provider, so a consumer that
+  could not use it for completions had `window: None` on every candidate — and with
+  `strict_context_guard` on, that filtered out the whole pool and rotation did nothing.
+  The existing generic constructors are unchanged, remain the recommended door for the
+  common case, and now delegate to the new ones, so there is a single registration site.
+
+  Declaring the two roles separately moves one guarantee to the caller: **the probe must
+  measure the same model the completions provider reports.** The capability map is keyed by
+  the provider's model while the value comes from the probe, and that same key drives the
+  digest collision check — so a mis-pointed probe can reject a healthy candidate over a
+  collision that does not exist. Both constructors document it.
+
+- **`OllamaProvider::with_timeout`**, closing an asymmetry rather than adding a feature: the
+  other two HTTP providers already had it, and this one hardcoded the 300 s default in both
+  of the clients it builds. A consumer sizing its layers against a single agent ceiling could
+  therefore not use this type for completions at all — which mattered because it is also the
+  only one that can probe. `new` delegates with the same default, so nothing changes for
+  anyone not passing a timeout.
+
+- **A warning when a strict context guard can admit nothing.** With
+  `strict_context_guard` on and no candidate carrying a measured window, the window
+  pre-filter turns every candidate down: the pool is declared and never eligible. That was
+  silent. It now emits a `tracing::warn!` naming the condition and the two ways out. The
+  filter itself is untouched — this reports, it does not decide. A pool that is simply
+  empty, or a guard that is off, are not this condition and stay quiet.
+
+- `examples/decoupled_probe.rs`, which proves the above compiles from **outside** the crate.
+  An in-crate test cannot: there the generic bound is satisfied trivially by a double that
+  implements both traits on one type, which never shows the two roles can be split.
+
+### Fixed
+
+- Corrected two rustdoc claims that the retry-defaults coherence work is "tracked for 3.2.0".
+  That number now belongs to this release; the defaults work is tracked for **3.3.0**. The
+  `3.1.0` entry below is left as written — it is a record of what was true then.
+
 ## [3.1.0] - 2026-07-31
 
 ### Security

@@ -66,7 +66,7 @@ pub struct MagiConfig {
     /// rotation as firing *after the retry chain is exhausted* is inaccurate for that case.
     ///
     /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix.
-    /// **It is tracked for 3.2.0**, starting from a configuration that puts the retry budget
+    /// **It is tracked for 3.3.0**, starting from a configuration that puts the retry budget
     /// *below* the agent ceiling on purpose, so abandonment is typed and diagnosable instead of an
     /// opaque timeout cut. This is documented in both places that govern it — here and on
     /// [`RetryConfig`] — because whoever configures one of them does not read the other.
