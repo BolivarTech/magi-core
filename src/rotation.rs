@@ -844,24 +844,42 @@ impl FallbackPoolBuilder {
         });
         self
     }
-    /// Appends a probing fallback. `Arc<P>` is coerced to BOTH an
-    /// `Arc<dyn LlmProvider>` and an `Arc<dyn ProviderProbe>` — the capability is
-    /// DECLARED here, not discovered by downcast, so `LlmProvider` stays intact (G4).
+    /// Appends a probing fallback, declaring the completion provider and the probe as
+    /// the same object. `Arc<P>` is coerced to both an `Arc<dyn LlmProvider>` and an
+    /// `Arc<dyn ProviderProbe>`, so the capability is declared here rather than
+    /// discovered by downcast.
+    ///
+    /// This is the recommended door for the common case: because a single object
+    /// cannot disagree with itself, the key/measured-model agreement that
+    /// [`push_with_probe`](Self::push_with_probe)'s contract asks the caller to
+    /// maintain holds automatically here. Delegates to that method.
     pub fn push_probing<P: LlmProvider + ProviderProbe + 'static>(
-        mut self,
+        self,
         p: Arc<P>,
         lineage: Lineage,
     ) -> Self {
         let provider: Arc<dyn LlmProvider> = p.clone();
         let probe: Arc<dyn ProviderProbe> = p;
-        self.candidates.push(FallbackCandidate {
-            provider,
-            lineage,
-            probe: Some(probe),
-        });
-        self
+        self.push_with_probe(provider, lineage, probe)
     }
-    /// Appends a fallback whose probe is declared separately from its completion view.
+    /// Appends a fallback whose probe is declared separately from its completion view,
+    /// for a consumer whose completions provider cannot also probe — the capability
+    /// must not dictate which provider serves completions.
+    ///
+    /// # Contract
+    ///
+    /// The `probe` must measure the same model as `provider.model()`. The preflight
+    /// keys a candidate's measured capability by `provider.model()` while the value
+    /// comes from `probe`; when the two are the same object that agreement is
+    /// automatic, but declared separately it becomes the caller's responsibility.
+    ///
+    /// If `probe` measures a different model than `provider.model()` reports, two
+    /// things go wrong. First, the context window ends up filed under the wrong
+    /// model, so the rotation window pre-filter admits or rejects this candidate on a
+    /// number that belongs to something else. Second, and less obviously, the same
+    /// key also feeds the digest collision check, so a mis-pointed probe can make a
+    /// healthy candidate be rejected over a collision that does not actually exist —
+    /// the only fail-closed direction in this subsystem.
     pub fn push_with_probe(
         mut self,
         provider: Arc<dyn LlmProvider>,
