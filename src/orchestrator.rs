@@ -755,6 +755,7 @@ impl MagiBuilder {
             complexity_gate: self.complexity_gate,
             rotation_config,
             inert_guard_warned: std::sync::atomic::AtomicBool::new(false),
+            probe_declaration_warned: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -833,7 +834,14 @@ pub struct Magi {
     /// seen four hundred times, which is the failure this whole warning exists to avoid.
     /// Once per instance is the honest cadence: the condition it names cannot be fixed
     /// mid-run anyway.
+    ///
+    /// `Relaxed` is sufficient for both latches here: they order nothing but themselves,
+    /// and the only property required is that exactly one caller observes the transition.
     inert_guard_warned: std::sync::atomic::AtomicBool,
+    /// Latches the probe-declaration warnings, for the same reason and with more force:
+    /// what they report is fixed when the builder runs, so every later call would repeat
+    /// a sentence about a state that provably has not changed.
+    probe_declaration_warned: std::sync::atomic::AtomicBool,
 }
 
 impl Magi {
@@ -1161,8 +1169,17 @@ impl Magi {
         // the pure rotation policy reads them with zero I/O and never under the lock.
         // A failed/timed-out probe degrades to unmeasured (fail-open, G3) — never an
         // abort. Providers without a probe contribute nothing (no window/digest).
-        let capabilities =
-            Arc::new(run_preflight(collect_probe_targets(&agent_models, &rotation)).await);
+        let probe_targets = collect_probe_targets(&agent_models, &rotation);
+        // Latched like the inert-guard warning below, and for a stronger reason: what these
+        // name is decided when the builder runs, so a second telling would describe a state
+        // that provably has not changed since the first.
+        if !self
+            .probe_declaration_warned
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            warn_on_probe_disagreement(&probe_targets);
+        }
+        let capabilities = Arc::new(run_preflight(probe_targets).await);
         // G2: warn (never error) if two primaries resolve to the SAME weights digest
         // — reduced ensemble diversity, but the run proceeds. Diversity never blocks
         // the run; only a PROVEN collision during rotation (R5a) rejects a candidate.
@@ -1580,7 +1597,6 @@ fn collect_probe_targets(
             targets.push((cand.provider.model().to_string(), Arc::clone(probe)));
         }
     }
-    warn_on_probe_disagreement(&targets);
     targets
 }
 
@@ -2990,6 +3006,43 @@ mod tests {
             !lines.iter().any(|l| l.contains("strict_context_guard")),
             "nothing is inert here, so nothing should be announced: {lines:?}"
         );
+    }
+
+    /// The probe-declaration warnings are latched exactly like the inert-guard one. What
+    /// they report is decided when the builder runs, so a second telling would describe a
+    /// state that provably has not changed — the strongest case for latching in this file.
+    #[tokio::test]
+    async fn probe_declaration_warnings_are_told_once_per_instance() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push_with_probe(
+                Arc::new(MockProvider::success("cand", "cand-model", vec![])),
+                Lineage::new("vendor"),
+                Arc::new(DeclaringProbe("a-different-model")),
+            )
+            .build();
+        let magi = MagiBuilder::new(trio())
+            .with_fallback_pool(pool)
+            .build()
+            .expect("builds");
+
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let first = log
+            .lines()
+            .iter()
+            .filter(|l| l.contains("probe_declares"))
+            .count();
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let second = log
+            .lines()
+            .iter()
+            .filter(|l| l.contains("probe_declares"))
+            .count();
+
+        assert_eq!(first, 1, "the disagreement must be named once");
+        assert_eq!(second, 1, "and not repeated on the next call");
     }
 
     /// A long-lived orchestrator must not repeat a configuration complaint on every call.

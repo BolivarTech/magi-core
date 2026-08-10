@@ -691,6 +691,12 @@ pub trait ProviderProbe: Send + Sync {
     /// The default is `None`, which means "I do not claim to know" and is checked against
     /// nothing. That keeps every existing implementation valid and makes answering a
     /// strictly additive way to opt into the check.
+    ///
+    /// The comparison is an exact string match, deliberately. A model id is opaque to this
+    /// crate — it is whatever the backend answers to — so normalising case or punctuation
+    /// would be inventing equivalences on someone else's namespace, and the failure that
+    /// would cause (two genuinely different models treated as one) is worse than the false
+    /// warning it would prevent.
     fn declared_model(&self) -> Option<&str> {
         None
     }

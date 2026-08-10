@@ -488,6 +488,16 @@ mod tests {
     }
 
     #[test]
+    fn test_declared_model_answers_the_model_it_probes_for() {
+        // The provider is the one production probe that CAN answer, so the preflight's
+        // correspondence check only has teeth if this reports the same model the
+        // completions half serves — not the URL, not a label.
+        let p = OllamaProvider::new("http://127.0.0.1:11434", "qwen3:8b").expect("constructs");
+        assert_eq!(ProviderProbe::declared_model(&p), Some("qwen3:8b"));
+        assert_eq!(ProviderProbe::declared_model(&p), Some(p.inner.model()));
+    }
+
+    #[test]
     fn test_new_keeps_the_default_client_timeout() {
         // Asserts through `Debug`, which reqwest renders including the client's total
         // timeout — but WITHOUT pinning its rendering. The comparison is what carries the
