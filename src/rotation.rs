@@ -679,6 +679,21 @@ pub trait ProviderProbe: Send + Sync {
     async fn window(&self) -> Result<Option<usize>, ProviderError>;
     /// Model weights fingerprint, or `None` if it cannot be resolved.
     async fn digest(&self) -> Result<Option<String>, ProviderError>;
+
+    /// The model this probe speaks for, when the implementation knows it.
+    ///
+    /// Answering turns the correspondence above from a promise into something the crate
+    /// can check: when this disagrees with the model reported by the completions provider
+    /// registered alongside, the preflight **warns**. It never rejects — that would
+    /// contradict the fail-open discipline the rest of this path follows, and a probe is
+    /// not authoritative over which model a provider serves.
+    ///
+    /// The default is `None`, which means "I do not claim to know" and is checked against
+    /// nothing. That keeps every existing implementation valid and makes answering a
+    /// strictly additive way to opt into the check.
+    fn declared_model(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// Probe-derived capabilities of one model, cached by the preflight so the pure

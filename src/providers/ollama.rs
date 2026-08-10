@@ -230,6 +230,13 @@ impl LlmProvider for OllamaProvider {
 
 #[async_trait]
 impl ProviderProbe for OllamaProvider {
+    /// This provider always knows: it probes `/api/show` and `/api/tags` for the exact model
+    /// its completions half serves, so it can answer and let the preflight check the
+    /// correspondence rather than take it on trust.
+    fn declared_model(&self) -> Option<&str> {
+        Some(self.inner.model())
+    }
+
     async fn window(&self) -> Result<Option<usize>, ProviderError> {
         let resp = self
             .base_url

@@ -2,7 +2,7 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -754,6 +754,7 @@ impl MagiBuilder {
             rng_source: Arc::new(Mutex::new(rng_source)),
             complexity_gate: self.complexity_gate,
             rotation_config,
+            inert_guard_warned: std::sync::atomic::AtomicBool::new(false),
         })
     }
 }
@@ -824,6 +825,15 @@ pub struct Magi {
     /// pool). `None` ⇒ rotation disabled (2.0.x path). Read by `dispatch_with_retry`
     /// to route between the no-rotation and rotation dispatch paths.
     rotation_config: Option<Arc<RotationConfig>>,
+    /// Latches once the inert-strict-guard warning has been emitted.
+    ///
+    /// That warning reports a CONFIGURATION mistake but can only be detected after the
+    /// preflight, so its natural home is per-run — and a long-lived orchestrator would
+    /// then repeat the same sentence on every call. Nobody reads a log line they have
+    /// seen four hundred times, which is the failure this whole warning exists to avoid.
+    /// Once per instance is the honest cadence: the condition it names cannot be fixed
+    /// mid-run anyway.
+    inert_guard_warned: std::sync::atomic::AtomicBool,
 }
 
 impl Magi {
@@ -1187,12 +1197,14 @@ impl Magi {
         // for a state the consumer chose deliberately. A warning that misdiagnoses gets silenced,
         // and then the real case is invisible.
         //
-        // This reports a CONFIGURATION condition but has to live here, because it depends on what
-        // the preflight measured — so a long-lived `Magi` re-emits it on every call, unlike the
-        // crate's other config warnings which fire once at construction. Unavoidable, not an
-        // oversight: at `build()` time there are no measurements yet to be missing.
+        // This reports a CONFIGURATION condition but can only be detected after the preflight,
+        // so it lives here rather than in `build()`. The latch is what keeps that from turning
+        // into a line repeated on every call of a long-lived orchestrator — see the field.
         if rotation.pool.max_rotations() > 0
             && strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities)
+            && !self
+                .inert_guard_warned
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
             tracing::warn!(
                 candidates = candidate_models.len(),
@@ -1546,6 +1558,13 @@ const CHARS_PER_TOKEN_EST: usize = 4;
 /// Collects the preflight probe targets: each probing PRIMARY (paired with its
 /// agent's model) plus each pool candidate that declared a probe. Non-probing
 /// providers contribute nothing — they simply have no window/digest to measure.
+///
+/// Two conditions are NAMED here rather than left silent, because both became reachable
+/// only once a probe could be declared apart from the provider it measures for, and both
+/// are invisible from the outside: a probe that says it speaks for a different model than
+/// the one it is filed under, and the same model filed twice. Neither rejects — the first
+/// because a probe is not authoritative over what a provider serves, the second because
+/// the surviving answer may well be correct. Warning is what the crate can honestly do.
 fn collect_probe_targets(
     agent_models: &BTreeMap<AgentName, String>,
     rotation: &RotationConfig,
@@ -1561,7 +1580,42 @@ fn collect_probe_targets(
             targets.push((cand.provider.model().to_string(), Arc::clone(probe)));
         }
     }
+    warn_on_probe_disagreement(&targets);
     targets
+}
+
+/// Names the two ways a decoupled probe declaration can be wrong without anything failing:
+/// a probe filed under a model it says is not its own, and one model filed twice.
+///
+/// Pure except for the `tracing` calls, and total. Split out so the collection above stays
+/// a collection, and so the conditions can be exercised without a preflight.
+fn warn_on_probe_disagreement(targets: &[(String, Arc<dyn ProviderProbe>)]) {
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    for (model, probe) in targets {
+        if let Some(declared) = probe.declared_model()
+            && declared != model
+        {
+            // The window lands under `model` while the probe measured `declared`, and the
+            // same key drives the digest collision check — the one place in this subsystem
+            // that REJECTS. A wrong digest there can turn a healthy candidate away.
+            tracing::warn!(
+                filed_under = %model,
+                probe_declares = %declared,
+                "a probe declares a different model than the provider it was registered \
+                 with; its measurement will be filed under the provider's model and can \
+                 mis-drive the digest collision check"
+            );
+        }
+        if !seen.insert(model.as_str()) {
+            // The preflight collects into a map keyed by model, so the later answer wins —
+            // and "later" is completion order, not declaration order.
+            tracing::warn!(
+                model = %model,
+                "two probes are registered for the same model; whichever answers last wins, \
+                 and that order is not deterministic"
+            );
+        }
+    }
 }
 
 /// Classifies a surfaced [`ProviderError`] as a connection-level failure for the
@@ -2782,6 +2836,94 @@ mod tests {
         );
     }
 
+    /// A probe that knows which model it speaks for. `test_support::MockProbe` leaves
+    /// `declared_model` at its default `None`, which is the "makes no claim" case.
+    struct DeclaringProbe(&'static str);
+
+    #[async_trait::async_trait]
+    impl ProviderProbe for DeclaringProbe {
+        async fn window(&self) -> Result<Option<usize>, ProviderError> {
+            Ok(Some(1_000))
+        }
+        async fn digest(&self) -> Result<Option<String>, ProviderError> {
+            Ok(None)
+        }
+        fn declared_model(&self) -> Option<&str> {
+            Some(self.0)
+        }
+    }
+
+    #[test]
+    fn a_probe_declaring_another_model_is_named_not_rejected() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let targets: Vec<(String, Arc<dyn ProviderProbe>)> =
+            vec![("m1".to_string(), Arc::new(DeclaringProbe("m2")))];
+        warn_on_probe_disagreement(&targets);
+
+        let lines = log.lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("WARN") && l.contains("probe_declares")),
+            "the disagreement must be named: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn a_probe_declaring_its_own_model_is_quiet() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let targets: Vec<(String, Arc<dyn ProviderProbe>)> =
+            vec![("m1".to_string(), Arc::new(DeclaringProbe("m1")))];
+        warn_on_probe_disagreement(&targets);
+
+        assert!(
+            log.lines().is_empty(),
+            "agreement is the normal case and must stay silent: {:?}",
+            log.lines()
+        );
+    }
+
+    #[test]
+    fn a_probe_that_claims_nothing_is_checked_against_nothing() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        // The default `declared_model()` is `None` — an implementation that makes no claim
+        // must not be treated as claiming the wrong thing, or every pre-existing probe
+        // would start warning.
+        let targets: Vec<(String, Arc<dyn ProviderProbe>)> = vec![(
+            "m1".to_string(),
+            crate::test_support::MockProbe::with_window("m9", Some(10)),
+        )];
+        warn_on_probe_disagreement(&targets);
+
+        assert!(log.lines().is_empty(), "{:?}", log.lines());
+    }
+
+    #[test]
+    fn two_probes_for_one_model_are_named() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let targets: Vec<(String, Arc<dyn ProviderProbe>)> = vec![
+            ("m1".to_string(), Arc::new(DeclaringProbe("m1"))),
+            ("m1".to_string(), Arc::new(DeclaringProbe("m1"))),
+        ];
+        warn_on_probe_disagreement(&targets);
+
+        let lines = log.lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("WARN") && l.contains("answers last wins")),
+            "last-writer-wins must be named where it is created: {lines:?}"
+        );
+    }
+
     /// The warning is only worth anything if `analyze` actually reaches it with the run's
     /// real guard setting. Proving the predicate in isolation leaves the wiring untested —
     /// delete the emission and a predicate-only suite stays green.
@@ -2848,6 +2990,43 @@ mod tests {
             !lines.iter().any(|l| l.contains("strict_context_guard")),
             "nothing is inert here, so nothing should be announced: {lines:?}"
         );
+    }
+
+    /// A long-lived orchestrator must not repeat a configuration complaint on every call.
+    /// The condition cannot be fixed mid-run, so the second telling carries no information
+    /// and costs the channel its credibility.
+    #[tokio::test]
+    async fn the_inert_guard_warning_is_told_once_per_instance() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::success("cand", "cand-model", vec![])),
+                Lineage::new("vendor"),
+            )
+            .build();
+        let magi = MagiBuilder::new(trio())
+            .with_fallback_pool(pool)
+            .with_strict_context_guard(true)
+            .build()
+            .expect("builds");
+
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let after_first = log
+            .lines()
+            .iter()
+            .filter(|l| l.contains("strict_context_guard"))
+            .count();
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let after_second = log
+            .lines()
+            .iter()
+            .filter(|l| l.contains("strict_context_guard"))
+            .count();
+
+        assert_eq!(after_first, 1, "the first run must say it");
+        assert_eq!(after_second, 1, "the second run must not say it again");
     }
 
     /// Rotation switched off by configuration is not the reported foot-gun. The pool never
