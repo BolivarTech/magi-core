@@ -639,14 +639,33 @@ impl Drop for AgentSlotGuard {
     }
 }
 
-/// Optional capability trait, separate from [`LlmProvider`] (G4). A provider that
-/// can be probed for its context window and weights digest implements it; one that
-/// cannot simply does not, and rotation still works (a `None` digest is trusted).
+/// Optional capability trait, separate from [`LlmProvider`]: a provider that can be
+/// probed for its context window and weights digest implements it; one that cannot
+/// simply does not, and rotation still works (a `None` digest is trusted).
 ///
 /// The preflight ([`run_preflight`]) calls these once per model **before** dispatch
 /// and caches the results in a [`ModelCapability`] map, so the pure rotation policy
 /// reads them with zero I/O. Its only production impl is `OllamaProvider`
-/// (feature `ollama`, filled in a later task).
+/// (feature `ollama`).
+///
+/// # A probe speaks for ONE model, and it is not the one it was asked about
+///
+/// Nothing in these two methods takes a model, and that is not an oversight: an
+/// implementation is expected to be **bound to a single model** and to answer about
+/// that one. The caching key comes from elsewhere — the model reported by the
+/// **completions provider** registered alongside this probe.
+///
+/// While one object served both roles, the two could not disagree. Since they can be
+/// declared apart ([`FallbackPoolBuilder::push_with_probe`] and its primary-side
+/// sibling), keeping them in agreement is the **caller's** responsibility, and the
+/// consequence of breaking it is documented on those constructors — briefly: the
+/// measurement is filed under the other model's name, and because the same key also
+/// feeds the digest collision check, a mis-pointed probe can reject a candidate that
+/// was healthy.
+///
+/// An implementation should therefore never guess: answer for the model it was
+/// constructed with, and return `None` rather than a value it is unsure of. `None` is
+/// a valid answer here — the whole path is fail-open.
 #[async_trait::async_trait]
 pub trait ProviderProbe: Send + Sync {
     /// Context window in tokens, or `None` if it cannot be measured.
@@ -681,6 +700,13 @@ const MAX_PREFLIGHT_CONCURRENCY: usize = 4;
 /// than aborting the preflight. A panicked probe task is skipped (no entry). The
 /// bounded concurrency avoids both the serial N×timeout latency cliff and
 /// overwhelming the shared endpoint's small agent cap.
+///
+/// **A repeated `model_id` is last-writer-wins, and completion order is not
+/// deterministic.** While one object had to serve as both provider and probe, two
+/// registrations of the same model implied the same probe and therefore the same
+/// answer, so this never mattered. Declared apart, a caller can attach two *different*
+/// probes to one model id and get whichever finished last. Register one probe per
+/// model; two answers for one name is a contradiction the crate has no way to resolve.
 pub async fn run_preflight(
     probes: Vec<(String, Arc<dyn ProviderProbe>)>,
 ) -> BTreeMap<String, ModelCapability> {
@@ -787,8 +813,8 @@ pub(crate) fn strict_guard_is_inert(
             .any(|m| capabilities.get(m).and_then(|c| c.window).is_some())
 }
 
-/// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
-/// (present iff registered via `push_probing`).
+/// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe —
+/// present when registered through either probing door, absent for a plain `push`.
 pub(crate) struct FallbackCandidate {
     pub(crate) provider: Arc<dyn LlmProvider>,
     pub(crate) lineage: Lineage,
@@ -1522,8 +1548,8 @@ mod tests {
         assert_eq!(pool.len(), 1);
     }
 
-    #[test]
-    fn test_push_with_probe_matches_push_probing_for_the_same_object() {
+    #[tokio::test]
+    async fn test_push_with_probe_matches_push_probing_for_the_same_object() {
         let pool_a = FallbackPool::builder()
             .push_probing(Arc::new(MockProbe::new("m1")), Lineage::new("ollama"))
             .build();
@@ -1535,13 +1561,22 @@ mod tests {
             .push_with_probe(provider, Lineage::new("ollama"), probe)
             .build();
 
-        assert!(pool_a.candidate(0).probe.is_some());
-        assert!(pool_b.candidate(0).probe.is_some()); // both doors must observe a probe
         assert_eq!(
             pool_a.candidate(0).provider.model(),
             pool_b.candidate(0).provider.model()
         );
         assert_eq!(pool_a.candidate(0).lineage, pool_b.candidate(0).lineage);
+
+        // Asking the stored probe what it ANSWERS, not merely whether one is present: a
+        // delegation that stored the wrong probe would still be `Some`, so presence alone
+        // cannot tell the two doors apart. The digest is model-derived here, so equal
+        // answers mean both doors kept the probe that belongs to this candidate.
+        let a = pool_a.candidate(0).probe.as_ref().expect("probe stored");
+        let b = pool_b.candidate(0).probe.as_ref().expect("probe stored");
+        let da = a.digest().await.expect("mock never errors");
+        let db = b.digest().await.expect("mock never errors");
+        assert_eq!(da, db);
+        assert_eq!(da.as_deref(), Some("sha:m1"));
     }
 
     #[test]

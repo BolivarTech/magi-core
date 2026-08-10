@@ -270,7 +270,8 @@ pub struct MagiBuilder {
     complexity_gate: Option<ComplexityGate>,
     /// per-agent declared primary lineage (rotation diversity key).
     agent_lineages: BTreeMap<AgentName, Lineage>,
-    /// probes declared on probing primaries (`with_probing_agent`).
+    /// probes declared for a primary, through either `with_probing_agent` or
+    /// `with_agent_and_probe`; a plain `with_agent` clears the entry.
     primary_probes: BTreeMap<AgentName, Arc<dyn ProviderProbe>>,
     /// the shared fallback pool; `None` ⇒ rotation disabled (2.0.x path).
     fallback_pool: Option<FallbackPool>,
@@ -1176,7 +1177,14 @@ impl Magi {
             .iter()
             .map(|c| c.provider.model().to_string())
             .collect();
-        if strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities) {
+        // `max_rotations(0)` disables rotation by configuration, and the pool never reaches the
+        // window filter at all — so the pool being unmeasured is not why nothing rotates, and
+        // this message's remedy ("declare a probe, or turn the guard off") would be wrong advice
+        // for a state the consumer chose deliberately. A warning that misdiagnoses gets silenced,
+        // and then the real case is invisible.
+        if rotation.pool.max_rotations() > 0
+            && strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities)
+        {
             tracing::warn!(
                 candidates = candidate_models.len(),
                 "strict_context_guard is on and no fallback candidate has a measured context \
@@ -2734,6 +2742,107 @@ mod tests {
                 .iter()
                 .any(|l| l.starts_with("WARN") && l.contains("threshold")),
             "a warning must actually be emitted, not merely recorded in the struct: {lines:?}"
+        );
+    }
+
+    /// The warning is only worth anything if `analyze` actually reaches it with the run's
+    /// real guard setting. Proving the predicate in isolation leaves the wiring untested —
+    /// delete the emission and a predicate-only suite stays green.
+    #[tokio::test]
+    async fn a_strict_guard_with_nothing_measured_warns_and_still_completes() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::success("cand", "cand-model", vec![])),
+                Lineage::new("vendor"),
+            )
+            .build();
+        let magi = MagiBuilder::new(trio())
+            .with_fallback_pool(pool)
+            .with_strict_context_guard(true)
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("warn-only: naming the condition must not abort the run");
+
+        assert!(
+            !report.agents.is_empty(),
+            "the filter is untouched — this reports, it does not decide"
+        );
+        let lines = log.lines();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.starts_with("WARN") && l.contains("strict_context_guard")),
+            "the run must announce that the guard leaves the pool inert: {lines:?}"
+        );
+    }
+
+    /// The other side, and the one that keeps the channel usable: a pool with a measured
+    /// candidate is a healthy configuration, and a warning that fires on it gets silenced.
+    #[tokio::test]
+    async fn a_measured_candidate_keeps_the_strict_guard_quiet() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push_probing(
+                crate::test_support::MockProbe::with_window("cand-model", Some(200_000)),
+                Lineage::new("vendor"),
+            )
+            .build();
+        let magi = MagiBuilder::new(trio())
+            .with_fallback_pool(pool)
+            .with_strict_context_guard(true)
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("analyze");
+
+        assert!(!report.agents.is_empty());
+        let lines = log.lines();
+        assert!(
+            !lines.iter().any(|l| l.contains("strict_context_guard")),
+            "nothing is inert here, so nothing should be announced: {lines:?}"
+        );
+    }
+
+    /// Rotation switched off by configuration is not the reported foot-gun. The pool never
+    /// reaches the window filter, so blaming the missing measurements would be a wrong
+    /// diagnosis attached to a state the consumer chose.
+    #[tokio::test]
+    async fn rotation_disabled_by_configuration_keeps_the_strict_guard_quiet() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push(
+                Arc::new(MockProvider::success("cand", "cand-model", vec![])),
+                Lineage::new("vendor"),
+            )
+            .max_rotations(0)
+            .build();
+        let magi = MagiBuilder::new(trio())
+            .with_fallback_pool(pool)
+            .with_strict_context_guard(true)
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("analyze");
+
+        assert!(!report.agents.is_empty());
+        let lines = log.lines();
+        assert!(
+            !lines.iter().any(|l| l.contains("strict_context_guard")),
+            "nothing rotates here because rotation is off, not because of the guard: {lines:?}"
         );
     }
 
@@ -5146,8 +5255,8 @@ mod tests {
         assert!(!builder.primary_probes.contains_key(&AgentName::Melchior)); // with_agent clears the probe
     }
 
-    #[test]
-    fn test_either_registration_door_produces_equal_builder_state() {
+    #[tokio::test]
+    async fn test_either_registration_door_produces_equal_builder_state() {
         let via_generic = MagiBuilder::new(Arc::new(RoutingMockProvider::new()))
             .with_probing_agent(
                 AgentName::Caspar,
@@ -5161,11 +5270,29 @@ mod tests {
         let via_erased = MagiBuilder::new(Arc::new(RoutingMockProvider::new()))
             .with_agent_and_probe(AgentName::Caspar, llm, Lineage::new("deepseek"), probe);
 
-        assert!(via_generic.primary_probes.contains_key(&AgentName::Caspar));
-        assert!(via_erased.primary_probes.contains_key(&AgentName::Caspar)); // both doors must store it
         assert_eq!(
             via_generic.agent_lineages.get(&AgentName::Caspar),
             via_erased.agent_lineages.get(&AgentName::Caspar)
+        );
+
+        // Identity, not presence: a delegation that stored the WRONG probe would still be
+        // `Some`, so `contains_key` cannot tell the two doors apart. Compare what each
+        // stored probe answers.
+        let generic = via_generic
+            .primary_probes
+            .get(&AgentName::Caspar)
+            .expect("probe stored");
+        let erased = via_erased
+            .primary_probes
+            .get(&AgentName::Caspar)
+            .expect("probe stored");
+        assert_eq!(
+            generic.window().await.expect("mock never errors"),
+            erased.window().await.expect("mock never errors")
+        );
+        assert_eq!(
+            generic.digest().await.expect("mock never errors"),
+            erased.digest().await.expect("mock never errors")
         );
     }
 }
