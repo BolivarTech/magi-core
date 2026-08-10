@@ -317,25 +317,42 @@ impl MagiBuilder {
         self
     }
 
-    /// Like [`with_agent`](Self::with_agent) but the primary also
-    /// declares a [`ProviderProbe`]: the preflight can then resolve its window and
-    /// digest. `Arc<P>` is coerced to both trait objects (no downcast; `LlmProvider`
-    /// untouched — G4). A down probe never blocks rotation (fail-open).
+    /// Registers a primary provider that also declares a [`ProviderProbe`], so the
+    /// preflight can resolve its window and digest. This is the recommended door for the
+    /// common case: `Arc<P>` is coerced to both trait objects here and forwarded to
+    /// [`with_agent_and_probe`](Self::with_agent_and_probe), which performs the actual
+    /// registration, so there is only one place that writes the three maps. It is safer
+    /// than declaring the probe separately, because a single object cannot disagree with
+    /// itself about which model it measures. A probe that is down or unmeasurable
+    /// degrades to "not measured" and never blocks the run (fail-open).
     pub fn with_probing_agent<P: LlmProvider + ProviderProbe + 'static>(
-        mut self,
+        self,
         agent: AgentName,
         provider: Arc<P>,
         lineage: Lineage,
     ) -> Self {
         let llm: Arc<dyn LlmProvider> = provider.clone();
         let probe: Arc<dyn ProviderProbe> = provider;
-        self.agent_providers.insert(agent, llm);
-        self.agent_lineages.insert(agent, lineage);
-        self.primary_probes.insert(agent, probe);
-        self
+        self.with_agent_and_probe(agent, llm, lineage, probe)
     }
 
-    /// Registers a primary provider whose probe is declared separately (already-erased `Arc`s).
+    /// Registers a primary provider whose probe is declared separately from its
+    /// completion view, for a consumer whose primary provider cannot also probe — the
+    /// capability is declared here at the registration site, never discovered by
+    /// downcast.
+    ///
+    /// # Contract
+    ///
+    /// The probe must measure the same model as `provider`, as recorded by this builder
+    /// for `agent`: the preflight keys the capability by the agent's registered
+    /// provider, while the measured value comes from the probe. If the two disagree, two
+    /// things go wrong. First, the window ends up filed under the wrong model; since the
+    /// window pre-filter never applies to a primary, this surfaces as a misreported
+    /// estimated-window note on the primary rather than blocking the run. Second, that
+    /// same key feeds the digest collision check, so a mismatched probe can make a
+    /// healthy primary look like it collides with a lineage it never touched, or hide a
+    /// collision that does exist. A probe that is down or unmeasurable degrades to "not
+    /// measured" and never blocks the run (fail-open).
     pub fn with_agent_and_probe(
         mut self,
         agent: AgentName,
