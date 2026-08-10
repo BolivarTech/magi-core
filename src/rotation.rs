@@ -765,10 +765,11 @@ pub(crate) fn strict_guard_is_inert(
     candidate_models: &[String],
     capabilities: &BTreeMap<String, ModelCapability>,
 ) -> bool {
-    // RED-phase stub: reports the state as never inert, which is exactly today's
-    // behaviour (nothing warns). The Green phase implements the detection.
-    let _ = (strict, candidate_models, capabilities);
-    false
+    strict
+        && !candidate_models.is_empty()
+        && !candidate_models
+            .iter()
+            .any(|m| capabilities.get(m).and_then(|c| c.window).is_some())
 }
 
 /// A fallback entry: the provider, its declared lineage, and an OPTIONAL probe
