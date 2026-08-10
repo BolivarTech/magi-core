@@ -105,7 +105,22 @@ impl OllamaProvider {
         Self::with_timeout(base_url, model, DEFAULT_CLIENT_TIMEOUT)
     }
 
-    /// Like [`new`](Self::new) but bounds both HTTP clients with `timeout`.
+    /// Like [`new`](Self::new) but bounds **both** HTTP clients this type builds — the one
+    /// serving completions and the one serving the probe — with `timeout`.
+    ///
+    /// [`new`](Self::new) delegates here with [`DEFAULT_CLIENT_TIMEOUT`], so the default is
+    /// unchanged: 300 s, which is generous on purpose because a local daemon may be loading a
+    /// model from cold on the first call.
+    ///
+    /// # Why this exists
+    ///
+    /// A consumer that derives its per-agent timeouts from a single ceiling needs the client
+    /// timeout to fit under it — see the layering section on [`RetryConfig`](crate::provider::RetryConfig),
+    /// which spells out `operation_budget + client_timeout <= MagiConfig::timeout` and why the
+    /// shipped defaults do not satisfy it. Without this constructor such a consumer had to give
+    /// up this type entirely for completions, and this is the only provider here that can also
+    /// probe — so a capability ended up dictating a provider. The sibling HTTP providers already
+    /// offered the same knob; this one was the outlier.
     pub fn with_timeout(
         base_url: impl Into<String>,
         model: impl Into<String>,
