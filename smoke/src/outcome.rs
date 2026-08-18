@@ -84,8 +84,28 @@ impl RunOutcome {
     /// **`CannotTest` is not inconclusive either**, for the opposite reason: it
     /// is perfectly conclusive about OUR configuration, and a second attempt
     /// reads the same configuration.
+    ///
+    /// # Why an exhaustive `match` and not `matches!`
+    ///
+    /// Review asked whether `CannotTest`'s conclusiveness should be enforced by
+    /// the TYPE — a second enum, or a wrapper splitting the two classes — rather
+    /// than by this body. It should not: that type would have exactly one
+    /// consumer (`runner::attempts_for`), so it would be public structure
+    /// carrying no information this function does not, and "no API surface
+    /// without a consumer" rules it out.
+    ///
+    /// What the objection is RIGHT about is the enforcement, and that is bought
+    /// here for nothing. `matches!` hides an implicit `_ => false`, so a sixth
+    /// variant added tomorrow would silently inherit "conclusive, never retried"
+    /// — the retry rule deciding a case nobody decided, which is precisely how
+    /// `CannotTest` came to share a variant with a crash in the first place.
+    /// Spelling every variant out means that variant does not compile until
+    /// someone chooses its side.
     pub fn is_inconclusive(&self) -> bool {
-        matches!(self, RunOutcome::TimedOut | RunOutcome::PanickedInHarness)
+        match self {
+            RunOutcome::TimedOut | RunOutcome::PanickedInHarness => true,
+            RunOutcome::Complete | RunOutcome::CannotTest | RunOutcome::PanickedInCrate => false,
+        }
     }
 }
 
@@ -128,9 +148,19 @@ thread_local! {
 /// The hook only RECORDS; it does not classify, because a hook runs inside the
 /// panicking context and anything it decides there is hard to test. The previous
 /// hook is chained so the default message still reaches stderr.
+///
+/// **`Location` is an `Option` here and stays one.** A panic can report no
+/// location — a release build may elide it, and a panic raised through code
+/// compiled without location tracking has none to give. The absence is recorded
+/// AS an absence and travels to [`classify_panic`], which sends it to the
+/// crate's side. Substituting a stand-in string here would fabricate a location
+/// nobody measured, and the guess would decide the attribution.
 pub fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        // `None` when the panic carried no location. Kept, not defaulted: see
+        // this function's rustdoc, and the `_` arm of `classify_panic` for what
+        // it costs.
         let loc = info.location().map(|l| l.file().to_string());
         LAST_PANIC_LOCATION.with(|c| *c.borrow_mut() = loc);
         previous(info);
@@ -196,17 +226,31 @@ where
 ///
 /// # Parameters
 ///
-/// * `location` — the source file the panic reported, if it reported one.
+/// * `location` — the source file the panic reported, or `None` when it
+///   reported none.
 ///
-/// # Limitations, declared next to the detection
+/// # What `None` means, stated because the code decides it silently
+///
+/// A panic with **no location at all** is attributed to the CRATE. It is a
+/// deliberate choice and not a fallthrough nobody noticed: `None` carries no
+/// evidence in either direction, the rule of this function is "`Skip` only on
+/// positive identification", and of the two ways to be wrong the cheap one is
+/// blaming the crate. That costs one investigation which finds nothing; blaming
+/// the harness would hide a real defect behind a `Skip`, which is exit 2 —
+/// the code nobody investigates — and report green over it.
+///
+/// `None` is reachable in ordinary use: a release build may elide location
+/// information. `an_unlocatable_panic_defaults_to_crate_defect` pins it.
+///
+/// # Other limitations, declared next to the detection
 ///
 /// Attribution is by panic **location** — see [`is_harness_source`] for which
-/// shapes of path count as ours and which known shapes deliberately do not —
-/// and release builds can elide it (`None` becomes `Fail`, the safe side). A panic in a thread the crate spawned
-/// escapes `catch_unwind` entirely and never reaches here at all. `tokio` and
-/// `reqwest` are used by the harness AND by the crate, so a panic in one of them
-/// is ambiguous by nature and falls to `Fail`; disambiguating it would need
-/// backtrace analysis, which is heavy machinery for a rare case.
+/// shapes of path count as ours and which known shapes deliberately do not. A
+/// panic in a thread the crate spawned escapes `catch_unwind` entirely and never
+/// reaches here at all. `tokio` and `reqwest` are used by the harness AND by the
+/// crate, so a panic in one of them is ambiguous by nature and falls to `Fail`;
+/// disambiguating it would need backtrace analysis, which is heavy machinery for
+/// a rare case.
 ///
 /// # Complexity
 ///
@@ -234,6 +278,11 @@ pub fn classify_panic(location: Option<&str>) -> ScenarioState {
         {
             ScenarioState::Skip(format!("panic in a HARNESS-only dependency at {loc}"))
         }
+        // Two cases, one answer, and both on purpose: a location that is neither
+        // ours nor a harness-only dependency, and `None` — a panic that reported
+        // NO location, which a release build can produce. Neither is positive
+        // identification, so both fall to the crate's side. See "What `None`
+        // means" above for why that is the cheap direction of error.
         _ => ScenarioState::Fail,
     }
 }

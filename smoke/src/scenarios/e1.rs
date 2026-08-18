@@ -25,6 +25,31 @@
 //!   must both `Fail` the "rotated to a different candidate" property, not
 //!   silently satisfy it — an assertion that passes on an empty `chain` is
 //!   exactly the defect this milestone has shipped repeatedly.
+//!
+//! # The companion rule: never `Fail` on a run that never happened
+//!
+//! The rule above forbids PASSING on absent data; this one forbids FAILING on
+//! it. An assertion whose sentence presupposes that traffic happened — "rotated
+//! because the injected failure fired", "degraded because a seat was knocked
+//! out" — is asking about an event, and if that event's own precondition never
+//! occurred there is nothing for the crate to be right or wrong about.
+//! Reporting `Fail` there means exit 1, a verdict about the crate, for a run
+//! the crate never entered.
+//!
+//! **Three states, never two**, and collapsing any pair trades one blindness
+//! for another:
+//!
+//! 1. the run never reached the wire → `Skip`, naming that;
+//! 2. traffic happened and the injection did not fire → `Skip`, naming the
+//!    injection. The single exception is `S4`'s WIRE assertion, whose own
+//!    subject IS the firing: there, case 2 is the finding and must `Fail`;
+//! 3. traffic happened, the injection fired, and the crate misbehaved →
+//!    `Fail`, which is the verdict this harness exists to produce.
+//!
+//! [`why_the_wire_cannot_answer`] draws the line between 1 and the rest, and
+//! [`why_the_forced_failure_cannot_be_read`] draws it between 2 and 3. `S4` and
+//! `S15` are the two scenarios that need them; the audit of which other
+//! scenarios do not, and why, is recorded at each of their own definitions.
 
 use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::RotationKind;
@@ -72,6 +97,12 @@ const CERT_PATH_SUFFIX: &str = "docs/test/smoke-certificate.md";
 /// free-text substring matching this project rejects elsewhere, because the
 /// thing being matched is a closed enum's own name, not prose.
 ///
+/// **Wire-precondition audit (module doc, "The companion rule"): not needed for
+/// any of the four.** They read `error` and nothing else — no `report`, no
+/// `records` — and their subject is a preflight that stopped BEFORE any run, so
+/// there is no traffic for them to presuppose. This function is their guard: an
+/// absent error, and an error belonging to another stage, are both `Skip`s.
+///
 /// # Parameters
 ///
 /// * `ctx` — the context to read `error` from.
@@ -113,6 +144,12 @@ fn preflight_error_for_stage<'a>(
 /// `Err(MagiError::InsufficientAgents { succeeded: 0, required: 2 })` — proof
 /// the typed failure propagated instead of panicking or hanging.
 ///
+/// **Wire-precondition audit (module doc, "The companion rule"): not needed.**
+/// This scenario reads neither `report` nor `records`, and its run has no wire
+/// at all — every seat is an in-process provider that fails before any request
+/// is built. Its one precondition is the error itself, and the `let else` above
+/// is the guard for it.
+///
 /// **Mage-local, not run-wide**: had the crate misclassified `ExternalErrorKind`
 /// as connection-class, it would report `MagiError::EndpointDown` instead — a
 /// DIFFERENT variant, whose `Display` names "endpoint down". Checking BOTH
@@ -143,12 +180,40 @@ fn s1_external_provider_fails_typed(ctx: &RunContext<'_>) -> Vec<Assertion> {
 ///
 /// Reads [`RunId::HappySmall`]. Four independent assertions, so a red row says
 /// WHICH property broke rather than "the happy path is unhappy".
+///
+/// # Wire-precondition audit (module doc, "The companion rule"): already held
+///
+/// The fourth assertion reads `records` and would be vacuous over an empty set,
+/// so it carries a non-empty check — and a non-empty check is exactly the shape
+/// that can `Fail` on a run that never reached the wire. **Here it cannot**, and
+/// the reason is the gate above it rather than a guard of its own: all four
+/// assertions are reached only when `report` is `Some`, which means `analyze()`
+/// returned a full report, which means three agents completed, which means
+/// completion requests happened. A run that never got to the wire has no report
+/// and skips with the run's own reason.
+///
+/// What the non-empty check can therefore still `Fail` on is a report in hand
+/// with no completion visible to the proxy — traffic that bypassed it. That is a
+/// real finding and must stay red: "every request goes through the proxy" is the
+/// invariant that makes everything else in this harness observable.
+///
+/// # What the injection check does NOT claim
+///
+/// It cannot tell a backend's own `500` from an injected one; nothing on the
+/// wire distinguishes them. It does not need to: **this run configures no
+/// injection at all** ([`crate::runner::RunSpec::for_stage_e1`] gives
+/// `HappySmall` `injection: None`), so the proxy has no rule to apply and a
+/// `500` here can only be the backend's. The assertion's name says what is
+/// actually checked — no completion carried the failure status — rather than
+/// promising a distinction the wire cannot make. It used to read "the proxy
+/// injected nothing", which is true by construction here and so was not a claim
+/// about anything.
 fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_VERDICTS: &str = "all three mages returned a verdict";
     const NAME_DEGRADED: &str = "the run is not degraded";
     const NAME_JSON: &str = "the report serializes to JSON";
     const NAME_NO_INJECTION: &str =
-        "every completion got a real backend answer; the proxy injected nothing";
+        "every completion was answered, and none carried the failure status this harness injects";
 
     let Some(report) = ctx.report else {
         let reason = ctx
@@ -260,6 +325,15 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
             Assertion::skip(NAME_STATUS, WHY),
         ];
     };
+    // All three skip on an unrecorded response, not just the body comparison —
+    // which is more conservative than it strictly has to be, and is kept
+    // deliberately. Reaching this branch means the probe's body read FAILED, and
+    // the only path that can produce it (`forward_buffered`, the one the probe
+    // paths take) latches `proxy_degraded` in the same step, so the gate above
+    // has already returned. Splitting this into "skip the body, keep the request
+    // and status" would add two branches to distinguish states the proxy cannot
+    // produce independently — and this is a guard, where a state nobody can
+    // reach is a state nobody tests.
     if !rec.response_recorded {
         const WHY: &str = "the probe response was not recorded";
         return vec![
@@ -357,6 +431,71 @@ fn why_the_wire_cannot_answer(ctx: &RunContext<'_>) -> Option<String> {
                          injection had nothing to fire on"
             .to_string(),
     })
+}
+
+/// Whether the injected failure ACTUALLY reached the crate, and why not when it
+/// did not.
+///
+/// # What this adds to [`why_the_wire_cannot_answer`], and why it is a separate
+/// question
+///
+/// That function answers "did this run reach the wire at all". This one answers
+/// the next question down: "was the crate actually made to fail". They are
+/// distinct because the two callers need different amounts:
+///
+/// * `S4`'s wire assertion needs only the first. Its own subject is whether the
+///   injection fired, so an injection that had its chance and did not fire is
+///   the finding — it must `Fail`, not skip, and it stops at
+///   [`why_the_wire_cannot_answer`].
+/// * `S15`'s four assertions need BOTH. They read a report and ask whether
+///   degradation was reported honestly, which presupposes that something forced
+///   a seat down. If the injection never fired, the run was a healthy run: the
+///   report is not degraded, three agents answered, and all four assertions go
+///   red for a property the crate never had a chance to violate. That is the
+///   same inversion `S4` closed one level up.
+///
+/// # The path is deliberately NOT constrained here
+///
+/// `S4` asks for the injected status on a COMPLETION request, because rotation
+/// is what a failed completion causes. This function asks only that the injected
+/// status appear on SOME recorded request, and the difference is deliberate: the
+/// proxy applies an injection to any request whose body names the model, so a
+/// seat can be knocked out by an injected probe answer just as well as by an
+/// injected completion. What `S15` needs to know is that a failure was forced,
+/// not which request carried it — and requiring the completion path would make
+/// the guard skip a run that really did degrade for the reason we forced.
+///
+/// Absence of traffic is still measured in COMPLETIONS, through the delegation
+/// above: that is what "the run got as far as doing its work" means.
+///
+/// # Parameters
+///
+/// * `ctx` — the injected run's context.
+///
+/// # Returns
+///
+/// `None` when the assertions can be evaluated, or `Some(reason)` naming what
+/// stopped them — which the caller turns into a `Skip`, never a `Fail`.
+///
+/// # Complexity
+///
+/// `O(r)` in the number of records: at most two scans.
+fn why_the_forced_failure_cannot_be_read(ctx: &RunContext<'_>) -> Option<String> {
+    if let Some(reason) = why_the_wire_cannot_answer(ctx) {
+        return Some(reason);
+    }
+    if ctx
+        .records
+        .iter()
+        .any(|r| r.response_status == INJECTED_FAILURE_STATUS)
+    {
+        return None;
+    }
+    Some(
+        "the run reached the wire but no request carried the injected failure status, so \
+         nothing forced a seat down and there is no degradation to judge"
+            .to_string(),
+    )
 }
 
 /// `S4` — rotation and its cause, forced by injection
@@ -514,6 +653,16 @@ fn tags_response_has_a_64_hex_digest(body: &[u8]) -> bool {
 /// hidden behind whichever record happened to come first. `.all()` over an empty
 /// set is vacuously true, so it is paired with a non-empty check, as everything
 /// else in this file is.
+///
+/// # Wire-precondition audit (module doc, "The companion rule"): already held
+///
+/// This scenario reads `records` and presupposes probe traffic, and its
+/// non-empty check resolves to `Skip` rather than to `Fail` — see the two
+/// branches below. A run that never reached the wire therefore reports "no
+/// answered probe was recorded", which is the first of the three states, and
+/// nothing here can turn an absent run into a verdict about the crate. The
+/// `Fail` side is reserved for a probe that ANSWERED with a shape the crate's
+/// parser could no longer read, which is the change this scenario watches for.
 fn s5_the_probe_still_reads_what_it_expects(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_WINDOW: &str = "every probe answer carries a measurable context window";
     const NAME_DIGEST: &str = "every probe answer carries a 64-hex-character digest";
@@ -688,6 +837,43 @@ fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
 // S15 — degradation is honest in its FOUR assertions, forced by injection
 // ---------------------------------------------------------------------------
 
+/// `degraded` is set at all.
+const S15_NAME_DEGRADED: &str = "degraded is true";
+
+/// The failed seat is the one the harness asked to fail, not merely some seat.
+const S15_NAME_AGENT: &str = "failed_agents names the INJECTED agent, not just any agent";
+
+/// The contributor count is the one that ANSWERED, not the one dispatched.
+const S15_NAME_COUNT: &str = "agent_count counts those that RESPONDED, not those launched";
+
+/// Degraded mode caps a STRONG label down to its regular form.
+const S15_NAME_LABEL: &str = "no STRONG label survives a 2/3 consensus";
+
+/// The four names in the order [`s15_four_assertions`] emits them, so the skip
+/// path cannot list a different set — or a differently ordered one — from the
+/// assert path. They were written out twice before, and two lists of the same
+/// four strings is one edit away from disagreeing.
+const S15_NAMES: [&str; 4] = [
+    S15_NAME_DEGRADED,
+    S15_NAME_AGENT,
+    S15_NAME_COUNT,
+    S15_NAME_LABEL,
+];
+
+/// All four of `S15`'s assertions as `Skip`s carrying one shared reason.
+///
+/// # Parameters
+///
+/// * `reason` — what stopped the four from being evaluated, in terms an
+///   operator can act on.
+fn s15_skips(reason: impl Into<String>) -> Vec<Assertion> {
+    let reason = reason.into();
+    S15_NAMES
+        .iter()
+        .map(|&name| Assertion::skip(name, reason.clone()))
+        .collect()
+}
+
 /// The four assertions, transcribed VERBATIM from the spec (task brief,
 /// Checkpoint 2 loop 1: the three field paths below were corrected against
 /// the tree — `report.agent_count`, `report.successful_agents()` and
@@ -701,9 +887,9 @@ fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// covers the "no report" case.
 fn s15_four_assertions(report: &MagiReport, ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![
-        assert_that("degraded is true", report.degraded),
+        assert_that(S15_NAME_DEGRADED, report.degraded),
         assert_that(
-            "failed_agents names the INJECTED agent, not just any agent",
+            S15_NAME_AGENT,
             ctx.injected_agent
                 .is_some_and(|a| report.failed_agents.contains_key(&a))
                 && report.failed_agents.values().all(|r| !r.is_empty()),
@@ -717,13 +903,13 @@ fn s15_four_assertions(report: &MagiReport, ctx: &RunContext<'_>) -> Vec<Asserti
         // Comparing the two is what catches a count that drifts back to "how
         // many we dispatched".
         assert_that(
-            "agent_count counts those that RESPONDED, not those launched",
+            S15_NAME_COUNT,
             report.consensus.agent_count == report.agents.len() && report.agents.len() == 2,
         ),
         // The label field is `consensus`, a String such as "GO (2-0)".
         // Degraded mode caps STRONG labels down to their regular form.
         assert_that(
-            "no STRONG label survives a 2/3 consensus",
+            S15_NAME_LABEL,
             !report.consensus.consensus.contains("STRONG"),
         ),
     ]
@@ -737,27 +923,49 @@ fn s15_four_assertions(report: &MagiReport, ctx: &RunContext<'_>) -> Vec<Asserti
 /// (`CLAUDE.local.md`, "Integridad de MAGI"), so every field is checked
 /// individually rather than folded into one boolean — a red row must say
 /// WHICH of the four broke.
+///
+/// # Its wire precondition, which it did not have
+///
+/// All four assertions presuppose that a seat was knocked out. Without a guard,
+/// an injection that silently failed to fire left them reading a report that was
+/// never going to be degraded — `degraded` false, three agents present — and
+/// produced four red rows: exit 1, a verdict about the crate, for something the
+/// crate was never asked to do. That is the inversion `S4`'s wire assertion
+/// closed one scenario over, and the fix here is the same shape:
+///
+/// * the proxy degraded → `Skip`. The record that would establish the
+///   precondition is the very thing that went partial, so whether the failure
+///   this report shows is the one we forced cannot be settled.
+/// * the run never reached the wire, or nothing was injected → `Skip`, from
+///   [`why_the_wire_cannot_answer`].
+/// * traffic happened and the injection never fired → `Skip`, from
+///   [`why_the_forced_failure_cannot_be_read`]. **This is where `S15` and `S4`
+///   differ on purpose**: for `S4`'s wire assertion that case is the finding and
+///   FAILS, because its subject IS the firing; here the firing is only the
+///   precondition, so it cannot be the answer.
+/// * the injection fired and the report still disagrees → `Fail`, unchanged.
+///   That case is what the scenario exists for, and the guard must not be able
+///   to swallow it — which is what
+///   `s15_still_fails_when_the_injection_fired_and_the_report_is_healthy` pins.
 fn s15_degradation_is_honest(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    if ctx.proxy_degraded {
+        return s15_skips(
+            "the proxy registry degraded during this run, so whether the failure this report \
+             shows is the one we forced cannot be established",
+        );
+    }
+    if let Some(reason) = why_the_forced_failure_cannot_be_read(ctx) {
+        return s15_skips(reason);
+    }
     match ctx.report {
         Some(report) => s15_four_assertions(report, ctx),
-        None => {
-            let reason = ctx
-                .error
+        // Reached only when the injection DID fire and `analyze()` still
+        // produced no report: a typed crate failure, whose text is the reason.
+        None => s15_skips(
+            ctx.error
                 .map(str::to_string)
-                .unwrap_or_else(|| "the degradation run never happened".to_string());
-            vec![
-                Assertion::skip("degraded is true", reason.clone()),
-                Assertion::skip(
-                    "failed_agents names the INJECTED agent, not just any agent",
-                    reason.clone(),
-                ),
-                Assertion::skip(
-                    "agent_count counts those that RESPONDED, not those launched",
-                    reason.clone(),
-                ),
-                Assertion::skip("no STRONG label survives a 2/3 consensus", reason),
-            ]
-        }
+                .unwrap_or_else(|| "the degradation run never happened".to_string()),
+        ),
     }
 }
 
@@ -785,6 +993,11 @@ fn status_shows_nothing_outside_the_certificate(porcelain: &str) -> bool {
 /// invocation that writes it, i.e. it would fail exactly when everything else
 /// went right; the ordering in `evaluate()` (before `Report::render_certificate`)
 /// is what this scenario depends on.
+///
+/// **Wire-precondition audit (module doc, "The companion rule"): not needed.**
+/// It reads neither `report` nor `records` — its subject is the repository, not
+/// the wire — and both of the questions it does presuppose are guarded: an
+/// absent baseline and a `git status` that could not be taken are `Skip`s.
 fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the harness added nothing to the tree outside the certificate path";
     // The claim is a DELTA, not absolute cleanliness. Asserting the tree is
@@ -798,23 +1011,15 @@ fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
             "no pre-run baseline was captured, so nothing can be attributed to the harness",
         )];
     };
-    let out = std::process::Command::new("git")
-        .args(["status", "--porcelain", "--untracked-files=all"])
-        .current_dir(crate::paths::repo_root())
-        .output();
-    let Ok(out) = out else {
-        return vec![Assertion::skip(
-            NAME,
-            "could not invoke git to check the tree",
-        )];
+    // The command comes from `crate::git`, so the flags cannot drift from the
+    // ones the BASELINE was taken with — comparing two different questions is
+    // how a delta stops being a delta. The POLICY stays here: a tree this
+    // cannot read is a question this scenario cannot answer, which is a `Skip`
+    // carrying git's own message, never a verdict about the crate.
+    let after = match crate::git::status_porcelain(&crate::paths::repo_root()) {
+        Ok(a) => a,
+        Err(e) => return vec![Assertion::skip(NAME, e)],
     };
-    if !out.status.success() {
-        return vec![Assertion::skip(
-            NAME,
-            "git status did not exit successfully",
-        )];
-    }
-    let after = String::from_utf8_lossy(&out.stdout);
     let baseline: std::collections::BTreeSet<&str> = before.lines().collect();
     let added: String = after
         .lines()
@@ -863,17 +1068,23 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 /// `--build-matrix`; without it, SKIP, never PASS (R25).
 ///
 /// **THREE of the four combinations are asserted, and `published` alone is
-/// not.** *(The reason recorded here was stale: it said `published` resolves
-/// `magi-core = "4.0"`, "which does not exist". `smoke/Cargo.toml` pins
-/// `version = "3.2"`, which is on crates.io, so that combination resolves and
-/// compiles today.)*
-///
-/// The real reason is narrower. This scenario's property is that the two modes
+/// not**, for a narrow reason: this scenario's property is that the two modes
 /// cannot be CONFUSED, and the three asserted combinations establish exactly
-/// that: `tree` builds, both together do not, neither does. Whether `published`
-/// builds on its own is a different claim — that the published mode works — and
-/// it depends on crates.io being reachable, which is a fact about the machine
-/// rather than about the crate under test.
+/// that — `tree` builds, both together do not, neither does. Whether `published`
+/// builds on its own is a different claim, that the published mode WORKS, and it
+/// depends on crates.io being reachable: a fact about the machine rather than
+/// about the crate under test.
+///
+/// It is **not** left out for want of a version to resolve. `smoke/Cargo.toml`
+/// pins `magi_core_pub` at `version = "3.2"`, which is on crates.io, so the
+/// combination resolves and compiles today — and it must, since cargo resolves
+/// an optional dependency whether or not its feature is on, so a version that
+/// did not exist would break every build of this package rather than only this
+/// one combination.
+///
+/// **Wire-precondition audit (module doc, "The companion rule"): not needed.**
+/// It reads the build matrix, never `report` or `records`; a matrix that was not
+/// built, and a `cargo` that could not be run, are both already `Skip`s.
 fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the two dependency modes cannot be confused";
     let Some(m) = ctx.build_matrix else {
@@ -1789,6 +2000,28 @@ mod tests {
 
     // -- S15 --
 
+    /// The wire as it looks when the injection DID fire: one completion the
+    /// backend answered, and one carrying the injected failure status.
+    ///
+    /// Every `S15` test that expects the four assertions to be EVALUATED passes
+    /// this, because the scenario now refuses to judge degradation it cannot
+    /// show was forced.
+    fn a_fired_injection() -> Vec<RequestRecord> {
+        vec![
+            record(COMPLETIONS_PATH, 200),
+            record(COMPLETIONS_PATH, INJECTED_FAILURE_STATUS),
+        ]
+    }
+
+    fn s15_ctx<'a>(report: &'a MagiReport, records: &'a [RequestRecord]) -> RunContext<'a> {
+        RunContext {
+            report: Some(report),
+            records,
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Degradation)
+        }
+    }
+
     #[test]
     fn s15_skips_all_four_when_there_is_no_report() {
         let ctx = blank_ctx(RunId::Degradation);
@@ -1800,12 +2033,8 @@ mod tests {
     #[test]
     fn s15_passes_all_four_on_a_correctly_degraded_report() {
         let report = report_from(DEGRADED_REPORT_JSON);
-        let ctx = RunContext {
-            report: Some(&report),
-            injected_agent: Some(AgentName::Caspar),
-            ..blank_ctx(RunId::Degradation)
-        };
-        let a = s15_degradation_is_honest(&ctx);
+        let records = a_fired_injection();
+        let a = s15_degradation_is_honest(&s15_ctx(&report, &records));
         assert!(a.iter().all(|x| x.state == ScenarioState::Pass), "{a:?}");
     }
 
@@ -1814,10 +2043,10 @@ mod tests {
         // Proves this is not "some agent failed" — it must be the INJECTED
         // one.
         let report = report_from(DEGRADED_REPORT_JSON);
+        let records = a_fired_injection();
         let ctx = RunContext {
-            report: Some(&report),
             injected_agent: Some(AgentName::Melchior),
-            ..blank_ctx(RunId::Degradation)
+            ..s15_ctx(&report, &records)
         };
         let a = s15_degradation_is_honest(&ctx);
         assert_eq!(a[1].state, ScenarioState::Fail);
@@ -1826,25 +2055,109 @@ mod tests {
     #[test]
     fn s15_fails_the_strong_label_check_on_an_illegitimate_strong_label() {
         let report = report_from(DEGRADED_REPORT_WITH_STRONG_LABEL_JSON);
-        let ctx = RunContext {
-            report: Some(&report),
-            injected_agent: Some(AgentName::Caspar),
-            ..blank_ctx(RunId::Degradation)
-        };
-        let a = s15_degradation_is_honest(&ctx);
+        let records = a_fired_injection();
+        let a = s15_degradation_is_honest(&s15_ctx(&report, &records));
         assert_eq!(a[3].state, ScenarioState::Fail);
     }
 
     #[test]
-    fn s15_fails_the_degraded_check_on_a_healthy_report() {
+    fn s15_still_fails_when_the_injection_fired_and_the_report_is_healthy() {
+        // DIRECTION 3 of the guard's mutation proof, and the one that matters
+        // most: the injection fired, the crate had every chance to degrade
+        // honestly, and the report says three healthy agents. That is a verdict
+        // about the crate and the guard must not be able to swallow it — a guard
+        // that turned this into a Skip would have traded one blindness for
+        // another.
         let report = report_from(HEALTHY_REPORT_JSON);
+        let records = a_fired_injection();
+        let a = s15_degradation_is_honest(&s15_ctx(&report, &records));
+        assert_eq!(a[0].state, ScenarioState::Fail, "{a:?}");
+    }
+
+    #[test]
+    fn s15_skips_rather_than_fails_when_the_run_never_reached_the_wire() {
+        // DIRECTION 1: no completion request was ever made — the `Magi` would
+        // not build, the payload could not be generated, the crate failed before
+        // dispatching. The report handed in is HEALTHY, so without the guard all
+        // four assertions go red: exit 1, a verdict about the crate, for a run
+        // the crate never entered.
+        let report = report_from(HEALTHY_REPORT_JSON);
+        let a = s15_degradation_is_honest(&s15_ctx(&report, &[]));
+        assert_eq!(a.len(), 4);
+        for assertion in &a {
+            match &assertion.state {
+                ScenarioState::Skip(reason) => assert!(
+                    reason.contains("never reached a completion request"),
+                    "the skip must name what was missing: {reason:?}"
+                ),
+                other => panic!("expected a Skip, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn s15_skips_rather_than_fails_when_the_injection_never_fired() {
+        // DIRECTION 2: the run DID reach the wire — completions happened — but
+        // no request came back with the injected status, so nothing forced a
+        // seat down. The report is healthy because the run WAS healthy; judging
+        // it as dishonest degradation would blame the crate for the harness's
+        // injection not firing.
+        //
+        // This is deliberately the OPPOSITE of what S4's wire assertion does
+        // with the same state: there, the firing is the subject and this case is
+        // the finding; here it is only the precondition.
+        let report = report_from(HEALTHY_REPORT_JSON);
+        let records = vec![record(COMPLETIONS_PATH, 200)];
+        let a = s15_degradation_is_honest(&s15_ctx(&report, &records));
+        assert_eq!(a.len(), 4);
+        for assertion in &a {
+            match &assertion.state {
+                ScenarioState::Skip(reason) => assert!(
+                    reason.contains("no request carried the injected failure status"),
+                    "the skip must name the injection that did not fire: {reason:?}"
+                ),
+                other => panic!("expected a Skip, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn s15_skips_when_the_proxy_degraded_instead_of_judging_a_report_it_cannot_attribute() {
+        // The evidence that the injection fired comes from the proxy's record,
+        // so a degraded registry cannot establish the precondition — and a
+        // partial record could equally well show a fired injection that never
+        // reached the crate. A harness fault must not become a verdict.
+        let report = report_from(HEALTHY_REPORT_JSON);
+        let records = a_fired_injection();
         let ctx = RunContext {
-            report: Some(&report),
-            injected_agent: Some(AgentName::Caspar),
-            ..blank_ctx(RunId::Degradation)
+            proxy_degraded: true,
+            ..s15_ctx(&report, &records)
         };
         let a = s15_degradation_is_honest(&ctx);
-        assert_eq!(a[0].state, ScenarioState::Fail);
+        assert!(
+            a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))),
+            "{a:?}"
+        );
+    }
+
+    #[test]
+    fn s15_names_the_same_four_properties_whether_it_asserts_or_skips() {
+        // The two paths used to write the four names out separately, and two
+        // lists of the same four strings are one edit away from disagreeing —
+        // at which point a skipped row and an asserted row would describe
+        // different properties under the same scenario id.
+        let report = report_from(DEGRADED_REPORT_JSON);
+        let records = a_fired_injection();
+        let asserted: Vec<&str> = s15_degradation_is_honest(&s15_ctx(&report, &records))
+            .iter()
+            .map(|a| a.name)
+            .collect();
+        let skipped: Vec<&str> = s15_degradation_is_honest(&blank_ctx(RunId::Degradation))
+            .iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(asserted, skipped);
+        assert_eq!(asserted, S15_NAMES.to_vec());
     }
 
     // -- S16 --

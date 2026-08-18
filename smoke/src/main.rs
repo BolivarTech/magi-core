@@ -11,6 +11,7 @@ mod alias;
 mod config; // Task 2
 mod external; // Task 10 (S1's outside provider)
 mod fixtures; // Task 7 (Manifest lives here)
+mod git; // The ONE git status invocation; the three callers keep their policies
 mod outcome; // Task 6
 mod paths; // Task 1 — repo_root() / smoke_dir()
 mod payload; // Task 3
@@ -558,6 +559,18 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
                     .args(&args)
                     .current_dir(paths::smoke_dir())
                     .env("CARGO_TARGET_DIR", paths::feature_matrix_target_dir(&tag))
+                    // The refusal is recognised by MATCHING TEXT in stderr, so
+                    // the text must not depend on how the invoking environment
+                    // happens to be configured. `cargo` colours its diagnostics
+                    // when it believes it is talking to a terminal, and
+                    // `CARGO_TERM_COLOR=always` forces that on even through a
+                    // pipe — escapes land inside the rendered message, and a
+                    // marker that no longer matches turns a combination that
+                    // CORRECTLY refused to compile into `CouldNotRun`. The
+                    // scenario would then skip forever, silently, which is the
+                    // expensive direction: a broken `compile_error!` would stop
+                    // being observed at all.
+                    .env(CARGO_COLOUR_VAR, CARGO_COLOUR_OFF)
                     .output(),
                 *expected,
             );
@@ -565,6 +578,17 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
         })
         .collect()
 }
+
+/// The environment variable that decides whether `cargo` colours its output.
+///
+/// Set explicitly rather than relied upon: piped output is uncoloured BY
+/// DEFAULT, but the default is not the contract — an operator or a CI job with
+/// `CARGO_TERM_COLOR=always` exported would otherwise change what
+/// [`build_outcome`] reads.
+const CARGO_COLOUR_VAR: &str = "CARGO_TERM_COLOR";
+
+/// The value that turns it off, whatever the surrounding environment says.
+const CARGO_COLOUR_OFF: &str = "never";
 
 /// A fragment of `alias.rs`'s "both modes selected" `compile_error!`.
 ///
@@ -583,6 +607,11 @@ const NEITHER_MODE_MARKER: &str = "must be enabled";
 /// Read from the DEPENDENCY's metadata, not from the harness's own
 /// `CARGO_PKG_VERSION`: that would certify the harness's version while claiming
 /// to certify the crate's.
+///
+/// Unlike [`run_feature_matrix`] this needs no colour setting: what is parsed
+/// here is the JSON `cargo metadata` writes to STDOUT, and cargo colours
+/// diagnostics on stderr — never the machine-readable document it was asked
+/// for. The same holds for the `cargo metadata` call inside `preflight`.
 fn crate_version() -> String {
     const UNKNOWN: &str = "unknown";
     const CRATE_UNDER_TEST: &str = "magi-core";
@@ -612,15 +641,17 @@ fn repo_status() -> Option<String> {
     repo_status_of(&paths::repo_root())
 }
 
-/// `git status --porcelain --untracked-files=all` over `dir`.
+/// The BASELINE's reading of [`git::status_porcelain`] over `dir`.
 ///
-/// `--untracked-files=all` because the default collapses an untracked directory
-/// to its name, which would hide the very paths a comparison needs to see.
+/// The command lives in [`git`]; what lives here is this caller's POLICY, which
+/// is the half that must not be shared: a failure to measure is **no baseline**,
+/// not an empty one.
 ///
 /// # Returns
 ///
 /// `Some(status)` when git answered — **including `Some("")` for a genuinely
-/// clean tree** — and `None` when it could not be spawned or exited non-zero.
+/// clean tree** — and `None` when it could not be spawned, exited non-zero, or
+/// answered in something other than UTF-8.
 ///
 /// **The distinction is the whole point.** This used to return `""` for both,
 /// and the consequence was concrete: if this first call failed and the no-trace
@@ -633,13 +664,7 @@ fn repo_status() -> Option<String> {
 ///
 /// * `dir` — the working tree to ask about.
 fn repo_status_of(dir: &std::path::Path) -> Option<String> {
-    std::process::Command::new("git")
-        .args(["status", "--porcelain", "--untracked-files=all"])
-        .current_dir(dir)
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+    git::status_porcelain(dir).ok()
 }
 
 /// The commit the harness is running on. Travels INSIDE the certificate.

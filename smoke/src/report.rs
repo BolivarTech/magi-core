@@ -313,7 +313,11 @@ pub const CERT_PATH: &str = "docs/test/smoke-certificate.md";
 /// exactly as it was found: nothing is written before the clean-tree check
 /// passes.
 pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Result<(), String> {
-    let status = git_status_porcelain(repo_root)?;
+    // The command comes from `crate::git`; the POLICY stays here, and it is the
+    // strictest of the three callers': a tree this cannot read is a tree this
+    // cannot certify, so the failure propagates instead of degrading into an
+    // assumption that it was clean.
+    let status = crate::git::status_porcelain(repo_root)?;
     if !status.trim().is_empty() {
         return Err(format!(
             "refusing to write a certificate over uncommitted changes in {}: {status}",
@@ -338,7 +342,7 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
     // discarded — the same class of lie the branch below exists to prevent, one
     // step earlier. If the tree cannot be re-read, the certificate cannot be
     // trusted, and an untrustworthy certificate must not survive.
-    let after = match git_status_porcelain(repo_root) {
+    let after = match crate::git::status_porcelain(repo_root) {
         Ok(a) => a,
         Err(e) => {
             return Err(match std::fs::remove_file(&target) {
@@ -377,39 +381,6 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
         });
     }
     Ok(())
-}
-
-/// Runs `git status --porcelain` in `repo_root` and returns its raw stdout.
-///
-/// `--porcelain` rather than the human status: a stable, script-friendly
-/// format that is empty if and only if the tree is clean. Parsing the human
-/// form would be exactly the grep-over-semantics this project rejects
-/// elsewhere. `--untracked-files=all` because the default collapses an
-/// untracked directory to its name, which hides the very path the post-write
-/// check is looking for.
-///
-/// # Errors
-///
-/// The `git` process could not be spawned, exited non-zero, or its stdout was
-/// not valid UTF-8.
-fn git_status_porcelain(repo_root: &Path) -> Result<String, String> {
-    let out = std::process::Command::new("git")
-        // `--untracked-files=all` is not cosmetic: without it git COLLAPSES an
-        // untracked directory to the directory itself (`?? docs/`), so the
-        // post-write check comparing against the certificate's full path would
-        // never match its own file and would delete every certificate it wrote.
-        .args(["status", "--porcelain", "--untracked-files=all"])
-        .current_dir(repo_root)
-        .output()
-        .map_err(|e| format!("failed to run git status in {}: {e}", repo_root.display()))?;
-    if !out.status.success() {
-        return Err(format!(
-            "git status failed in {}: {}",
-            repo_root.display(),
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    String::from_utf8(out.stdout).map_err(|e| format!("git status output was not UTF-8: {e}"))
 }
 
 /// The marker printed for a passing assertion. Distinct from every other
