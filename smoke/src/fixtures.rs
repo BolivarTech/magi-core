@@ -157,7 +157,12 @@ impl FixtureSummary {
     /// a distinction that is never counted lives in the schema and not in
     /// practice.
     pub fn report_line(&self) -> String {
-        String::new()
+        format!(
+            "fixtures: {} declared, {} verified by a live scenario, {} unverified",
+            self.total,
+            self.total.saturating_sub(self.unverified),
+            self.unverified
+        )
     }
 
     /// The certificate's warning, or `None` when the corpus is within R23's
@@ -170,7 +175,21 @@ impl FixtureSummary {
     /// some fixtures cannot have their currency verified at all — but it
     /// appears where somebody decides a release.
     pub fn unverified_warning(&self) -> Option<String> {
-        None
+        // Cross-multiplied rather than dividing: integer division would floor
+        // the share and let a corpus sit just above the threshold reporting
+        // itself just below it. No floats either — a percentage compared with
+        // `>` is the one place where a rounding rule nobody chose would decide
+        // whether a release ships with a warning.
+        if self.total == 0 || self.unverified * 100 <= self.total * UNVERIFIED_WARNING_PERCENT {
+            return None;
+        }
+        Some(format!(
+            "WARNING: {} of {} fixtures are unverified (over {UNVERIFIED_WARNING_PERCENT}%). \
+             Their bytes are the ones recorded, but nothing re-checked that the backend still \
+             answers that way. This does not block the release; it is here because a count \
+             that lives only in a run's output is lost by the time anyone decides.",
+            self.unverified, self.total
+        ))
     }
 }
 
@@ -615,9 +634,8 @@ mod tests {
             None,
             "an empty corpus has no unverified share, and 0 of 0 must not read as a problem"
         );
-        assert_eq!(
+        assert!(
             s(3, 3).unverified_warning().is_some(),
-            true,
             "a corpus that is entirely unverified is the case the warning exists for"
         );
     }

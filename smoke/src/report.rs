@@ -265,6 +265,13 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     let _ = writeln!(out, "- dependency mode: {}", facts.mode);
     let _ = writeln!(out, "- real cost: {}", facts.cost);
     let _ = writeln!(out, "- rounds needed: {}", facts.round);
+    let _ = writeln!(out, "- {}", facts.fixtures.report_line());
+    // R23: advisory, never blocking, and placed ABOVE the table so it is read
+    // before the rows it qualifies rather than after them.
+    if let Some(warning) = facts.fixtures.unverified_warning() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{warning}");
+    }
     let _ = writeln!(out);
     for row in ordered {
         let _ = writeln!(out, "{}", format_row(row));
@@ -838,7 +845,7 @@ mod tests {
         };
         let cert = render_certificate(&sample_results(), &over);
         assert!(
-            cert.contains("unverified"),
+            cert.contains("WARNING") && cert.contains("9 of 10"),
             "9 of 10 unverified must be visible to whoever cites this: {cert}"
         );
 
@@ -851,9 +858,17 @@ mod tests {
         };
         let quiet = render_certificate(&sample_results(), &under);
         assert!(
-            !quiet.contains("unverified"),
+            !quiet.contains("WARNING"),
             "a corpus within the threshold must not carry a warning, or the warning stops \
              meaning anything: {quiet}"
+        );
+        // The COUNT is unconditional and the WARNING is not — which is why the
+        // needle above is the warning's own word and not "unverified". R23 asks
+        // for both, and a corpus reported as clean is information; a silence is
+        // not.
+        assert!(
+            quiet.contains("1 unverified"),
+            "the count is reported either way: {quiet}"
         );
     }
 
