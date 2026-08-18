@@ -149,6 +149,14 @@ fn max_recorded_body(payload_target_bytes: usize) -> usize {
 
 #[derive(Clone, Debug)]
 pub struct RequestRecord {
+    // `method` and `body` are the record's PAYLOAD: the whole point of a spy
+    // proxy is that a human can see what actually went on the wire. Nothing in
+    // this milestone reads them — the transparency scenario compares hashes —
+    // and MS1's native-routing scenario is their named consumer, since it
+    // verifies the new endpoint by looking at the recorded request. They are
+    // kept rather than deleted because a request recorder that stores only a
+    // digest cannot answer the question it exists for, and re-adding them later
+    // would mean re-deriving what to record.
     /// The HTTP method of the recorded request, e.g. `"POST"`.
     pub method: String,
     /// The request's path component only — no query string, no host. This is
@@ -280,6 +288,9 @@ impl SpyProxy {
     /// SKIP rather than FAIL — a partial registry could fail an assertion the
     /// crate satisfied perfectly, which would accuse the crate of a harness
     /// defect.
+    /// Test-only: production reads a WINDOW of records, never all of them, so
+    /// that a scenario sees its own run's traffic and not the previous run's.
+    #[cfg(test)]
     pub fn records(&self) -> Vec<RequestRecord> {
         match self.records.lock() {
             Ok(g) => g.clone(),

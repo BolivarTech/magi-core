@@ -232,6 +232,12 @@ pub struct RunResult {
     pub attempts: u32,
     /// `Some` only when the run hit its time cap.
     pub over_budget: Option<Duration>,
+    /// WHICH seat this run injected a failure into, when it injected one.
+    ///
+    /// Derived from the injection's model rather than carried alongside it, so
+    /// the two cannot disagree: a scenario asserting that the injected seat
+    /// failed needs the seat, and the injection only names a model.
+    pub injected_agent: Option<AgentName>,
 }
 
 impl RunResult {
@@ -255,6 +261,7 @@ impl RunResult {
             proxy_degraded: false,
             attempts: 1,
             over_budget: None,
+            injected_agent: None,
         }
     }
 }
@@ -600,6 +607,7 @@ impl Runner {
                 proxy_degraded: false,
                 attempts: 1,
                 over_budget: None,
+                injected_agent: injected_agent(spec),
             },
             // It ran out of time. A TIME failure is NOT a verdict about the
             // crate: it says the deployment is slower than the cap someone chose.
@@ -612,6 +620,7 @@ impl Runner {
                 records: Vec::new(),
                 proxy_degraded: false,
                 attempts: 1,
+                injected_agent: injected_agent(spec),
             },
         }
     }
@@ -657,6 +666,7 @@ impl Runner {
             proxy_degraded: proxy.is_degraded(),
             attempts: 1,
             over_budget: None,
+            injected_agent: injected_agent(spec),
         }
     }
 }
@@ -695,6 +705,18 @@ async fn show_request(base: &str, body: &str) -> Result<Vec<u8>, reqwest::Error>
         .map(|b| b.to_vec())
 }
 
+/// Which seat a run injected into, resolved from the injection's model.
+///
+/// Returns `None` when the run injected nothing, and also when the injected
+/// model matches no seat — which is a configuration mistake, not an agent.
+fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
+    let Injection::FailModel { model, .. } = spec.injection.as_ref()?;
+    spec.seats
+        .iter()
+        .find(|s| &s.model == model)
+        .and_then(|s| s.agent_name().ok())
+}
+
 /// Renders a crate error for a scenario to read.
 ///
 /// Kept as one function so every run renders a failure the same way, rather than
@@ -711,7 +733,6 @@ mod tests {
     fn an_inconclusive_run_is_retried_exactly_once() {
         // Two attempts, never three: a second retry doubles the cost of the most
         // expensive thing the harness does for a third identical answer.
-        assert_eq!(attempts_for(&RunOutcome::Crashed), 2);
         assert_eq!(attempts_for(&RunOutcome::TimedOut), 2);
         assert_eq!(attempts_for(&RunOutcome::PanickedInHarness), 2);
     }

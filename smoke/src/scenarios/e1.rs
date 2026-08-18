@@ -228,6 +228,17 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
             Assertion::skip(NAME_RESPONSE, "the probe response was not recorded"),
         ];
     }
+    // A record whose body hit the proxy's size cap holds a PREFIX, so its hash
+    // is the hash of a prefix. Comparing that against the whole body we sent
+    // would fail — and fail for a reason that says nothing about whether the
+    // proxy is transparent, which is the one thing this scenario is about.
+    if rec.body_truncated {
+        const WHY: &str = "the recorded request body was truncated at the proxy's cap, so its                            hash is of a prefix and cannot be compared to the whole body";
+        return vec![
+            Assertion::skip(NAME_REQUEST, WHY),
+            Assertion::skip(NAME_RESPONSE, WHY),
+        ];
+    }
     vec![
         assert_that(NAME_REQUEST, rec.body_sha256 == sha256_hex(sent.as_bytes())),
         assert_that(NAME_RESPONSE, rec.response_sha256 == sha256_hex(direct)),
@@ -996,6 +1007,32 @@ mod tests {
         let a = s2b_the_proxy_is_transparent(&ctx);
         assert_eq!(a.len(), 2);
         assert!(a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))));
+    }
+
+    #[test]
+    fn s2b_skips_rather_than_fails_when_the_recorded_body_was_truncated() {
+        // Without this guard the comparison FAILS on a truncated record — a red
+        // that accuses the proxy of rewriting when all it did was hit its own
+        // cap. The field existed and nothing read it.
+        let sent = "the probe body".to_string();
+        let direct = b"the probe response".to_vec();
+        let rec = recorded_response("/api/show", 200, &direct);
+        let rec = RequestRecord {
+            body_truncated: true,
+            body_sha256: sha256_hex(b"a prefix only"),
+            ..rec
+        };
+        let ctx = RunContext {
+            probe_record: Some(&rec),
+            probe_sent_body: Some(&sent),
+            direct_probe_body: Some(&direct),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s2b_the_proxy_is_transparent(&ctx);
+        assert!(
+            a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))),
+            "a truncated record must not be reported as a transparency failure: {a:?}"
+        );
     }
 
     #[test]

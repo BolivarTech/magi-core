@@ -10,15 +10,15 @@
 //! directions.
 
 /// Exit code for a run in which some scenario contradicted the crate.
-const EXIT_FAILED: i32 = 1;
+pub(crate) const EXIT_FAILED: u8 = 1;
 /// Exit code for a run that could not reach a conclusion — something was
 /// skipped or timed out. Deliberately DIFFERENT from [`EXIT_FAILED`]: a slow
 /// backend reported as a failure sends someone hunting in the code for a
 /// problem that is in the cable.
-const EXIT_INCONCLUSIVE: i32 = 2;
+pub(crate) const EXIT_INCONCLUSIVE: u8 = 2;
 /// Exit code for a run in which everything that ran passed and nothing was left
 /// unanswered.
-const EXIT_OK: i32 = 0;
+pub(crate) const EXIT_OK: u8 = 0;
 
 // NOT `Copy`: `Skip` carries its reason, and dropping the reason to keep `Copy`
 // would trade the only field the operator can act on for a compiler convenience.
@@ -54,8 +54,6 @@ pub enum RunOutcome {
     Complete,
     /// Still alive and exceeded its budget.
     TimedOut,
-    /// The process or task died before finishing.
-    Crashed,
     /// The run never STARTED, for a reason that is ours — a bad configuration,
     /// or a provider that would not build.
     ///
@@ -85,10 +83,7 @@ impl RunOutcome {
     /// is perfectly conclusive about OUR configuration, and a second attempt
     /// reads the same configuration.
     pub fn is_inconclusive(&self) -> bool {
-        matches!(
-            self,
-            RunOutcome::TimedOut | RunOutcome::Crashed | RunOutcome::PanickedInHarness
-        )
+        matches!(self, RunOutcome::TimedOut | RunOutcome::PanickedInHarness)
     }
 }
 
@@ -106,7 +101,7 @@ impl RunOutcome {
 /// # Complexity
 ///
 /// `O(n)` in the number of scenarios, two passes at worst, no allocation.
-pub fn exit_code(states: &[ScenarioState]) -> i32 {
+pub fn exit_code(states: &[ScenarioState]) -> u8 {
     if states.contains(&ScenarioState::Fail) {
         return EXIT_FAILED;
     }
@@ -293,7 +288,7 @@ mod tests {
         // concepts now have two variants, which is what lets the retry rule
         // tell them apart at all.
         assert!(!RunOutcome::CannotTest.is_inconclusive());
-        assert!(RunOutcome::Crashed.is_inconclusive());
+        assert!(RunOutcome::TimedOut.is_inconclusive());
     }
 
     #[test]

@@ -63,6 +63,13 @@ pub enum CycleRun {
 /// budget.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssertionRow {
+    /// The scenario this row belongs to, by its stable id.
+    ///
+    /// Separate from [`AssertionRow::scenario`] because one scenario produces
+    /// SEVERAL assertions: without the id, four reds from one scenario read as
+    /// four unrelated defects, which is the same confusion `run_id` exists to
+    /// prevent one level up.
+    pub scenario_id: &'static str,
     /// The property this row is about, written as a sentence a reader can
     /// check against the code (mirrors [`crate::runner::Assertion::name`]).
     pub scenario: &'static str,
@@ -237,7 +244,21 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
             .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
     }
     std::fs::write(&target, content)
-        .map_err(|e| format!("could not write {}: {e}", target.display()))
+        .map_err(|e| format!("could not write {}: {e}", target.display()))?;
+    // Re-read AFTER writing, because the tree could have changed between the
+    // check above and the write. The only path allowed to appear is the
+    // certificate itself; anything else means it would certify something other
+    // than what ships, so the file is DELETED rather than left in place. A
+    // certificate that exists gets cited, and half a certificate claims the same
+    // thing as a whole one with less text.
+    let after = git_status_porcelain(repo_root)?;
+    if after.lines().any(|l| !l.contains(CERT_PATH)) {
+        let _ = std::fs::remove_file(&target);
+        return Err(format!(
+            "the tree changed while the certificate was being written, so it was              deleted rather than left claiming a version it may not describe: {after}"
+        ));
+    }
+    Ok(())
 }
 
 /// Runs `git status --porcelain` in `repo_root` and returns its raw stdout.
@@ -245,7 +266,9 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
 /// `--porcelain` rather than the human status: a stable, script-friendly
 /// format that is empty if and only if the tree is clean. Parsing the human
 /// form would be exactly the grep-over-semantics this project rejects
-/// elsewhere.
+/// elsewhere. `--untracked-files=all` because the default collapses an
+/// untracked directory to its name, which hides the very path the post-write
+/// check is looking for.
 ///
 /// # Errors
 ///
@@ -253,7 +276,11 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
 /// not valid UTF-8.
 fn git_status_porcelain(repo_root: &Path) -> Result<String, String> {
     let out = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
+        // `--untracked-files=all` is not cosmetic: without it git COLLAPSES an
+        // untracked directory to the directory itself (`?? docs/`), so the
+        // post-write check comparing against the certificate's full path would
+        // never match its own file and would delete every certificate it wrote.
+        .args(["status", "--porcelain", "--untracked-files=all"])
         .current_dir(repo_root)
         .output()
         .map_err(|e| format!("failed to run git status in {}: {e}", repo_root.display()))?;
@@ -348,8 +375,129 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
     })
 }
 
+impl AssertionRow {
+    /// Builds the rows one scenario produced.
+    ///
+    /// # Parameters
+    ///
+    /// * `scenario_id` — the scenario's stable id.
+    /// * `run_id` — which shared run fed it.
+    /// * `assertions` — everything that scenario asserted, in order.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the number of assertions.
+    pub fn of(
+        scenario_id: &'static str,
+        run_id: RunId,
+        assertions: Vec<crate::runner::Assertion>,
+        over_budget: Option<Duration>,
+    ) -> Vec<AssertionRow> {
+        assertions
+            .into_iter()
+            .map(|a| AssertionRow {
+                scenario_id,
+                scenario: a.name,
+                run_id,
+                over_budget: match a.state {
+                    ScenarioState::Timeout => over_budget,
+                    _ => None,
+                },
+                state: a.state,
+            })
+            .collect()
+    }
+}
+
+impl Report {
+    /// A fault of OURS: no scenario is reported as passed, and the exit code is
+    /// [`EXIT_CANNOT_TEST`].
+    ///
+    /// # Parameters
+    ///
+    /// * `reason` — what stopped the run, in terms an operator can act on.
+    pub fn cannot_test(reason: &str) -> Report {
+        Report {
+            rows: vec![AssertionRow {
+                scenario_id: "preflight",
+                scenario: "the harness could not test",
+                run_id: NO_RUN,
+                state: ScenarioState::Skip(reason.to_string()),
+                over_budget: None,
+            }],
+            run: CycleRun::First,
+        }
+    }
+
+    /// The process exit code, decided HERE and nowhere else.
+    ///
+    /// `0` everything that ran passed · `1` an assertion FAILED, which is a
+    /// verdict about the crate · `2` could not test, which is a fault of ours.
+    /// **Confusing 1 with 2 is the failure this whole harness exists to
+    /// eliminate**, so there is exactly one place that chooses.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in `self.rows.len()`.
+    pub fn exit_code(&self) -> u8 {
+        // DELEGATES rather than re-deciding. The policy over states lives in
+        // `outcome`, which owns the three codes and their precedence; this
+        // method's only job is turning rows into the states that policy reads.
+        // Two implementations is exactly how the 1-versus-2 distinction drifts
+        // apart, and that distinction is what the harness exists to preserve.
+        let states: Vec<ScenarioState> = self.rows.iter().map(|r| r.state.clone()).collect();
+        crate::outcome::exit_code(&states)
+    }
+
+    /// Prints the human table to stderr and returns the process code.
+    pub fn emit(self) -> std::process::ExitCode {
+        eprintln!("{}", self.render_human());
+        std::process::ExitCode::from(self.exit_code())
+    }
+
+    /// Test constructor: a report from rows that are already built.
+    #[cfg(test)]
+    pub fn with(rows: &[AssertionRow]) -> Report {
+        Report {
+            rows: rows.to_vec(),
+            run: CycleRun::First,
+        }
+    }
+}
+
+/// The run id a row carries when the harness itself could not test anything, so
+/// there is no shared run to attribute it to.
+const NO_RUN: RunId = RunId::NoBackend;
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_exit_code_is_decided_in_exactly_one_place() {
+        // 1 = a verdict about the crate; 2 = a fault of ours. Two call sites is
+        // how the two drift apart, so this method delegates to `outcome` and
+        // this test pins the mapping end to end.
+        let row = |state| AssertionRow {
+            scenario_id: "S-test",
+            run_id: RunId::HappySmall,
+            scenario: "a property",
+            state,
+            over_budget: None,
+        };
+        assert_eq!(Report::with(&[row(ScenarioState::Fail)]).exit_code(), 1);
+        assert_eq!(Report::cannot_test("proxy").exit_code(), 2);
+        assert_eq!(Report::with(&[row(ScenarioState::Pass)]).exit_code(), 0);
+        assert_eq!(
+            Report::with(&[row(ScenarioState::Pass), row(ScenarioState::OutOfScope)]).exit_code(),
+            0,
+            "a partition nobody asked to run must not turn a clean run into a fault"
+        );
+        assert_eq!(
+            Report::with(&[row(ScenarioState::Fail), row(ScenarioState::Timeout)]).exit_code(),
+            1,
+            "a contradiction outranks an unanswered question"
+        );
+    }
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -366,18 +514,21 @@ mod tests {
     fn sample_results() -> Vec<AssertionRow> {
         vec![
             AssertionRow {
+                scenario_id: "S-test",
                 scenario: "the happy path run produces a valid verdict from all three seats",
                 run_id: RunId::HappySmall,
                 state: ScenarioState::Pass,
                 over_budget: None,
             },
             AssertionRow {
+                scenario_id: "S-test",
                 scenario: "the large payload run converges within its budget",
                 run_id: RunId::Large62k,
                 state: ScenarioState::Skip("no backend available for this cycle".into()),
                 over_budget: None,
             },
             AssertionRow {
+                scenario_id: "S-test",
                 scenario: "rotation recovers from an injected failure",
                 run_id: RunId::Rotation,
                 state: ScenarioState::Pass,
@@ -514,12 +665,14 @@ mod tests {
         // same marker as FAIL would report "the crate is wrong" when the
         // truth is "the deployment is slower than the cap someone chose".
         let timeout_row = AssertionRow {
+            scenario_id: "S-test",
             scenario: "s",
             run_id: RunId::HappySmall,
             state: ScenarioState::Timeout,
             over_budget: Some(Duration::from_secs(5)),
         };
         let fail_row = AssertionRow {
+            scenario_id: "S-test",
             scenario: "s",
             run_id: RunId::HappySmall,
             state: ScenarioState::Fail,

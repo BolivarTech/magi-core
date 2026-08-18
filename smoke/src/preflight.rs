@@ -93,18 +93,28 @@ impl PreflightError {
             msg: msg.into(),
         }
     }
-
-    /// ALWAYS 2. A preflight failure is "we could not test", never a verdict
-    /// about the crate under test — and that is why there is no path that
-    /// returns any other number.
-    pub fn exit_code(&self) -> u8 {
-        2
-    }
 }
 
 impl std::fmt::Display for PreflightError {
+    /// Names the stage, WHERE it sits in the fixed order, and the message.
+    ///
+    /// The position is not decoration: the order is the contract, and a reader
+    /// who knows a failure happened at step 5 of 8 also knows the four before it
+    /// passed — which is most of what they need to start looking.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.stage, self.msg)
+        let order = preflight_step_order();
+        let label = format!("{:?}", self.stage).to_ascii_lowercase();
+        match order.iter().position(|s| *s == label) {
+            Some(i) => write!(
+                f,
+                "{:?}: {} (step {} of {} in the preflight order)",
+                self.stage,
+                self.msg,
+                i + 1,
+                order.len()
+            ),
+            None => write!(f, "{:?}: {}", self.stage, self.msg),
+        }
     }
 }
 
@@ -631,7 +641,13 @@ mod tests {
         // zero scenarios passed.
         let err = run_with_broken_proxy().await.unwrap_err();
         assert!(err.to_string().contains("proxy"));
-        assert_eq!(err.exit_code(), 2);
+        // The code itself is asserted where it is DECIDED — one place, in the
+        // report — so this checks the property that belongs here: a preflight
+        // failure is an unanswered question, never a verdict about the crate.
+        assert_eq!(
+            crate::outcome::exit_code(&[crate::outcome::ScenarioState::Skip(err.to_string())]),
+            2
+        );
     }
 
     #[test]
