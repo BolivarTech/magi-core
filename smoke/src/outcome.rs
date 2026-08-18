@@ -56,6 +56,15 @@ pub enum RunOutcome {
     TimedOut,
     /// The process or task died before finishing.
     Crashed,
+    /// The run never STARTED, for a reason that is ours — a bad configuration,
+    /// or a provider that would not build.
+    ///
+    /// Deliberately **not** `Crashed`, and the distinction is load-bearing: a
+    /// crash is inconclusive and earns the one retry, while a configuration
+    /// fault reproduces exactly, so retrying it doubles the most expensive thing
+    /// this harness does to arrive at the same place. Sharing one variant is how
+    /// the retry rule lost the ability to tell them apart.
+    CannotTest,
     /// A panic attributed to `magi-core`.
     PanickedInCrate,
     /// A panic attributed to the harness, or to a dependency only the harness
@@ -71,6 +80,10 @@ impl RunOutcome {
     /// crate broke, and that is exactly what the harness came to find. Retrying
     /// it burns a second full run to arrive at the same place, which is the
     /// same waste the no-retry rule forbids for a completed run.
+    ///
+    /// **`CannotTest` is not inconclusive either**, for the opposite reason: it
+    /// is perfectly conclusive about OUR configuration, and a second attempt
+    /// reads the same configuration.
     pub fn is_inconclusive(&self) -> bool {
         matches!(
             self,
@@ -270,6 +283,17 @@ mod tests {
             classify_panic(Some("/deps/hyper-1.0.0/src/server.rs")),
             ScenarioState::Skip(_)
         ));
+    }
+
+    #[test]
+    fn a_run_that_could_not_start_is_not_inconclusive_and_earns_no_retry() {
+        // `cannot_test` used to report `Crashed`, which IS inconclusive, so a
+        // configuration fault was retried — doubling the most expensive thing
+        // the harness does to read the same configuration twice. The two
+        // concepts now have two variants, which is what lets the retry rule
+        // tell them apart at all.
+        assert!(!RunOutcome::CannotTest.is_inconclusive());
+        assert!(RunOutcome::Crashed.is_inconclusive());
     }
 
     #[test]

@@ -11,6 +11,14 @@
 //! That is cheap only if it is also honest, which is what [`RunContext`] is for:
 //! an assertion sees everything a run produced and nothing it did not, and has
 //! no way to reach the network on its own.
+//!
+//! # Two of this task's specified tests live elsewhere, deliberately
+//!
+//! The plan lists five tests here, two of which assert over a `render_rows`
+//! function that renders the results TABLE. That function belongs to the
+//! reporting layer, not to the executor, and building it here would have put the
+//! table in two places. They are implemented with the report module instead; a
+//! reader looking for them here has not found a regression.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -238,7 +246,7 @@ impl RunResult {
     pub fn cannot_test(run: RunId, reason: String) -> RunResult {
         RunResult {
             run,
-            outcome: RunOutcome::Crashed,
+            outcome: RunOutcome::CannotTest,
             report: None,
             error: Some(reason),
             records: Vec::new(),
@@ -540,7 +548,6 @@ impl Runner {
         } else {
             first
         };
-        result.attempts = result.attempts.max(1);
         self.proxy.set_injection(None);
         result
     }
@@ -695,6 +702,14 @@ mod tests {
     }
 
     #[test]
+    fn a_run_that_could_not_start_is_never_retried() {
+        // The bug this pins: `cannot_test` reported `Crashed`, which IS
+        // inconclusive, so `execute_one` retried a configuration fault that
+        // reproduces identically. Its own rustdoc said the opposite.
+        assert_eq!(attempts_for(&RunOutcome::CannotTest), 1);
+    }
+
+    #[test]
     fn each_run_carries_a_declared_time_budget_with_its_measured_origin() {
         // These are CAPS, not predictions: a run that reaches one reports a TIME
         // failure, never a verdict about the crate.
@@ -714,6 +729,16 @@ mod tests {
             r.attempts, 1,
             "a config fault reproduces exactly; never retry it"
         );
+        // Asserted on the value the CONSTRUCTOR produces, not on the policy in
+        // the abstract. The first version of this test checked only the
+        // hardcoded `attempts` field, so it stayed green while `cannot_test`
+        // reported `Crashed` — an inconclusive outcome that `execute_one`
+        // dutifully retried, contradicting this constructor's own rustdoc.
+        assert!(
+            !r.outcome.is_inconclusive(),
+            "cannot_test must not report an outcome the retry rule retries"
+        );
+        assert_eq!(attempts_for(&r.outcome), 1);
     }
 
     #[test]
