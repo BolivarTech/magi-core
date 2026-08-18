@@ -270,7 +270,7 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
     // from this file. Caught here, in the config step, it is exit 2 instead.
     if cfg.fallbacks.is_empty() {
         return Err(format!(
-            "config declares no [[fallbacks]]: the rotation run needs at least one              candidate to rotate INTO, and without one it reports a red row about the              crate for a mistake in this file. {SEAT_FIX}"
+            "config declares no [[fallbacks]]: the rotation run needs at least one candidate to rotate INTO, and without one it reports a red row about the crate for a mistake in this file. {SEAT_FIX}"
         ));
     }
     // A candidate sharing a seat's lineage is not a rotation target either:
@@ -279,7 +279,7 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
     for candidate in &cfg.fallbacks {
         if cfg.seats.iter().any(|s| s.lineage == candidate.lineage) {
             return Err(format!(
-                "fallback {:?} declares lineage {:?}, which a seat already uses: rotating                  to it reaches the same lineage the run was trying to leave, so the                  scenario would pass over a rotation that proved nothing. {SEAT_FIX}",
+                "fallback {:?} declares lineage {:?}, which a seat already uses: rotating to it reaches the same lineage the run was trying to leave, so the scenario would pass over a rotation that proved nothing. {SEAT_FIX}",
                 candidate.model, candidate.lineage
             ));
         }

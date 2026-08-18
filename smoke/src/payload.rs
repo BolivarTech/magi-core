@@ -80,10 +80,21 @@ pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
 /// same non-determinism [`collect_from_entries`] refuses for a single entry,
 /// reached one level up.
 fn collect_rs(root: &Path, out: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    collect_from_entries(entries, root, out, errors);
+    match std::fs::read_dir(root) {
+        Ok(entries) => collect_from_entries(entries, root, out, errors),
+        // ABSENT is expected: `ROOTS` is a widening list and a project without
+        // `examples/` is an ordinary input. Anything ELSE is not — a root that
+        // exists and cannot be read removes its `.rs` files from the payload
+        // and makes the output depend on what happened to be readable on this
+        // machine, which is the property the fixed ordering is bought to remove.
+        // Treating every error as "absent" was the same silent skip the
+        // recursive half was already fixed for, one level up.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => errors.push(format!(
+            "{}: root exists but could not be read: {e}. The payload would silently lose whatever it holds, so generation stops instead.",
+            root.display()
+        )),
+    }
 }
 
 /// The recursive half of the walk: like [`collect_rs`], except that a
@@ -674,6 +685,32 @@ mod tests {
     }
 
     #[test]
+    fn a_root_that_exists_but_cannot_be_read_is_reported_while_an_absent_one_is_not() {
+        // The root exemption existed for a root that is ABSENT — `examples/` in
+        // a project that has none. Applying it to every error also swallowed a
+        // root that exists and cannot be read, which removes its files from the
+        // payload and makes the output depend on this machine.
+        let dir = tempdir_with(&[("src/a.rs", "fn a() {}")]);
+        let mut out = Vec::new();
+        let mut errors = Vec::new();
+        // A FILE where a directory is expected: `read_dir` fails with something
+        // that is not NotFound, which is the branch under test.
+        let not_a_dir = dir.path().join("src/a.rs");
+        collect_rs(&not_a_dir, &mut out, &mut errors);
+        assert_eq!(
+            errors.len(),
+            1,
+            "an unreadable root must be reported: {errors:?}"
+        );
+        errors.clear();
+        collect_rs(&dir.path().join("nothing-here"), &mut out, &mut errors);
+        assert!(
+            errors.is_empty(),
+            "an ABSENT root is an ordinary input, not an error"
+        );
+    }
+
+    #[test]
     fn a_subdirectory_that_cannot_be_read_is_an_error_not_a_silent_skip() {
         // The root-level exemption and the entry-level failure were both fixed
         // in earlier rounds; the level BETWEEN them still returned quietly, so
@@ -703,16 +740,22 @@ mod tests {
             errors[0]
         );
 
-        // And the root exemption is still exactly that — an exemption for the
-        // TOP of the walk only. Asserting the new error without this would
-        // pass just as well against a version that reported both, which would
-        // break the widening over a project with no `examples/`.
+        // And the root exemption is still exactly that — an exemption, now for
+        // an ABSENT root only. This half used to assert that a root which could
+        // not be opened for ANY reason was skipped, which pinned the very
+        // silent skip a later review found: the widening over a project with no
+        // `examples/` is about absence, and an unreadable-but-present root is a
+        // different question with the opposite answer.
         let mut root_out = Vec::new();
         let mut root_errors = Vec::new();
-        collect_rs(&not_a_dir, &mut root_out, &mut root_errors);
+        collect_rs(
+            &dir.path().join("no-such-root"),
+            &mut root_out,
+            &mut root_errors,
+        );
         assert!(
             root_errors.is_empty(),
-            "a root that cannot be opened is skipped, not reported: {root_errors:?}"
+            "an ABSENT root is an ordinary input, not an error: {root_errors:?}"
         );
     }
 }

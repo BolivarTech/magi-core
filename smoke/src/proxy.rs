@@ -370,10 +370,8 @@ impl RequestRecord {
         self
     }
 
-    /// Completes a record whose response was STREAMED through. The status is
-    /// real; the body was never held, and `response_recorded` stays false so
-    /// no assertion mistakes "not recorded" for "empty".
-    /// Records the status WITHOUT a body, leaving `response_recorded` false.
+    /// Completes a record whose response was STREAMED through, recording the
+    /// status WITHOUT a body and leaving `response_recorded` false.
     ///
     /// **`response_recorded` means "the response BODY was buffered", not "a
     /// response arrived".** The status recorded here is the real one. Only the
