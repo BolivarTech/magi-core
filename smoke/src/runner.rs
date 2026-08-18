@@ -114,6 +114,12 @@ pub struct RunContext<'a> {
     /// The response to the DIRECT half of the transparency probe — the term of
     /// comparison. `None` on every run but the one that primed it.
     pub direct_probe_body: Option<&'a [u8]>,
+    /// The HTTP STATUS the direct half got back, the second term of comparison.
+    ///
+    /// It travels beside the body because transparency is a claim about both:
+    /// a proxy that relayed the right bytes under a different status would have
+    /// satisfied a body-only comparison while changing what the crate sees.
+    pub direct_probe_status: Option<u16>,
     /// The record of the probe request that went THROUGH the proxy.
     ///
     /// It travels separately rather than inside `records` because the probe runs
@@ -542,6 +548,12 @@ pub struct TransparencyProbe {
     pub record: Option<RequestRecord>,
     /// The body the direct half got back, as the term of comparison.
     pub direct_response: Option<Vec<u8>>,
+    /// The STATUS the direct half got back, the second term of comparison.
+    ///
+    /// Set together with [`direct_response`](TransparencyProbe::direct_response)
+    /// and never on its own: half a probe compares against a term that is not
+    /// there, which says nothing about transparency.
+    pub direct_status: Option<u16>,
 }
 
 /// The executor. **Owner of the proxy and of the probe**: scenarios only READ,
@@ -595,7 +607,7 @@ impl Runner {
         // can influence anything.
         let through = show_request(&self.proxy.base_url(), &body).await;
         let direct = show_request(backend, &body).await;
-        let (Ok(_), Ok(direct_body)) = (through, direct) else {
+        let (Ok(_), Ok((direct_status, direct_body))) = (through, direct) else {
             // Deliberately leaves every field None. Half a probe is worse than
             // none: a scenario comparing against a missing term would report a
             // difference that says nothing about transparency.
@@ -604,6 +616,7 @@ impl Runner {
         self.probe.sent_body = Some(body);
         self.probe.record = self.proxy.records_since(mark).into_iter().next();
         self.probe.direct_response = Some(direct_body);
+        self.probe.direct_status = Some(direct_status);
     }
 
     /// Executes every run in order.
@@ -743,8 +756,12 @@ impl Runner {
 /// configuration nobody would ever change.
 const PROBE_MODEL: &str = "smoke-transparency-probe";
 
-/// ONE `POST /api/show`, sent verbatim, returning the raw body so a scenario can
-/// compare bytes.
+/// ONE `POST /api/show`, sent verbatim, returning the STATUS and the raw body so
+/// a scenario can compare both.
+///
+/// The status travels with the body because the transparency claim covers it:
+/// bytes relayed faithfully under a different status are not the answer the
+/// backend gave.
 ///
 /// # Parameters
 ///
@@ -756,18 +773,18 @@ const PROBE_MODEL: &str = "smoke-transparency-probe";
 ///
 /// Any transport failure. The caller turns it into "the probe did not run",
 /// which is a SKIP rather than a failure.
-async fn show_request(base: &str, body: &str) -> Result<Vec<u8>, reqwest::Error> {
-    reqwest::Client::builder()
+async fn show_request(base: &str, body: &str) -> Result<(u16, Vec<u8>), reqwest::Error> {
+    let response = reqwest::Client::builder()
         .referer(false)
         .build()?
         .post(format!("{base}/api/show"))
         .header("content-type", "application/json")
         .body(body.to_string())
         .send()
-        .await?
-        .bytes()
-        .await
-        .map(|b| b.to_vec())
+        .await?;
+    // Read BEFORE consuming the response into its body, which takes ownership.
+    let status = response.status().as_u16();
+    response.bytes().await.map(|b| (status, b.to_vec()))
 }
 
 /// Which seat a run injected into, resolved from the injection's model.

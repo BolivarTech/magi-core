@@ -166,6 +166,12 @@ invocation: putting two together leaves the second one unrun, which is green by 
 | `cargo run -- --config <broken.toml>` | an unreadable configuration |
 | `cargo run -- --build-matrix` | the four feature combinations (slow: four `cargo check` runs) |
 
+`--build-matrix` builds each combination into its own directory under the system temp
+directory (`<temp>/magi-smoke-feature-matrix/<combination>`), never inside the checkout: one
+directory per combination because two feature sets sharing one relink the same binaries and
+produce link errors that read as code defects. Deleting that tree costs only the next run's
+rebuild time.
+
 Other flags: `--smoke-2` (this is SMOKE #2, so the certificate IS written), `--no-backend` (only
 the scenarios that need none), `--json` (also emit the machine-readable report),
 `--print-payload-size` (generate the payload, print its size, exit).

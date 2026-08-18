@@ -46,3 +46,87 @@ pub fn repo_root() -> PathBuf {
 pub fn fixture_dir() -> PathBuf {
     smoke_dir().join("fixtures")
 }
+
+/// The single parent of every feature-matrix build directory, under the system
+/// temp directory.
+///
+/// **Chosen so the stale-temp sweep cannot claim it.**
+/// `preflight::sweep_stale_temps` deletes `magi-smoke-<pid>-<...>` entries whose
+/// PID is dead; here the segment after the prefix is `feature`, which does not
+/// parse as a PID, so the sweep skips it and the build cache survives between
+/// runs. `the_stale_temp_sweep_cannot_claim_the_matrix_cache` pins that.
+const FEATURE_MATRIX_DIR: &str = "magi-smoke-feature-matrix";
+
+/// Where ONE feature combination's `cargo check` builds:
+/// `<temp>/magi-smoke-feature-matrix/<tag>`.
+///
+/// # Why not inside the repository
+///
+/// It used to be `<repo>/smoke/target-matrix/<tag>`. That is gitignored, so
+/// nothing ever leaked into git — but it put hundreds of megabytes of build
+/// output inside the user's checkout for a flag that answers one question, and
+/// the no-trace scenario's guarantee then rested on an ignore rule rather than
+/// on the harness not writing there. Build output is not the user's work; it
+/// belongs where the operating system already collects it.
+///
+/// # Why one directory PER COMBINATION, which is not negotiable
+///
+/// Two feature sets sharing one target directory relink the same binaries and
+/// produce link errors that read as code defects. This project has already paid
+/// for that exact contention, and the fix was isolation — so the move out of the
+/// tree keeps it: the `tag` segment is what makes each combination's build
+/// independent of the others.
+///
+/// # Parameters
+///
+/// * `tag` — the combination's directory-safe name, e.g. `tree-published`.
+pub fn feature_matrix_target_dir(tag: &str) -> PathBuf {
+    std::env::temp_dir().join(FEATURE_MATRIX_DIR).join(tag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_matrix_cache_is_built_outside_the_users_checkout() {
+        // The whole point of the move: a flag that answers one question must not
+        // leave build output inside somebody's working tree, ignore rule or no
+        // ignore rule.
+        let dir = feature_matrix_target_dir("tree");
+        assert!(
+            dir.starts_with(std::env::temp_dir()),
+            "the matrix must build under the system temp directory, got {dir:?}"
+        );
+        assert!(
+            !dir.starts_with(smoke_dir()),
+            "the matrix must not build inside the harness's own directory: {dir:?}"
+        );
+    }
+
+    #[test]
+    fn each_combination_gets_its_own_directory() {
+        // Sharing one target directory between feature sets relinks the same
+        // binaries and produces link errors that read as code defects.
+        assert_ne!(
+            feature_matrix_target_dir("tree"),
+            feature_matrix_target_dir("tree-published")
+        );
+    }
+
+    #[test]
+    fn the_stale_temp_sweep_cannot_claim_the_matrix_cache() {
+        // Both live under the system temp directory, and the sweep deletes
+        // `magi-smoke-<pid>-...` entries whose PID is dead. If the matrix
+        // directory's name parsed as one of those, every start would delete the
+        // build cache and the matrix would rebuild from scratch each time.
+        let root = crate::testkit::tempdir_with(&[]);
+        let cache = root.path().join(FEATURE_MATRIX_DIR).join("tree");
+        std::fs::create_dir_all(&cache).expect("creating the fixture must succeed");
+        crate::preflight::sweep_stale_temps(root.path());
+        assert!(
+            cache.exists(),
+            "the sweep deleted the matrix build cache at {cache:?}"
+        );
+    }
+}

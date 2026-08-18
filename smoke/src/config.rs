@@ -564,7 +564,34 @@ impl Config {
 
     /// Returns the config and the sentence that MUST be printed before anything
     /// runs, naming which file was loaded or that defaults were used.
-    pub fn load_or_default(path: Option<&Path>) -> Result<(Config, String), ConfigError> {
+    ///
+    /// # Why the name says `or_fail` and not `or_default`
+    ///
+    /// It was `load_or_default`, and that name promised something the code does
+    /// not do. **The built-in defaults are used in exactly ONE case: no path was
+    /// given at all.** Every other way of not getting a usable config — a path
+    /// that does not exist, a file that cannot be read, TOML that will not parse,
+    /// an unknown key, an out-of-range value, an unrecognised `MAGI_SMOKE_*`
+    /// variable — is FATAL, on purpose: falling back to defaults there would run
+    /// the harness against a configuration the operator did not ask for while
+    /// looking configured, and the scenario asserting that an illegible config is
+    /// fatal exists precisely to pin that. A call site reading `load_or_default`
+    /// could not see any of it. This project has twice paid for a name that
+    /// promised what the code did not deliver — a field announcing a record it
+    /// never wrote, and a test claiming a completeness its scan did not have —
+    /// so the fatal half is now in the name.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` — the config file to load, or `None` for the built-in defaults.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError`] naming the offending file, field or variable when: `path`
+    /// was given and does not exist; the file cannot be read; its TOML does not
+    /// parse or carries an unknown field; any `MAGI_SMOKE_*` override is unknown,
+    /// unparsable or out of range; or the resulting config fails validation.
+    pub fn load_or_fail(path: Option<&Path>) -> Result<(Config, String), ConfigError> {
         let base = match path {
             Some(p) if p.exists() => {
                 let text = std::fs::read_to_string(p)
@@ -1065,10 +1092,10 @@ mod tests {
 
     #[test]
     fn absent_file_yields_defaults_and_says_so() {
-        // Reads the real process environment via `load_or_default`, so it
+        // Reads the real process environment via `load_or_fail`, so it
         // shares ENV_LOCK with the two env-mutating tests below.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let (cfg, announcement) = Config::load_or_default(None).unwrap();
+        let (cfg, announcement) = Config::load_or_fail(None).unwrap();
         assert_eq!(cfg.endpoint, "http://localhost:11434");
         assert!(
             announcement.contains("built-in defaults"),
@@ -1082,13 +1109,13 @@ mod tests {
         // This is the Err branch of `reject_unknown_smoke_vars` — until this
         // test, nothing in the suite ever set an unmatched `MAGI_SMOKE_*`
         // variable, so a guard that silently accepted everything would have
-        // passed the whole suite. Exercised through `load_or_default`, the
+        // passed the whole suite. Exercised through `load_or_fail`, the
         // real (and only) call site, not the bare function, so the test
         // proves the integration, not just the unit.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         const TYPO: &str = "MAGI_SMOKE_ENDPOINTS"; // trailing 's' — not in ENV_OVERRIDES
         let _guard = EnvVarGuard::set(TYPO, "http://example.invalid");
-        let err = Config::load_or_default(None).unwrap_err();
+        let err = Config::load_or_fail(None).unwrap_err();
         assert!(
             format!("{err}").contains(TYPO),
             "the error must NAME the unmatched variable, not just say something is wrong"
@@ -1103,7 +1130,7 @@ mod tests {
         // rejects everything, which is not the property being verified.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _guard = EnvVarGuard::set("MAGI_SMOKE_ENDPOINT", "http://example.invalid:9999");
-        let (cfg, _origin) = Config::load_or_default(None).unwrap();
+        let (cfg, _origin) = Config::load_or_fail(None).unwrap();
         assert_eq!(cfg.endpoint, "http://example.invalid:9999");
     }
 

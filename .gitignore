@@ -71,6 +71,9 @@ smoke/target/
 # The real, operator-supplied config. `magi-smoke.toml.example` documents the WHY
 # of each key and IS tracked; this is the copy someone actually edits.
 smoke/magi-smoke.toml
-# The isolated target dirs the feature matrix builds into. Ignored for the same
-# reason `target/` is: S16 asserts the harness leaves no trace in the repo.
+# The feature matrix no longer builds here: it uses
+# `<temp>/magi-smoke-feature-matrix/<combination>` instead, so the harness does
+# not put a gigabyte of build output inside somebody's checkout. The rule stays
+# only to keep artifacts left by a pre-move build out of git; nothing writes
+# here any more, and it can go once no such tree survives.
 smoke/target-matrix/

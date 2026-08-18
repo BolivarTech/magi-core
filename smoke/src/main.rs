@@ -150,7 +150,7 @@ async fn main() -> std::process::ExitCode {
     //    illegible config is fatal reads exactly this path, so exiting without
     //    evaluating it would leave the only scenario that observes it with
     //    nothing to read.
-    let (cfg, origin) = match config::Config::load_or_default(cli.config.as_deref()) {
+    let (cfg, origin) = match config::Config::load_or_fail(cli.config.as_deref()) {
         Ok(v) => v,
         Err(e) => {
             let err =
@@ -275,8 +275,7 @@ fn cycle_run(cli: &Cli) -> report::CycleRun {
 ///
 /// # Complexity
 ///
-/// `O(s + r)` for `s` scenarios and `r` runs, plus one concatenation of every
-/// run's records for the session-scoped scenarios.
+/// `O(s + r)` for `s` scenarios and `r` runs.
 fn evaluate(
     scenarios: &[runner::Scenario],
     results: &[runner::RunResult],
@@ -285,13 +284,6 @@ fn evaluate(
     no_backend: bool,
     repo_status_before: Option<&str>,
 ) -> Vec<report::AssertionRow> {
-    // Built once: a session-scoped scenario reads every run's traffic, and
-    // borrowing it per scenario would rebuild it per scenario.
-    let session_records: Vec<proxy::RequestRecord> = results
-        .iter()
-        .flat_map(|r| r.records.iter().cloned())
-        .collect();
-
     let mut rows = Vec::new();
     for scenario in scenarios {
         // The partition is selected by TAG, never by scenario name: a list
@@ -361,6 +353,7 @@ fn evaluate(
                         ctx.attempts = r.attempts;
                         ctx.over_budget = r.over_budget;
                         ctx.direct_probe_body = probe.direct_response.as_deref();
+                        ctx.direct_probe_status = probe.direct_status;
                         ctx.probe_record = probe.record.as_ref();
                         ctx.probe_sent_body = probe.sent_body.as_deref();
                         ctx.injected_agent = r.injected_agent;
@@ -375,8 +368,14 @@ fn evaluate(
             // failed: a preflight-scoped scenario reads that as "no error".
             runner::Source::Preflight => {}
             runner::Source::Session => {
-                ctx.records = &session_records;
-                ctx.proxy_degraded = results.iter().any(|r| r.proxy_degraded);
+                // `records` stays EMPTY, and that is a decision rather than an
+                // omission: the one session-scoped scenario reads the repository,
+                // not the wire. Every run's records used to be cloned into one
+                // slice here for a reader that does not exist — work nothing
+                // consumed, and a path no assertion had ever exercised. A session
+                // scenario that needs the traffic rebuilds it deliberately, at
+                // which point the concatenation gets the reader that justifies it.
+                //
                 // Passed THROUGH, never wrapped: wrapping it in `Some(..)` made
                 // the scenario's own "no baseline, so skip" branch dead code,
                 // and its rustdoc said the opposite.
@@ -408,6 +407,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         attempts: 0,
         over_budget: None,
         direct_probe_body: None,
+        direct_probe_status: None,
         probe_record: None,
         probe_sent_body: None,
         injected_agent: None,
@@ -469,14 +469,44 @@ fn evaluate_preflight_only(
 /// refused to compile, and the scenario reading that reported `Fail`: exit 1,
 /// a verdict about the crate, over a fault of ours.
 ///
+/// # A refusal is only DATA when it is the refusal under test
+///
+/// For the two combinations that must NOT compile, `expected` carries the
+/// distinctive text their own `compile_error!` prints. A failure whose output
+/// does not contain it failed for some OTHER reason — an unreachable registry is
+/// the realistic one, since one of those combinations is the only one that has
+/// to resolve the published dependency — and that teaches nothing about the
+/// guard. Reading it as `DidNotBuild` would let the scenario report `Pass` while
+/// the `compile_error!` was broken: green by omission, arrived at through the
+/// network. Such a failure is `CouldNotRun`, whose documented meaning is exactly
+/// "nothing was learned either way", and the scenario skips on it.
+///
 /// # Parameters
 ///
-/// * `status` — what `Command::status()` returned.
-fn build_outcome(status: std::io::Result<std::process::ExitStatus>) -> runner::BuildOutcome {
-    match status {
-        Ok(s) if s.success() => runner::BuildOutcome::Built,
-        Ok(_) => runner::BuildOutcome::DidNotBuild,
-        Err(_) => runner::BuildOutcome::CouldNotRun,
+/// * `out` — what `Command::output()` returned.
+/// * `expected` — the text this combination's refusal must contain, or `None`
+///   for a combination that is expected to build (where any refusal is data).
+fn build_outcome(
+    out: std::io::Result<std::process::Output>,
+    expected: Option<&str>,
+) -> runner::BuildOutcome {
+    let Ok(out) = out else {
+        return runner::BuildOutcome::CouldNotRun;
+    };
+    if out.status.success() {
+        return runner::BuildOutcome::Built;
+    }
+    let Some(expected) = expected else {
+        return runner::BuildOutcome::DidNotBuild;
+    };
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains(expected) {
+        runner::BuildOutcome::DidNotBuild
+    } else {
+        // Printed, not swallowed: an operator whose matrix went unreadable needs
+        // the reason, and the scenario's own skip can only name the combination.
+        eprintln!("magi-smoke: cargo refused this combination for another reason:\n{stderr}");
+        runner::BuildOutcome::CouldNotRun
     }
 }
 
@@ -490,18 +520,30 @@ fn build_outcome(status: std::io::Result<std::process::ExitStatus>) -> runner::B
 /// outer `cargo run` still holds the harness's own `target/`, and this project
 /// has already paid for that exact contention: two feature sets sharing one
 /// target relink the same binaries and produce link errors that read as code
-/// defects.
+/// defects. The directories live under the system temp directory
+/// ([`paths::feature_matrix_target_dir`]), never inside the checkout.
+///
+/// **Each failing combination carries the text its own `compile_error!` prints**,
+/// so a refusal for a different reason is not mistaken for the refusal under
+/// test — see [`build_outcome`].
 ///
 /// # Complexity
 ///
 /// Four `cargo check` invocations, serially. Slow by construction, which is why
 /// it sits behind a flag.
 fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
-    const COMBINATIONS: [&str; 4] = ["tree", "published", "tree,published", ""];
+    /// `(features, the text its refusal must contain)`. `None` marks a
+    /// combination expected to build, where any refusal is already data.
+    const COMBINATIONS: [(&str, Option<&str>); 4] = [
+        ("tree", None),
+        ("published", None),
+        ("tree,published", Some(BOTH_MODES_MARKER)),
+        ("", Some(NEITHER_MODE_MARKER)),
+    ];
     const NO_FEATURES_TAG: &str = "none";
     COMBINATIONS
         .iter()
-        .map(|combo| {
+        .map(|(combo, expected)| {
             let mut args = vec!["check", "--no-default-features", "--quiet"];
             if !combo.is_empty() {
                 args.extend(["--features", combo]);
@@ -515,16 +557,26 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
                 std::process::Command::new("cargo")
                     .args(&args)
                     .current_dir(paths::smoke_dir())
-                    .env(
-                        "CARGO_TARGET_DIR",
-                        paths::smoke_dir().join("target-matrix").join(&tag),
-                    )
-                    .status(),
+                    .env("CARGO_TARGET_DIR", paths::feature_matrix_target_dir(&tag))
+                    .output(),
+                *expected,
             );
             (combo.to_string(), outcome)
         })
         .collect()
 }
+
+/// A fragment of `alias.rs`'s "both modes selected" `compile_error!`.
+///
+/// A FRAGMENT rather than the whole sentence: the message wraps across source
+/// lines, so `cargo`'s rendering of it is not byte-identical to the literal.
+/// `the_matrix_markers_are_the_text_alias_actually_prints` keeps this in step
+/// with `alias.rs` instead of trusting that nobody rewords it.
+const BOTH_MODES_MARKER: &str = "mutually exclusive";
+
+/// A fragment of `alias.rs`'s "no mode selected" `compile_error!`, for the same
+/// reason as [`BOTH_MODES_MARKER`].
+const NEITHER_MODE_MARKER: &str = "must be enabled";
 
 /// The `magi-core` version the harness was built against.
 ///
@@ -652,29 +704,58 @@ mod tests {
     #[test]
     fn a_cargo_that_could_not_be_spawned_is_not_a_failed_build() {
         // A real `ExitStatus` on every side, not a stand-in.
-        let quiet = |args: &[&str]| {
-            std::process::Command::new("cargo")
-                .args(args)
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-        };
+        let quiet = |args: &[&str]| std::process::Command::new("cargo").args(args).output();
         assert_eq!(
-            build_outcome(quiet(&["--version"])),
+            build_outcome(quiet(&["--version"]), None),
             runner::BuildOutcome::Built
         );
         assert_eq!(
-            build_outcome(quiet(&["--magi-smoke-no-such-flag"])),
+            build_outcome(quiet(&["--magi-smoke-no-such-flag"]), None),
             runner::BuildOutcome::DidNotBuild,
             "cargo ran and refused: that IS data the scenario needs"
         );
         assert_eq!(
             build_outcome(
-                std::process::Command::new("magi-smoke-no-such-executable-anywhere").status()
+                std::process::Command::new("magi-smoke-no-such-executable-anywhere").output(),
+                None
             ),
             runner::BuildOutcome::CouldNotRun,
             "a spawn failure teaches nothing about the crate and must not read as a \
              combination that refused to compile"
+        );
+    }
+
+    #[test]
+    fn a_refusal_for_another_reason_is_not_the_refusal_under_test() {
+        // The hole this closes: the two combinations that must not compile are
+        // also the ones that need the registry, so an unreachable crates.io made
+        // them fail for a NETWORK reason — and the scenario read that as proof
+        // the mutual-exclusion guard fired. It would have reported Pass with the
+        // `compile_error!` deleted.
+        let refused = std::process::Command::new("cargo")
+            .args(["--magi-smoke-no-such-flag"])
+            .output();
+        assert_eq!(
+            build_outcome(refused, Some(BOTH_MODES_MARKER)),
+            runner::BuildOutcome::CouldNotRun,
+            "a refusal whose output does not name the guard teaches nothing about the guard"
+        );
+    }
+
+    #[test]
+    fn the_matrix_markers_are_the_text_alias_actually_prints() {
+        // Two hand-written strings that must agree with a file nobody edits
+        // together with this one. Without this, rewording either `compile_error!`
+        // turns every failing combination into CouldNotRun and the scenario skips
+        // forever — silently, which is the direction that costs the most.
+        const ALIAS_SRC: &str = include_str!("alias.rs");
+        assert!(
+            ALIAS_SRC.contains(BOTH_MODES_MARKER),
+            "alias.rs no longer prints {BOTH_MODES_MARKER:?}"
+        );
+        assert!(
+            ALIAS_SRC.contains(NEITHER_MODE_MARKER),
+            "alias.rs no longer prints {NEITHER_MODE_MARKER:?}"
         );
     }
 }

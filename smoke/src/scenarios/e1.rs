@@ -215,9 +215,18 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// Two independent checksums, both over bytes the HARNESS itself sent or
 /// received directly — never two LLM completions, which are not deterministic
 /// even at `temperature: 0` and would make "equivalent" meaningless.
+///
+/// **Three assertions, because the spec's transparency claim has three parts**:
+/// *"los bytes del cuerpo de la respuesta son IDENTICOS **y el status
+/// coincide**"*, plus the request body. The status comparison was specified and
+/// missing: a proxy that relayed the right bytes under a different status — a
+/// `200` turned into a `500`, or the reverse — satisfied both checksums while
+/// changing exactly what the crate classifies on, which is the one thing the
+/// rest of this harness reads.
 fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_REQUEST: &str = "the request the proxy relayed is byte-identical to ours";
     const NAME_RESPONSE: &str = "and so is the response it relayed back";
+    const NAME_STATUS: &str = "and the status it relayed is the one the backend gave";
 
     // A degraded proxy is a HARNESS fault, and this scenario reads a record the
     // proxy produced. Without this gate a failed body read — which the proxy
@@ -231,27 +240,32 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
         return vec![
             Assertion::skip(NAME_REQUEST, WHY),
             Assertion::skip(NAME_RESPONSE, WHY),
+            Assertion::skip(NAME_STATUS, WHY),
         ];
     }
 
-    let (Some(rec), Some(sent), Some(direct)) =
-        (ctx.probe_record, ctx.probe_sent_body, ctx.direct_probe_body)
-    else {
+    // All four terms together, never some of them: the probe sets them in one
+    // step, so a subset present would mean a probe that half ran — and comparing
+    // against a term that is not there says nothing about transparency.
+    let (Some(rec), Some(sent), Some(direct), Some(direct_status)) = (
+        ctx.probe_record,
+        ctx.probe_sent_body,
+        ctx.direct_probe_body,
+        ctx.direct_probe_status,
+    ) else {
+        const WHY: &str = "the transparency probe did not complete; nothing to compare";
         return vec![
-            Assertion::skip(
-                NAME_REQUEST,
-                "the transparency probe did not complete; nothing to compare",
-            ),
-            Assertion::skip(
-                NAME_RESPONSE,
-                "the transparency probe did not complete; nothing to compare",
-            ),
+            Assertion::skip(NAME_REQUEST, WHY),
+            Assertion::skip(NAME_RESPONSE, WHY),
+            Assertion::skip(NAME_STATUS, WHY),
         ];
     };
     if !rec.response_recorded {
+        const WHY: &str = "the probe response was not recorded";
         return vec![
-            Assertion::skip(NAME_REQUEST, "the probe response was not recorded"),
-            Assertion::skip(NAME_RESPONSE, "the probe response was not recorded"),
+            Assertion::skip(NAME_REQUEST, WHY),
+            Assertion::skip(NAME_RESPONSE, WHY),
+            Assertion::skip(NAME_STATUS, WHY),
         ];
     }
     // The comparison is by CHECKSUM, and `RequestRecord::record_of` hashes the
@@ -263,12 +277,87 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![
         assert_that(NAME_REQUEST, rec.body_sha256 == sha256_hex(sent.as_bytes())),
         assert_that(NAME_RESPONSE, rec.response_sha256 == sha256_hex(direct)),
+        assert_that(NAME_STATUS, rec.response_status == direct_status),
     ]
 }
 
 // ---------------------------------------------------------------------------
 // S4 — rotation and its cause, forced by injection
 // ---------------------------------------------------------------------------
+
+/// Whether the wire assertion has anything to answer WITH, and why not when it
+/// does not.
+///
+/// # The distinction this function exists to draw
+///
+/// The wire assertion reads "the injected failure reached a completion request".
+/// Exactly one shape of absence is a real finding, and it is NOT absence of
+/// traffic:
+///
+/// * **Completion requests exist and none carries the injected status** — the
+///   injection had its subject and did not fire. That is a defect of the proxy
+///   or of the injection wiring, it is observable, and it must FAIL. This
+///   function returns `None` for it, so the caller asserts.
+/// * **No completion request exists at all** — the run never got as far as the
+///   wire: the `Magi` would not build, the payload could not be generated, the
+///   crate failed before dispatching, the attempt ran out of time. The injection
+///   never had a subject, so "it did not fire" is not a fact about anything.
+///   Asserting here reports **Fail**: exit 1, a verdict about the crate, for a
+///   run the crate never entered. That is the single failure this harness exists
+///   to eliminate, and it is what this guard closes.
+/// * **Nothing was injected for this run** — the sentence has no subject at all.
+///   Its two sibling assertions already skip on this; the wire one failed,
+///   which was the same inconsistency one level down. Note that with no
+///   injection configured a genuine backend `500` would have satisfied the
+///   assertion by coincidence — precisely what its own name disclaims.
+///
+/// **The real finding and the harness fault ARE distinguishable from what
+/// [`RunContext`] carries**, and the discriminator is the presence of completion
+/// traffic — not the presence of a report, which was the other candidate and is
+/// the wrong one: a run can produce a typed error and still have reached the
+/// wire, and a run can produce no report for a reason that never touched it.
+/// `records` is what answers "did a completion request happen at all", so
+/// `records` is what decides. An injection that failed to fire ALWAYS leaves
+/// completion records behind — it is applied per completion request — so the
+/// case that must FAIL can never be mistaken for the case that must SKIP.
+///
+/// # Parameters
+///
+/// * `ctx` — the rotation run's context.
+///
+/// # Returns
+///
+/// `None` when the assertion can be evaluated, or `Some(reason)` naming what
+/// stopped it — which the caller turns into a `Skip`, never a `Fail`.
+///
+/// # Complexity
+///
+/// `O(r)` in the number of records: one scan for a completion request.
+fn why_the_wire_cannot_answer(ctx: &RunContext<'_>) -> Option<String> {
+    if ctx.injected_agent.is_none() {
+        return Some(
+            "no agent was injected for this run, so no injected failure could reach the wire"
+                .to_string(),
+        );
+    }
+    if ctx.records.iter().any(|r| r.path == COMPLETIONS_PATH) {
+        return None;
+    }
+    // Absence of traffic, with whatever the run said about why. The reason is
+    // built here rather than at the call site so the three shapes stay together.
+    Some(match (ctx.error, ctx.over_budget) {
+        (Some(e), _) => format!(
+            "the run never reached a completion request, so the injection had nothing to fire \
+             on; it ended with: {e}"
+        ),
+        (None, Some(d)) => {
+            format!("the run never reached a completion request: it ran out of time after {d:?}")
+        }
+        (None, None) => "the run never reached a completion request over the wire, so the \
+                         injection had nothing to fire on"
+            .to_string(),
+    })
+}
 
 /// `S4` — rotation and its cause, forced by injection
 /// (`sbtdd/smoke-harness-spec.md`, "S4").
@@ -283,7 +372,9 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// unhelpful data:
 ///
 /// - **Wire**: the injected status actually reached a completion request —
-///   proof the injection fired at all, independent of rotation.
+///   proof the injection fired at all, independent of rotation. **Guarded by
+///   its own two preconditions**, so a run that never got as far as the wire
+///   SKIPs instead of failing; see [`why_the_wire_cannot_answer`].
 /// - **Rotated**: `report.rotations[agent]`'s first hop exists AND its
 ///   destination lineage differs from its origin. An EMPTY `chain` fails this
 ///   (the mage never left its primary); a chain whose hop lands back on the
@@ -310,12 +401,15 @@ fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
         ];
     }
 
-    let wire = assert_that(
-        NAME_WIRE,
-        ctx.records
-            .iter()
-            .any(|r| r.path == COMPLETIONS_PATH && r.response_status == INJECTED_FAILURE_STATUS),
-    );
+    let wire = match why_the_wire_cannot_answer(ctx) {
+        Some(reason) => Assertion::skip(NAME_WIRE, reason),
+        None => assert_that(
+            NAME_WIRE,
+            ctx.records.iter().any(|r| {
+                r.path == COMPLETIONS_PATH && r.response_status == INJECTED_FAILURE_STATUS
+            }),
+        ),
+    };
 
     let Some(report) = ctx.report else {
         let reason = ctx
@@ -411,9 +505,18 @@ fn tags_response_has_a_64_hex_digest(body: &[u8]) -> bool {
 /// **FAILS, rather than skipping, on a shape it cannot parse** — that
 /// asymmetry is the scenario's whole point: if the API's shape has changed, the
 /// scenario FAILS instead of degrading in silence.
+///
+/// # EVERY answered probe is checked, not the first one found
+///
+/// A run probes once per probing candidate, so several records of each path
+/// exist. Reading only the first left an INTERMITTENT shape change — one model's
+/// entry losing its `context_length`, one manifest answering without a digest —
+/// hidden behind whichever record happened to come first. `.all()` over an empty
+/// set is vacuously true, so it is paired with a non-empty check, as everything
+/// else in this file is.
 fn s5_the_probe_still_reads_what_it_expects(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    const NAME_WINDOW: &str = "the probe returns a measurable context window";
-    const NAME_DIGEST: &str = "the probe returns a 64-hex-character digest";
+    const NAME_WINDOW: &str = "every probe answer carries a measurable context window";
+    const NAME_DIGEST: &str = "every probe answer carries a 64-hex-character digest";
 
     if ctx.proxy_degraded {
         let reason = "the proxy registry degraded during this run";
@@ -423,36 +526,76 @@ fn s5_the_probe_still_reads_what_it_expects(ctx: &RunContext<'_>) -> Vec<Asserti
         ];
     }
 
-    let show = ctx
-        .records
-        .iter()
-        .find(|r| r.path == "/api/show" && r.response_recorded);
-    let tags = ctx
-        .records
-        .iter()
-        .find(|r| r.path == "/api/tags" && r.response_recorded);
+    let show = answered_probes(ctx, SHOW_PATH);
+    let tags = answered_probes(ctx, TAGS_PATH);
 
-    let window = match show {
-        None => Assertion::skip(
+    let window = if show.is_empty() {
+        Assertion::skip(
             NAME_WINDOW,
-            "no /api/show probe request was recorded for this run",
-        ),
-        Some(r) => assert_that(
+            "no answered /api/show probe was recorded for this run",
+        )
+    } else {
+        assert_that(
             NAME_WINDOW,
-            show_response_has_measurable_window(&r.response_body),
-        ),
+            show.iter()
+                .all(|r| show_response_has_measurable_window(&r.response_body)),
+        )
     };
-    let digest = match tags {
-        None => Assertion::skip(
+    let digest = if tags.is_empty() {
+        Assertion::skip(
             NAME_DIGEST,
-            "no /api/tags probe request was recorded for this run",
-        ),
-        Some(r) => assert_that(
+            "no answered /api/tags probe was recorded for this run",
+        )
+    } else {
+        assert_that(
             NAME_DIGEST,
-            tags_response_has_a_64_hex_digest(&r.response_body),
-        ),
+            tags.iter()
+                .all(|r| tags_response_has_a_64_hex_digest(&r.response_body)),
+        )
     };
     vec![window, digest]
+}
+
+/// The window probe's path.
+const SHOW_PATH: &str = "/api/show";
+
+/// The digest probe's path.
+const TAGS_PATH: &str = "/api/tags";
+
+/// The lowest status this scenario reads as "the backend answered the question".
+const FIRST_SUCCESS_STATUS: u16 = 200;
+
+/// The first status above the success range.
+const FIRST_NON_SUCCESS_STATUS: u16 = 300;
+
+/// Every recorded probe response on `path` that the backend actually ANSWERED.
+///
+/// # Why a non-2xx record is excluded rather than failed
+///
+/// A `404` for a model the backend does not hold is a fact about the deployment,
+/// not about the API's shape: its body is an error object, which no shape check
+/// can parse, so counting it would turn "a fallback model is not pulled" into a
+/// red row about the crate. What an API shape change looks like is a **`200`
+/// whose body no longer carries what the probe reads**, and those are exactly
+/// the records this returns.
+///
+/// # Parameters
+///
+/// * `ctx` — the run whose traffic is being read.
+/// * `path` — the probe path to collect.
+///
+/// # Complexity
+///
+/// `O(r)` in the number of records.
+fn answered_probes<'a>(ctx: &RunContext<'a>, path: &str) -> Vec<&'a RequestRecord> {
+    ctx.records
+        .iter()
+        .filter(|r| {
+            r.path == path
+                && r.response_recorded
+                && (FIRST_SUCCESS_STATUS..FIRST_NON_SUCCESS_STATUS).contains(&r.response_status)
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -870,6 +1013,7 @@ mod tests {
             attempts: 1,
             over_budget: None,
             direct_probe_body: None,
+            direct_probe_status: None,
             probe_record: None,
             probe_sent_body: None,
             injected_agent: None,
@@ -1071,12 +1215,66 @@ mod tests {
 
     // -- S2b --
 
+    /// The status both halves of a healthy probe carry.
+    const PROBE_OK_STATUS: u16 = 200;
+
     #[test]
     fn s2b_skips_when_the_probe_never_completed() {
         let ctx = blank_ctx(RunId::HappySmall);
         let a = s2b_the_proxy_is_transparent(&ctx);
-        assert_eq!(a.len(), 2);
+        assert_eq!(a.len(), 3);
         assert!(a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))));
+    }
+
+    #[test]
+    fn s2b_skips_when_the_direct_half_left_no_status_to_compare_against() {
+        // Half a probe compares against a term that is not there. Failing on it
+        // would report a transparency difference the proxy never introduced.
+        let sent = "the probe body".to_string();
+        let direct = b"the probe response".to_vec();
+        let rec = recorded_response(SHOW_PATH, PROBE_OK_STATUS, &direct);
+        let rec = RequestRecord {
+            body_sha256: sha256_hex(sent.as_bytes()),
+            ..rec
+        };
+        let ctx = RunContext {
+            probe_record: Some(&rec),
+            probe_sent_body: Some(&sent),
+            direct_probe_body: Some(&direct),
+            direct_probe_status: None,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s2b_the_proxy_is_transparent(&ctx);
+        assert!(
+            a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))),
+            "{a:?}"
+        );
+    }
+
+    #[test]
+    fn s2b_fails_when_the_relayed_status_differs_from_the_one_the_backend_gave() {
+        // The gap this closes: a proxy that relayed the right bytes under a
+        // DIFFERENT status satisfied both checksums, while changing exactly what
+        // the crate classifies on. The spec asked for this comparison; the code
+        // did not have it.
+        let sent = "the probe body".to_string();
+        let direct = b"the probe response".to_vec();
+        let rec = recorded_response(SHOW_PATH, 500, &direct);
+        let rec = RequestRecord {
+            body_sha256: sha256_hex(sent.as_bytes()),
+            ..rec
+        };
+        let ctx = RunContext {
+            probe_record: Some(&rec),
+            probe_sent_body: Some(&sent),
+            direct_probe_body: Some(&direct),
+            direct_probe_status: Some(PROBE_OK_STATUS),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s2b_the_proxy_is_transparent(&ctx);
+        assert_eq!(a[0].state, ScenarioState::Pass, "the bodies still match");
+        assert_eq!(a[1].state, ScenarioState::Pass, "the bodies still match");
+        assert_eq!(a[2].state, ScenarioState::Fail, "{a:?}");
     }
 
     #[test]
@@ -1086,7 +1284,7 @@ mod tests {
         // verdict about the crate, for a harness fault.
         let sent = "the probe body".to_string();
         let direct = b"the probe response".to_vec();
-        let rec = recorded_response("/api/show", 200, &direct);
+        let rec = recorded_response(SHOW_PATH, PROBE_OK_STATUS, &direct);
         let rec = RequestRecord {
             body_sha256: sha256_hex(b""),
             ..rec
@@ -1095,6 +1293,7 @@ mod tests {
             probe_record: Some(&rec),
             probe_sent_body: Some(&sent),
             direct_probe_body: Some(&direct),
+            direct_probe_status: Some(PROBE_OK_STATUS),
             proxy_degraded: true,
             ..blank_ctx(RunId::HappySmall)
         };
@@ -1106,10 +1305,10 @@ mod tests {
     }
 
     #[test]
-    fn s2b_passes_when_both_hashes_match() {
+    fn s2b_passes_when_both_hashes_and_the_status_match() {
         let sent = "the probe body".to_string();
         let direct = b"the probe response".to_vec();
-        let rec = recorded_response("/api/show", 200, &direct);
+        let rec = recorded_response(SHOW_PATH, PROBE_OK_STATUS, &direct);
         let rec = RequestRecord {
             body_sha256: sha256_hex(sent.as_bytes()),
             ..rec
@@ -1118,6 +1317,7 @@ mod tests {
             probe_record: Some(&rec),
             probe_sent_body: Some(&sent),
             direct_probe_body: Some(&direct),
+            direct_probe_status: Some(PROBE_OK_STATUS),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s2b_the_proxy_is_transparent(&ctx);
@@ -1131,11 +1331,12 @@ mod tests {
         // `body_sha256` is deliberately left at its default (the empty-body
         // hash), which will not match `sha256_hex(sent)` — proving the
         // comparison is real, not vacuously true.
-        let rec = recorded_response("/api/show", 200, &direct);
+        let rec = recorded_response(SHOW_PATH, PROBE_OK_STATUS, &direct);
         let ctx = RunContext {
             probe_record: Some(&rec),
             probe_sent_body: Some(&sent),
             direct_probe_body: Some(&direct),
+            direct_probe_status: Some(PROBE_OK_STATUS),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s2b_the_proxy_is_transparent(&ctx);
@@ -1289,6 +1490,7 @@ mod tests {
         let records = vec![record(COMPLETIONS_PATH, INJECTED_FAILURE_STATUS)];
         let ctx = RunContext {
             records: &records,
+            injected_agent: Some(AgentName::Caspar),
             ..blank_ctx(RunId::Rotation)
         };
         let a = s4_rotation_and_its_cause(&ctx);
@@ -1297,13 +1499,83 @@ mod tests {
 
     #[test]
     fn s4_wire_check_fails_when_no_completion_ever_saw_the_injected_status() {
+        // DIRECTION 2 of the guard's mutation proof: the run DID reach the wire,
+        // the injection did not fire. That is a real finding — the guard must not
+        // have turned it into a skip.
         let records = vec![record(COMPLETIONS_PATH, 200)];
         let ctx = RunContext {
             records: &records,
+            injected_agent: Some(AgentName::Caspar),
             ..blank_ctx(RunId::Rotation)
         };
         let a = s4_rotation_and_its_cause(&ctx);
         assert_eq!(a[0].state, ScenarioState::Fail);
+    }
+
+    #[test]
+    fn s4_wire_check_skips_rather_than_fails_when_the_run_never_reached_the_wire() {
+        // DIRECTION 1: nothing was ever sent — the `Magi` would not build, the
+        // proxy could not start, the run never happened. Asserting here reports
+        // FAIL: exit 1, a verdict about the crate, for a run the crate never
+        // entered. That inversion is the one failure this harness exists to
+        // eliminate.
+        let ctx = RunContext {
+            records: &[],
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Rotation)
+        };
+        let a = s4_rotation_and_its_cause(&ctx);
+        match &a[0].state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("never reached a completion request"),
+                "the skip must name what was missing: {reason:?}"
+            ),
+            other => panic!("expected a Skip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn s4_wire_skip_carries_the_typed_failure_the_run_ended_with() {
+        // A crate error that arrives BEFORE any dispatch is still "never reached
+        // the wire" — but the operator needs to know which one, or the skip sends
+        // them looking for a proxy fault that is not there.
+        let err = "endpoint down: no lineage reachable (a, b)".to_string();
+        let ctx = RunContext {
+            records: &[],
+            error: Some(&err),
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Rotation)
+        };
+        let a = s4_rotation_and_its_cause(&ctx);
+        match &a[0].state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("endpoint down"),
+                "the skip must carry what the run ended with: {reason:?}"
+            ),
+            other => panic!("expected a Skip, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn s4_wire_check_skips_when_nothing_was_injected_instead_of_blaming_the_crate() {
+        // Its two sibling assertions already skipped on this; the wire one
+        // failed, which is the same inconsistency one level down. And with no
+        // injection configured, a GENUINE backend 500 would have satisfied the
+        // assertion by coincidence — exactly what its own name disclaims.
+        let records = vec![record(COMPLETIONS_PATH, INJECTED_FAILURE_STATUS)];
+        let ctx = RunContext {
+            records: &records,
+            injected_agent: None,
+            ..blank_ctx(RunId::Rotation)
+        };
+        let a = s4_rotation_and_its_cause(&ctx);
+        match &a[0].state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("no agent was injected"),
+                "the skip must name the absent injection: {reason:?}"
+            ),
+            other => panic!("expected a Skip, got {other:?}"),
+        }
     }
 
     // -- S5 --
@@ -1354,6 +1626,61 @@ mod tests {
         };
         let a = s5_the_probe_still_reads_what_it_expects(&ctx);
         assert_eq!(a[1].state, ScenarioState::Fail);
+    }
+
+    #[test]
+    fn s5_notices_a_shape_change_that_only_the_second_probe_answer_shows() {
+        // A run probes once per candidate. Reading only the FIRST record hid an
+        // intermittent change — one model's entry losing `context_length` — behind
+        // whichever answer happened to arrive first.
+        let good = br#"{"model_info":{"gemma4.context_length":262144}}"#.to_vec();
+        let changed = br#"{"model_info":{"gemma4.something_else":1}}"#.to_vec();
+        let records = vec![
+            recorded_response(SHOW_PATH, 200, &good),
+            recorded_response(SHOW_PATH, 200, &changed),
+        ];
+        let ctx = RunContext {
+            records: &records,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s5_the_probe_still_reads_what_it_expects(&ctx);
+        assert_eq!(a[0].state, ScenarioState::Fail, "{a:?}");
+    }
+
+    #[test]
+    fn s5_reads_only_the_probes_the_backend_answered() {
+        // A 404 for a model the backend does not hold is a fact about the
+        // DEPLOYMENT: its body is an error object, which no shape check can
+        // parse. Counting it would turn "a fallback model is not pulled" into a
+        // red row about the crate — the 1-versus-2 inversion, arriving through
+        // the config.
+        let missing = br#"{"error":"model 'x' not found"}"#.to_vec();
+        let good = br#"{"model_info":{"gemma4.context_length":262144}}"#.to_vec();
+        let records = vec![
+            recorded_response(SHOW_PATH, 404, &missing),
+            recorded_response(SHOW_PATH, 200, &good),
+        ];
+        let ctx = RunContext {
+            records: &records,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s5_the_probe_still_reads_what_it_expects(&ctx);
+        assert_eq!(a[0].state, ScenarioState::Pass, "{a:?}");
+    }
+
+    #[test]
+    fn s5_skips_when_every_probe_answer_was_an_error_status() {
+        // Nothing was learned about the API's shape, and a skip says so. Passing
+        // here would be green by omission; failing would blame the crate for a
+        // model the backend does not hold.
+        let missing = br#"{"error":"model 'x' not found"}"#.to_vec();
+        let records = vec![recorded_response(SHOW_PATH, 404, &missing)];
+        let ctx = RunContext {
+            records: &records,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s5_the_probe_still_reads_what_it_expects(&ctx);
+        assert!(matches!(a[0].state, ScenarioState::Skip(_)), "{a:?}");
     }
 
     // -- S6, S7, S14, S20 (preflight-sourced) --
