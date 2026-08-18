@@ -57,7 +57,7 @@ pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
     files
 }
 
-/// Recursively collects every `.rs` file under `root` into `out`, skipping
+/// Collects every `.rs` file under a TOP-LEVEL root into `out`, skipping
 /// symlinks entirely and appending one message to `errors` for anything the
 /// walk found but could not inspect.
 ///
@@ -66,16 +66,59 @@ pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
 /// caller intended to read, and the two platforms resolve them differently —
 /// exactly the divergence [`sort_deterministically`] exists to eliminate.
 ///
+/// # The root exemption, and exactly how far it reaches
+///
 /// An unreadable ROOT is skipped rather than reported: the caller widens
 /// across multiple roots (see [`generate`]), and one missing root (e.g. a
-/// project with no `examples/`) must not abort the whole walk. That exemption
-/// stops at the directory itself — see [`collect_from_entries`] for why an
-/// entry inside a directory that DID open is a different question.
+/// project with no `examples/`) must not abort the whole walk.
+///
+/// **That exemption stops at this one directory.** Everything deeper goes
+/// through [`collect_subdir`], which REPORTS a directory it cannot read
+/// instead of returning quietly — a subdirectory reached by the walk is one
+/// the walk already saw listed, so failing to open it drops files from the
+/// concatenation and the same tree stops producing the same bytes. That is the
+/// same non-determinism [`collect_from_entries`] refuses for a single entry,
+/// reached one level up.
 fn collect_rs(root: &Path, out: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
     collect_from_entries(entries, root, out, errors);
+}
+
+/// The recursive half of the walk: like [`collect_rs`], except that a
+/// directory it cannot READ is recorded in `errors` rather than skipped.
+///
+/// # Why this is not the same question as an unreadable root
+///
+/// A root is a directory the caller merely HOPES exists — [`ROOTS`] is a
+/// widening list and a project without `examples/` is an ordinary, expected
+/// input. A subdirectory, by contrast, was already listed as an entry of a
+/// directory that opened: it exists, the walk found it, and failing to descend
+/// into it silently removes whatever `.rs` files it holds from the payload.
+/// The output would then depend on what happened to be readable on this
+/// machine, which is precisely the property [`sort_deterministically`] is
+/// bought to remove — so it aborts the generation loudly instead
+/// ([`generate`]).
+///
+/// Skipping it was the previous behaviour, inherited from [`collect_rs`]'s
+/// single `let ... else { return }`: the entry-level and root-level cases had
+/// both been fixed while this one, one level between them, kept reporting
+/// success while guarding nothing.
+///
+/// # Parameters
+///
+/// * `dir` — the subdirectory to descend into.
+/// * `out` — accumulator for the `.rs` paths found.
+/// * `errors` — accumulator for what could not be read.
+fn collect_subdir(dir: &Path, out: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => collect_from_entries(entries, dir, out, errors),
+        Err(e) => errors.push(format!(
+            "could not read the directory {}: {e}",
+            dir.display()
+        )),
+    }
 }
 
 /// The per-entry half of [`collect_rs`], over an ITERATOR of entries rather
@@ -144,7 +187,9 @@ fn collect_from_entries<I>(
             continue;
         }
         if meta.is_dir() {
-            collect_rs(&path, out, errors);
+            // `collect_subdir`, NOT `collect_rs`: the missing-root exemption
+            // belongs to the top of the walk only (see both functions' docs).
+            collect_subdir(&path, out, errors);
         } else if path.extension().is_some_and(|ext| ext == "rs") {
             out.push(path);
         }
@@ -228,11 +273,12 @@ const BOUNDARY_PAD: char = ' ';
 /// it is not what guarantees the returned size, because it runs before the
 /// truncation — the padding above is.
 ///
-/// Also returns [`PayloadError`] if a collected `.rs` file cannot be read, or
-/// if the walk found an entry it could not read or `stat`
-/// ([`collect_from_entries`]). A skip in any of those makes the output depend
-/// on which files happened to be readable on this machine, which is precisely
-/// the non-determinism [`sort_deterministically`] is bought to remove. An
+/// Also returns [`PayloadError`] if a collected `.rs` file cannot be read, if
+/// the walk found an entry it could not read or `stat`
+/// ([`collect_from_entries`]), or if it found a SUBDIRECTORY it could not open
+/// ([`collect_subdir`]). A skip in any of those makes the output depend on
+/// which files happened to be readable on this machine, which is precisely the
+/// non-determinism [`sort_deterministically`] is bought to remove. An
 /// unreadable ROOT DIRECTORY is still skipped, and deliberately so — see
 /// [`collect_rs`]: a root that does not exist at all (a project with no
 /// `examples/`) is an expected input to the widening, while anything inside a
@@ -486,13 +532,187 @@ mod tests {
         );
     }
 
+    /// The name the E2 token guard above is declared under. Held as a constant
+    /// so the tripwire and the guard cannot drift apart silently.
+    const E2_TOKEN_GUARD_FN: &str = "the_large_payload_still_produces_a_large_prompt";
+
+    /// Returns the block-comment nesting depth at the END of `line`, given the
+    /// depth it started at. Rust block comments nest, so this counts rather
+    /// than latches.
+    ///
+    /// A `//` encountered at depth `0` ends the scan of that line: everything
+    /// after it is a line comment, so a `/*` written there opens nothing.
+    ///
+    /// # Known limitation
+    ///
+    /// It does not lex string literals, so a `/*` or `*/` inside one is
+    /// counted. That is the CHEAP direction of error: a stray `/*` in a
+    /// literal raises the depth and makes the tripwire report the guard
+    /// missing — red, loudly, on a file someone just edited — whereas the
+    /// direction that matters is a tripwire staying GREEN over a guard that is
+    /// gone. Written by hand rather than with a lexer for the same reason:
+    /// this is a tripwire over one known file, not a parser.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the line's length.
+    fn block_comment_depth_after(line: &str, mut depth: usize) -> usize {
+        let b = line.as_bytes();
+        let mut i = 0;
+        while i + 1 < b.len() {
+            if depth == 0 && b[i] == b'/' && b[i + 1] == b'/' {
+                break;
+            }
+            if b[i] == b'/' && b[i + 1] == b'*' {
+                depth += 1;
+                i += 2;
+            } else if depth > 0 && b[i] == b'*' && b[i + 1] == b'/' {
+                depth -= 1;
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        depth
+    }
+
+    /// Whether `src` DECLARES a function named `name`, as opposed to merely
+    /// MENTIONING it.
+    ///
+    /// "Declares" means a line whose trimmed text begins with `fn <name>` and
+    /// which is not commented out. The two comment forms are excluded by
+    /// different halves of the check: a `//` in front of the declaration stops
+    /// the trimmed line beginning with `fn`, and a surrounding `/* … */` is
+    /// caught by the depth carried in from earlier lines
+    /// ([`block_comment_depth_after`]).
+    ///
+    /// # Why a substring search is not enough
+    ///
+    /// The tripwire below exists so a later stage cannot enable `e2` over a
+    /// guard someone removed. `str::contains` answers "is the name written
+    /// anywhere in this file", and commenting the guard out leaves the name
+    /// written — so the tripwire stayed green while the guard was gone: a
+    /// mechanism reporting success while guarding nothing, which is the exact
+    /// class of defect this milestone keeps producing. Requiring the name at
+    /// the start of an uncommented line means a mention (in prose, in a string
+    /// literal, in this very docstring) can never satisfy it.
+    ///
+    /// # Parameters
+    ///
+    /// * `src` — the source text to inspect.
+    /// * `name` — the function's bare name, without the `fn ` keyword.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the source length.
+    fn source_declares_fn(src: &str, name: &str) -> bool {
+        let needle = format!("fn {name}");
+        let mut depth = 0usize;
+        for line in src.lines() {
+            if depth == 0 && line.trim_start().starts_with(&needle) {
+                return true;
+            }
+            depth = block_comment_depth_after(line, depth);
+        }
+        false
+    }
+
     #[test]
     fn the_e2_token_guard_is_still_present_in_the_source() {
         // Compiled out today, so nothing else would notice its deletion.
-        let src = include_str!("payload.rs");
         assert!(
-            src.contains("fn the_large_payload_still_produces_a_large_prompt"),
-            "the R17 stub was removed; MS1 would enable `e2` over a guard that no longer exists"
+            source_declares_fn(include_str!("payload.rs"), E2_TOKEN_GUARD_FN),
+            "the R17 stub was removed or commented out; MS1 would enable `e2` over a guard that \
+             no longer runs"
+        );
+    }
+
+    #[test]
+    fn a_mention_of_the_guard_does_not_satisfy_the_tripwire() {
+        // The fifteenth instance of this milestone's recurring defect: the
+        // tripwire matched a SUBSTRING, so two slashes in front of the guard
+        // left it green while the guard was gone. Every input here contains
+        // the name; none of them declares the function.
+        let mentions = [
+            format!("// fn {E2_TOKEN_GUARD_FN}() {{"),
+            format!("    //fn {E2_TOKEN_GUARD_FN}() {{"),
+            format!("    let name = \"fn {E2_TOKEN_GUARD_FN}\";"),
+            format!("/*\nfn {E2_TOKEN_GUARD_FN}() {{}}\n*/"),
+            format!("/* fn {E2_TOKEN_GUARD_FN}() {{}} */"),
+            format!("/// See [`fn {E2_TOKEN_GUARD_FN}`] for the token bound."),
+        ];
+        for src in mentions {
+            assert!(
+                !source_declares_fn(&src, E2_TOKEN_GUARD_FN),
+                "a mention must not satisfy the tripwire: {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_declaration_satisfies_the_tripwire_however_it_is_formatted() {
+        // The other direction, and it matters just as much: a tripwire that
+        // goes red when someone re-indents the guard or adds an attribute is a
+        // tripwire that gets deleted. Reformatting must not break it.
+        let declarations = [
+            format!("fn {E2_TOKEN_GUARD_FN}() {{}}"),
+            format!("                fn {E2_TOKEN_GUARD_FN}() {{}}"),
+            format!("\t\tfn {E2_TOKEN_GUARD_FN}(\n) {{}}"),
+            format!("#[cfg(feature = \"e2\")]\n    #[test]\n    fn {E2_TOKEN_GUARD_FN}() {{}}"),
+            // A block comment that OPENED and CLOSED earlier must not leave
+            // the scanner stuck thinking the rest of the file is commented.
+            format!("/* an earlier note */\nfn {E2_TOKEN_GUARD_FN}() {{}}"),
+            // Nor must a `/*` that only ever appears inside a line comment.
+            format!("// see /* the note */\nfn {E2_TOKEN_GUARD_FN}() {{}}"),
+        ];
+        for src in declarations {
+            assert!(
+                source_declares_fn(&src, E2_TOKEN_GUARD_FN),
+                "a real declaration must satisfy the tripwire: {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_subdirectory_that_cannot_be_read_is_an_error_not_a_silent_skip() {
+        // The root-level exemption and the entry-level failure were both fixed
+        // in earlier rounds; the level BETWEEN them still returned quietly, so
+        // a subdirectory the walk had already listed could vanish from the
+        // concatenation and the same tree would stop producing the same bytes.
+        //
+        // Forced by handing `collect_subdir` a path that is a FILE: `read_dir`
+        // refuses it on both platforms this project builds on (`ENOTDIR` /
+        // `ERROR_DIRECTORY`), which needs no privilege and no permission
+        // juggling. What it pins is the DECISION the code makes when a
+        // directory read fails, which is the thing that regressed.
+        let dir = tempdir_with(&[("src/not_a_dir.rs", "fn main() {}")]);
+        let not_a_dir = dir.path().join("src/not_a_dir.rs");
+
+        let mut out = Vec::new();
+        let mut errors = Vec::new();
+        collect_subdir(&not_a_dir, &mut out, &mut errors);
+        assert!(out.is_empty());
+        assert_eq!(
+            errors.len(),
+            1,
+            "a subdirectory the walk found and could not read must be reported: {errors:?}"
+        );
+        assert!(
+            errors[0].contains("not_a_dir.rs"),
+            "the message must NAME what could not be read: {:?}",
+            errors[0]
+        );
+
+        // And the root exemption is still exactly that — an exemption for the
+        // TOP of the walk only. Asserting the new error without this would
+        // pass just as well against a version that reported both, which would
+        // break the widening over a project with no `examples/`.
+        let mut root_out = Vec::new();
+        let mut root_errors = Vec::new();
+        collect_rs(&not_a_dir, &mut root_out, &mut root_errors);
+        assert!(
+            root_errors.is_empty(),
+            "a root that cannot be opened is skipped, not reported: {root_errors:?}"
         );
     }
 }

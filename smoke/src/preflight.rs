@@ -466,11 +466,17 @@ pub async fn raise_proxy(cfg: &Config, break_proxy: bool) -> Result<SpyProxy, Pr
              verdict about the crate: no scenario is reported as passed.",
         ));
     }
-    SpyProxy::start(cfg.endpoint.clone(), cfg.payload_target_bytes)
-        .await
-        .map_err(|e| {
-            PreflightError::cannot_test(Stage::Proxy, format!("proxy: could not start: {e}"))
-        })
+    // The upstream bound is the LONGEST budget of any backend-using run, so
+    // the proxy can never be what cuts first: a proxy cut is a HARNESS fault
+    // ("cannot test"), and turning a slow-but-legal backend into one would
+    // hide the very thing the run was measuring.
+    SpyProxy::start(
+        cfg.endpoint.clone(),
+        cfg.payload_target_bytes,
+        cfg.longest_backend_budget(),
+    )
+    .await
+    .map_err(|e| PreflightError::cannot_test(Stage::Proxy, format!("proxy: could not start: {e}")))
 }
 
 /// Coarse bytes-to-tokens divisor. **The SAME crude bound `magi-core` itself

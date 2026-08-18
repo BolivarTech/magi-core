@@ -61,6 +61,7 @@
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::TryStreamExt;
 use http_body_util::{BodyExt, Full, StreamBody};
@@ -343,6 +344,11 @@ pub struct SpyProxy {
     /// `reqwest::Client` is internally reference-counted and `Clone` is cheap,
     /// so sharing it through `SpyProxy`'s own `Clone` (the serving task holds
     /// one) needs no `Arc` of our own.
+    ///
+    /// It carries a TOTAL request timeout, given to
+    /// [`start`](SpyProxy::start) by the caller — see that function for where
+    /// the value comes from and why the proxy must not be the component
+    /// without a bound.
     client: reqwest::Client,
 }
 
@@ -518,9 +524,35 @@ impl SpyProxy {
     /// **Everything goes through here**: there is no with-proxy and
     /// without-proxy mode, so a scenario that bypassed it would observe
     /// nothing.
+    ///
+    /// # Parameters
+    ///
+    /// * `upstream` — base URL of the real backend every request is forwarded
+    ///   to.
+    /// * `payload_target_bytes` — sizes the per-record body cap (see
+    ///   [`max_recorded_body`]).
+    /// * `upstream_timeout` — TOTAL bound on one forwarded request, from
+    ///   connect to the last body byte.
+    ///
+    /// # The upstream bound, and why it is passed in
+    ///
+    /// A backend that accepts a connection and then answers nothing would hang
+    /// the forward. The run's own budget does eventually cut it, so nothing
+    /// hangs forever — but the proxy would be the only component in the path
+    /// with no bound of its own, and that is the component that ends up blamed
+    /// for a backend fault.
+    ///
+    /// The value is DERIVED, not invented:
+    /// [`Config::longest_backend_budget`](crate::config::Config::longest_backend_budget)
+    /// is what the production caller passes, so the proxy's bound is always at
+    /// least as long as the longest run it can be serving. That ordering is
+    /// the point — if the proxy cut first, a slow-but-legal backend would
+    /// surface as a proxy error, and a proxy error is a HARNESS fault reported
+    /// as "cannot test" rather than as a verdict about the crate.
     pub async fn start(
         upstream: String,
         payload_target_bytes: usize,
+        upstream_timeout: Duration,
     ) -> Result<Self, std::io::Error> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let base_url = format!("http://{}", listener.local_addr()?);
@@ -529,6 +561,7 @@ impl SpyProxy {
         // that cannot be constructed becomes this function's error instead of a
         // panic inside a dependency.
         let client = reqwest::Client::builder()
+            .timeout(upstream_timeout)
             .build()
             .map_err(std::io::Error::other)?;
         let this = Self {
@@ -872,13 +905,22 @@ fn response_chunk_stream(
 mod tests {
     use super::*;
 
+    /// Upstream bound for the proxies these tests raise.
+    ///
+    /// Deliberately far longer than anything a local fixture server takes, so
+    /// it never becomes the reason a test fails: what these tests are about is
+    /// the proxy's recording and injection, never its timing. Production
+    /// derives its value from the configured budgets instead — see
+    /// [`SpyProxy::start`].
+    const TEST_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
+
     #[tokio::test]
     async fn records_the_full_request_body_by_hash_not_just_the_path() {
         // The record identifies the WHOLE body, not merely the envelope: the
         // hash is taken over every byte that went on the wire, so a proxy that
         // recorded only the path — or that hashed a capped prefix — fails here.
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         // A literal body, so the exact bytes hashed are known to the test
@@ -908,7 +950,7 @@ mod tests {
         // run's records — the exact confusion `mark`/`records_since` exist to
         // prevent — and does it while `is_degraded()` reports clean.
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         let client = reqwest::Client::new();
@@ -943,7 +985,7 @@ mod tests {
         // recovered the records but said nothing, so a run whose registry was
         // poisoned only between the push and the read stayed silent about it.
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         let client = reqwest::Client::new();
@@ -970,7 +1012,7 @@ mod tests {
         // proxy fails EVERY scenario. Failing forward and saying so is the
         // right direction.
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         proxy.poison_for_test(); // see the impl below: a real poisoning, not a flag
@@ -990,7 +1032,7 @@ mod tests {
     #[tokio::test]
     async fn fail_model_only_affects_the_named_model() {
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         proxy.set_injection(Some(Injection::FailModel {
@@ -1027,7 +1069,7 @@ mod tests {
         // does not silently stop injecting mid-run) AND mark `degraded` (so
         // the run does not report clean while a lock was poisoned).
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         proxy.set_injection(Some(Injection::FailModel {
@@ -1064,7 +1106,7 @@ mod tests {
         // (`response_recorded: true`, empty body) — indistinguishable from a
         // backend that truly answered with nothing.
         let upstream = crate::testkit::spawn_truncating_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         let client = reqwest::Client::new();
@@ -1085,7 +1127,9 @@ mod tests {
         );
         assert!(
             proxy.is_degraded(),
-            "a proxy that could not read a response body must SAY so: without              this a scenario comparing response bytes sees nothing and blames              the crate for what the proxy failed to do"
+            "a proxy that could not read a response body must SAY so: without \
+             this a scenario comparing response bytes sees nothing and blames \
+             the crate for what the proxy failed to do"
         );
     }
 
@@ -1101,7 +1145,7 @@ mod tests {
         // The load-bearing assertion is the one the proxy's own registry cannot
         // make: that the upstream received NOTHING.
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         assert_eq!(upstream.received(), 0, "nothing has been sent yet");
@@ -1159,7 +1203,7 @@ mod tests {
     #[tokio::test]
     async fn by_default_it_forwards_and_injects_nothing() {
         let upstream = crate::testkit::spawn_echo_server().await;
-        let proxy = SpyProxy::start(upstream.url(), 250_000)
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
         let r = reqwest::Client::new()
@@ -1172,6 +1216,54 @@ mod tests {
             r.status(),
             200,
             "there must never be a mock in front of the happy path"
+        );
+    }
+
+    /// Shorter than [`crate::testkit::stub_that_is_always_slow`]'s delay, so
+    /// the bound is what ends the forward and the stub never gets to answer.
+    const SHORT_UPSTREAM_TIMEOUT: Duration = Duration::from_millis(100);
+
+    /// Comfortably above [`SHORT_UPSTREAM_TIMEOUT`] and comfortably below the
+    /// stub's own delay, so the assertion distinguishes "the bound cut it"
+    /// from "the stub eventually answered" without racing a loaded machine.
+    const CUT_BEFORE: Duration = Duration::from_millis(400);
+
+    #[tokio::test]
+    async fn a_backend_that_never_answers_is_cut_by_the_proxys_own_bound() {
+        // The proxy used to build its forward client with no timeout at all:
+        // an upstream that accepts a connection and then says nothing would
+        // hold the forward open until the RUN's budget expired. Nothing hung
+        // forever, but the proxy was the one component in the path without a
+        // bound of its own — and an unbounded harness component is what ends
+        // up wearing a backend fault.
+        //
+        // Asserting the 502 alone would pass just as well against a proxy with
+        // no timeout, because the stub does answer in the end. The ELAPSED
+        // time is what separates the two.
+        let upstream = crate::testkit::stub_that_is_always_slow().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, SHORT_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        let started = std::time::Instant::now();
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .expect(
+                "the proxy must ANSWER, not hang: a cut forward is a 502, not a dropped \
+                     connection",
+            );
+        let elapsed = started.elapsed();
+        assert_eq!(
+            r.status(),
+            UPSTREAM_UNREACHABLE_STATUS,
+            "a forward the proxy cut short is an upstream problem the crate can classify"
+        );
+        assert!(
+            elapsed < CUT_BEFORE,
+            "the proxy's own bound must be what ends the forward, but it took {elapsed:?} — \
+             which is the stub answering, not the timeout firing"
         );
     }
 }

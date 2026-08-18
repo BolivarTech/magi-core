@@ -59,14 +59,35 @@ const COMMENT_OPEN: &str = "//";
 /// does not match `// WEAKENED_FOR: <id>`, or the id is missing or has spaces in
 /// it.
 ///
-/// # Deliberate over-matching
+/// # Deliberate over-matching, and its TWO sources
 ///
 /// Any COMMENT containing the word in any casing is treated as an attempted
 /// mark, so ordinary prose that happens to use it will be rejected. That is the
 /// cheap direction of error, and it is chosen on purpose: a false positive costs
 /// one reworded comment, while a false negative leaves a relaxed assertion in
-/// the tree forever and the gate reporting green over it. Code outside comments
-/// is not examined, so the module's own name is not a violation of itself.
+/// the tree forever and the gate reporting green over it.
+///
+/// **The second source is that "comment" here means "whatever follows the first
+/// `//` on the line", and that is not the same thing as a Rust comment.** A
+/// `//` inside a STRING LITERAL — a URL, or a literal holding a snippet of
+/// commented source — opens a "comment" as far as this function is concerned,
+/// so a line such as `let s = "// WEAKENED_FOR EC-3";` is checked as a mark and
+/// rejected for being malformed. This is a KNOWN and ACCEPTED consequence, not
+/// an oversight, and it was left standing after review rather than closed:
+///
+/// * **It fails in the same cheap direction as the first source.** The cost is
+///   an extra rejection, which one reword or one restructure clears. Nothing
+///   about it can make a malformed mark pass.
+/// * **Closing it means lexing Rust.** Telling a literal `//` from a comment
+///   `//` needs string, raw-string, char-literal and escape handling — a lexer
+///   living inside a line-oriented guard, whose own bugs would be the thing
+///   that lets a mark through. A guard whose failure mode is "too strict" is
+///   worth far more here than a cleverer one whose failure mode is "sometimes
+///   silent".
+///
+/// What is NOT over-matched is code with no `//` in it at all: `mod weakened;`
+/// and `weakened::scan()` are examined and pass, so the module's own name is
+/// not a violation of itself.
 ///
 /// # Complexity
 ///
@@ -241,6 +262,31 @@ mod tests {
         // which would turn the guard into one that only ever agrees with marks
         // that were already correct.
         assert!(validate_line("// this assertion was weakened, see the notes").is_err());
+    }
+
+    #[test]
+    fn a_marker_shaped_string_literal_is_treated_as_a_mark_and_that_is_declared() {
+        // Raised in review: "comment" here means "text after the first `//` on
+        // the line", so a `//` inside a STRING LITERAL opens one as far as
+        // this guard is concerned. The over-match therefore has a second
+        // source, and this test exists so that source is DELIBERATE and
+        // documented rather than discovered again later.
+        //
+        // The behaviour is kept, not fixed: it errs strict, which is the same
+        // cheap direction as the prose over-match, and closing it would mean
+        // lexing Rust string literals inside a line-oriented guard. See
+        // `validate_line`'s "Deliberate over-matching, and its TWO sources".
+        let literal_holding_a_malformed_mark = concat!("let s = \"", "// WEAKENED_FOR EC-3\";");
+        assert!(
+            validate_line(literal_holding_a_malformed_mark).is_err(),
+            "a marker-shaped literal is rejected — strict, which is the affordable direction"
+        );
+        // And a WELL-FORMED mark inside a literal is accepted, which is what
+        // shows the rule really is "the shape decides", not "literals are
+        // special": nothing about this second source can let a malformed mark
+        // through.
+        let literal_holding_a_well_formed_mark = concat!("let s = \"", "// WEAKENED_FOR: EC-3\";");
+        assert!(validate_line(literal_holding_a_well_formed_mark).is_ok());
     }
 
     #[test]

@@ -343,6 +343,43 @@ impl Config {
         Duration::from_secs(secs)
     }
 
+    /// The longest budget among the runs that actually talk to the backend —
+    /// the bound the spy proxy gives its upstream client.
+    ///
+    /// # Why the proxy needs it, and why it is derived rather than invented
+    ///
+    /// A backend that accepts a connection and then never answers would hang
+    /// the proxy's forward. The run's own budget does eventually cut it, so
+    /// nothing hangs forever — but the proxy would be the one component in the
+    /// path with no bound of its own, and a harness component with no bound is
+    /// the thing that ends up blamed for a backend fault.
+    ///
+    /// The value is the LONGEST such budget, not a fresh constant, for one
+    /// reason: the proxy must never be what cuts first. Cutting before the run
+    /// would turn a slow-but-legal backend into a proxy error, and a proxy
+    /// error is a HARNESS fault — reported as "cannot test", never as a
+    /// verdict about the crate. Bounding it by the longest budget makes the
+    /// run's cap the one that always expires first.
+    ///
+    /// [`Budgets::no_backend_secs`] is excluded on purpose: the offline run
+    /// sends nothing through the proxy, so letting its (short) budget pull the
+    /// bound down would cut forwards belonging to runs it has nothing to do
+    /// with. The three included here are exactly the budgets of the runs for
+    /// which [`RunId::uses_backend`] is true.
+    ///
+    /// # Returns
+    ///
+    /// The maximum of the three backend-run budgets, as a [`Duration`]. Never
+    /// zero: [`Config::validate`] rejects a zero budget outright.
+    pub fn longest_backend_budget(&self) -> Duration {
+        let secs = self
+            .budgets
+            .happy_secs
+            .max(self.budgets.large_payload_secs)
+            .max(self.budgets.injected_secs);
+        Duration::from_secs(secs)
+    }
+
     // --- `impl Config` continues below ---
 
     /// Every numeric value has a range, and violating it NAMES the field.
@@ -384,7 +421,9 @@ impl Config {
         ] {
             if v == 0 || v > MAX_BUDGET_SECS {
                 return Err(ConfigError(format!(
-                    "budgets.{name} must be in 1..={MAX_BUDGET_SECS}: zero caps a run at                      nothing, and a budget beyond the ceiling stops being a cap at all — a                      run that can last a day reports a TIME failure nobody will ever see"
+                    "budgets.{name} must be in 1..={MAX_BUDGET_SECS}: zero caps a run at \
+                     nothing, and a budget beyond the ceiling stops being a cap at all — a \
+                     run that can last a day reports a TIME failure nobody will ever see"
                 )));
             }
         }
@@ -423,6 +462,28 @@ impl Config {
         Ok(())
     }
 
+    /// Applies ONE environment override on top of `base` and re-validates the
+    /// whole config.
+    ///
+    /// # Parameters
+    ///
+    /// * `key` — the variable's name, normally one from [`ENV_OVERRIDES`].
+    /// * `raw` — its unparsed value, exactly as the environment holds it.
+    /// * `base` — the config the override is layered onto (file or built-in).
+    ///
+    /// # Returns
+    ///
+    /// The config with the override applied. A key outside the `MAGI_SMOKE_`
+    /// namespace is ignored, which is what lets a caller hand this the whole
+    /// environment without filtering it first.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError`] if the value does not parse, if the resulting config
+    /// fails [`Config::validate`], or if `key` is in the `MAGI_SMOKE_`
+    /// namespace but has no arm here — a typo'd override that was silently
+    /// ignored would look exactly like one that was applied, and the operator
+    /// would debug a value they believe they changed.
     pub fn apply_env_override(
         key: &str,
         raw: &str,
@@ -465,13 +526,9 @@ impl Config {
                     .parse()
                     .map_err(|_| ConfigError(format!("{key}: not a number")))?;
             }
-            // The arm this list PROMISED and did not have. `ENV_OVERRIDES`
-            // declared the variable, so `reject_unknown_smoke_vars` let it
-            // through, and it then fell into the catch-all below and was
-            // refused as an "unknown override" — a variable the harness
-            // advertises and then rejects. The test
-            // `every_declared_env_override_is_actually_handled` is what now
-            // makes the list and this `match` fail together instead of drifting.
+            // The fail-closed catch-all: a `MAGI_SMOKE_*` key with no arm of
+            // its own lands here and is REFUSED, which is what makes the
+            // coverage test above able to tell "handled" from "fell through".
             other if other.starts_with("MAGI_SMOKE_") => {
                 return Err(ConfigError(format!(
                     "{other}: unknown override. Known keys: {}",
@@ -720,6 +777,43 @@ mod tests {
         assert!(
             cfg.validate().is_ok(),
             "the ceiling itself is a legal value; only beyond it is not"
+        );
+    }
+
+    #[test]
+    fn the_proxys_upstream_bound_is_the_longest_backend_budget_and_ignores_the_offline_one() {
+        // The proxy must never be what cuts first, so its bound tracks the
+        // LONGEST run it can be serving. Pinning only the default would pass
+        // against a function that returned a constant, so each budget is
+        // raised past the others in turn.
+        let cfg = Config::default();
+        assert_eq!(
+            cfg.longest_backend_budget(),
+            Duration::from_secs(cfg.budgets.large_payload_secs),
+            "with the shipped defaults the large-payload run is the longest"
+        );
+        for raise in [
+            |b: &mut Budgets| b.happy_secs = MAX_BUDGET_SECS,
+            |b: &mut Budgets| b.large_payload_secs = MAX_BUDGET_SECS,
+            |b: &mut Budgets| b.injected_secs = MAX_BUDGET_SECS,
+        ] {
+            let mut cfg = Config::default();
+            raise(&mut cfg.budgets);
+            assert_eq!(
+                cfg.longest_backend_budget(),
+                Duration::from_secs(MAX_BUDGET_SECS),
+                "every backend budget must be able to set the bound"
+            );
+        }
+        // The offline run sends nothing through the proxy, so its budget must
+        // not pull the bound down — a shorter one there would cut forwards
+        // belonging to runs it has nothing to do with.
+        let mut offline_is_tiny = Config::default();
+        offline_is_tiny.budgets.no_backend_secs = 1;
+        assert_eq!(
+            offline_is_tiny.longest_backend_budget(),
+            Config::default().longest_backend_budget(),
+            "no_backend_secs is deliberately outside this maximum"
         );
     }
 

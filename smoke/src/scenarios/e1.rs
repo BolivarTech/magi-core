@@ -217,7 +217,8 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
     // harness did. Every other scenario that reads proxy state already gates on
     // this; this one did not, and it is the one whose whole subject IS the proxy.
     if ctx.proxy_degraded {
-        const WHY: &str = "the proxy degraded during this run, so its record cannot answer for                            what went on the wire";
+        const WHY: &str = "the proxy degraded during this run, so its record cannot answer for \
+                           what went on the wire";
         return vec![
             Assertion::skip(NAME_REQUEST, WHY),
             Assertion::skip(NAME_RESPONSE, WHY),
@@ -667,10 +668,7 @@ fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
         .lines()
         .filter(|l| !baseline.contains(l))
         .collect::<Vec<_>>()
-        .join(
-            "
-",
-        );
+        .join("\n");
     vec![assert_that(
         NAME,
         status_shows_nothing_outside_the_certificate(&added),
