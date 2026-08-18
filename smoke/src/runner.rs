@@ -565,7 +565,7 @@ impl Runner {
         // have blamed the crate.
         self.proxy.set_injection(spec.injection.clone());
         let first = self.attempt(spec).await;
-        let mut result = if attempts_for(&first.outcome) > 1 {
+        let result = if attempts_for(&first.outcome) > 1 {
             let mut retried = self.attempt(spec).await;
             retried.attempts = 2;
             retried
