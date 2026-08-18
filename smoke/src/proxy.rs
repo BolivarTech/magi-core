@@ -47,20 +47,18 @@ use hyper::body::Bytes;
 /// fills it**: `SpyProxy` names it in a field, so a definition that arrived
 /// later would not compile.
 ///
-/// Two variants, not a family: `FailModel` covers rotation and degradation,
-/// `ReplayModel` covers fixture replay. There is no "fail the Nth request", no
-/// delays and no partial rewriting — no scenario asks for them, and the spec
-/// forbids abstracting for scenarios that do not exist.
+/// ONE variant, not a family. `FailModel` covers rotation and degradation,
+/// which is the only injection any scenario in this release asks for. There is
+/// no "fail the Nth request", no delays, no partial rewriting — and no fixture
+/// replay either: a `ReplayModel` variant was specified, written, and then
+/// removed, because nothing in any of the five milestone plans constructs one.
+/// It would have shipped an untested match arm whose fixture read swallowed its
+/// own error, and this enum is private to an unpublished binary, so adding the
+/// variant the day a replay scenario exists costs exactly what keeping it costs
+/// now — and buys certainty about its shape instead of guessing at it.
 #[derive(Clone, Debug)]
 pub enum Injection {
-    FailModel {
-        model: String,
-        status: u16,
-    },
-    ReplayModel {
-        model: String,
-        fixture: std::path::PathBuf,
-    },
+    FailModel { model: String, status: u16 },
 }
 
 /// One body type for every response the proxy returns, so the streamed path
@@ -294,6 +292,24 @@ impl SpyProxy {
         }
     }
 
+    /// Sets the rule THROUGH the shared cell, so the already-spawned serving
+    /// task sees it. Setting a field on `self` here would be invisible to
+    /// that task, because `start()` handed the task a `clone()` of `SpyProxy`
+    /// taken before this call — only the `Arc<Mutex<..>>` is shared, not the
+    /// struct itself.
+    ///
+    /// `&self`, not `self` — a `Runner` changes this PER RUN on a proxy that
+    /// is already shared by `Arc` with the serving task, so a consuming
+    /// method would have no `Self` to hand back. `Option`, because a run
+    /// without injection must be able to CLEAR a previous run's rule, or the
+    /// next run inherits a failure nobody asked it for.
+    pub fn set_injection(&self, inj: Option<Injection>) {
+        match self.injection.lock() {
+            Ok(mut g) => *g = inj,
+            Err(p) => *p.into_inner() = inj,
+        }
+    }
+
     fn push(&self, rec: RequestRecord) {
         // The only critical section is this push: taken and released within
         // one line, with no `await` in between. With hyper each connection is
@@ -439,11 +455,23 @@ impl SpyProxy {
     }
 
     /// **Returns `(status, body)`, NOT a `hyper::Response`** — the injection
-    /// logic has no business knowing the server's types, and Task 5 fills
-    /// this exact signature. Always `None` in Task 4, so the proxy forwards
-    /// everything.
-    fn injected_response(&self, _body: &[u8]) -> Option<(u16, Vec<u8>)> {
-        None
+    /// logic has no business knowing the server's types.
+    ///
+    /// Returns the canned response when the request body names the injected
+    /// model, or `None` to forward. Matching on the body's `model` field is
+    /// what makes injection surgical: rotation needs the FIRST candidate to
+    /// fail and the second to go through, so a matcher that fired on every
+    /// request would fail that scenario silently.
+    fn injected_response(&self, body: &[u8]) -> Option<(u16, Vec<u8>)> {
+        let guard = self.injection.lock().ok()?;
+        let inj = guard.as_ref()?;
+        let text = String::from_utf8_lossy(body);
+        match inj {
+            Injection::FailModel { model, status } if names_model(&text, model) => {
+                Some((*status, Vec::new()))
+            }
+            _ => None,
+        }
     }
 
     /// Forwards via `reqwest`, **verbatim**: same method, same path, same
@@ -505,6 +533,19 @@ impl SpyProxy {
                 .unwrap_or_else(|_| hyper::Response::new(empty_body())),
         }
     }
+}
+
+/// Whether a raw request body names `model` in its top-level `"model"` field.
+///
+/// A body that fails to parse as JSON, or that has no `model` field, is
+/// treated as a non-match rather than an error: a malformed body is the
+/// SUT's problem to surface, not the proxy's business to reject, and
+/// `injected_response` already forwards a `None` as "no injection applies".
+fn names_model(body_text: &str, model: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body_text)
+        .ok()
+        .and_then(|v| v.get("model").and_then(|m| m.as_str().map(str::to_owned)))
+        .is_some_and(|m| m == model)
 }
 
 /// Reads a `reqwest::Response` one chunk at a time via `Response::chunk()`
@@ -579,5 +620,56 @@ mod tests {
             "the proxy must keep serving after a poisoned lock"
         );
         assert!(proxy.is_degraded());
+    }
+
+    #[tokio::test]
+    async fn fail_model_only_affects_the_named_model() {
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        proxy.set_injection(Some(Injection::FailModel {
+            model: "bad".into(),
+            status: 500,
+        }));
+        let c = reqwest::Client::new();
+        let bad = c
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(r#"{"model":"bad"}"#)
+            .send()
+            .await
+            .unwrap();
+        let good = c
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(r#"{"model":"good"}"#)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad.status(), 500);
+        assert_eq!(
+            good.status(),
+            200,
+            "injection must be surgical: rotation needs the second \
+             candidate to go through"
+        );
+    }
+
+    #[tokio::test]
+    async fn by_default_it_forwards_and_injects_nothing() {
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            r.status(),
+            200,
+            "there must never be a mock in front of the happy path"
+        );
     }
 }
