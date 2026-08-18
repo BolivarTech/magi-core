@@ -89,11 +89,32 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::from(2);
         }
     };
-    let _ = &cli;
     eprintln!("magi-smoke — mode: {}", alias::MODE);
-    // NOTHING from a later task is called here. Task 1 must compile ON ITS OWN —
-    // Step 5 checks exactly that — and reaching into `Config` or `payload` would
-    // make the scaffold depend on modules that are still empty files.
-    // `--print-payload-size` is honoured by Task 3, which owns the generator.
+
+    // `--print-payload-size` is Task 3's own verification hook (Step 5): it
+    // generates the payload against the REAL tree and prints only the byte
+    // count, so the target is provably reachable without spending a backend.
+    // It is handled here, and ONLY here, before anything else in `main` runs —
+    // config loading beyond the built-in default, the preflight, and every
+    // scenario belong to the run flow that later tasks still own.
+    if cli.print_payload_size {
+        let cfg = config::Config::default();
+        return match payload::generate(&paths::repo_root(), cfg.payload_target_bytes) {
+            Ok(p) => {
+                println!("{}", p.bytes);
+                std::process::ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::ExitCode::from(2)
+            }
+        };
+    }
+
+    let _ = &cli;
+    // NOTHING ELSE from a later task is called here. Task 1 must compile ON ITS
+    // OWN — Step 5 checks exactly that — and reaching further into the run flow
+    // (scenarios, the preflight, the report) would make the scaffold depend on
+    // modules that are still empty files.
     std::process::ExitCode::SUCCESS
 }

@@ -32,6 +32,25 @@ impl std::fmt::Display for PayloadError {
 /// either of those makes Windows and Linux produce different payloads, and then
 /// "the same input byte for byte" is false between the two environments that are
 /// being compared.
+///
+/// # Known limitation: non-UTF-8 path bytes
+///
+/// The comparison key comes from `Path::to_string_lossy()`, which replaces any
+/// byte sequence that is not valid UTF-8 (or, on Windows, not valid UTF-16)
+/// with `U+FFFD`. Two DIFFERENT invalid sequences could therefore collide onto
+/// the same replacement character and compare as equal, weakening — not
+/// breaking, ties still fall back to the sort's own stable order — the
+/// bytewise guarantee for those specific paths.
+///
+/// This is accepted rather than worked around: the only genuinely
+/// cross-platform fix would be comparing `OsStr` bytes directly, but Windows
+/// paths are natively UTF-16, not a byte sequence — a Unix-only `as_bytes()`
+/// fast path would reintroduce the exact Windows/Linux divergence this
+/// function exists to remove, just for a different input class. The tree this
+/// generator walks is this project's OWN `.rs` source, which is ASCII by the
+/// project's own English-only convention, so a non-UTF-8 filename is not an
+/// expected input here — if that ever changes, this is the function to
+/// revisit.
 pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
     files.sort_by_key(|p| p.to_string_lossy().replace('\\', "/").into_bytes());
     files
@@ -94,6 +113,18 @@ pub struct Payload {
 /// day someone splits a large module, which is a healthy thing to do.
 const ROOTS: [&str; 3] = ["src", "tests", "examples"];
 
+/// Extra capacity reserved on top of `target_bytes` when allocating the
+/// accumulator string, in bytes.
+///
+/// The read loop below only checks `target_bytes` BETWEEN files, so the one
+/// file that finally crosses the threshold is read and appended in full
+/// before the loop notices — this margin absorbs that single-file overshoot
+/// so the final `push_str` does not force a reallocation. It is a sizing
+/// heuristic, not a correctness bound: if a source file is larger than this,
+/// `String::push_str` simply reallocates, exactly as it would with no margin
+/// at all.
+const CAPACITY_HEADROOM_BYTES: usize = 4096;
+
 /// Builds the large payload by concatenating `.rs` source under `repo_root`,
 /// walking [`ROOTS`] in order until at least `target_bytes` bytes have been
 /// gathered, then truncating to exactly `target_bytes`.
@@ -120,11 +151,16 @@ const ROOTS: [&str; 3] = ["src", "tests", "examples"];
 ///
 /// # Complexity
 ///
-/// `O(n)` in the total bytes read across the walked roots: each file is read
-/// once, and the deterministic sort is `O(k log k)` in the file count `k` per
-/// root, dominated in practice by the file I/O.
+/// `O(f + n)`, NOT `O(n)` alone: [`collect_rs`] walks and `stat`s a root's
+/// ENTIRE `.rs` tree unconditionally before a single file is read — the early
+/// break on accumulated bytes applies only to the read loop below, never to
+/// collection — so the full file count `f` under each walked root is paid
+/// even when one file's contents would already satisfy `target_bytes`. `n` is
+/// the bytes actually read and concatenated (bounded by roughly
+/// `target_bytes` plus one file's overshoot), and the deterministic sort is
+/// `O(f log f)` per root, subsumed by the `f` term above.
 pub fn generate(repo_root: &Path, target_bytes: usize) -> Result<Payload, PayloadError> {
-    let mut acc = String::with_capacity(target_bytes + 4096);
+    let mut acc = String::with_capacity(target_bytes + CAPACITY_HEADROOM_BYTES);
     for root in ROOTS {
         if acc.len() >= target_bytes {
             break;
@@ -202,25 +238,58 @@ mod tests {
 
     #[test]
     fn symlinks_are_skipped() {
-        // Following them could duplicate content or escape the tree, and they behave
-        // differently on Windows and Linux — the very divergence the fixed ordering
-        // was introduced to eliminate.
-        let dir = tempdir_with(&[("src/real.rs", "fn a() {}")]);
+        // Following them could duplicate content or escape the tree, and they
+        // behave differently on Windows and Linux — the very divergence the
+        // fixed ordering was introduced to eliminate.
+        //
+        // The fixture makes the two outcomes OBSERVABLE, not merely plausible.
+        // Sorted bytewise on `/`-normalised paths the candidates would be
+        // `src/aaa.rs` < `src/mmm_link.rs` < `src/zzz_pad.rs`. With the guard
+        // intact `collect_rs` never adds the link, so `generate` reads the
+        // marker once and pads to TARGET_BYTES from `zzz_pad.rs`. With the
+        // guard removed it adds the link too, reads the SAME nine bytes again,
+        // reaches TARGET_BYTES there and stops — the marker appears TWICE and
+        // `zzz_pad.rs` is never read. TARGET_BYTES sits between the two file
+        // counts (9 < 15 < 18) so both branches still return `Ok` and only the
+        // count differs: the assertion cannot pass for the wrong reason.
+        //
+        // A JUNCTION IS NOT A SUBSTITUTE, and it was measured rather than
+        // assumed. A Windows junction needs no privilege and `is_symlink()`
+        // does report it — but `symlink_metadata()` reports `is_dir() == false`
+        // for one, so `collect_rs` reaches neither its directory branch nor,
+        // lacking a `.rs` extension, its file branch. The walker therefore
+        // ignores a junction whether the guard is present or not, and a test
+        // built on one passes identically against a deliberately broken filter.
+        // The only input that reaches this guard is a `.rs` FILE symlink, and
+        // creating one on Windows needs Developer Mode or elevation.
+        const TARGET_BYTES: usize = 15;
+        const MARKER_FILE: &str = "fn a() {}";
+        const PADDING_FILE: &str =
+            "// filler filler filler filler filler filler filler filler filler filler";
+        let dir = tempdir_with(&[
+            ("src/aaa.rs", MARKER_FILE),
+            ("src/zzz_pad.rs", PADDING_FILE),
+        ]);
         if !make_symlink(
-            dir.path().join("src/link.rs"),
-            dir.path().join("src/real.rs"),
+            dir.path().join("src/mmm_link.rs"),
+            dir.path().join("src/aaa.rs"),
         ) {
-            // Creating a symlink needs a privilege this OS is refusing. That is a
-            // fact about the machine, not about `collect_rs`, so the property goes
-            // UNVERIFIED and says so — it never reports as passed. It is verified
-            // for real on any Linux runner, or on Windows with Developer Mode on.
+            // The OS refused the privilege. That is a fact about the machine,
+            // not about `collect_rs`, so the property goes UNVERIFIED and says
+            // so — it is never reported as passed. It is verified for real on
+            // any Linux runner, or on Windows with Developer Mode on.
             eprintln!(
-                "SKIP symlinks_are_skipped: this OS refused to create a symlink                  (no privilege); the property is UNVERIFIED here, not passed"
+                "SKIP symlinks_are_skipped: this OS refused to create a symlink (no \
+                 privilege); the property is UNVERIFIED here, not passed"
             );
             return;
         }
-        let out = generate(dir.path(), 8).unwrap();
-        assert_eq!(out.text.matches("fn a()").count(), 1);
+        let out = generate(dir.path(), TARGET_BYTES).unwrap();
+        assert_eq!(
+            out.text.matches("fn a()").count(),
+            1,
+            "a followed symlink would duplicate aaa.rs's content and push this to 2"
+        );
     }
 
     /// R17 token guard. Gated on `e2`, which **MS1 turns on**.
