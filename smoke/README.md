@@ -24,7 +24,18 @@ exactly one place — `outcome::exit_code` — and the report delegates to it ra
 again.
 
 There is a fourth row state, `OUT_OF_SCOPE`, which contributes to no exit code: it means a
-partition nobody asked to run, not a question that went unanswered.
+question **this invocation never asked**, not one that went unanswered.
+
+**That distinction is what makes `0` reachable at all.** Five scenarios have a fault for their
+subject — four preflight stages that break only when the invocation makes them (`S6` an
+unreachable backend, `S7` a slow one, `S14` a broken config, `S20` `--break-proxy`) and the
+feature matrix (`S21`, `--build-matrix`). A plain `cargo run` induces none of them. Reported as
+`SKIP` they made every healthy run exit `2`, so no invocation could return `0` and "the harness
+is green" could not be shown by running it. They are `OUT_OF_SCOPE` instead.
+
+`SKIP` keeps its meaning and still means exit `2`: **the run tried and could not test.** A
+preflight that cut before any run, and a `--build-matrix` whose `cargo` could not be spawned,
+are both still `SKIP`.
 
 ## 2. Two dependency modes
 

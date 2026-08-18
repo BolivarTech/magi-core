@@ -110,18 +110,32 @@ const CERT_PATH_SUFFIX: &str = "docs/test/smoke-certificate.md";
 ///
 /// # Errors
 ///
-/// A reason string when there is no error to read, or when the error belongs
-/// to a DIFFERENT stage — both cases the caller turns into `Skip`, never `Fail`
-/// (a scenario cannot fail on evidence pointing at a stage it does not own).
-fn preflight_error_for_stage<'a>(
-    ctx: &RunContext<'a>,
-    stage_prefix: &str,
-) -> Result<&'a str, String> {
+/// `Err(())` when there is no error to read, or when the error belongs to a
+/// DIFFERENT stage. Both are `OutOfScope`, never `Fail` (a scenario cannot fail
+/// on evidence pointing at a stage it does not own) and — since the ruling of
+/// this round — never `Skip` either.
+///
+/// # Why NOT `Skip`, which is what it used to be
+///
+/// Each of these four asserts what happens when one preflight stage FAILS, and
+/// no stage fails unless the invocation induces it: an unreachable endpoint for
+/// `S6`, a slow one for `S7`, a broken config for `S14`, `--break-proxy` for
+/// `S20`. A plain `cargo run` induces none, so all four skipped on every
+/// healthy run — and since `Skip` is exit 2, **no invocation of this harness
+/// could return 0 at all**. `Skip` means "I tried and could not test", which is
+/// a fault worth someone's attention; these were never tried, because this run
+/// was not asked to.
+///
+/// The reason string is dropped with the `Skip`: an out-of-scope row always
+/// says the same thing, so there is nothing per-call to carry.
+fn preflight_error_for_stage<'a>(ctx: &RunContext<'a>, stage_prefix: &str) -> Result<&'a str, ()> {
     match ctx.error {
-        None => Err("no preflight error was recorded for this session".to_string()),
-        Some(e) if !e.starts_with(stage_prefix) => {
-            Err(format!("the preflight failed at a different stage: {e:?}"))
-        }
+        // The preflight did not fail at all, so this scenario's own subject
+        // never happened.
+        None => Err(()),
+        // It failed at SOME stage, but not this one: the invocation induced a
+        // different fault, and this scenario was not what it asked about.
+        Some(e) if !e.starts_with(stage_prefix) => Err(()),
         Some(e) => Ok(e),
     }
 }
@@ -763,7 +777,7 @@ fn s6_no_backend_no_green(ctx: &RunContext<'_>) -> Vec<Assertion> {
         "an unreachable backend makes the preflight cut with exit 2, naming the backend as \
          the cause";
     match preflight_error_for_stage(ctx, "Backend: ") {
-        Err(reason) => vec![Assertion::skip(NAME, reason)],
+        Err(()) => vec![Assertion::out_of_scope(NAME)],
         Ok(err) => vec![assert_that(
             NAME,
             err.contains("backend at")
@@ -803,7 +817,7 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
         "a slow-but-responding endpoint is 'cannot test', naming that contention and a cold \
          model cannot be told apart";
     match preflight_error_for_stage(ctx, "Probe: ") {
-        Err(reason) => vec![Assertion::skip(NAME, reason)],
+        Err(()) => vec![Assertion::out_of_scope(NAME)],
         Ok(err) => vec![assert_that(
             NAME,
             err.contains("cannot tell them apart")
@@ -828,7 +842,7 @@ fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str =
         "an unreadable config names the offending field and cuts with exit 2 before any run";
     match preflight_error_for_stage(ctx, "Config: ") {
-        Err(reason) => vec![Assertion::skip(NAME, reason)],
+        Err(()) => vec![Assertion::out_of_scope(NAME)],
         Ok(err) => vec![assert_that(NAME, err.contains("unknown field"))],
     }
 }
@@ -1047,7 +1061,7 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
         "a proxy that cannot start is a harness fault, never a crate verdict, and fails no \
          scenario";
     match preflight_error_for_stage(ctx, "Proxy: ") {
-        Err(reason) => vec![Assertion::skip(NAME, reason)],
+        Err(()) => vec![Assertion::out_of_scope(NAME)],
         Ok(err) => vec![assert_that(
             NAME,
             err.contains("HARNESS fault") && err.contains("never a verdict about the crate"),
@@ -1065,7 +1079,16 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 /// `Source::Build`: the property is a `compile_error!` in `alias.rs`, so there
 /// is no BINARY to observe it from at runtime — a scenario that runs has
 /// already compiled. Reads `ctx.build_matrix`, populated only under
-/// `--build-matrix`; without it, SKIP, never PASS (R25).
+/// `--build-matrix`; without it, never PASS (R25).
+///
+/// # Out of scope without the flag, but SKIP when the flag was given
+///
+/// The two are different facts and the exit code separates them. No matrix at
+/// all means the invocation did not ask for one — four `cargo check` runs are
+/// slow, which is why they sit behind a flag — and a run that was not asked is
+/// not a run that failed: `OutOfScope`, exit 0. A matrix that WAS asked for and
+/// whose `cargo` could not be spawned is the harness trying and failing to
+/// test: `Skip`, exit 2, which is a fault worth someone's attention.
 ///
 /// **THREE of the four combinations are asserted, and `published` alone is
 /// not**, for a narrow reason: this scenario's property is that the two modes
@@ -1088,10 +1111,7 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the two dependency modes cannot be confused";
     let Some(m) = ctx.build_matrix else {
-        return vec![Assertion::skip(
-            NAME,
-            "feature matrix not built; re-run with --build-matrix",
-        )];
+        return vec![Assertion::out_of_scope(NAME)];
     };
     // A combination `cargo` could not even be RUN for is not a combination that
     // refused to compile. Reading the two the same way would report a missing
@@ -1897,14 +1917,17 @@ mod tests {
     // -- S6, S7, S14, S20 (preflight-sourced) --
 
     #[test]
-    fn s6_skips_when_a_different_stage_failed() {
+    fn s6_is_out_of_scope_when_a_different_stage_failed() {
         let err = "Probe: cannot test: ...".to_string();
         let ctx = RunContext {
             error: Some(&err),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s6_no_backend_no_green(&ctx);
-        assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+        // The invocation induced a DIFFERENT fault, so this scenario's own
+        // subject never happened. Not a question we tried and could not
+        // answer — one this run was never asked.
+        assert_eq!(a[0].state, ScenarioState::OutOfScope);
     }
 
     #[test]
@@ -1942,14 +1965,17 @@ mod tests {
     }
 
     #[test]
-    fn s7_skips_when_a_different_stage_failed() {
+    fn s7_is_out_of_scope_when_a_different_stage_failed() {
         let err = "Backend: unreachable".to_string();
         let ctx = RunContext {
             error: Some(&err),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(&ctx);
-        assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+        // The invocation induced a DIFFERENT fault, so this scenario's own
+        // subject never happened. Not a question we tried and could not
+        // answer — one this run was never asked.
+        assert_eq!(a[0].state, ScenarioState::OutOfScope);
     }
 
     #[test]
@@ -1964,14 +1990,17 @@ mod tests {
     }
 
     #[test]
-    fn s14_skips_when_a_different_stage_failed() {
+    fn s14_is_out_of_scope_when_a_different_stage_failed() {
         let err = "Proxy: refused to start".to_string();
         let ctx = RunContext {
             error: Some(&err),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s14_illegible_toml_is_fatal(&ctx);
-        assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+        // The invocation induced a DIFFERENT fault, so this scenario's own
+        // subject never happened. Not a question we tried and could not
+        // answer — one this run was never asked.
+        assert_eq!(a[0].state, ScenarioState::OutOfScope);
     }
 
     #[test]
@@ -1988,14 +2017,17 @@ mod tests {
     }
 
     #[test]
-    fn s20_skips_when_a_different_stage_failed() {
+    fn s20_is_out_of_scope_when_a_different_stage_failed() {
         let err = "Backend: unreachable".to_string();
         let ctx = RunContext {
             error: Some(&err),
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s20_broken_proxy_is_not_a_scenario_red(&ctx);
-        assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+        // The invocation induced a DIFFERENT fault, so this scenario's own
+        // subject never happened. Not a question we tried and could not
+        // answer — one this run was never asked.
+        assert_eq!(a[0].state, ScenarioState::OutOfScope);
     }
 
     // -- S15 --
@@ -2190,10 +2222,33 @@ mod tests {
     // -- S21 --
 
     #[test]
-    fn s21_skips_without_the_build_matrix() {
+    fn s21_is_out_of_scope_without_the_build_matrix_and_skips_when_it_could_not_be_built() {
+        // Both halves, because only the pair carries the distinction: no matrix
+        // means nobody asked for one (exit 0), while a matrix that WAS asked for
+        // and whose cargo could not be spawned is the harness trying and failing
+        // to test (exit 2).
         let ctx = blank_ctx(RunId::HappySmall);
         let a = s21_the_two_modes_cannot_be_confused(&ctx);
-        assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+        assert_eq!(
+            a[0].state,
+            ScenarioState::OutOfScope,
+            "four cargo checks sit behind a flag; not passing the flag is not a fault"
+        );
+
+        let unrunnable = vec![
+            ("tree".to_string(), BuildOutcome::CouldNotRun),
+            ("tree,published".to_string(), BuildOutcome::CouldNotRun),
+            (String::new(), BuildOutcome::CouldNotRun),
+        ];
+        let ctx = RunContext {
+            build_matrix: Some(&unrunnable),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s21_the_two_modes_cannot_be_confused(&ctx);
+        assert!(
+            matches!(a[0].state, ScenarioState::Skip(_)),
+            "a matrix that was requested and could not be built is unanswered: {a:?}"
+        );
     }
 
     #[test]

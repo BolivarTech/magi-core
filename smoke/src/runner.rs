@@ -63,6 +63,36 @@ impl Assertion {
             state: ScenarioState::Skip(reason.into()),
         }
     }
+
+    /// This invocation never asked the question.
+    ///
+    /// # The line between this and [`Assertion::skip`], which decides the exit code
+    ///
+    /// `Skip` means *I tried and could not test* — exit 2, a fault of ours that
+    /// somebody should look at. `OutOfScope` means *this run was not asked to*
+    /// — exit 0, nothing to look at.
+    ///
+    /// Four scenarios here assert what happens when a preflight STAGE fails, and
+    /// one asserts what the feature matrix does; none of those events occurs
+    /// unless the invocation induces it. Reporting them as `Skip` made every
+    /// healthy run exit 2 over faults that did not happen, which meant exit 0
+    /// was unreachable by construction and "the harness is green" could not be
+    /// demonstrated by running it.
+    ///
+    /// **It carries no reason, and `Skip` does, deliberately.** A skip's reason
+    /// is the only field an operator can act on and it differs every time; an
+    /// out-of-scope row always says the same thing — this invocation did not ask
+    /// — so a per-call string would be ceremony that can drift from the truth.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` — the property this run was not asked to check.
+    pub fn out_of_scope(name: &'static str) -> Self {
+        Assertion {
+            name,
+            state: ScenarioState::OutOfScope,
+        }
+    }
 }
 
 /// Builds a `Pass`/`Fail` assertion from a condition.
