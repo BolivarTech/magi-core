@@ -316,6 +316,26 @@ impl SpyProxy {
         );
     }
 
+    /// Poisons the INJECTION lock specifically — as opposed to
+    /// [`poison_for_test`](SpyProxy::poison_for_test), which poisons the
+    /// separate request registry. The two mutexes recover independently, so
+    /// proving one recovers says nothing about the other; this exists to
+    /// prove the injection half on its own. A real panic while holding the
+    /// guard, exactly like `poison_for_test`, not a flag standing in for one.
+    #[cfg(test)]
+    pub fn poison_injection_for_test(&self) {
+        let injection = Arc::clone(&self.injection);
+        let _ = std::thread::spawn(move || {
+            let _g = injection.lock().expect("not poisoned yet");
+            panic!("deliberate: poisons the injection mutex");
+        })
+        .join(); // Err(_) — the panic is expected
+        debug_assert!(
+            self.injection.lock().is_err(),
+            "the injection lock must now be poisoned"
+        );
+    }
+
     /// A watermark into the shared registry. Runs share ONE proxy, so a
     /// snapshot taken after run 3 would hand run 3's assertions the records of
     /// runs 1 and 2 as well — and an assertion counting requests would be
@@ -343,10 +363,19 @@ impl SpyProxy {
     /// method would have no `Self` to hand back. `Option`, because a run
     /// without injection must be able to CLEAR a previous run's rule, or the
     /// next run inherits a failure nobody asked it for.
+    ///
+    /// Recovers a poisoned lock via `into_inner()` **and** marks `degraded`,
+    /// so this side agrees with [`injected_response`](SpyProxy::injected_response):
+    /// both halves of the injection path report the same poisoning instead
+    /// of one of them staying silent about it.
     pub fn set_injection(&self, inj: Option<Injection>) {
         match self.injection.lock() {
             Ok(mut g) => *g = inj,
-            Err(p) => *p.into_inner() = inj,
+            Err(p) => {
+                self.degraded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                *p.into_inner() = inj;
+            }
         }
     }
 
@@ -538,8 +567,24 @@ impl SpyProxy {
     /// what makes injection surgical: rotation needs the FIRST candidate to
     /// fail and the second to go through, so a matcher that fired on every
     /// request would fail that scenario silently.
+    ///
+    /// A poisoned lock is recovered the same way `push`/`records` recover
+    /// theirs: `into_inner()` gets the rule back instead of treating
+    /// poisoning as "no injection", and `degraded` is set. Poisoning is
+    /// sticky — every later `lock()` on this mutex keeps failing — so
+    /// treating it as silent "forward everything" would make a
+    /// rotation scenario stop injecting for the rest of the run while
+    /// `is_degraded()` kept reporting clean. That is the harness lying about
+    /// what it did.
     fn injected_response(&self, body: &[u8]) -> Option<(u16, Vec<u8>)> {
-        let guard = self.injection.lock().ok()?;
+        let guard = match self.injection.lock() {
+            Ok(g) => g,
+            Err(p) => {
+                self.degraded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                p.into_inner()
+            }
+        };
         let inj = guard.as_ref()?;
         let text = String::from_utf8_lossy(body);
         match inj {
@@ -727,6 +772,43 @@ mod tests {
             200,
             "injection must be surgical: rotation needs the second \
              candidate to go through"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_poisoned_injection_lock_keeps_injecting_and_marks_degraded() {
+        // Poisoning is STICKY: once the injection mutex is poisoned, every
+        // later `lock()` on it keeps failing. `injected_response` and
+        // `set_injection` must both recover the rule (so a rotation scenario
+        // does not silently stop injecting mid-run) AND mark `degraded` (so
+        // the run does not report clean while a lock was poisoned).
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        proxy.set_injection(Some(Injection::FailModel {
+            model: "bad".into(),
+            status: 500,
+        }));
+        proxy.poison_injection_for_test(); // a real poisoning, not a flag
+
+        let bad = reqwest::Client::new()
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(r#"{"model":"bad"}"#)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            bad.status(),
+            500,
+            "a poisoned injection lock must still recover the rule and \
+             inject, not silently start forwarding"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "a poisoned injection lock must be visible on the degraded \
+             flag, or the run reports clean while a lock was poisoned"
         );
     }
 
