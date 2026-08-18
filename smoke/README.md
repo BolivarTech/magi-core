@@ -43,6 +43,14 @@ The published mode matters because some defects only exist against the packaged 
 regression that made `ProviderError` unconstructible from another crate reached a consumer eight
 days after release precisely because, inside `src/`, the variants are always constructible.
 
+**Release checklist item, because nothing enforces it:** the published mode pins a version in
+`smoke/Cargo.toml` (`magi_core_pub`), and that requirement is **not** derived from the crate's
+own version — cargo resolves optional dependencies whether or not their feature is enabled, so
+naming a version that does not exist yet breaks EVERY build of this package, the default one
+included. **Bump it in the same commit that bumps the crate.** Forgetting it is caught after the
+publish, by the version-drift guard, which compares the job-resolved lock against the version
+just published; it can never pass silently, but it fails after the fact rather than before.
+
 ## 3. What the proxy does, and why its red is never the crate's
 
 Every request the crate makes goes through a local spy proxy, which records it and forwards it
@@ -120,8 +128,11 @@ Anyone reading a certificate needs to know what was **not** verified.
   that does not exist yet when the certificate is emitted — they run after the publish that the
   merge triggers. A certificate that stayed quiet about this would claim coverage it does not
   have.
-- **Proxy transparency over the large payload is checked by checksum only**, not by comparing
-  bodies byte for byte.
+- **Proxy transparency is verified only on the SMALL probe request**, not on a large-payload
+  run. The comparison is by checksum over a request the harness itself sends and receives down
+  both paths; the large-payload run is not part of this stage at all, so nothing here shows that
+  the proxy relays a 62 000-token body unchanged. The property is the same and the machinery is
+  the same, but the size is not exercised.
 - **Fixture currency is not proven.** A hash proves a file is the one recorded; it does **not**
   prove the backend still answers that way. Only a live scenario proves currency, and entries
   marked `unverified:` have not had one.

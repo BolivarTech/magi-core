@@ -281,6 +281,15 @@ impl RunId {
 /// long enough to hide a hung backend rather than detect one.
 const MAX_PROBE_TIMEOUT_SECS: u64 = 600;
 
+/// Ceiling for any single run's time budget, in seconds: four hours.
+///
+/// High on purpose. Against a cloud backend a run is minutes, but against a
+/// local model on one GPU the three mages are SERIALISED by the hardware, and
+/// this harness must not turn a legitimate deployment into a permanent failure.
+/// What the ceiling rejects is a value that has stopped being a cap — a run
+/// allowed to last a day reports a TIME failure nobody will ever be present for.
+const MAX_BUDGET_SECS: u64 = 4 * 60 * 60;
+
 /// Lower bound for `payload_target_bytes`, in bytes. Below this the
 /// large-payload scenario cannot reproduce the failure the harness exists to
 /// catch — a reasoning model exhausting its output budget on a large
@@ -373,8 +382,10 @@ impl Config {
             ("injected_secs", self.budgets.injected_secs),
             ("no_backend_secs", self.budgets.no_backend_secs),
         ] {
-            if v == 0 {
-                return Err(ConfigError(format!("budgets.{name} must be > 0")));
+            if v == 0 || v > MAX_BUDGET_SECS {
+                return Err(ConfigError(format!(
+                    "budgets.{name} must be in 1..={MAX_BUDGET_SECS}: zero caps a run at                      nothing, and a budget beyond the ceiling stops being a cap at all — a                      run that can last a day reports a TIME failure nobody will ever see"
+                )));
             }
         }
         // The probe guards the runs that USE the backend, so it is bounded by the
@@ -690,6 +701,25 @@ mod tests {
         assert!(
             format!("{err}").contains("totally_unknown"),
             "the error must NAME the field; a generic parse error sends the reader hunting"
+        );
+    }
+
+    #[test]
+    fn a_budget_beyond_the_ceiling_is_rejected_and_the_field_is_named() {
+        // A cap that can never be reached in a session anybody watches is not a
+        // cap. The ceiling is deliberately high — a local GPU serialises the
+        // three mages — so what it rejects is a number that stopped being one.
+        let mut cfg = Config::default();
+        cfg.budgets.happy_secs = MAX_BUDGET_SECS + 1;
+        let err = cfg.validate().unwrap_err().to_string();
+        assert!(
+            err.contains("happy_secs"),
+            "the message must name the field: {err}"
+        );
+        cfg.budgets.happy_secs = MAX_BUDGET_SECS;
+        assert!(
+            cfg.validate().is_ok(),
+            "the ceiling itself is a legal value; only beyond it is not"
         );
     }
 

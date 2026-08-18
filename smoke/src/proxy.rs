@@ -652,7 +652,17 @@ impl SpyProxy {
                     rec.with_recorded_response(status, &body, self.record_cap),
                     body,
                 ),
-                None => (rec.with_status_only(status), Vec::new()),
+                // The status is real; the BODY could not be read. Recording the
+                // status alone already stops it being reported as a genuine
+                // empty answer — but a scenario comparing response bytes would
+                // still see nothing and blame the crate. Marking the proxy
+                // degraded is what lets that scenario SKIP instead, and the
+                // request-body path two matches above already does exactly this.
+                None => {
+                    self.degraded
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                    (rec.with_status_only(status), Vec::new())
+                }
             };
             self.push(rec);
             return Ok(hyper::Response::builder()
@@ -1072,6 +1082,10 @@ mod tests {
             !rec.response_recorded,
             "a failed body read must be recorded as NOTHING recorded, \
              never as a genuine (empty) response"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "a proxy that could not read a response body must SAY so: without              this a scenario comparing response bytes sees nothing and blames              the crate for what the proxy failed to do"
         );
     }
 
