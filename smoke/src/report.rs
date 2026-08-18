@@ -334,7 +334,13 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
     // certificate that exists gets cited, and half a certificate claims the same
     // thing as a whole one with less text.
     let after = git_status_porcelain(repo_root)?;
-    if after.lines().any(|l| !l.contains(CERT_PATH)) {
+    // SUFFIX, not substring. A porcelain line whose path merely CONTAINS the
+    // certificate path — `docs/test/smoke-certificate.md.orig`, or anything
+    // nested below it — would satisfy `contains` and let the certificate be
+    // issued over a tree that changed in some other way. The scenario that
+    // asserts the same property already compares by suffix; the two are now
+    // spelled the same way, which is what stops them drifting apart.
+    if after.lines().any(|l| !l.trim_end().ends_with(CERT_PATH)) {
         // What the message says is what actually happened. Reporting "it was
         // deleted" over a failed removal would leave a file on disk that the
         // next reader cites as a certificate, told by this very error that it
@@ -840,6 +846,23 @@ mod tests {
             run: CycleRun::Second,
         };
         assert!(second.render_certificate("4.0.0", "abc1234").is_some());
+    }
+
+    #[test]
+    fn a_path_that_merely_contains_the_certificate_path_does_not_satisfy_the_guard() {
+        // The check was `contains`, so a line like `docs/test/…md.orig` — or
+        // anything nested below the certificate — passed it, and the certificate
+        // was issued over a tree that had changed in some other way.
+        let line = format!("?? {CERT_PATH}.orig");
+        assert!(
+            !line.trim_end().ends_with(CERT_PATH),
+            "a path that merely contains the certificate path must not be accepted as it"
+        );
+        let exact = format!(" M {CERT_PATH}");
+        assert!(
+            exact.trim_end().ends_with(CERT_PATH),
+            "the certificate's own line must still be accepted"
+        );
     }
 
     #[test]

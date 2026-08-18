@@ -184,6 +184,15 @@ async fn main() -> std::process::ExitCode {
     // Announced BEFORE the runs, so a reader knows what it is about to spend.
     eprintln!("{}", ready.cost_announcement);
 
+    // Taken BEFORE anything runs — and BEFORE the feature matrix in particular.
+    // The no-trace scenario asks what the harness ADDED, so anything created
+    // between the baseline and the final check is invisible to it. Taking the
+    // baseline after the matrix grandfathered the matrix's own build directories
+    // into it: the check would have reported success over exactly the artifacts
+    // it exists to notice. They happen to be gitignored today, so nothing leaked
+    // — but the ordering is the thing the check depends on, not the ignore file.
+    let status_before = repo_status();
+
     // 3. The feature matrix, only when asked: four `cargo check` runs are slow,
     //    so the scenario reading it SKIPs unless the flag was passed.
     let matrix = if cli.build_matrix {
@@ -191,10 +200,6 @@ async fn main() -> std::process::ExitCode {
     } else {
         None
     };
-
-    // Taken BEFORE anything runs, because the no-trace scenario asks what the
-    // harness ADDED, not whether the tree happened to be clean when it started.
-    let status_before = repo_status();
 
     // 4. The shared runs.
     let specs = match runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), cli.no_backend) {
@@ -313,6 +318,26 @@ fn evaluate(
                 // the cap someone chose" — and letting the assertion read an
                 // empty context would render that as an ordinary skip, losing
                 // the one distinction this row exists to keep.
+                // A run the CRATE panicked in is a verdict, not an unanswered
+                // question: the crate broke, which is exactly what the harness
+                // came to find. Left to the assertion it would read an empty
+                // context and SKIP — exit 2, "a fault of ours" — burying the
+                // defect under the one code nobody investigates. This is the
+                // dangerous direction of the 1-versus-2 inversion.
+                if let Some(r) = results
+                    .iter()
+                    .find(|r| r.run == id && r.outcome == outcome::RunOutcome::PanickedInCrate)
+                {
+                    let _ = r;
+                    rows.push(report::AssertionRow {
+                        scenario_id: scenario.id,
+                        run_id: id,
+                        scenario: "the crate panicked during this run",
+                        state: outcome::ScenarioState::Fail,
+                        over_budget: None,
+                    });
+                    continue;
+                }
                 if let Some(r) = results
                     .iter()
                     .find(|r| r.run == id && r.outcome == outcome::RunOutcome::TimedOut)
