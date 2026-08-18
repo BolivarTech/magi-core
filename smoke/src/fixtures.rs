@@ -90,8 +90,12 @@ pub struct FixtureAudit {
     /// skip.
     pub orphans: Vec<String>,
     /// Present and declared, but the hash or the currency reason does not
-    /// hold — or the fixture directory itself could not be read at all (see
-    /// `Manifest::verify`'s direction-2 comment).
+    /// hold — or the corpus could not be fully READ, at either level: the
+    /// fixture directory itself (see `Manifest::verify`'s direction-2 comment)
+    /// or one entry inside it (see
+    /// [`Manifest::cross_disk_against_manifest`]). What could not be read
+    /// belongs here rather than nowhere: an audit that silently omits it is
+    /// clean about a corpus it did not see.
     pub corrupt: Vec<String>,
     /// Total `[[fixture]]` entries the manifest declared.
     pub total: usize,
@@ -191,27 +195,87 @@ impl Manifest {
                     dir.display()
                 ));
             }
-            Ok(read_dir) => {
-                for dir_entry in read_dir.flatten() {
-                    let file_name = dir_entry.file_name();
-                    let Some(name) = file_name.to_str() else {
-                        continue;
-                    };
-                    if NON_FIXTURE_FILES.contains(&name) {
-                        continue;
-                    }
-                    if !declared.contains(name) {
-                        audit.orphans.push(format!(
-                            "{name}: on disk and declared by nobody — copied for nothing, and \
-                             its currency is unknowable"
-                        ));
-                    }
-                }
-            }
+            Ok(read_dir) => Self::cross_disk_against_manifest(read_dir, dir, &declared, &mut audit),
         }
 
         audit.total = self.fixtures.len();
         Ok(audit)
+    }
+
+    /// Direction (2) of the cross, over an ITERATOR of entries rather than
+    /// over a path.
+    ///
+    /// # Why it takes the iterator instead of reading the directory itself
+    ///
+    /// So that the failure branch can be reached from a test. There is no
+    /// portable way to make a real `ReadDir` yield an `Err` on demand, and a
+    /// branch that cannot be reached is a branch nothing pins: reverting it to
+    /// a silent skip would leave the suite green. `std::fs::ReadDir` already
+    /// **is** an `Iterator<Item = io::Result<DirEntry>>`, so the production
+    /// call site hands over its own iterator unchanged and no seam is
+    /// simulated.
+    ///
+    /// # Nothing is skipped in silence, at EITHER level
+    ///
+    /// The directory-level read was fixed in an earlier round; this is the
+    /// ENTRY level, which kept flattening. An entry that cannot be read, or
+    /// whose name is not valid UTF-8 and therefore cannot be compared with a
+    /// manifest path at all, is a finding — never a row that quietly does not
+    /// appear. Dropping either one lets `verify` return a CLEAN audit over a
+    /// corpus it did not fully see, which is the same "reports success while
+    /// guarding nothing" defect the directory-level fix closed one level up.
+    ///
+    /// # Parameters
+    ///
+    /// * `entries` — the directory's entries, each possibly a read failure.
+    /// * `dir` — the fixture directory, for naming what could not be read.
+    /// * `declared` — every path the manifest declared, from direction (1).
+    /// * `audit` — accumulator; findings are appended, nothing is returned.
+    ///
+    /// # Complexity
+    ///
+    /// `O(m log n)` for `m` entries against `n` declared paths: one `BTreeSet`
+    /// lookup per entry.
+    fn cross_disk_against_manifest<I>(
+        entries: I,
+        dir: &Path,
+        declared: &BTreeSet<&str>,
+        audit: &mut FixtureAudit,
+    ) where
+        I: IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+    {
+        for entry in entries {
+            let dir_entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    audit.corrupt.push(format!(
+                        "{}: an entry of the fixture directory could not be read: {e}. The \
+                         corpus was NOT fully seen, so this audit cannot be clean.",
+                        dir.display()
+                    ));
+                    continue;
+                }
+            };
+            let file_name = dir_entry.file_name();
+            let Some(name) = file_name.to_str() else {
+                audit.corrupt.push(format!(
+                    "{}: entry named {:?} is not valid UTF-8, so it cannot be compared with \
+                     any manifest path — whether it is declared is unknowable, not clean.",
+                    dir.display(),
+                    file_name.to_string_lossy()
+                ));
+                continue;
+            };
+            if NON_FIXTURE_FILES.contains(&name) {
+                continue;
+            }
+            if !declared.contains(name) {
+                audit.orphans.push(format!(
+                    "{name}: on disk and declared by nobody — copied for nothing, and its \
+                     currency is unknowable"
+                ));
+            }
+        }
     }
 
     /// Validates one entry's `currency` line, appending to `audit.corrupt`
@@ -389,6 +453,69 @@ mod tests {
             .corrupt
             .iter()
             .any(|s| s.contains(&missing.display().to_string())));
+    }
+
+    #[test]
+    fn an_entry_that_cannot_be_read_is_reported_not_silently_dropped() {
+        // Fix round 2, Finding 1: the directory-level read was fixed one round
+        // ago, and the ENTRY-level iteration kept `.flatten()` — so an entry
+        // that cannot be read vanished and `verify` returned a CLEAN audit over
+        // a corpus it had not fully seen. Same defect, one level down: fixing
+        // one site of a class does not fix the class.
+        //
+        // The error is INJECTED rather than forced out of the filesystem, and
+        // that limitation is stated instead of hidden: there is no portable way
+        // to make a real `ReadDir` fail on an entry (deleting the directory
+        // mid-iteration is racy and platform-specific, and Windows does not
+        // surface `FindNextFile` failures through `std` at all). What this pins
+        // is the code's own decision — given an unreadable entry, it records a
+        // finding — which is exactly what a revert to `.flatten()` would undo.
+        let dir = tempdir_with(&[]);
+        let declared = BTreeSet::new();
+        let mut audit = FixtureAudit::default();
+        Manifest::cross_disk_against_manifest(
+            vec![Err(std::io::Error::other("simulated entry read failure"))],
+            dir.path(),
+            &declared,
+            &mut audit,
+        );
+        assert!(
+            !audit.is_clean(),
+            "an entry the scan could not read must not leave the audit clean"
+        );
+        assert!(
+            audit
+                .corrupt
+                .iter()
+                .any(|s| s.contains("simulated entry read failure")),
+            "the finding must name what could not be read: {:?}",
+            audit.corrupt
+        );
+        assert!(
+            audit
+                .corrupt
+                .iter()
+                .any(|s| s.contains(&dir.path().display().to_string())),
+            "the finding must name the directory it came from: {:?}",
+            audit.corrupt
+        );
+    }
+
+    #[test]
+    fn a_readable_entry_is_still_crossed_against_the_manifest() {
+        // The companion: making the entry level report failures must not turn
+        // the direction-2 cross into dead code. Entered through `verify` over a
+        // real directory, because `std::fs::DirEntry` has no public
+        // constructor — the Ok arm can only be exercised for real.
+        let dir = tempdir_with(&[("undeclared-after-the-fix.json", "{}")]);
+        let audit = Manifest::from_str("")
+            .unwrap()
+            .verify(dir.path(), &["S9"])
+            .unwrap();
+        assert!(audit
+            .orphans
+            .iter()
+            .any(|s| s.contains("undeclared-after-the-fix.json")));
     }
 
     #[test]

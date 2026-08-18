@@ -197,7 +197,7 @@ pub async fn run(
     // a run without a backend still has a config, a fixture corpus, an isolated
     // workspace, a tracked lock and a proxy to raise.
     if !no_backend {
-        reachable(&cfg.endpoint)
+        reachable(&cfg.endpoint, cfg.probe_timeout())
             .await
             .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?; // backend
 
@@ -355,17 +355,31 @@ pub fn check_lock_is_tracked(repo: &Path) -> Result<(), String> {
 /// this module can send that is not itself model-specific.
 const PROBE_PATH: &str = "/api/tags";
 
-/// How long [`reachable`] waits before giving up on the endpoint entirely.
-/// Generous on purpose: this only answers "is anyone home", not "how fast",
-/// so it should not fire on ordinary network latency.
-const REACHABILITY_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Is anybody there at all? One request, generously bounded, with no retry:
+/// Is anybody there at all? One request, bounded by `window`, with no retry:
 /// a completely unreachable endpoint is a different failure than a reachable
 /// one that is merely slow (see [`probe`] for that case).
-async fn reachable(endpoint: &str) -> Result<(), String> {
+///
+/// # `window` is the CONFIGURED probe timeout, not a constant of its own
+///
+/// It used to be a hardcoded ten seconds, which happened to equal the shipped
+/// default of `probe_timeout_secs` and was independent of it. That
+/// independence had a wrong direction: an operator who RAISES the probe
+/// timeout for a slow backend is declaring exactly how long a trivial request
+/// may take, and a fixed ten-second cut would still report their live backend
+/// as unreachable — a preflight refusal, on the strength of a number they had
+/// already overridden. This function and [`try_once`] send the SAME trivial
+/// request to the SAME path ([`PROBE_PATH`]); one knob is what makes them
+/// answer to the same declaration of patience. The difference between them
+/// stays what it always was: no retry here, one widened retry there.
+///
+/// # Parameters
+///
+/// * `endpoint` — the backend's base URL.
+/// * `window` — how long the whole request may take, from
+///   [`Config::probe_timeout`].
+async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
     let client = reqwest::Client::builder()
-        .timeout(REACHABILITY_TIMEOUT)
+        .timeout(window)
         .build()
         .map_err(|e| format!("backend reachability: {e}"))?;
     let resp = client
@@ -531,12 +545,30 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
 ///
 /// Name format: `magi-smoke-<pid>-<ms>-<rand>`. A directory whose name does
 /// not parse is **left alone** — it is not ours to judge.
+///
+/// # The one place in this harness where swallowing an error IS right
+///
+/// The two sibling scans fixed alongside this one — the fixture audit and the
+/// payload walk — report every entry they could not read, because each is a
+/// GUARD: skipping something lets it return a clean answer over a corpus it
+/// did not fully see. This is not a guard. It answers no question, asserts
+/// nothing, and reports nothing on success either, so there is no success
+/// being claimed over what was skipped. An entry it cannot read costs exactly
+/// one leaked temp directory, which the NEXT sweep collects on the next start.
+/// The `Err` arm is written out rather than flattened so that the choice is
+/// visible as a choice, and not read as the same oversight the other two had.
 pub(crate) fn sweep_stale_temps(root: &Path) {
     // called by main.rs
     let Ok(entries) = std::fs::read_dir(root) else {
         return; // unreadable temp dir is not fatal
     };
-    for e in entries.flatten() {
+    for entry in entries {
+        let Ok(e) = entry else {
+            // Deliberate, and argued in this function's doc: a missed entry
+            // leaks one directory that the next sweep reclaims. Nothing is
+            // asserted here, so nothing is falsely asserted by the skip.
+            continue;
+        };
         let name = e.file_name();
         let Some(name) = name.to_str() else {
             continue;

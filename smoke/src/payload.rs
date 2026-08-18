@@ -58,31 +58,93 @@ pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
 }
 
 /// Recursively collects every `.rs` file under `root` into `out`, skipping
-/// symlinks entirely.
+/// symlinks entirely and appending one message to `errors` for anything the
+/// walk found but could not inspect.
 ///
 /// Symlinks are skipped rather than followed: following one could duplicate
 /// content already reached through another path, or escape the tree the
 /// caller intended to read, and the two platforms resolve them differently —
 /// exactly the divergence [`sort_deterministically`] exists to eliminate.
 ///
-/// An unreadable directory is skipped rather than propagated as an error: the
-/// caller widens across multiple roots (see [`generate`]), and one missing
-/// root (e.g. a project with no `examples/`) must not abort the whole walk.
-fn collect_rs(root: &Path, out: &mut Vec<PathBuf>) {
+/// An unreadable ROOT is skipped rather than reported: the caller widens
+/// across multiple roots (see [`generate`]), and one missing root (e.g. a
+/// project with no `examples/`) must not abort the whole walk. That exemption
+/// stops at the directory itself — see [`collect_from_entries`] for why an
+/// entry inside a directory that DID open is a different question.
+fn collect_rs(root: &Path, out: &mut Vec<PathBuf>, errors: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
-    for entry in entries.flatten() {
-        let path = entry.path();
+    collect_from_entries(entries, root, out, errors);
+}
+
+/// The per-entry half of [`collect_rs`], over an ITERATOR of entries rather
+/// than over a path.
+///
+/// # Why an entry failure is an error here and not a skip
+///
+/// It used to be `entries.flatten()`, which dropped it. A dropped entry is a
+/// file missing from the concatenation, so the SAME tree stops producing the
+/// same bytes depending on what happened to be readable on this machine —
+/// precisely the non-determinism [`sort_deterministically`] is bought to
+/// remove, and the same reason [`generate`] already refuses to skip a file it
+/// cannot READ. A failure to `stat` an entry the walk already found is the
+/// same case by another route, so it is recorded too.
+///
+/// This is NOT the missing-root exemption in disguise: that one is about a
+/// directory that never opened (a project with no `examples/`), while this is
+/// about a directory that opened and then hid part of itself.
+///
+/// # Why it takes the iterator
+///
+/// So the failure branch is reachable from a test — there is no portable way
+/// to make a real `ReadDir` yield an `Err` on demand, and a branch nothing can
+/// reach is a branch nothing pins. `std::fs::ReadDir` already **is** an
+/// `Iterator<Item = io::Result<DirEntry>>`, so [`collect_rs`] hands over its
+/// own iterator unchanged.
+///
+/// # Parameters
+///
+/// * `entries` — the directory's entries, each possibly a read failure.
+/// * `root` — the directory they came from, for naming it in a message.
+/// * `out` — accumulator for the `.rs` paths found.
+/// * `errors` — accumulator for what could not be inspected.
+///
+/// # Complexity
+///
+/// `O(f)` in the entries under `root`, recursively: one `stat` per entry.
+fn collect_from_entries<I>(
+    entries: I,
+    root: &Path,
+    out: &mut Vec<PathBuf>,
+    errors: &mut Vec<String>,
+) where
+    I: IntoIterator<Item = std::io::Result<std::fs::DirEntry>>,
+{
+    for entry in entries {
+        let path = match entry {
+            Ok(e) => e.path(),
+            Err(e) => {
+                errors.push(format!(
+                    "could not read an entry of {}: {e}",
+                    root.display()
+                ));
+                continue;
+            }
+        };
         // Skip symlinks: following them can duplicate content or escape the tree.
-        let Ok(meta) = std::fs::symlink_metadata(&path) else {
-            continue;
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(e) => {
+                errors.push(format!("could not inspect {}: {e}", path.display()));
+                continue;
+            }
         };
         if meta.file_type().is_symlink() {
             continue;
         }
         if meta.is_dir() {
-            collect_rs(&path, out);
+            collect_rs(&path, out, errors);
         } else if path.extension().is_some_and(|ext| ext == "rs") {
             out.push(path);
         }
@@ -126,6 +188,15 @@ const ROOTS: [&str; 3] = ["src", "tests", "examples"];
 /// at all.
 const CAPACITY_HEADROOM_BYTES: usize = 4096;
 
+/// Character appended when truncating to `target_bytes` lands on a character
+/// boundary BELOW it, so the returned payload is exactly the requested size.
+///
+/// ASCII on purpose: it is one byte per push, so the repair cannot itself
+/// overshoot the target. A space is inert in the source text this walks, and
+/// at most three are ever added — a UTF-8 character is at most four bytes
+/// long, so cutting inside one moves the boundary back by at most three.
+const BOUNDARY_PAD: char = ' ';
+
 /// Builds the large payload by concatenating `.rs` source under `repo_root`,
 /// walking [`ROOTS`] in order until at least `target_bytes` bytes have been
 /// gathered, then truncating to exactly `target_bytes`.
@@ -139,8 +210,13 @@ const CAPACITY_HEADROOM_BYTES: usize = 4096;
 ///
 /// # Returns
 ///
-/// The generated [`Payload`], truncated to exactly `target_bytes` bytes on a
-/// UTF-8 character boundary.
+/// The generated [`Payload`], **exactly `target_bytes` bytes** long. The cut
+/// itself lands on a UTF-8 character boundary, which can fall up to three
+/// bytes short of the target; those bytes are made up with [`BOUNDARY_PAD`]
+/// so the returned size is the requested one and not "the requested one,
+/// usually". A caller that is told a payload is large enough and receives a
+/// smaller one has been told something false, which is exactly the class of
+/// silent weakening this harness exists to refuse.
 ///
 /// # Errors
 ///
@@ -148,15 +224,19 @@ const CAPACITY_HEADROOM_BYTES: usize = 4096;
 /// [`ROOTS`] falls short of `target_bytes`. This is deliberate: silently
 /// returning a short payload would defeat the scenario this generator exists
 /// to serve (see the module docs), so falling short fails loudly and names
-/// both the size reached and the target.
+/// both the size reached and the target. That check is about the SOURCE SET;
+/// it is not what guarantees the returned size, because it runs before the
+/// truncation — the padding above is.
 ///
-/// Also returns [`PayloadError`] if a collected `.rs` file cannot be read. A
-/// skip there would make the output depend on which files happened to be
-/// readable on this machine, which is precisely the non-determinism
-/// [`sort_deterministically`] is bought to remove. An unreadable DIRECTORY is
-/// still skipped, and deliberately so — see [`collect_rs`]: a root that does
-/// not exist at all (a project with no `examples/`) is an expected input to the
-/// widening, while a file the walk has already found and cannot open is not.
+/// Also returns [`PayloadError`] if a collected `.rs` file cannot be read, or
+/// if the walk found an entry it could not read or `stat`
+/// ([`collect_from_entries`]). A skip in any of those makes the output depend
+/// on which files happened to be readable on this machine, which is precisely
+/// the non-determinism [`sort_deterministically`] is bought to remove. An
+/// unreadable ROOT DIRECTORY is still skipped, and deliberately so — see
+/// [`collect_rs`]: a root that does not exist at all (a project with no
+/// `examples/`) is an expected input to the widening, while anything inside a
+/// directory that did open is not.
 ///
 /// # Complexity
 ///
@@ -175,7 +255,17 @@ pub fn generate(repo_root: &Path, target_bytes: usize) -> Result<Payload, Payloa
             break;
         }
         let mut files = Vec::new();
-        collect_rs(&repo_root.join(root), &mut files);
+        let mut walk_errors = Vec::new();
+        collect_rs(&repo_root.join(root), &mut files, &mut walk_errors);
+        if !walk_errors.is_empty() {
+            return Err(PayloadError(format!(
+                "the walk of {} could not inspect everything it found: {}. Dropping those \
+                 entries would make the payload depend on the state of the machine, which is \
+                 the one property the deterministic order exists to remove.",
+                repo_root.join(root).display(),
+                walk_errors.join("; ")
+            )));
+        }
         for f in sort_deterministically(files) {
             if acc.len() >= target_bytes {
                 break;
@@ -218,6 +308,16 @@ pub fn generate(repo_root: &Path, target_bytes: usize) -> Result<Payload, Payloa
     // **1.91** (`Cargo.toml`), so it is available — `magi-core` itself has used
     // it in `reporting.rs` since `1.0.1` replaced its workaround.
     acc.truncate(acc.floor_char_boundary(target_bytes));
+    // The size check above ran BEFORE this cut, and the cut can move the end
+    // BACKWARDS by up to `MAX_UTF8_CHAR_BYTES - 1`: a payload validated as
+    // large enough came out SHORTER than the target, silently breaking the one
+    // contract this generator exists to honour. The shortfall is repaired here,
+    // where it is known, rather than turned into an error message about
+    // widening the source set — the source set was never the problem, the
+    // boundary was.
+    for _ in acc.len()..target_bytes {
+        acc.push(BOUNDARY_PAD);
+    }
     Ok(Payload {
         bytes: acc.len(),
         text: acc,
@@ -254,6 +354,63 @@ mod tests {
             format!("{err}").contains("250000"),
             "the error must state the target; a short payload that passes silently is the exact \
              blind spot this scenario exists to cover"
+        );
+    }
+
+    #[test]
+    fn a_target_landing_inside_a_multibyte_character_still_returns_exactly_target_bytes() {
+        // Fix round 2, Finding 3: the "long enough?" check ran BEFORE the UTF-8
+        // truncation, so a payload could be validated as large enough and then
+        // cut back below the target — the contract broken silently, in the one
+        // direction the generator exists to prevent.
+        //
+        // `"aaaé"` is five bytes: `a a a` then `é` at 3..5. A target of 4 falls
+        // INSIDE `é`, so `floor_char_boundary` moves the cut back to 3 and the
+        // unfixed generator returned a 3-byte payload while reporting success.
+        const TARGET_BYTES: usize = 4;
+        let dir = tempdir_with(&[("src/a.rs", "aaaé")]);
+        let out = generate(dir.path(), TARGET_BYTES).unwrap();
+        assert_eq!(
+            out.text.len(),
+            TARGET_BYTES,
+            "a payload that passed the size check must not come back smaller than the target: \
+             {:?}",
+            out.text
+        );
+        assert_eq!(
+            out.bytes, TARGET_BYTES,
+            "the carried size must be the real one"
+        );
+        // The cut still lands on a character boundary — the repair adds ASCII
+        // padding, it does not slice a character in half.
+        assert!(out.text.is_char_boundary(out.text.len()));
+    }
+
+    #[test]
+    fn an_entry_the_walk_cannot_read_is_an_error_not_a_dropped_file() {
+        // The other `.flatten()` of this round. A dropped entry is a file
+        // missing from the concatenation, so the same tree stops producing the
+        // same bytes — the exact non-determinism the fixed ordering above is
+        // bought to remove.
+        //
+        // Injected rather than forced, and that limit is stated: no portable
+        // way exists to make a real `ReadDir` fail on an entry. What this pins
+        // is the decision the code makes when handed one.
+        let dir = tempdir_with(&[]);
+        let mut out = Vec::new();
+        let mut errors = Vec::new();
+        collect_from_entries(
+            vec![Err(std::io::Error::other("simulated entry read failure"))],
+            dir.path(),
+            &mut out,
+            &mut errors,
+        );
+        assert!(out.is_empty());
+        assert_eq!(errors.len(), 1, "the failure must be recorded: {errors:?}");
+        assert!(
+            errors[0].contains("simulated entry read failure"),
+            "the message must name what failed: {:?}",
+            errors[0]
         );
     }
 

@@ -9,6 +9,8 @@
 //! not run, and collapsing them breaks "never green by omission" in both
 //! directions.
 
+use std::path::Path;
+
 /// Exit code for a run in which some scenario contradicted the crate.
 pub(crate) const EXIT_FAILED: u8 = 1;
 /// Exit code for a run that could not reach a conclusion — something was
@@ -198,8 +200,9 @@ where
 ///
 /// # Limitations, declared next to the detection
 ///
-/// Attribution is by panic **location**, and release builds can elide it
-/// (`None` becomes `Fail`, the safe side). A panic in a thread the crate spawned
+/// Attribution is by panic **location** — see [`is_harness_source`] for which
+/// shapes of path count as ours and which known shapes deliberately do not —
+/// and release builds can elide it (`None` becomes `Fail`, the safe side). A panic in a thread the crate spawned
 /// escapes `catch_unwind` entirely and never reaches here at all. `tokio` and
 /// `reqwest` are used by the harness AND by the crate, so a panic in one of them
 /// is ambiguous by nature and falls to `Fail`; disambiguating it would need
@@ -210,15 +213,6 @@ where
 /// `O(d · m)` for `d` harness-only dependency names against a location of length
 /// `m` — one split of the path per name, five names.
 pub fn classify_panic(location: Option<&str>) -> ScenarioState {
-    /// Prefix of the harness's own source paths, MEASURED rather than assumed.
-    ///
-    /// A panic raised in this crate reports `src\outcome.rs` — a path relative
-    /// to the package root, with **no crate name in it at all**. Matching on
-    /// `"magi-smoke"`, which is what the name suggests, matches nothing: that
-    /// arm was dead and every harness panic fell through to `Fail`. Dependencies
-    /// are the opposite — Cargo compiles them from an absolute path, so theirs
-    /// never begins with `src`.
-    const HARNESS_SOURCE_PREFIX: &str = "src";
     // ONLY crates the crate under test does NOT depend on. `reqwest` and `sha2`
     // are used by BOTH, so a panic there may well be the crate misusing them —
     // calling that a harness problem would bury exactly what we came to find.
@@ -230,7 +224,7 @@ pub fn classify_panic(location: Option<&str>) -> ScenarioState {
         "toml",
     ];
     match location {
-        Some(loc) if loc.starts_with(HARNESS_SOURCE_PREFIX) => ScenarioState::Skip(format!(
+        Some(loc) if is_harness_source(loc) => ScenarioState::Skip(format!(
             "panic inside the harness at {loc}: ours, not the crate's"
         )),
         Some(loc)
@@ -249,6 +243,70 @@ pub fn classify_panic(location: Option<&str>) -> ScenarioState {
 /// Linux CI, and a test that writes a `/` path must classify the same way as
 /// the `\` path the same build would really produce.
 const PATH_SEPARATORS: [char; 2] = ['/', '\\'];
+
+/// This package's own directory, baked in at COMPILE time by Cargo. It is what
+/// makes the ABSOLUTE form of a harness path recognisable — see
+/// [`is_harness_source`].
+const HARNESS_MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
+
+/// First path segment of a harness source path in its RELATIVE form.
+const HARNESS_SOURCE_DIR: &str = "src";
+
+/// Whether a panic location is a file of THIS package's own source.
+///
+/// # Both forms are accepted, and both were MEASURED
+///
+/// Cargo passes rustc a path relative to the workspace root for the package
+/// being built, and an absolute one for a path dependency. Read out of this
+/// project's own `cargo build -v`:
+///
+/// ```text
+/// --crate-name magi_smoke ... 'src\main.rs'                       <- relative
+/// --crate-name magi_core  ... 'C:\...\MAGI-Core\src\lib.rs'       <- absolute
+/// ```
+///
+/// and a panic raised in this crate accordingly reports `src\outcome.rs`,
+/// confirmed by running the panicking test under `--nocapture` from `smoke/`
+/// and again through `--manifest-path` from the repository root.
+///
+/// The relative form is therefore the one this build produces today. It is
+/// **not** the only form a build can produce — the same measurement shows a
+/// package compiled as somebody else's path dependency reporting an absolute
+/// path — so the absolute form is recognised too, by containment in
+/// [`HARNESS_MANIFEST_DIR`]. Without it, a harness panic under such a build
+/// would be blamed on the crate.
+///
+/// # Why containment and not a string prefix
+///
+/// [`Path::starts_with`] compares whole components, so a SIBLING directory
+/// whose name merely begins with this package's — `smoke-other/` — is not
+/// contained. The relative arm is a whole first SEGMENT for the same reason:
+/// the previous `loc.starts_with("src")` also matched `srcfoo/bar.rs`, and
+/// matching too much here is the expensive direction (it hands a crate defect
+/// a `Skip`).
+///
+/// # Direction of error
+///
+/// Anything this cannot positively identify falls through to `Fail`, which is
+/// the rule the whole module follows. Two known cases land there: a Windows
+/// path that differs from [`HARNESS_MANIFEST_DIR`] only in letter case, and a
+/// build that reports harness source relative to an OUTER workspace root
+/// (`smoke/src/outcome.rs`) — a layout the preflight's own workspace-isolation
+/// check exists to reject before a run starts.
+///
+/// # Parameters
+///
+/// * `location` — the source path the panic reported.
+///
+/// # Complexity
+///
+/// `O(m)` in the length of `location`: one component walk, one segment split.
+fn is_harness_source(location: &str) -> bool {
+    if Path::new(location).starts_with(HARNESS_MANIFEST_DIR) {
+        return true;
+    }
+    location.split(PATH_SEPARATORS).next() == Some(HARNESS_SOURCE_DIR)
+}
 
 /// Whether `location` lies inside the source tree of the dependency `dep`, as
 /// opposed to merely containing its name somewhere.
@@ -497,6 +555,69 @@ mod tests {
             classify_panic(Some("src/proxy.rs")),
             ScenarioState::Skip(_)
         ));
+    }
+
+    #[test]
+    fn a_harness_panic_reported_with_an_absolute_path_is_still_ours() {
+        // Fix round 2, Finding 2: attribution matched `starts_with("src")`,
+        // which holds for THIS build invocation (measured: cargo passes
+        // `'src\main.rs'` to rustc for the package being built) and not for
+        // every one — the same measurement shows a package compiled as
+        // somebody else's path dependency getting an ABSOLUTE path
+        // (`'C:\...\MAGI-Core\src\lib.rs'` for magi-core). Under such a build a
+        // harness panic was blamed on the crate.
+        //
+        // Built from the real manifest dir rather than a literal, so it is the
+        // shape this package would actually report and it works on both
+        // platforms.
+        let abs = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src")
+            .join("outcome.rs");
+        assert!(
+            matches!(
+                classify_panic(Some(&abs.to_string_lossy())),
+                ScenarioState::Skip(_)
+            ),
+            "{} is this package's own source: {:?}",
+            abs.display(),
+            classify_panic(Some(&abs.to_string_lossy()))
+        );
+    }
+
+    #[test]
+    fn a_path_that_merely_begins_like_harness_source_is_not_harness_source() {
+        // The companion, and the reason the widening is containment rather than
+        // a string prefix. Over-matching here is the EXPENSIVE direction: it
+        // hands a crate defect a Skip, which nobody investigates.
+        //
+        // `srcfoo/` was matched by the old `starts_with("src")` too — the fix
+        // closes both at once.
+        assert_eq!(classify_panic(Some("srcfoo/bar.rs")), ScenarioState::Fail);
+        let sibling = format!("{}-other/src/lib.rs", env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(
+            classify_panic(Some(&sibling)),
+            ScenarioState::Fail,
+            "a sibling directory whose name merely begins with this package's is not ours"
+        );
+    }
+
+    #[test]
+    fn the_crate_under_test_is_still_the_crates_when_it_reports_an_absolute_path() {
+        // magi-core is a PATH dependency, and `cargo build -v` shows it
+        // compiled from an absolute path — so this is the shape its panics
+        // really carry. It sits beside `smoke/`, never inside it, which is what
+        // keeps the containment test above from swallowing a crate defect.
+        let crate_src = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("smoke/ has a parent: the repository root")
+            .join("src")
+            .join("orchestrator.rs");
+        assert_eq!(
+            classify_panic(Some(&crate_src.to_string_lossy())),
+            ScenarioState::Fail,
+            "{} belongs to the crate under test",
+            crate_src.display()
+        );
     }
 
     #[tokio::test]
