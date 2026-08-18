@@ -261,6 +261,10 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     let _ = writeln!(out);
     let _ = writeln!(out, "- version: {}", facts.version);
     let _ = writeln!(out, "- commit: {}", facts.commit);
+    let _ = writeln!(out, "- date: {} (UTC)", facts.date);
+    let _ = writeln!(out, "- dependency mode: {}", facts.mode);
+    let _ = writeln!(out, "- real cost: {}", facts.cost);
+    let _ = writeln!(out, "- rounds needed: {}", facts.round);
     let _ = writeln!(out);
     for row in ordered {
         let _ = writeln!(out, "{}", format_row(row));
@@ -305,8 +309,65 @@ pub struct CertificateFacts {
 ///
 /// Hand-rolled from the standard library because a date dependency for one
 /// line of output is not a trade this harness makes (R-T1: no new deps).
-pub fn iso_date_utc(_at: std::time::SystemTime) -> String {
-    String::new()
+///
+/// # UTC, not local time, and the certificate says so
+///
+/// A local date depends on where the release was cut, so two certificates
+/// issued minutes apart in different offices could disagree about which day
+/// it was. The historical series R37 builds is read by date; one timezone is
+/// what makes it orderable.
+///
+/// # Parameters
+///
+/// * `at` — the instant to render. An instant BEFORE the Unix epoch is
+///   rendered as the epoch itself rather than failing: the only caller passes
+///   `SystemTime::now()`, and a machine whose clock is set before 1970 has a
+///   problem the certificate is not the place to report.
+///
+/// # Complexity
+///
+/// `O(y)` in the number of years since 1970 — a bounded loop of a few dozen
+/// iterations, run once per certificate.
+pub fn iso_date_utc(at: std::time::SystemTime) -> String {
+    /// Days in each month of a non-leap year.
+    const MONTH_LENGTHS: [u32; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    /// The first year the epoch counts from.
+    const EPOCH_YEAR: u32 = 1970;
+
+    let secs = at
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mut days = secs / 86_400;
+
+    // The full Gregorian rule, not the "divisible by 4" shortcut: 1900 was not
+    // a leap year and 2000 was, and a conversion that gets that wrong is off by
+    // a day for every date after the century it mishandles.
+    let is_leap = |y: u32| (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
+
+    let mut year = EPOCH_YEAR;
+    loop {
+        let in_year: u32 = if is_leap(year) { 366 } else { 365 };
+        if days < u64::from(in_year) {
+            break;
+        }
+        days -= u64::from(in_year);
+        year += 1;
+    }
+
+    let mut month = 1;
+    for (i, len) in MONTH_LENGTHS.iter().enumerate() {
+        let len: u32 = if i == 1 && is_leap(year) { 29 } else { *len };
+        if days < u64::from(len) {
+            break;
+        }
+        days -= u64::from(len);
+        month += 1;
+    }
+
+    // `days` counts elapsed whole days within the month, and calendars start at
+    // the first, not the zeroth.
+    format!("{year:04}-{month:02}-{:02}", days + 1)
 }
 
 /// Sort key that puts the large-payload run's rows first: `0` for
