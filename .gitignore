@@ -47,6 +47,9 @@ dev-docs/
 graphify-out/cost.json
 graphify-out/.graphify_python
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+# Rewritten by every `graphify query`, so without this line the working tree is
+# dirty after any graph lookup and the clean-status check of §8 fires on noise.
+graphify-out/cache/last_query_stamp
 
 # Usage-gate artifact (scripts/claude_usage.py output)
 claude-usage.txt

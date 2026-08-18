@@ -3,3 +3,4 @@
 # against the upstream MAGI Python reference.
 src/prompts_md/*.md text eol=lf
 tests/fixtures/magi_ref_prompts.sha256 text eol=lf
+graphify-out/graph.json merge=graphify
