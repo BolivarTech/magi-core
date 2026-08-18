@@ -89,6 +89,46 @@ const COMMENT_OPEN: &str = "//";
 /// and `weakened::scan()` are examined and pass, so the module's own name is
 /// not a violation of itself.
 ///
+/// # The friction this costs, priced — raised twice in review, and kept
+///
+/// Both sources above are FRICTION, and friction is a real objection rather
+/// than a fussy one: a guard people find obstructive gets bypassed, and a
+/// bypassed guard protects nothing. So the trade is priced here rather than
+/// asserted, and the two sides are not the same size.
+///
+/// **What a false positive costs: one reworded comment.** It surfaces at
+/// `cargo test`, from
+/// `every_mark_outside_this_guards_own_fixtures_is_well_formed`, as a message
+/// naming the file and quoting the offending line — so the author is looking
+/// straight at the line to change, in the same edit-run cycle they were already
+/// in. It never reaches CI as a mystery, never blocks anything for longer than
+/// it takes to reword one sentence, and it is confined to comments that use one
+/// specific word.
+///
+/// **What a false negative costs: the guard's entire reason to exist.** A
+/// malformed mark is one that no grep for the real marker will ever find, so
+/// the relaxed assertion it was supposed to make countable becomes invisible —
+/// and stays invisible, while the suite reports green over it. Nobody goes
+/// looking, because the mechanism whose job was to say something has said
+/// nothing.
+///
+/// **Why the trade is taken in this direction.** The two errors are not
+/// symmetric in cost, in duration, or in who bears them: the false positive is
+/// bounded, immediate, self-announcing and paid by the person who can fix it in
+/// one line; the false negative is unbounded, silent, permanent and paid by
+/// whoever later trusts a green gate. Narrowing the trigger to the well-formed
+/// token would remove the friction entirely and, in the same move, leave the
+/// check finding only the marks that were already correct — a check that agrees
+/// with whatever is written.
+///
+/// **On the adoption risk specifically.** What makes a guard get worked around
+/// is a cost that is high, recurring or opaque. This one is none of those: the
+/// only workaround it invites is rewording a comment, which is also the
+/// compliant outcome, and the cheapest way past it is to write the mark
+/// correctly. If the friction ever stops being cheap in practice — measured, by
+/// how often it fires on innocent prose, not predicted — the answer is to
+/// narrow the SHAPE that counts as a comment, never to narrow the trigger word.
+///
 /// # Complexity
 ///
 /// `O(n)` in the line's length: one uppercase pass and one substring search.
@@ -147,10 +187,36 @@ pub fn scan(src: &str) -> Result<(), Vec<String>> {
 /// # Errors
 ///
 /// One message per malformed line, each prefixed with the file it came from —
-/// **and one per file or directory that could not be READ**. An unreadable entry
-/// is reported, never skipped: a guard that quietly passes over what it could not
-/// open is a guard that reports success while guarding nothing, which is the
-/// exact failure this module exists to prevent.
+/// **and one per file or directory that could not be READ**, or that could not
+/// be INSPECTED. An unreadable entry is reported, never skipped: a guard that
+/// quietly passes over what it could not open is a guard that reports success
+/// while guarding nothing, which is the exact failure this module exists to
+/// prevent.
+///
+/// # Symlinks are SKIPPED, not followed
+///
+/// The same policy [`crate::payload::collect_rs`] applies to the same tree, for
+/// the same reasons — two walks over one tree with opposite policies is a
+/// disagreement waiting to be discovered by whichever one is wrong.
+///
+/// This walk branched on `Path::is_dir`, which FOLLOWS a link, and it keeps no
+/// visited set. Concretely, that meant:
+///
+/// * **A directory link pointing OUT of the tree** made the guard scan files
+///   that are not the harness's, and report their marks as this tree's defects.
+///   The [`GUARD_OWN_FILE`] exemption compares against `root.join(..)`, so a
+///   link reaching this very file under any other name would have had the
+///   guard's own deliberately-malformed fixtures reported as violations —
+///   turning `every_mark_outside_this_guards_own_fixtures_is_well_formed` red
+///   over nothing.
+/// * **A directory link pointing INTO an ancestor** made the walk cycle, and
+///   with no visited set the stack grows without bound rather than terminating.
+/// * **A `.rs` FILE link** made one malformed mark get reported twice, so the
+///   count of defects stopped being a count of defects.
+///
+/// A link that cannot be inspected is REPORTED, on the same principle as an
+/// unreadable directory: silence would be the guard passing over something it
+/// could not classify.
 ///
 /// # Complexity
 ///
@@ -174,7 +240,20 @@ pub fn scan_tree(root: &Path) -> Result<(), Vec<String>> {
                     continue;
                 }
             };
-            if path.is_dir() {
+            // `symlink_metadata`, NOT `path.is_dir()`: the latter FOLLOWS a
+            // link, and following one here can escape the tree or cycle
+            // forever (see this function's "Symlinks are SKIPPED" section).
+            let meta = match std::fs::symlink_metadata(&path) {
+                Ok(m) => m,
+                Err(e) => {
+                    bad.push(format!("{}: could not inspect: {e}", path.display()));
+                    continue;
+                }
+            };
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.is_dir() {
                 stack.push(path);
                 continue;
             }
@@ -205,7 +284,50 @@ pub fn scan_tree(root: &Path) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testkit::tempdir_with;
+    use crate::testkit::{make_dir_link, tempdir_with};
+
+    /// A mark the guard must reject, used as the CONTENT of the file the link
+    /// reaches. It is malformed on purpose: if the walk follows the link, this
+    /// is what it finds and reports.
+    const A_MALFORMED_MARK: &str = "assert!(x); // weakened for EC-3\n";
+
+    #[test]
+    fn a_directory_link_is_skipped_rather_than_followed_out_of_the_tree() {
+        // The payload generator skips links deliberately; this walk branched on
+        // `Path::is_dir`, which FOLLOWS one — two walks over the same tree with
+        // opposite policies. Following a link here scans files that are not the
+        // harness's and reports their marks as this tree's defects; a link into
+        // an ancestor cycles forever, since the walk keeps no visited set.
+        let outside = tempdir_with(&[("leaked.rs", A_MALFORMED_MARK)]);
+        let scanned = tempdir_with(&[("keep.rs", "// nothing to see here")]);
+
+        // POSITIVE CONTROL, and it is what stops this test passing for the
+        // wrong reason: the fixture really is a mark the guard rejects, so an
+        // `Ok` below can only mean the link was not followed — never that
+        // there was nothing to find.
+        let direct = scan_tree(outside.path())
+            .expect_err("the fixture must be a mark the guard rejects, or this test is vacuous");
+        assert_eq!(direct.len(), 1);
+
+        if !make_dir_link(scanned.path().join("linked"), outside.path().to_path_buf()) {
+            // A fact about the machine, not about `scan_tree`. Reported as
+            // UNVERIFIED rather than passed — a green here would be the guard
+            // reporting success while checking nothing, which is the defect
+            // class this whole module exists to close.
+            eprintln!(
+                "SKIP a_directory_link_is_skipped_rather_than_followed_out_of_the_tree: this \
+                 OS refused to create a directory link; the property is UNVERIFIED here, not \
+                 passed"
+            );
+            return;
+        }
+
+        assert!(
+            scan_tree(scanned.path()).is_ok(),
+            "a followed link would have reached leaked.rs and reported a mark from OUTSIDE \
+             the scanned tree as one of its defects"
+        );
+    }
 
     #[test]
     fn a_well_formed_mark_is_accepted() {

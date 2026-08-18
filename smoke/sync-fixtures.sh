@@ -27,6 +27,35 @@ test -d "$SRC" || {
   exit 2
 }
 
+# SHA-256, resolved ONCE and up front, because the tool is not the same
+# everywhere: GNU coreutils ships `sha256sum` (Linux, git-bash, MSYS) and macOS
+# ships none of coreutils — it has `shasum -a 256` instead. Hardcoding
+# `sha256sum` made this script fail on macOS at the first fixture, AFTER it had
+# already truncated manifest.toml to its header.
+#
+# Resolved BEFORE anything is written, and the "neither exists" case is FATAL
+# rather than a fallback to an empty hash or a skipped column: the manifest's
+# whole claim is that a fixture is the file we recorded, and a manifest that
+# hashed nothing while looking complete is that claim reporting success while
+# guaranteeing nothing. Its own header says a hand-written hash is a hash that
+# can match nothing; an absent one is worse.
+#
+# Both tools print `<hash>  <file>`, so `cut -d' ' -f1` reads the same field
+# from either.
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256_of() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  echo "FATAL: no SHA-256 tool found. This script needs either 'sha256sum'" \
+       "(GNU coreutils: Linux, git-bash, MSYS) or 'shasum' (shipped with" \
+       "macOS). Install coreutils ('brew install coreutils' provides" \
+       "gsha256sum; 'apt install coreutils' on Debian), or run this script on" \
+       "a machine that has one — refusing to write a manifest whose hashes" \
+       "would be missing."
+  exit 3
+fi
+
 mkdir -p "$DST"
 
 # The header is (re)written on EVERY run, not just the first: regenerating
@@ -73,7 +102,7 @@ if [ -f "$WANTED" ]; then
     # would make the manifest fail to deserialize — and that error would
     # surface at the preflight, far from the script that produced it.
     printf '\n[[fixture]]\nscenario = "%s"\npath = "%s"\nsha256 = "%s"\ncurrency = "%s"\n' \
-      "$scenario" "$f" "$(sha256sum "$DST/$f" | cut -d' ' -f1)" "$currency" \
+      "$scenario" "$f" "$(sha256_of "$DST/$f")" "$currency" \
       >> "$DST/manifest.toml"
   done < "$WANTED"
 else

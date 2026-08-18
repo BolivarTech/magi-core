@@ -24,6 +24,11 @@ use std::time::Duration;
 pub struct Config {
     /// Base URL of the backend under test, e.g. `"http://localhost:11434"`.
     /// No trailing path segment; each scenario appends its own.
+    ///
+    /// Checked at load time by [`Config::validate_endpoint`] for a known scheme
+    /// and a non-empty, whitespace-free host — enough to keep a value that is
+    /// not a URL from being discovered at the first request instead of here.
+    /// Whether anything ANSWERS at that address is the preflight's question.
     #[serde(default = "default_endpoint")]
     pub endpoint: String,
     /// How long, in seconds, the contention probe waits for a trivial request
@@ -309,6 +314,15 @@ const MIN_PAYLOAD_TARGET_BYTES: usize = 100_000;
 /// here would forbid the one use the field exists for.
 const MIN_RUN_PAYLOAD_BYTES: usize = 1;
 
+/// The two schemes an `endpoint` may carry. A closed list, not a pattern: the
+/// harness talks to the backend over `reqwest`, and these are the schemes it
+/// speaks to one.
+const ENDPOINT_SCHEMES: [&str; 2] = ["http://", "https://"];
+
+/// Characters that end the authority component of a URL, i.e. everything after
+/// which the text is a path, a query or a fragment rather than `host[:port]`.
+const AUTHORITY_TERMINATORS: [char; 3] = ['/', '?', '#'];
+
 impl Config {
     pub fn from_str(text: &str) -> Result<Self, ConfigError> {
         let cfg: Config = toml::from_str(text).map_err(|e| ConfigError(e.to_string()))?;
@@ -394,6 +408,7 @@ impl Config {
         // nothing invoked it, i.e. it was documentation with Rust syntax. Three
         // mages flagged it independently.
         self.validate_probe_window()?;
+        self.validate_endpoint()?;
         if self.probe_timeout_secs == 0 || self.probe_timeout_secs > MAX_PROBE_TIMEOUT_SECS {
             return Err(ConfigError(format!(
                 "probe_timeout_secs must be in 1..={MAX_PROBE_TIMEOUT_SECS}; 0 disables the \
@@ -690,6 +705,67 @@ impl Config {
     /// budget). A guard that fires on the shipped defaults is one that gets
     /// silenced on day one; this project already rejected that exact shape for
     /// the retry warning.
+    /// Checks that `endpoint` is usable as a base URL, and NAMES the field when
+    /// it is not — the same contract every other check in [`Config::validate`]
+    /// keeps.
+    ///
+    /// # Why here, and not left to the preflight
+    ///
+    /// Every other field is range-checked at load time; this one was not, so a
+    /// value that is not a URL travelled all the way to the first request and
+    /// failed there — one layer and several seconds away from the typo, wearing
+    /// a transport error's clothes. A configuration mistake should be reported
+    /// as a configuration mistake, at the moment the configuration is read.
+    ///
+    /// # Scheme and host, and deliberately nothing more
+    ///
+    /// This is not a URL parser and must not become one — no dependency, and no
+    /// hand-rolled percent-decoding, IPv6-literal or IDNA handling, whose bugs
+    /// would start REJECTING endpoints that work. What it rules out is the
+    /// class of value that cannot possibly work: a missing or unknown scheme,
+    /// and an empty or whitespace-carrying host. A syntactically fine endpoint
+    /// pointing at nothing is still the preflight's business, and always was.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError`] naming `endpoint` and what was wrong with it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the endpoint's length.
+    fn validate_endpoint(&self) -> Result<(), ConfigError> {
+        let Some(after_scheme) = ENDPOINT_SCHEMES
+            .iter()
+            .find_map(|s| self.endpoint.strip_prefix(s))
+        else {
+            return Err(ConfigError(format!(
+                "endpoint must start with one of {ENDPOINT_SCHEMES:?}; got {:?} — a value that \
+                 is not a URL fails at the first request instead of here, a layer away from \
+                 the typo",
+                self.endpoint
+            )));
+        };
+        // `next()` on a `split` always yields, so the fallback is unreachable —
+        // it is written rather than unwrapped because this is production code.
+        let host = after_scheme
+            .split(AUTHORITY_TERMINATORS)
+            .next()
+            .unwrap_or("");
+        if host.is_empty() {
+            return Err(ConfigError(format!(
+                "endpoint has no host: {:?}",
+                self.endpoint
+            )));
+        }
+        if host.chars().any(char::is_whitespace) {
+            return Err(ConfigError(format!(
+                "endpoint host contains whitespace: {:?}",
+                self.endpoint
+            )));
+        }
+        Ok(())
+    }
+
     fn validate_probe_window(&self) -> Result<(), ConfigError> {
         let worst = self.probe_timeout_secs * (1 + PROBE_RETRY_FACTOR as u64);
         let shortest_backend_run = self
@@ -815,6 +891,57 @@ mod tests {
             Config::default().longest_backend_budget(),
             "no_backend_secs is deliberately outside this maximum"
         );
+    }
+
+    #[test]
+    fn an_endpoint_that_is_not_a_url_is_rejected_and_the_field_is_named() {
+        // Every other field had a range check that NAMES it; this one had
+        // none, so a typo reached the preflight and failed there — one layer
+        // and several seconds from the mistake, looking like a backend that
+        // was not up.
+        for bad in [
+            "",                        // nothing at all
+            "localhost:11434",         // the commonest slip: no scheme
+            "ftp://localhost:11434",   // a scheme, but not one we speak
+            "http://",                 // scheme and no host
+            "http:// localhost:11434", // a host that cannot be one
+        ] {
+            let cfg = Config {
+                endpoint: bad.to_string(),
+                ..Config::default()
+            };
+            let Err(err) = cfg.validate() else {
+                panic!("{bad:?} must be rejected, not carried to the first request");
+            };
+            let err = err.to_string();
+            assert!(
+                err.contains("endpoint"),
+                "the message must NAME the field, or the reader goes hunting: {err}"
+            );
+        }
+        // The other half, and it is what stops the check passing by refusing
+        // everything: real endpoints — including one with a path, which is
+        // legal input this must not start rejecting — still load.
+        for good in [
+            "http://localhost:11434",
+            "https://example.invalid",
+            "http://127.0.0.1:8080/v1",
+        ] {
+            let cfg = Config {
+                endpoint: good.to_string(),
+                ..Config::default()
+            };
+            assert!(
+                cfg.validate().is_ok(),
+                "{good:?} is a usable endpoint and must not be rejected"
+            );
+        }
+        // And through the environment, which is the HIGHEST-precedence path
+        // (R30): a check that only sees the file leaves the override unguarded.
+        let via_env =
+            Config::apply_env_override("MAGI_SMOKE_ENDPOINT", "localhost:11434", Config::default())
+                .expect_err("the env path goes through the same validation as the file path");
+        assert!(format!("{via_env}").contains("endpoint"));
     }
 
     #[test]

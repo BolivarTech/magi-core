@@ -58,6 +58,21 @@
 //! and the transparency comparison could then blame the crate for a body the
 //! HARNESS substituted. Nothing is forwarded now; see the `Err` arm in `handle`
 //! and `an_unreadable_request_is_not_forwarded_as_an_empty_one`.
+//!
+//! # Fixes from review round 3 (the same defect once more, in the FALLBACKS)
+//!
+//! Five response builders ended in
+//! `unwrap_or_else(|_| hyper::Response::new(empty_body()))`, and
+//! `hyper::Response::new` defaults to **`200`** — so a builder failure answered
+//! the crate with SUCCESS over a failure, which is the harness fabricating the
+//! exact outcome it exists to catch. Four of the five cannot fail today (their
+//! statuses are compile-time constants or `StatusCode` values round-tripped
+//! from a real response), and that is not a reason to leave them aimed the
+//! wrong way: the fifth — the injected stand-in, whose status is a `u16` the
+//! caller chooses — is reachable right now through [`SpyProxy::set_injection`],
+//! and the other four become reachable the moment someone edits a status. They
+//! all route through [`build_failed`] now; see
+//! `a_response_the_proxy_cannot_build_is_an_error_not_a_fabricated_success`.
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
@@ -119,8 +134,62 @@ fn fixed(bytes: &[u8]) -> ProxyBody {
     ProxyBody::new(Full::new(Bytes::copy_from_slice(bytes)).map_err(infallible_to_box))
 }
 
-fn empty_body() -> ProxyBody {
-    fixed(b"")
+/// Status the proxy answers with when it could not BUILD the response that
+/// would have carried an UPSTREAM exchange back to the crate.
+///
+/// A `502` and deliberately not a `200`: the proxy did talk to the backend and
+/// then failed to relay what came of it, which is a gateway failure and exactly
+/// what the crate can classify as one.
+const RELAY_BUILD_FAILED_STATUS: hyper::StatusCode = hyper::StatusCode::BAD_GATEWAY;
+
+/// Status the proxy answers with when it could not BUILD a response of its
+/// OWN — an injected stand-in, or a refusal about a request it could not read.
+///
+/// A `500` and **not** a `502`, and the distinction is the point: no upstream
+/// leg exists in these exchanges, so `502` would claim a conversation with the
+/// backend that never happened and send an investigation looking for it. `500`
+/// says "the server side of this hop failed", which is true — the proxy IS the
+/// server here.
+const LOCAL_BUILD_FAILED_STATUS: hyper::StatusCode = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+
+/// The body sent with either build-failure status. Names the proxy as the party
+/// that failed, so the line is legible in a captured trace on its own.
+const BUILD_FAILED_BODY: &[u8] = b"spy proxy: could not build the response it meant to send";
+
+/// The fallback for a response the proxy meant to build and could not.
+///
+/// # Why this exists at all
+///
+/// Five call sites used to end in
+/// `unwrap_or_else(|_| hyper::Response::new(empty_body()))`, and
+/// `hyper::Response::new` **defaults to `200`** — so a builder failure answered
+/// the crate with SUCCESS over a failure. That is the harness fabricating the
+/// one outcome it exists to catch, and it does not stop being wrong for being
+/// unreachable today: an unreachable fallback is a reachable one after the next
+/// edit, and it would then be pointing the wrong way with nothing to catch it.
+///
+/// # Parameters
+///
+/// * `status` — [`RELAY_BUILD_FAILED_STATUS`] when the failure is about
+///   relaying an upstream exchange, [`LOCAL_BUILD_FAILED_STATUS`] when the
+///   proxy was answering on its own behalf. The call sites choose; this
+///   function does not guess.
+///
+/// # Errors
+///
+/// **None, by construction.** It uses `Response::new` plus `status_mut` rather
+/// than `Response::builder()`: the builder is precisely what failed on the way
+/// in, and a fallback that can fail the same way as the thing it is falling
+/// back from is not a fallback. A `StatusCode` is already valid — there is no
+/// conversion left to reject — and [`fixed`] is infallible.
+///
+/// # Complexity
+///
+/// `O(n)` in [`BUILD_FAILED_BODY`]'s length, which is a fixed short constant.
+fn build_failed(status: hyper::StatusCode) -> hyper::Response<ProxyBody> {
+    let mut resp = hyper::Response::new(fixed(BUILD_FAILED_BODY));
+    *resp.status_mut() = status;
+    resp
 }
 
 /// Hex sha256, the harness's ONE hashing helper. **Free function at MODULE
@@ -659,7 +728,9 @@ impl SpyProxy {
                 return Ok(hyper::Response::builder()
                     .status(REQUEST_UNREADABLE_STATUS)
                     .body(fixed(REQUEST_UNREADABLE_BODY))
-                    .unwrap_or_else(|_| hyper::Response::new(empty_body())));
+                    // LOCAL, not relay: nothing was forwarded here, so a 502
+                    // would name an upstream leg that never existed.
+                    .unwrap_or_else(|_| build_failed(LOCAL_BUILD_FAILED_STATUS)));
             }
         };
         let rec = RequestRecord::record_of(&bytes, &path);
@@ -673,7 +744,21 @@ impl SpyProxy {
             return Ok(hyper::Response::builder()
                 .status(status)
                 .body(fixed(&payload))
-                .unwrap_or_else(|_| hyper::Response::new(empty_body())));
+                // The ONE site of the five that a caller can actually reach:
+                // `status` comes from the configured `Injection`, and a `u16`
+                // outside `100..1000` is not a `StatusCode`. LOCAL, because an
+                // injection is the harness standing in FOR the backend — no
+                // forward was attempted, so there is no gateway leg to blame.
+                //
+                // `degraded` is latched for the same reason the unreadable-body
+                // path above latches it: without that, a harness defect arrives
+                // at the crate as a plain server error and a scenario can go RED
+                // for something the proxy did. Degraded routes it to SKIP.
+                .unwrap_or_else(|_| {
+                    self.degraded
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    build_failed(LOCAL_BUILD_FAILED_STATUS)
+                }));
         }
         // TWO forwarding paths, because the two directions are not symmetric:
         //   - probe paths: buffered, recorded, then handed back whole. Small,
@@ -710,7 +795,9 @@ impl SpyProxy {
             return Ok(hyper::Response::builder()
                 .status(status)
                 .body(fixed(&body))
-                .unwrap_or_else(|_| hyper::Response::new(empty_body())));
+                // RELAY: this response is the upstream's, buffered on the way
+                // through, so failing to build it is a failure to relay.
+                .unwrap_or_else(|_| build_failed(RELAY_BUILD_FAILED_STATUS)));
         }
         let resp = self
             .forward(&method, &path, parts.headers, bytes, &upstream)
@@ -860,13 +947,18 @@ impl SpyProxy {
                     }
                     out = out.header(n.as_str(), v.as_bytes());
                 }
+                // RELAY: the upstream answered and this is the response
+                // carrying its answer back, headers included.
                 out.body(boxed(StreamBody::new(stream)))
-                    .unwrap_or_else(|_| hyper::Response::new(empty_body()))
+                    .unwrap_or_else(|_| build_failed(RELAY_BUILD_FAILED_STATUS))
             }
+            // RELAY on both halves: the build that failed here was itself the
+            // report of an upstream failure, so the fallback keeps saying
+            // "upstream" rather than changing the story.
             Err(_) => hyper::Response::builder()
                 .status(UPSTREAM_UNREACHABLE_STATUS)
                 .body(fixed(b"upstream unreachable"))
-                .unwrap_or_else(|_| hyper::Response::new(empty_body())),
+                .unwrap_or_else(|_| build_failed(RELAY_BUILD_FAILED_STATUS)),
         }
     }
 }
@@ -949,6 +1041,59 @@ mod tests {
             rec.body_sha256,
             sha256_hex(BODY.as_bytes()),
             "the record must identify the full request body, not just its path"
+        );
+    }
+
+    /// A `u16` that is not a status code: `StatusCode` accepts `100..1000`, so
+    /// `hyper::Response::builder().status(0)` stores an error the following
+    /// `.body(..)` hands back. It is the one input that reaches a build-failure
+    /// fallback without editing the proxy, because it is the only status of the
+    /// five that a CALLER supplies rather than the code.
+    const UNBUILDABLE_STATUS: u16 = 0;
+
+    #[tokio::test]
+    async fn a_response_the_proxy_cannot_build_is_an_error_not_a_fabricated_success() {
+        // The fallback used to be `hyper::Response::new(empty_body())`, which is
+        // a **200**: a proxy that could not build its response answered SUCCESS
+        // over a failure — the harness fabricating the one outcome it exists to
+        // catch, in the component whose whole contract is never to invent a
+        // verdict.
+        //
+        // Driven through `set_injection`, the proxy's own public API, with a
+        // status no `StatusCode` can hold. Nothing about the request is
+        // special: the builder is what fails.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        proxy.set_injection(Some(Injection::FailModel {
+            model: "bad".into(),
+            status: UNBUILDABLE_STATUS,
+        }));
+
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(r#"{"model":"bad"}"#)
+            .send()
+            .await
+            .expect("the proxy must still ANSWER: a build failure is a status, not a hang");
+
+        assert_ne!(
+            r.status().as_u16(),
+            200,
+            "a response the proxy could not build must never come back as success"
+        );
+        assert_eq!(
+            r.status().as_u16(),
+            LOCAL_BUILD_FAILED_STATUS.as_u16(),
+            "an injection is the harness standing in for the backend, so the failure is \
+             LOCAL: no forward was attempted and a 502 would name a gateway leg that \
+             never existed"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "and it must SAY so, or a harness defect reaches the crate as a plain server \
+             error and a scenario goes red for something the proxy did"
         );
     }
 

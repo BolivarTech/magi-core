@@ -123,6 +123,71 @@ pub fn make_symlink(link: PathBuf, target: PathBuf) -> bool {
     }
 }
 
+/// Creates a DIRECTORY link at `link` pointing at the directory `target`, and
+/// reports whether it now exists.
+///
+/// # Why this is separate from [`make_symlink`], and why Windows uses a junction
+///
+/// [`make_symlink`] makes a FILE symlink, which on Windows needs Developer Mode
+/// or elevation — so on an ordinary Windows machine it returns `false` and its
+/// callers SKIP. A **junction** needs no privilege at all, and measured on this
+/// project's own Windows box it is exactly the input a directory walk has to
+/// defend against:
+///
+/// * `symlink_metadata(link).file_type().is_symlink()` — **`true`**
+/// * `Path::is_dir(link)` — **`true`**, because it FOLLOWS the link
+///
+/// Those two facts are the whole test: a walk branching on `is_dir()` descends
+/// into it, and a walk that inspects the link itself does not.
+///
+/// A junction is **not** a substitute in [`crate::payload`]'s case, and that
+/// difference is real rather than an inconsistency: that walker needs a `.rs`
+/// FILE link, and `symlink_metadata` reports `is_dir() == false` for a
+/// junction, so it reaches neither of that walker's branches. Here the input
+/// under test IS a directory link, which is precisely what a junction is.
+///
+/// # Parameters
+///
+/// * `link` — the path to create.
+/// * `target` — an existing directory the link should point at.
+///
+/// # Returns
+///
+/// `true` if the link exists afterwards; `false` if the OS refused to create
+/// one. A caller that gets `false` must report the property UNVERIFIED, never
+/// passed — a fact about the machine must not become a green test.
+///
+/// # Panics
+///
+/// On Unix, on any failure that is **not** a privilege refusal.
+pub fn make_dir_link(link: PathBuf, target: PathBuf) -> bool {
+    #[cfg(unix)]
+    {
+        match std::os::unix::fs::symlink(&target, &link) {
+            Ok(()) => true,
+            Err(e) if is_privilege_refusal(&e) => false,
+            Err(e) => panic!("failed to create dir symlink {link:?} -> {target:?}: {e}"),
+        }
+    }
+    // `mklink` is a `cmd` builtin, so it cannot be spawned directly. The exit
+    // status is not trusted on its own: what the caller needs to know is
+    // whether the link EXISTS, so that is what is answered — a `cmd` that is
+    // missing, or refuses, degrades to "could not create" and the caller SKIPs.
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("mklink")
+            .arg("/J")
+            .arg(&link)
+            .arg(&target)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        std::fs::symlink_metadata(&link).is_ok()
+    }
+}
+
 /// A minimal HTTP/1.1 responder for proxy tests (Task 4 and later): reads the
 /// full request body, discards it, and always answers `200 OK` with a fixed
 /// tiny body. It exists so `SpyProxy` tests have something real to forward to
