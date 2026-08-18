@@ -57,3 +57,13 @@ graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
 # Usage-gate artifact (scripts/claude_usage.py output)
 claude-usage.txt
+
+# The harness builds into its own workspace root, and the repo's `/target/` rule
+# is anchored, so this directory needs its own line. Without it every harness
+# build leaves the tree dirty, which breaks both the clean-status release check
+# and the harness's own assertion that it leaves no trace in the repo.
+smoke/target/
+
+# The harness is a BINARY and wants a reproducible build, so its lock is tracked.
+# The bare `Cargo.lock` pattern above matches at any depth and would swallow it.
+!smoke/Cargo.lock

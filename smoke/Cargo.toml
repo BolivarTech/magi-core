@@ -1,0 +1,45 @@
+[package]
+name = "magi-smoke"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Empty table: makes smoke/ its OWN workspace root, so the repo root's nine
+# cargo commands never reach it. Removing this line couples the harness to
+# magi-core's gate, which rule 3 of the spec forbids.
+[workspace]
+
+[features]
+default   = ["tree"]
+tree      = ["dep:magi_core_tree"]
+published = ["dep:magi_core_pub"]
+# Stage gate, ORTHOGONAL to tree/published. OFF in E1, turned ON by MS1: it is
+# what makes the E2 guards — the R17 token count and the 4.0.0 scenarios — go from
+# "not compiled" to "failing loudly if unimplemented". A stage boundary someone
+# can forget is no boundary.
+e2        = []
+
+[dependencies]
+magi_core_tree = { package = "magi-core", path = "..",     optional = true, features = ["ollama"] }
+# The requirement is the version that IS on crates.io while this stage runs, and
+# it is bumped in the SAME commit that bumps the crate's own version at release
+# time. Cargo resolves optional dependencies whether or not their feature is
+# enabled, so naming a version that does not exist yet does not merely break
+# `published` — it breaks EVERY build of this package, the default one included.
+# A forgotten bump is caught post-publish by the version-drift guard of
+# HARNESS-E3, which compares the job-resolved lock against the version just
+# published; it can never pass silently.
+magi_core_pub  = { package = "magi-core", version = "3.2", optional = true, features = ["ollama"] }
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
+hyper   = { version = "1", features = ["server", "http1"] }
+hyper-util      = { version = "0.1", features = ["tokio"] }   # TokioIo: hyper 1.x does not ship it
+http-body-util  = "0.1"                                        # Full, StreamBody, BodyExt
+futures-util    = "0.3"                                        # TryStreamExt: map_ok/map_err
+reqwest = { version = "0.13", features = ["json"] }
+serde   = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml    = "0.8"
+sha2    = "0.10"
+# `LlmProvider` is declared with `#[async_trait]`, so implementing it from
+# OUTSIDE the crate (S1) requires the same attribute here.
+async-trait = "0.1"
