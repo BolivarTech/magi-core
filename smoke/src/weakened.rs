@@ -333,9 +333,16 @@ mod tests {
     }
 
     #[test]
-    fn every_mark_in_the_harness_source_is_well_formed() {
+    fn every_mark_outside_this_guards_own_fixtures_is_well_formed() {
         // Runs over smoke/src/ itself, so a malformed mark added tomorrow fails
         // HERE and not in a grep nobody runs.
+        //
+        // The NAME says "outside this guard's own fixtures" because that is what
+        // the scan does: `scan_tree` skips this file, whose test data IS a set of
+        // deliberately malformed marks. Calling it "every mark in the harness
+        // source" promised a completeness the code does not deliver — the same
+        // naming defect this project already paid for once, in a field whose name
+        // announced a record it never wrote.
         let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         if let Err(bad) = scan_tree(&src_dir) {
             panic!("malformed WEAKENED marks:\n{}", bad.join("\n"));

@@ -263,6 +263,27 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
             cfg.seats.len()
         ));
     }
+    // A rotation candidate is not optional for THIS stage. The rotation run
+    // exists to observe a seat whose model fails reaching a DIFFERENT lineage,
+    // and with an empty pool it has nowhere to go: the scenario would fail and
+    // the run would exit 1 — a verdict about the crate — for a section missing
+    // from this file. Caught here, in the config step, it is exit 2 instead.
+    if cfg.fallbacks.is_empty() {
+        return Err(format!(
+            "config declares no [[fallbacks]]: the rotation run needs at least one              candidate to rotate INTO, and without one it reports a red row about the              crate for a mistake in this file. {SEAT_FIX}"
+        ));
+    }
+    // A candidate sharing a seat's lineage is not a rotation target either:
+    // rotation exists to LEAVE a lineage, so landing on the same one tests
+    // nothing while looking like it did.
+    for candidate in &cfg.fallbacks {
+        if cfg.seats.iter().any(|s| s.lineage == candidate.lineage) {
+            return Err(format!(
+                "fallback {:?} declares lineage {:?}, which a seat already uses: rotating                  to it reaches the same lineage the run was trying to leave, so the                  scenario would pass over a rotation that proved nothing. {SEAT_FIX}",
+                candidate.model, candidate.lineage
+            ));
+        }
+    }
     let mut seen = std::collections::BTreeSet::new();
     for seat in &cfg.seats {
         let name = seat.agent_name().map_err(|e| e.to_string())?;
@@ -897,6 +918,34 @@ mod tests {
         assert_eq!(
             crate::outcome::exit_code(&[crate::outcome::ScenarioState::Skip(err.to_string())]),
             2
+        );
+    }
+
+    #[test]
+    fn a_config_with_no_fallbacks_is_a_config_fault_not_a_crate_verdict() {
+        // Without this the rotation run reaches the runner with nowhere to
+        // rotate, its scenario fails, and the harness exits 1 — a verdict about
+        // the crate — for a section missing from the config file.
+        let mut cfg = Config::default();
+        cfg.fallbacks.clear();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains("[[fallbacks]]"),
+            "the message must name the missing section: {err}"
+        );
+    }
+
+    #[test]
+    fn a_fallback_sharing_a_seats_lineage_is_rejected() {
+        // Rotation exists to LEAVE a lineage. A candidate on the same one is a
+        // rotation that proves nothing while looking like it proved something.
+        let mut cfg = Config::default();
+        let taken = cfg.seats[0].lineage.clone();
+        cfg.fallbacks[0].lineage = taken.clone();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding lineage: {err}"
         );
     }
 

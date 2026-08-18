@@ -693,7 +693,7 @@ impl SpyProxy {
                 // request-body path two matches above already does exactly this.
                 None => {
                     self.degraded
-                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                        .store(true, std::sync::atomic::Ordering::SeqCst);
                     (rec.with_status_only(status), Vec::new())
                 }
             };
