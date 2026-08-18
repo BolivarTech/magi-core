@@ -27,6 +27,13 @@ probe_timeout_secs = 10
 # controllable magnitude, so it is asserted at runtime instead (>= 50000).
 payload_target_bytes = 250000
 
+# Target size, in bytes, of the payload THIS stage's runs analyse. Separate from
+# the value above, which sizes the large-payload scenario this stage does not
+# run. Small by default because these runs exercise paths rather than reproduce
+# the large-input failure — and configurable because raising it is exactly how
+# that failure is reproduced, by hand, once.
+run_payload_bytes = 2048
+
 [budgets]
 happy_secs         = 120   # ~8-9 s measured (run H) x slack
 large_payload_secs = 300   # ~90 s estimated; evidence run D took 2m13s to return NOTHING

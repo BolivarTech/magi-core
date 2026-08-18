@@ -37,6 +37,15 @@ pub struct Config {
     /// without a tokenizer, so the token count is asserted at runtime instead.
     #[serde(default = "default_payload_target")]
     pub payload_target_bytes: usize,
+    /// Target size, in bytes, of the payload THIS stage's runs analyse.
+    ///
+    /// Separate from [`Config::payload_target_bytes`], which sizes the
+    /// large-payload scenario that this stage deliberately does not run. Small
+    /// by default because these runs exist to exercise paths, not to reproduce
+    /// the large-input failure — and configurable because raising it is exactly
+    /// how that failure IS reproduced, by hand, once.
+    #[serde(default = "default_run_payload")]
+    pub run_payload_bytes: usize,
     /// Per-scenario time caps. See [`Budgets`] and [`Config::budget`].
     #[serde(default)]
     pub budgets: Budgets,
@@ -146,6 +155,14 @@ fn default_probe_timeout() -> u64 {
 fn default_payload_target() -> usize {
     250_000
 }
+/// The payload this stage's runs analyse.
+///
+/// Enough content for a real analysis and small enough that three runs of it
+/// are cheap. The large-input failure needs two orders of magnitude more, which
+/// is why reproducing it is a deliberate, separate invocation.
+fn default_run_payload() -> usize {
+    2_048
+}
 fn yes() -> bool {
     true
 }
@@ -199,10 +216,11 @@ impl std::fmt::Display for ConfigError {
 ///
 /// **Credentials are NOT here, on purpose**: they travel by environment and
 /// **never** touch the file, so they have no file-side counterpart to override.
-pub const ENV_OVERRIDES: [(&str, &str); 7] = [
+pub const ENV_OVERRIDES: [(&str, &str); 8] = [
     ("MAGI_SMOKE_ENDPOINT", "endpoint"),
     ("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "probe_timeout_secs"),
     ("MAGI_SMOKE_PAYLOAD_TARGET_BYTES", "payload_target_bytes"),
+    ("MAGI_SMOKE_RUN_PAYLOAD_BYTES", "run_payload_bytes"),
     ("MAGI_SMOKE_BUDGET_HAPPY_SECS", "budgets.happy_secs"),
     ("MAGI_SMOKE_BUDGET_LARGE_SECS", "budgets.large_payload_secs"),
     ("MAGI_SMOKE_BUDGET_INJECTED_SECS", "budgets.injected_secs"),
@@ -484,6 +502,7 @@ impl Config {
             endpoint: default_endpoint(),
             probe_timeout_secs: default_probe_timeout(),
             payload_target_bytes: default_payload_target(),
+            run_payload_bytes: default_run_payload(),
             budgets: Budgets::default(),
             seats: default_seats(),
             fallbacks: default_fallbacks(),
