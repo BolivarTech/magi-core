@@ -210,6 +210,20 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_REQUEST: &str = "the request the proxy relayed is byte-identical to ours";
     const NAME_RESPONSE: &str = "and so is the response it relayed back";
 
+    // A degraded proxy is a HARNESS fault, and this scenario reads a record the
+    // proxy produced. Without this gate a failed body read — which the proxy
+    // records as an empty body — makes the checksum compare a hash of nothing
+    // and reports FAIL: exit 1, a verdict about the crate, for something the
+    // harness did. Every other scenario that reads proxy state already gates on
+    // this; this one did not, and it is the one whose whole subject IS the proxy.
+    if ctx.proxy_degraded {
+        const WHY: &str = "the proxy degraded during this run, so its record cannot answer for                            what went on the wire";
+        return vec![
+            Assertion::skip(NAME_REQUEST, WHY),
+            Assertion::skip(NAME_RESPONSE, WHY),
+        ];
+    }
+
     let (Some(rec), Some(sent), Some(direct)) =
         (ctx.probe_record, ctx.probe_sent_body, ctx.direct_probe_body)
     else {
@@ -1056,6 +1070,32 @@ mod tests {
         let a = s2b_the_proxy_is_transparent(&ctx);
         assert_eq!(a.len(), 2);
         assert!(a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))));
+    }
+
+    #[test]
+    fn s2b_skips_when_the_proxy_degraded_instead_of_blaming_the_crate() {
+        // A failed body read is recorded as an EMPTY body, so without this gate
+        // the checksum compares a hash of nothing and reports FAIL — exit 1, a
+        // verdict about the crate, for a harness fault.
+        let sent = "the probe body".to_string();
+        let direct = b"the probe response".to_vec();
+        let rec = recorded_response("/api/show", 200, &direct);
+        let rec = RequestRecord {
+            body_sha256: sha256_hex(b""),
+            ..rec
+        };
+        let ctx = RunContext {
+            probe_record: Some(&rec),
+            probe_sent_body: Some(&sent),
+            direct_probe_body: Some(&direct),
+            proxy_degraded: true,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s2b_the_proxy_is_transparent(&ctx);
+        assert!(
+            a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))),
+            "a degraded proxy must not be reported as a transparency failure: {a:?}"
+        );
     }
 
     #[test]
