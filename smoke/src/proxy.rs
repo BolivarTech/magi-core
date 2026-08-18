@@ -35,6 +35,20 @@
 //!    module-level `pub fn`, per its own doc comment in the brief ("Free
 //!    function at MODULE level ... NOT inside `impl SpyProxy`"); the brief's
 //!    code listing had it mid-block, which does not parse.
+//!
+//! # Fixes from review round 1 (Critical: `forward_buffered` fabricated a
+//! response)
+//!
+//! `forward_buffered` used to return `(u16, Vec<u8>)` and its `Err` arm
+//! returned an empty `Vec` on a failed body read. The caller then
+//! unconditionally called `with_recorded_response`, which unconditionally
+//! sets `response_recorded = true` — so a read failure was recorded as a
+//! genuine empty `200`, indistinguishable from a backend that truly answered
+//! nothing. It now returns `(u16, Option<Vec<u8>>)`; `None` routes the
+//! caller to `with_status_only` instead, so a failed read is recorded as
+//! "nothing recorded," never as "recorded, and it was empty." See
+//! [`RequestRecord::response_recorded`]'s fix note and the test
+//! `a_broken_response_read_is_not_recorded_as_an_empty_answer`.
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
@@ -111,6 +125,17 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+/// Absolute floor for [`max_recorded_body`], regardless of how small
+/// `payload_target_bytes` is: `1 MiB`, written as its own definition rather
+/// than pulling in a units crate for one number.
+const MIN_RECORDED_BODY_CAP: usize = 1 << 20;
+
+/// The status the proxy relays when it cannot reach the upstream at all — a
+/// transport failure between the proxy and the backend, never something the
+/// backend itself returned. Named so a reader does not have to reverse the
+/// meaning of a bare `502` out of the code that sends it.
+const UPSTREAM_UNREACHABLE_STATUS: u16 = 502;
+
 /// Cap on the recorded copy of a request body, **derived from the configured
 /// payload target** instead of hardcoded: the whole point of the large-payload
 /// scenario is that the body is big, and a fixed cap that someone raises the
@@ -119,12 +144,15 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 /// Twice the target leaves room for the system prompt and the JSON envelope.
 /// **The FORWARDED body is never truncated** — only the copy we keep.
 fn max_recorded_body(payload_target_bytes: usize) -> usize {
-    (payload_target_bytes * 2).max(1 << 20) // never below 1 MiB
+    (payload_target_bytes * 2).max(MIN_RECORDED_BODY_CAP)
 }
 
 #[derive(Clone, Debug)]
 pub struct RequestRecord {
+    /// The HTTP method of the recorded request, e.g. `"POST"`.
     pub method: String,
+    /// The request's path component only — no query string, no host. This is
+    /// what [`RECORDED_RESPONSE_PATHS`] matches against.
     pub path: String,
     /// Truncated at `max_recorded_body(..)`. `body_truncated` says so, because
     /// an assertion reading a silently-cut body would fail for the wrong
@@ -155,6 +183,18 @@ pub struct RequestRecord {
     /// deterministic**, and they are exactly what `S2b` compares. A field that
     /// were empty for the other paths without saying so would read as "the
     /// response was empty" — the same lie `Option<InputSize>` exists to avoid.
+    ///
+    /// # Fix note (review round 1)
+    ///
+    /// This field exists to prevent exactly one lie: a probe-path response
+    /// whose body could not be fully read back must NEVER be recorded as
+    /// `response_recorded: true` with an empty body — that would be
+    /// indistinguishable from a backend that genuinely answered empty, which
+    /// is the exact class of failure this harness exists to catch. The
+    /// caller in `handle` routes a failed read to
+    /// [`with_status_only`](RequestRecord::with_status_only) instead of
+    /// [`with_recorded_response`](RequestRecord::with_recorded_response), so
+    /// `response_recorded` stays `false` for that case.
     pub response_recorded: bool,
     pub response_sha256: String,
     pub response_body: Vec<u8>,
@@ -324,7 +364,23 @@ impl SpyProxy {
         }
     }
 
-    /// Binds on an ephemeral port and serves until dropped.
+    /// Binds on an ephemeral port and serves for the rest of the process —
+    /// there is no `Drop` impl, no abort handle, and no cancellation. The
+    /// accept loop and every per-connection task it spawns keep running
+    /// until the process itself exits.
+    ///
+    /// **That is deliberate, not an omission.** `magi-smoke` starts exactly
+    /// ONE `SpyProxy` per invocation (`raise_proxy` in the preflight,
+    /// `Runner::new` takes that single instance), and every scenario in the
+    /// run shares it — [`mark`](SpyProxy::mark) and
+    /// [`records_since`](SpyProxy::records_since) exist precisely because
+    /// scenarios take turns on one proxy rather than each getting its own.
+    /// The binary is a short-lived CLI that runs its scenarios and exits;
+    /// at that point the OS reclaims the listener and every spawned task,
+    /// the same trade-off [`testkit::spawn_echo_server`](crate::testkit::spawn_echo_server)
+    /// already makes for its own fixture server. A cancellation handle would
+    /// be API surface with no caller: nothing in this milestone ever needs
+    /// to stop a proxy mid-process, only to let the process end.
     ///
     /// **Everything goes through here**: there is no with-proxy and
     /// without-proxy mode, so a scenario that bypassed it would observe
@@ -415,10 +471,21 @@ impl SpyProxy {
             let (status, out) = self
                 .forward_buffered(&method, &path, parts.headers, bytes, &upstream)
                 .await;
-            self.push(rec.with_recorded_response(status, &out, self.record_cap));
+            // `None` means the body read failed: record NOTHING was
+            // recorded (`with_status_only`), never an invented empty
+            // response (`with_recorded_response(status, &[], ..)` would
+            // look exactly like a backend that genuinely answered empty).
+            let (rec, body) = match out {
+                Some(body) => (
+                    rec.with_recorded_response(status, &body, self.record_cap),
+                    body,
+                ),
+                None => (rec.with_status_only(status), Vec::new()),
+            };
+            self.push(rec);
             return Ok(hyper::Response::builder()
                 .status(status)
-                .body(fixed(&out))
+                .body(fixed(&body))
                 .unwrap_or_else(|_| hyper::Response::new(empty_body())));
         }
         let resp = self
@@ -435,6 +502,14 @@ impl SpyProxy {
     /// Bounded by `record_cap` like the request side: a probe answer is
     /// small, but "small" is an expectation and this is the one place the
     /// harness could be made to hold an arbitrary body.
+    ///
+    /// Returns `(status, None)` when the body could not be read back in
+    /// full — the status IS real (headers already arrived), but there is no
+    /// genuine body to hand the caller. `None`, not `Some(Vec::new())`: an
+    /// empty `Vec` would be indistinguishable from a backend that truly
+    /// answered with an empty body, and the caller must be able to tell
+    /// "nothing was recorded" from "an empty response was recorded" — see
+    /// the fix note on [`RequestRecord::response_recorded`].
     async fn forward_buffered(
         &self,
         method: &str,
@@ -442,15 +517,16 @@ impl SpyProxy {
         headers: hyper::HeaderMap,
         body: Bytes,
         upstream: &str,
-    ) -> (u16, Vec<u8>) {
+    ) -> (u16, Option<Vec<u8>>) {
         let resp = self.forward(method, path, headers, body, upstream).await;
         let status = resp.status().as_u16();
         match resp.into_body().collect().await {
-            Ok(c) => (status, c.to_bytes().to_vec()),
-            // Could not read it back: report the status and NO body. The
-            // record keeps `response_recorded = false`, so a reader SKIPs
-            // instead of comparing against an emptiness it invented.
-            Err(_) => (status, Vec::new()),
+            Ok(c) => (status, Some(c.to_bytes().to_vec())),
+            // Could not read it back: report the status and NOTHING else.
+            // The CALLER must route this to `with_status_only`, never to
+            // `with_recorded_response` with an empty body — that would
+            // record a genuine-looking empty answer for a read that failed.
+            Err(_) => (status, None),
         }
     }
 
@@ -528,7 +604,7 @@ impl SpyProxy {
                     .unwrap_or_else(|_| hyper::Response::new(empty_body()))
             }
             Err(_) => hyper::Response::builder()
-                .status(502)
+                .status(UPSTREAM_UNREACHABLE_STATUS)
                 .body(fixed(b"upstream unreachable"))
                 .unwrap_or_else(|_| hyper::Response::new(empty_body())),
         }
@@ -651,6 +727,35 @@ mod tests {
             200,
             "injection must be surgical: rotation needs the second \
              candidate to go through"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broken_response_read_is_not_recorded_as_an_empty_answer() {
+        // The upstream promises a 1000-byte body and delivers 10, then closes
+        // the connection: `forward_buffered`'s body read must fail. Before
+        // the fix, that failure was recorded as a genuine empty response
+        // (`response_recorded: true`, empty body) — indistinguishable from a
+        // backend that truly answered with nothing.
+        let upstream = crate::testkit::spawn_truncating_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        let client = reqwest::Client::new();
+        // `/api/tags` is a RECORDED_RESPONSE_PATHS entry, so this goes
+        // through `forward_buffered`, not the streaming path.
+        let _ = client
+            .post(format!("{}/api/tags", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await;
+
+        let rec = &proxy.records()[0];
+        assert_eq!(rec.path, "/api/tags");
+        assert!(
+            !rec.response_recorded,
+            "a failed body read must be recorded as NOTHING recorded, \
+             never as a genuine (empty) response"
         );
     }
 

@@ -182,3 +182,73 @@ pub async fn spawn_echo_server() -> EchoServer {
     });
     EchoServer { addr }
 }
+
+/// A raw TCP responder that promises more body than it ever sends, then
+/// closes the connection — used to exercise "the upstream answered but the
+/// body could not be read back in full" without depending on any crate
+/// beyond `tokio`.
+///
+/// Deliberately bypasses `hyper` on the SERVER side: a `hyper` server given a
+/// complete, known body (as [`spawn_echo_server`] uses) keeps its
+/// `Content-Length` header and the bytes it actually writes in sync by
+/// construction, so there is no way to make it lie. Producing a genuine
+/// truncated-body failure means writing the wire bytes by hand — a
+/// `Content-Length` the body never reaches, followed by closing the socket.
+pub struct TruncatingServer {
+    addr: std::net::SocketAddr,
+}
+
+impl TruncatingServer {
+    /// The base URL a client (or a proxy under test) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// The body length this server promises but never delivers in full.
+const TRUNCATING_SERVER_CONTENT_LENGTH: usize = 1000;
+
+/// The number of body bytes this server actually writes before closing the
+/// connection — deliberately far short of
+/// [`TRUNCATING_SERVER_CONTENT_LENGTH`].
+const TRUNCATING_SERVER_ACTUAL_BODY: &[u8] = b"0123456789";
+
+/// Binds on an ephemeral port and, for every connection, writes a `200 OK`
+/// with `Content-Length: 1000` followed by only 10 body bytes, then closes
+/// the socket — a response no HTTP/1.1 reader can complete without erroring.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup (see the module doc), and a setup
+/// failure should stop the test immediately rather than run against a proxy
+/// with nothing behind it.
+pub async fn spawn_truncating_server() -> TruncatingServer {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind truncating server");
+    let addr = listener
+        .local_addr()
+        .expect("truncating server local address");
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                continue;
+            };
+            tokio::spawn(async move {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                // Drain (ignore) whatever the client sent — replying does
+                // not require parsing it.
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {TRUNCATING_SERVER_CONTENT_LENGTH}\r\n\r\n"
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(TRUNCATING_SERVER_ACTUAL_BODY).await;
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    TruncatingServer { addr }
+}
