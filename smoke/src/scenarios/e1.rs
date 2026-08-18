@@ -178,6 +178,15 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
             .iter()
             .filter(|r| r.path == COMPLETIONS_PATH)
             .collect();
+        // Deliberately does NOT require `response_recorded`. A review round
+        // proposed that, reasoning that an unrecorded response leaves
+        // `response_status` at 0 and lets "nothing was injected" pass over a
+        // completion nobody saw the answer to. That reads the field as "a
+        // response arrived", and it means "the response BODY was buffered" —
+        // which happens only for the two probe paths. Completions STREAM, so
+        // `response_recorded` is false for every real one while
+        // `with_status_only` still records the true status. Adding the
+        // requirement was tried and turned this scenario red on every live run.
         assert_that(
             NAME_NO_INJECTION,
             !completions.is_empty()

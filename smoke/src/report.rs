@@ -333,7 +333,25 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
     // than what ships, so the file is DELETED rather than left in place. A
     // certificate that exists gets cited, and half a certificate claims the same
     // thing as a whole one with less text.
-    let after = git_status_porcelain(repo_root)?;
+    // The `?` here used to return WITHOUT deleting, so a git that failed to run
+    // left the certificate on disk while the caller was told it had been
+    // discarded — the same class of lie the branch below exists to prevent, one
+    // step earlier. If the tree cannot be re-read, the certificate cannot be
+    // trusted, and an untrustworthy certificate must not survive.
+    let after = match git_status_porcelain(repo_root) {
+        Ok(a) => a,
+        Err(e) => {
+            return Err(match std::fs::remove_file(&target) {
+                Ok(()) => format!(
+                    "the tree could not be re-read after writing, so the certificate was                      deleted rather than left claiming a version nothing verified: {e}"
+                ),
+                Err(rm) => format!(
+                    "the tree could not be re-read after writing ({e}), and the certificate                      could NOT be deleted either ({rm}): it is STILL ON DISK at {} and must                      be removed by hand before anyone cites it",
+                    target.display()
+                ),
+            });
+        }
+    };
     // SUFFIX, not substring. A porcelain line whose path merely CONTAINS the
     // certificate path — `docs/test/smoke-certificate.md.orig`, or anything
     // nested below it — would satisfy `contains` and let the certificate be

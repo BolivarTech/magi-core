@@ -304,6 +304,15 @@ impl RequestRecord {
     /// Completes a record whose response was STREAMED through. The status is
     /// real; the body was never held, and `response_recorded` stays false so
     /// no assertion mistakes "not recorded" for "empty".
+    /// Records the status WITHOUT a body, leaving `response_recorded` false.
+    ///
+    /// **`response_recorded` means "the response BODY was buffered", not "a
+    /// response arrived".** The status recorded here is the real one. Only the
+    /// two probe paths buffer a body; everything else streams, so a completion's
+    /// record legitimately carries a true status and `response_recorded: false`.
+    /// A review round read the field the other way and proposed requiring it
+    /// before trusting the status — which would have turned the happy-path
+    /// scenario red on every live run.
     pub fn with_status_only(mut self, status: u16) -> RequestRecord {
         self.response_status = status;
         self
