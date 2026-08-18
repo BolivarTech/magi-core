@@ -128,7 +128,13 @@ pub fn install_panic_hook() {
 }
 
 /// Runs one attempt, turning an unwind into a [`RunOutcome`] instead of killing
-/// the harness.
+/// the harness — and handing back the future's own value when it does not panic.
+///
+/// **The generic output is not flexibility for its own sake.** The only caller
+/// produces a full run result, so a version fixed to `RunOutcome` could not be
+/// called at all without throwing that result away: the wrapper would have been
+/// a mechanism nobody could use, which is the same inertness this harness exists
+/// to catch elsewhere.
 ///
 /// **`catch_unwind` is SYNC and the run is ASYNC**, so the bridge is explicit:
 /// the future is wrapped in `AssertUnwindSafe` and polled through
@@ -150,19 +156,19 @@ pub fn install_panic_hook() {
 /// FFI, nor an abort. Those end the process, and the exit code is what the
 /// operator sees — which is why the README lists this among the known
 /// limitations rather than implying full coverage.
-pub async fn run_catching<F>(fut: F) -> RunOutcome
+pub async fn run_catching<T, F>(fut: F) -> Result<T, RunOutcome>
 where
-    F: std::future::Future<Output = RunOutcome>,
+    F: std::future::Future<Output = T>,
 {
     use futures_util::FutureExt;
     match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
-        Ok(outcome) => outcome,
+        Ok(value) => Ok(value),
         Err(_) => {
             let loc = LAST_PANIC_LOCATION.with(|c| c.borrow().clone());
-            match classify_panic(loc.as_deref()) {
+            Err(match classify_panic(loc.as_deref()) {
                 ScenarioState::Skip(_) => RunOutcome::PanickedInHarness,
                 _ => RunOutcome::PanickedInCrate,
-            }
+            })
         }
     }
 }
@@ -340,10 +346,14 @@ mod tests {
         // execution. This exercises the whole pipeline — hook, panic, catch,
         // attribution — end to end.
         install_panic_hook();
-        let outcome = run_catching(async {
+        // The turbofish names the output type the panicking block never produces.
+        // Writing an unreachable value instead would need an `#[allow]`, and this
+        // project does not add one to satisfy a compiler it can answer honestly.
+        let outcome = run_catching::<RunOutcome, _>(async {
             panic!("simulated panic inside a run");
         })
-        .await;
+        .await
+        .expect_err("a panicking future must not report a value");
         // The panic's location is this file, which IS harness source, so it is
         // attributed to the harness — and an inconclusive result earns the one
         // retry that a verdict does not.
@@ -355,7 +365,9 @@ mod tests {
     async fn a_run_that_finishes_is_returned_untouched() {
         // The companion to the test above: without it, a `run_catching` that
         // always reported a panic would still pass.
-        let outcome = run_catching(async { RunOutcome::Complete }).await;
+        let outcome = run_catching(async { RunOutcome::Complete })
+            .await
+            .expect("a future that finishes must hand back its value");
         assert_eq!(outcome, RunOutcome::Complete);
         assert!(!outcome.is_inconclusive());
     }
