@@ -11,6 +11,12 @@ homepage = "https://github.com/BolivarTech/magi-core"
 readme = "README.md"
 keywords = ["llm", "multi-agent", "consensus", "analysis", "magi"]
 categories = ["algorithms", "asynchronous"]
+# The smoke harness writes its release certificate here, and crates.io is
+# IMMUTABLE: a certificate that slips into a published package cannot be taken
+# out, only corrected by publishing again — which is what a doc-only release
+# already cost this project once. Excluded in the same change that introduces
+# the directory, not after.
+exclude = ["docs/test/"]
 
 [dependencies]
 thiserror = "2"
