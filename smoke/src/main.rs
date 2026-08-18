@@ -46,7 +46,9 @@ mod weakened;
 /// - `--config <path>` — config file; absent = built-in defaults.
 /// - `--build-matrix` — run the four `cargo check` combinations so `S21` has
 ///   something to read. SLOW; off by default.
-#[derive(Debug, Default, PartialEq)]
+/// - `--round <n>` — which round of this release cycle this is, for the
+///   certificate. Defaults to `1`.
+#[derive(Debug, PartialEq)]
 pub struct Cli {
     pub smoke_2: bool,
     pub no_backend: bool,
@@ -55,6 +57,32 @@ pub struct Cli {
     pub break_proxy: bool,
     pub build_matrix: bool,
     pub config: Option<std::path::PathBuf>,
+    /// Which round of this release cycle this run is, for the certificate.
+    ///
+    /// **Declared, never inferred.** R37 wants it because "a release that
+    /// needed three rounds is information about that release", and there is
+    /// nothing in a single invocation that could tell which round it belongs
+    /// to — the same reason `--smoke-2` is a flag rather than a detection.
+    /// Defaults to `1`, which is what a release that needed one round is.
+    pub round: u32,
+}
+
+/// The round a run belongs to when `--round` is not given: the first.
+const DEFAULT_ROUND: u32 = 1;
+
+impl Default for Cli {
+    fn default() -> Self {
+        Cli {
+            smoke_2: false,
+            no_backend: false,
+            print_payload_size: false,
+            json: false,
+            break_proxy: false,
+            build_matrix: false,
+            config: None,
+            round: DEFAULT_ROUND,
+        }
+    }
 }
 
 impl Cli {
@@ -76,11 +104,20 @@ impl Cli {
                 "--break-proxy" => cli.break_proxy = true,
                 "--build-matrix" => cli.build_matrix = true,
                 "--config" => cli.config = Some(it.next().ok_or("--config needs a path")?.into()),
+                "--round" => {
+                    let raw = it.next().ok_or("--round needs a number")?;
+                    // Rejected rather than defaulted: a certificate saying
+                    // "round 1" because the argument was unreadable states a
+                    // fact nobody established.
+                    cli.round = raw
+                        .parse()
+                        .map_err(|e| format!("--round {raw:?} is not a number: {e}"))?;
+                }
                 bad => {
                     return Err(format!(
                         "unknown flag {bad:?}; known: --smoke-2 --no-backend \
                          --print-payload-size --json --break-proxy --build-matrix \
-                         --config <path>"
+                         --config <path> --round <n>"
                     ))
                 }
             }
@@ -214,6 +251,14 @@ async fn main() -> std::process::ExitCode {
     run.prime_transparency_probe(&cfg.endpoint).await;
     let results = run.execute(&specs).await;
 
+    // R31's second half, and the reason it is read HERE: after the spend. The
+    // ledger refuses to answer if nothing was announced first, so the order is
+    // a property of the code rather than of where two prints happen to sit.
+    // A refusal is printed as itself — a receipt nobody can produce is more
+    // informative than a plausible-looking number.
+    let real_cost = ready.ledger.record().unwrap_or_else(|refusal| refusal);
+    eprintln!("magi-smoke — real cost: {real_cost}");
+
     // 5. Evaluate. Each scenario reads ONE source and never touches the network:
     //    that is what makes "one run, many assertions" both cheap and honest.
     let rows = evaluate(
@@ -235,7 +280,17 @@ async fn main() -> std::process::ExitCode {
         rows,
         run: cycle_run(&cli),
     };
-    report.write_certificate_in(&paths::repo_root(), &crate_version(), &git_commit());
+    report.write_certificate_in(
+        &paths::repo_root(),
+        &report::CertificateFacts {
+            version: crate_version(),
+            commit: git_commit(),
+            date: report::iso_date_utc(std::time::SystemTime::now()),
+            mode: alias::MODE,
+            cost: real_cost,
+            round: cli.round,
+        },
+    );
     if cli.json {
         println!("{}", report.render_json());
     }

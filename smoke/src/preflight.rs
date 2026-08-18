@@ -44,6 +44,14 @@ pub struct Announcement {
     pub proxy: SpyProxy,
     /// Printed BEFORE the first run (R31): estimated tokens and expected time.
     pub cost_announcement: String,
+    /// R31's other half, which had no implementation anywhere: the ledger that
+    /// records what the runs ACTUALLY cost once they are done.
+    ///
+    /// It travels from here rather than being created in `main` because its
+    /// clock must start when the estimate is announced, and the announcement is
+    /// made here — which is what makes "announced before, recorded after"
+    /// structural instead of a convention about where two prints sit.
+    pub ledger: CostLedger,
 }
 
 /// Hand-written rather than derived: [`SpyProxy`] itself does not implement
@@ -55,6 +63,7 @@ impl std::fmt::Debug for Announcement {
         f.debug_struct("Announcement")
             .field("proxy", &"SpyProxy { .. }")
             .field("cost_announcement", &self.cost_announcement)
+            .field("ledger", &"CostLedger { .. }")
             .finish()
     }
 }
@@ -212,10 +221,13 @@ pub async fn run(
     }
 
     let proxy = raise_proxy(cfg, break_proxy).await?; // proxy
+    let mut ledger = CostLedger::new();
+    let cost_announcement = ledger.announce(cfg, no_backend); // cost
     Ok(Announcement {
         proxy,
-        cost_announcement: announce_cost(cfg, no_backend),
-    }) // cost
+        cost_announcement,
+        ledger,
+    })
 }
 
 /// The mages a MAGI run is made of. Not a tunable: the scenarios read the
@@ -602,6 +614,87 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
         backend_runs.len(),
         names.join(", ")
     )
+}
+
+/// R31, both halves: the estimate printed BEFORE the runs, and the real cost
+/// recorded AFTER them.
+///
+/// # Why the ORDER is a type and not a convention
+///
+/// R31's second half was implemented nowhere at all — the harness announced an
+/// estimate and never recorded what the run actually cost, so the historical
+/// series that R37's fixed filename exists to produce had nothing to plot. And
+/// the ORDER is the load-bearing half of the requirement: after the spend,
+/// "it cost this much" is a receipt; before it, it is a decision the operator
+/// can still act on.
+///
+/// A ledger makes that order checkable instead of hoping two `eprintln!`s stay
+/// where somebody put them: [`CostLedger::record`] REFUSES when nothing was
+/// announced, so a reordering that puts the receipt first fails rather than
+/// printing something reasonable-looking in the wrong place.
+pub struct CostLedger {
+    /// When [`CostLedger::announce`] ran. `None` until it has.
+    announced_at: Option<std::time::Instant>,
+    /// How many backend runs the announcement was about, so the receipt
+    /// describes the same set.
+    backend_runs: usize,
+}
+
+impl CostLedger {
+    /// A ledger with nothing announced yet.
+    pub fn new() -> Self {
+        CostLedger {
+            announced_at: None,
+            backend_runs: 0,
+        }
+    }
+
+    /// The sentence printed BEFORE the first run, and the start of the clock.
+    ///
+    /// # Parameters
+    ///
+    /// * `cfg` — the loaded configuration, for the payload size and budgets.
+    /// * `no_backend` — the partition flag; see [`announce_cost`].
+    pub fn announce(&mut self, cfg: &Config, no_backend: bool) -> String {
+        self.announced_at = Some(std::time::Instant::now());
+        self.backend_runs = stage_e1_run_ids(no_backend)
+            .into_iter()
+            .filter(|r| r.uses_backend())
+            .count();
+        announce_cost(cfg, no_backend)
+    }
+
+    /// What the runs ACTUALLY cost, measured after them.
+    ///
+    /// Wall-clock time and the number of backend runs, said as what they are.
+    /// Not tokens: the harness never sees a tokeniser, and the estimate it
+    /// announced was already declared a coarse bound rather than a measurement
+    /// — inventing a "real" token count here would turn the same guess into a
+    /// figure that looks measured.
+    ///
+    /// # Errors
+    ///
+    /// When nothing was announced first. That is the ordering guarantee: a
+    /// receipt printed before the estimate is not a receipt.
+    pub fn record(&self) -> Result<String, String> {
+        let started = self.announced_at.ok_or_else(|| {
+            "the real cost cannot be recorded before the estimate was announced: R31 asks for \
+             the estimate FIRST, because after the spend it is a receipt and before it, it is a \
+             decision the operator can still make"
+                .to_string()
+        })?;
+        Ok(format!(
+            "{} backend run(s) in {:.1}s",
+            self.backend_runs,
+            started.elapsed().as_secs_f64()
+        ))
+    }
+}
+
+impl Default for CostLedger {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Deletes leftover temp dirs whose PID has no live process. **Sweeping on

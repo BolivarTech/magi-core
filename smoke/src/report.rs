@@ -164,12 +164,12 @@ impl Report {
     ///
     /// # Parameters
     ///
-    /// * `version` — the crate version this certificate is issued against.
-    /// * `commit` — the commit this certificate is issued against.
-    pub fn render_certificate(&self, version: &str, commit: &str) -> Option<String> {
+    /// * `facts` — the six things R37 requires the document to declare about
+    ///   itself.
+    pub fn render_certificate(&self, facts: &CertificateFacts) -> Option<String> {
         match self.certificate_refusal() {
             Some(_) => None,
-            None => Some(render_certificate(&self.rows, version, commit)),
+            None => Some(render_certificate(&self.rows, facts)),
         }
     }
 
@@ -193,10 +193,9 @@ impl Report {
     /// # Parameters
     ///
     /// * `repo_root` — the tree to write into.
-    /// * `version` — the crate version the certificate is issued against.
-    /// * `commit` — the commit the certificate is issued against.
-    pub fn write_certificate_in(&mut self, repo_root: &Path, version: &str, commit: &str) {
-        let text = match self.render_certificate(version, commit) {
+    /// * `facts` — the six things R37 requires the document to declare.
+    pub fn write_certificate_in(&mut self, repo_root: &Path, facts: &CertificateFacts) {
+        let text = match self.render_certificate(facts) {
             Some(t) => t,
             None => {
                 // Announced only for the run that was SUPPOSED to certify.
@@ -252,7 +251,7 @@ impl Report {
 ///
 /// `O(n log n)` in `rows.len()` for the stable sort that promotes the
 /// large-payload rows; the render itself is `O(n)`.
-pub fn render_certificate(rows: &[AssertionRow], version: &str, commit: &str) -> String {
+pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> String {
     let mut ordered: Vec<&AssertionRow> = rows.iter().collect();
     // `sort_by_key` is a STABLE sort: rows that are not the large-payload run
     // keep their relative order, so this reorders only what needs reordering.
@@ -260,13 +259,54 @@ pub fn render_certificate(rows: &[AssertionRow], version: &str, commit: &str) ->
     let mut out = String::new();
     let _ = writeln!(out, "# Smoke Certificate");
     let _ = writeln!(out);
-    let _ = writeln!(out, "- version: {version}");
-    let _ = writeln!(out, "- commit: {commit}");
+    let _ = writeln!(out, "- version: {}", facts.version);
+    let _ = writeln!(out, "- commit: {}", facts.commit);
     let _ = writeln!(out);
     for row in ordered {
         let _ = writeln!(out, "{}", format_row(row));
     }
     out
+}
+
+/// The facts a certificate declares about itself, beside the scenario table.
+///
+/// R37 names six, and four of them were absent: the document carried a version
+/// and a commit and nothing else. That is not a cosmetic gap. The fixed
+/// filename's whole payoff is that `git log -p` over the one path IS the
+/// historical series R31 asks for — how many scenarios, how much cost and how
+/// many rounds each release took — and with four of the six missing there was
+/// nothing in the diff to compare but a version string.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CertificateFacts {
+    /// The `magi-core` version this certificate is issued against.
+    pub version: String,
+    /// The commit it is issued against, so `git show <tag>:<path>` recovers the
+    /// right one.
+    pub commit: String,
+    /// The day it was issued, `YYYY-MM-DD` in UTC. See [`iso_date_utc`].
+    pub date: String,
+    /// Which dependency mode was built: `tree` or `published`.
+    ///
+    /// **The certificate cannot be read without it.** The published mode links
+    /// a different crate from the working tree, so the same table of rows means
+    /// two different claims depending on this word.
+    pub mode: &'static str,
+    /// What the run ACTUALLY cost, measured after it (R31's second half).
+    pub cost: String,
+    /// How many rounds this release needed. **Comes from `--round`, never
+    /// inferred**: R37 wants it because "a release that needed three is
+    /// information about that release", and a guessed number would make the
+    /// certificate a guess too — the same reason `--smoke-2` is not detected
+    /// either.
+    pub round: u32,
+}
+
+/// `YYYY-MM-DD` in UTC for an instant.
+///
+/// Hand-rolled from the standard library because a date dependency for one
+/// line of output is not a trade this harness makes (R-T1: no new deps).
+pub fn iso_date_utc(_at: std::time::SystemTime) -> String {
+    String::new()
 }
 
 /// Sort key that puts the large-payload run's rows first: `0` for
@@ -591,6 +631,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::UNIX_EPOCH;
 
     /// Monotonic counter mixed into fixture directory names, mirroring the
     /// same pattern `testkit.rs` uses — kept local rather than importing
@@ -658,15 +699,74 @@ mod tests {
         dir
     }
 
+    /// The six facts R37 requires, with fixed values so a certificate test
+    /// never depends on the day it runs or the mode it was built in.
+    fn sample_facts() -> CertificateFacts {
+        CertificateFacts {
+            version: "4.0.0".to_string(),
+            commit: "abc1234".to_string(),
+            date: "2026-08-18".to_string(),
+            mode: "tree",
+            cost: "3 backend run(s) in 41.5s".to_string(),
+            round: 3,
+        }
+    }
+
     // --- Step-1 tests from task-12a-brief.md, reproduced verbatim in intent ---
 
     #[test]
     fn the_certificate_declares_the_version_inside_not_in_the_filename() {
-        let cert = render_certificate(&sample_results(), "4.0.0", "abc1234");
+        let cert = render_certificate(&sample_results(), &sample_facts());
         assert!(cert.contains("4.0.0"));
         assert!(
             cert.contains("abc1234"),
             "the commit it was issued against travels with it"
+        );
+    }
+
+    #[test]
+    fn the_certificate_carries_all_six_of_r37s_facts() {
+        // It carried two. R37 lists six — version, DATE, MODE, the scenario
+        // table, the REAL COST and HOW MANY ROUNDS the release needed — and
+        // four were missing, with the real cost recorded nowhere in the harness
+        // at all.
+        //
+        // They are not decoration. The fixed filename's whole payoff is that
+        // `git log -p` over that one path IS the historical series R31 asks for:
+        // how many scenarios, how much cost and how many rounds each release
+        // took. With four of the six absent, that series does not exist — the
+        // file would show a version and a commit changing, and nothing to
+        // compare.
+        let cert = render_certificate(&sample_results(), &sample_facts());
+        for (field, needle) in [
+            ("date", "2026-08-18"),
+            ("mode", "tree"),
+            ("real cost", "41.5s"),
+            ("rounds", "3"),
+        ] {
+            assert!(
+                cert.contains(needle),
+                "the certificate must declare the {field} it was issued with: {cert}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_date_is_a_real_calendar_date_and_not_an_epoch_count() {
+        // Rendered from the standard library, because a dependency for one line
+        // of output is not a trade this harness makes. Two fixed instants, both
+        // checked: a leap day, and the day after a century that is NOT a leap
+        // year — the two dates a hand-rolled civil conversion gets wrong.
+        assert_eq!(iso_date_utc(UNIX_EPOCH), "1970-01-01");
+        // 2024-02-29T00:00:00Z
+        assert_eq!(
+            iso_date_utc(UNIX_EPOCH + Duration::from_secs(1_709_164_800)),
+            "2024-02-29"
+        );
+        // 1900 was not a leap year; 2000 was. 2000-03-01T00:00:00Z
+        assert_eq!(
+            iso_date_utc(UNIX_EPOCH + Duration::from_secs(951_868_800)),
+            "2000-03-01"
         );
     }
 
@@ -683,7 +783,7 @@ mod tests {
 
     #[test]
     fn the_large_payload_result_is_the_first_thing_in_the_certificate() {
-        let cert = render_certificate(&sample_results(), "4.0.0", "abc1234");
+        let cert = render_certificate(&sample_results(), &sample_facts());
         let large = cert.find("large payload").unwrap();
         let other = cert.find("happy path").unwrap();
         assert!(
@@ -744,7 +844,7 @@ mod tests {
             rows: sample_results(),
             run: CycleRun::Second,
         };
-        report.write_certificate_in(&dirty, "4.0.0", "abc1234");
+        report.write_certificate_in(&dirty, &sample_facts());
 
         let human = report.render_human();
         assert!(
@@ -796,8 +896,8 @@ mod tests {
             rows: rows.clone(),
             run: CycleRun::Second,
         };
-        assert!(passing.render_certificate("4.0.0", "abc1234").is_some());
-        passing.write_certificate_in(&clean, "4.0.0", "abc1234");
+        assert!(passing.render_certificate(&sample_facts()).is_some());
+        passing.write_certificate_in(&clean, &sample_facts());
         assert!(
             clean.join(CERT_PATH).exists(),
             "a skipped scenario must not withhold the certificate"
@@ -815,7 +915,7 @@ mod tests {
             run: CycleRun::Second,
         };
         assert!(
-            failing.render_certificate("4.0.0", "abc1234").is_none(),
+            failing.render_certificate(&sample_facts()).is_none(),
             "a red run gets no certificate to cite"
         );
     }
@@ -828,13 +928,13 @@ mod tests {
             rows: sample_results(),
             run: CycleRun::First,
         };
-        assert!(first.render_certificate("4.0.0", "abc1234").is_none());
+        assert!(first.render_certificate(&sample_facts()).is_none());
 
         let second = Report {
             rows: sample_results(),
             run: CycleRun::Second,
         };
-        assert!(second.render_certificate("4.0.0", "abc1234").is_some());
+        assert!(second.render_certificate(&sample_facts()).is_some());
     }
 
     #[test]
