@@ -132,21 +132,103 @@ impl Report {
             .unwrap_or_else(|e| format!("{{\"error\": \"failed to render JSON: {e}\"}}"))
     }
 
-    /// `None` for [`CycleRun::First`]: emitting a certificate from #1 would
-    /// certify an artifact the gate has not touched yet. `Some` for
-    /// [`CycleRun::Second`], with the large-payload result surfaced first —
-    /// see [`render_certificate`].
+    /// Why this run gets no certificate, or `None` when one is due.
+    ///
+    /// The ONE place that decides. Both refusals were previously implicit — the
+    /// cycle-run gate lived inline in [`Self::render_certificate`], and the
+    /// failed-assertion gate did not exist at all, so a `--smoke-2` run with a
+    /// red row still produced a certificate.
+    fn certificate_refusal(&self) -> Option<&'static str> {
+        if self.run != CycleRun::Second {
+            // Certifying from #1 would certify an artifact the gate has not
+            // touched yet.
+            return Some("this is not the certifying run (pass --smoke-2 for SMOKE #2)");
+        }
+        if self.rows.iter().any(|r| r.state == ScenarioState::Fail) {
+            // The certificate's whole claim is "nothing regressed and everything
+            // that ran passed". A FAIL contradicts it, and R37's reasoning
+            // applies unchanged: one issued over a red run still EXISTS, and
+            // what exists gets cited. A SKIP does not refuse it — the
+            // certificate renders skips deliberately, large-payload first.
+            return Some(
+                "an assertion FAILED in this run, and a certificate is a claim that none did",
+            );
+        }
+        None
+    }
+
+    /// The certificate body, or `None` with the reason available from
+    /// [`Self::certificate_refusal`] — the certifying run only, and only when
+    /// nothing failed. The large-payload result is surfaced first; see
+    /// [`render_certificate`].
     ///
     /// # Parameters
     ///
     /// * `version` — the crate version this certificate is issued against.
     /// * `commit` — the commit this certificate is issued against.
     pub fn render_certificate(&self, version: &str, commit: &str) -> Option<String> {
-        if self.run == CycleRun::Second {
-            Some(render_certificate(&self.rows, version, commit))
-        } else {
-            None
+        match self.certificate_refusal() {
+            Some(_) => None,
+            None => Some(render_certificate(&self.rows, version, commit)),
         }
+    }
+
+    /// Writes the certificate for the run that certifies, folding a failure to
+    /// write it **into** the report instead of replacing it.
+    ///
+    /// # Why this is a method and not three lines in `main`
+    ///
+    /// It used to be three lines in `main`, and they inverted the one
+    /// distinction this whole harness exists to preserve: a write failure
+    /// returned exit `2` **before** the table was emitted, so a run containing a
+    /// `Fail` row — exit `1`, a verdict about the crate — was reported as `2`,
+    /// a fault of ours, with the verdict never printed. And it was easy to
+    /// reach, since the write refuses over ANY pre-existing uncommitted change.
+    ///
+    /// Now the failure becomes one more row and [`Self::exit_code`] decides, as
+    /// it does for everything else: a `Fail` outranks it, so the crate's
+    /// verdict still wins; on an otherwise clean run it is exit `2`, which is
+    /// what "we could not produce the certificate" means.
+    ///
+    /// # Parameters
+    ///
+    /// * `repo_root` — the tree to write into.
+    /// * `version` — the crate version the certificate is issued against.
+    /// * `commit` — the commit the certificate is issued against.
+    pub fn write_certificate_in(&mut self, repo_root: &Path, version: &str, commit: &str) {
+        let text = match self.render_certificate(version, commit) {
+            Some(t) => t,
+            None => {
+                // Announced only for the run that was SUPPOSED to certify.
+                // Saying it on every SMOKE #1 would be noise on the normal path.
+                if self.run == CycleRun::Second {
+                    if let Some(why) = self.certificate_refusal() {
+                        eprintln!("no certificate written: {why}");
+                    }
+                }
+                return;
+            }
+        };
+        if let Err(e) = write_and_verify_certificate_in(repo_root, &text) {
+            eprintln!("certificate discarded: {e}");
+            self.note_certificate_failure(&e);
+        }
+    }
+
+    /// Records that the certificate could not be written, as one more row.
+    ///
+    /// A `Skip`, not a `Fail`: failing to write a certificate is a fault of
+    /// OURS, never a verdict about the crate — which is exactly why it must
+    /// travel through the same precedence as every other row instead of
+    /// short-circuiting the exit code.
+    fn note_certificate_failure(&mut self, reason: &str) {
+        self.rows.push(AssertionRow {
+            scenario_id: "certificate",
+            scenario: "the release certificate was written and verified",
+            run_id: NO_RUN,
+            state: ScenarioState::Skip(reason.to_string()),
+            over_budget: None,
+        });
     }
 }
 
@@ -253,10 +335,22 @@ pub fn write_and_verify_certificate_in(repo_root: &Path, content: &str) -> Resul
     // thing as a whole one with less text.
     let after = git_status_porcelain(repo_root)?;
     if after.lines().any(|l| !l.contains(CERT_PATH)) {
-        let _ = std::fs::remove_file(&target);
-        return Err(format!(
-            "the tree changed while the certificate was being written, so it was              deleted rather than left claiming a version it may not describe: {after}"
-        ));
+        // What the message says is what actually happened. Reporting "it was
+        // deleted" over a failed removal would leave a file on disk that the
+        // next reader cites as a certificate, told by this very error that it
+        // is not there.
+        return Err(match std::fs::remove_file(&target) {
+            Ok(()) => format!(
+                "the tree changed while the certificate was being written, so it was deleted \
+                 rather than left claiming a version it may not describe: {after}"
+            ),
+            Err(e) => format!(
+                "the tree changed while the certificate was being written, and it could NOT \
+                 be removed ({e}), so {} is STILL ON DISK and may claim a version it does not \
+                 describe — delete it by hand before citing it: {after}",
+                target.display()
+            ),
+        });
     }
     Ok(())
 }
@@ -411,7 +505,8 @@ impl AssertionRow {
 
 impl Report {
     /// A fault of OURS: no scenario is reported as passed, and the exit code is
-    /// [`EXIT_CANNOT_TEST`].
+    /// [`crate::outcome::EXIT_INCONCLUSIVE`]. *(The name in this link used to be
+    /// `EXIT_CANNOT_TEST`, which no constant has ever been called.)*
     ///
     /// # Parameters
     ///
@@ -606,28 +701,15 @@ mod tests {
     // out in prose but does not pin with its own test (the CycleRun gate,
     // and the two load-bearing distinctions the mutation proof exercises). ---
 
-    #[test]
-    fn only_the_second_cycle_run_emits_a_certificate() {
-        // Emitting one from the first run would certify an artifact the gate
-        // has not touched yet.
-        let first = Report {
-            rows: sample_results(),
-            run: CycleRun::First,
-        };
-        assert!(first.render_certificate("4.0.0", "abc1234").is_none());
-
-        let second = Report {
-            rows: sample_results(),
-            run: CycleRun::Second,
-        };
-        assert!(second.render_certificate("4.0.0", "abc1234").is_some());
-    }
-
-    #[test]
-    fn a_clean_tree_gets_the_certificate_written_at_cert_path() {
+    /// A committed, clean git repository — the state
+    /// [`write_and_verify_certificate_in`] is allowed to write into.
+    ///
+    /// # Panics
+    ///
+    /// Panics on any fixture-setup failure, for the same reason
+    /// [`repo_with_uncommitted_changes`] does.
+    fn clean_repo() -> PathBuf {
         let dir = repo_with_uncommitted_changes();
-        // Commit the fixture's only file, so the tree the certificate is
-        // written into is clean when this test writes it.
         let add = std::process::Command::new("git")
             .args(["add", "-A"])
             .current_dir(&dir)
@@ -652,7 +734,117 @@ mod tests {
             "git commit failed: {}",
             String::from_utf8_lossy(&commit.stderr)
         );
+        dir
+    }
 
+    #[test]
+    fn a_certificate_that_could_not_be_written_never_replaces_the_verdict() {
+        // The inversion this test exists to catch: the write refuses over ANY
+        // pre-existing uncommitted change — this repository's normal state, a
+        // post-commit hook regenerates a tracked directory — and the old code
+        // answered that by returning exit 2 BEFORE emitting the table. The run's
+        // findings vanished, and a fault of ours was reported in place of them.
+        let dirty = repo_with_uncommitted_changes();
+        let mut report = Report {
+            rows: sample_results(),
+            run: CycleRun::Second,
+        };
+        report.write_certificate_in(&dirty, "4.0.0", "abc1234");
+
+        let human = report.render_human();
+        assert!(
+            human.contains("happy path"),
+            "every row the run produced must still be reported:\n{human}"
+        );
+        assert!(
+            human.contains("uncommitted"),
+            "and the certificate's own failure is reported ALONGSIDE them, \
+             naming why:\n{human}"
+        );
+        assert_eq!(
+            report.exit_code(),
+            2,
+            "failing to write a certificate is a fault of OURS, so it lands on 2 \
+             through the same precedence as every other row"
+        );
+    }
+
+    #[test]
+    fn a_verdict_about_the_crate_outranks_our_own_failure_to_certify() {
+        // The precedence question the fix had to answer: with BOTH a failed
+        // assertion and a certificate we could not write, the crate's verdict
+        // wins — 1, not 2. It falls out of `outcome::exit_code` precisely
+        // because the certificate failure is a row rather than an early return.
+        let mut report = Report {
+            rows: vec![AssertionRow {
+                scenario_id: "S-test",
+                scenario: "a property the crate broke",
+                run_id: RunId::HappySmall,
+                state: ScenarioState::Fail,
+                over_budget: None,
+            }],
+            run: CycleRun::Second,
+        };
+        report.note_certificate_failure("refusing to write over uncommitted changes");
+        assert_eq!(report.exit_code(), 1);
+    }
+
+    #[test]
+    fn a_run_with_a_failed_assertion_gets_no_certificate_at_all() {
+        // R37's reasoning, applied to the other way a certificate can lie: one
+        // issued over a red run still EXISTS, and what exists gets cited. A
+        // SKIP does NOT refuse it — the certificate renders skips deliberately,
+        // large-payload first.
+        let mut rows = sample_results(); // carries a SKIP, and must still certify
+        let clean = clean_repo();
+        let mut passing = Report {
+            rows: rows.clone(),
+            run: CycleRun::Second,
+        };
+        assert!(passing.render_certificate("4.0.0", "abc1234").is_some());
+        passing.write_certificate_in(&clean, "4.0.0", "abc1234");
+        assert!(
+            clean.join(CERT_PATH).exists(),
+            "a skipped scenario must not withhold the certificate"
+        );
+
+        rows.push(AssertionRow {
+            scenario_id: "S-test",
+            scenario: "a property the crate broke",
+            run_id: RunId::HappySmall,
+            state: ScenarioState::Fail,
+            over_budget: None,
+        });
+        let failing = Report {
+            rows,
+            run: CycleRun::Second,
+        };
+        assert!(
+            failing.render_certificate("4.0.0", "abc1234").is_none(),
+            "a red run gets no certificate to cite"
+        );
+    }
+
+    #[test]
+    fn only_the_second_cycle_run_emits_a_certificate() {
+        // Emitting one from the first run would certify an artifact the gate
+        // has not touched yet.
+        let first = Report {
+            rows: sample_results(),
+            run: CycleRun::First,
+        };
+        assert!(first.render_certificate("4.0.0", "abc1234").is_none());
+
+        let second = Report {
+            rows: sample_results(),
+            run: CycleRun::Second,
+        };
+        assert!(second.render_certificate("4.0.0", "abc1234").is_some());
+    }
+
+    #[test]
+    fn a_clean_tree_gets_the_certificate_written_at_cert_path() {
+        let dir = clean_repo();
         write_and_verify_certificate_in(&dir, "certificate body").expect("clean tree must write");
         let written =
             std::fs::read_to_string(dir.join(CERT_PATH)).expect("certificate file must exist");

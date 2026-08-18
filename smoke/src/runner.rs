@@ -130,10 +130,10 @@ pub struct RunContext<'a> {
     /// was asked to fail — "some seat failed" would also pass if the failure
     /// were real.
     pub injected_agent: Option<AgentName>,
-    /// `(feature combination, did it build)` for the four combinations. `None`
+    /// `(feature combination, what happened)` for the four combinations. `None`
     /// unless the feature matrix was built, in which case the scenario that
     /// reads it SKIPs naming the flag — never passes.
-    pub build_matrix: Option<&'a [(String, bool)]>,
+    pub build_matrix: Option<&'a [(String, BuildOutcome)]>,
     /// `git status` as it stood BEFORE any run started.
     ///
     /// The no-trace scenario needs a baseline, not an absolute: asserting the
@@ -175,14 +175,38 @@ pub enum BackendNeed {
     None,
 }
 
+/// What one feature combination's `cargo check` did.
+///
+/// **Three states, not two.** A build that FAILED is data — the scenario
+/// reading the matrix needs two combinations to fail. A `cargo` that could not
+/// be SPAWNED is not data at all, and recording it as "did not build" let a
+/// missing toolchain be reported as a verdict about the crate: exit 1 for a
+/// fault of ours, which is the one confusion this harness exists to eliminate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildOutcome {
+    /// `cargo check` ran and succeeded.
+    Built,
+    /// `cargo check` ran and rejected the combination. This is the expected
+    /// answer for the two combinations that must not compile.
+    DidNotBuild,
+    /// `cargo` could not be run at all, so nothing was learned either way.
+    CouldNotRun,
+}
+
 /// One scenario: an id, where it reads from, and what it asserts.
 pub struct Scenario {
     /// Stable identifier, printed with every assertion it produces.
     pub id: &'static str,
     /// Where the assertion reads from.
     pub source: Source,
-    /// Whether it needs a live backend. No default, on purpose.
-    pub backend_tag: Option<BackendNeed>,
+    /// Whether it needs a live backend.
+    ///
+    /// **Not an `Option`.** It was one, with all twelve scenarios writing
+    /// `Some(..)`, so the `None` layer had no consumer and the "no default, on
+    /// purpose" it was meant to express was a runtime assertion over a case
+    /// nothing produced. Making the field mandatory says the same thing at
+    /// compile time, which is strictly stronger.
+    pub backend_tag: BackendNeed,
     /// Returns a VECTOR of assertions, never a single state.
     pub assert_fn: fn(&RunContext<'_>) -> Vec<Assertion>,
 }
@@ -848,7 +872,8 @@ mod tests {
         for candidate in &rotation.fallbacks {
             assert!(
                 cfg.seats.iter().all(|s| s.lineage != candidate.lineage),
-                "candidate {:?} shares a lineage with a seat, so rotating to it                  reaches the same lineage the run was trying to leave",
+                "candidate {:?} shares a lineage with a seat, so rotating to it reaches \
+                 the same lineage the run was trying to leave",
                 candidate.model
             );
         }

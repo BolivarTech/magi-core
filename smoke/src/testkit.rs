@@ -490,5 +490,31 @@ pub async fn run_with_broken_proxy(
         endpoint: upstream.url(),
         ..crate::config::Config::default()
     };
-    crate::preflight::run(&cfg, &[], true).await
+    crate::preflight::run(&cfg, &[], true, false).await
+}
+
+/// Port 1 is reserved and nothing listens on it, so a connection to it is
+/// refused immediately on both platforms the project builds on — no timeout to
+/// wait out, and no dependence on a stub the test would have to keep alive.
+const UNREACHABLE_ENDPOINT: &str = "http://127.0.0.1:1";
+
+/// Runs the REAL preflight against an endpoint that answers nothing, with
+/// `no_backend` as given — the pair of runs that proves `--no-backend` skips
+/// the two backend-dependent steps and ONLY skips them.
+///
+/// Everything else runs against the real repository tree, exactly as
+/// [`run_with_broken_proxy`] does, so this exercises the whole pipeline rather
+/// than a stand-in for it.
+///
+/// # Parameters
+///
+/// * `no_backend` — the flag under test.
+pub async fn run_against_an_unreachable_backend(
+    no_backend: bool,
+) -> Result<crate::preflight::Announcement, crate::preflight::PreflightError> {
+    let cfg = crate::config::Config {
+        endpoint: UNREACHABLE_ENDPOINT.to_string(),
+        ..crate::config::Config::default()
+    };
+    crate::preflight::run(&cfg, &[], false, no_backend).await
 }

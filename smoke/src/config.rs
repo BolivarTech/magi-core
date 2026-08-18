@@ -463,8 +463,8 @@ impl Config {
     ///
     /// # Why seats have defaults at all
     ///
-    /// `R30` says the harness ships "con Ollama local por defecto", and the
-    /// closing criterion is `cargo run` with **no arguments**. A default with
+    /// `R30` says the harness ships pointing at a local Ollama by default, and
+    /// the closing criterion is `cargo run` with **no arguments**. A default with
     /// `seats: []` satisfies neither: every backend run needs models, so the
     /// tool would build, start, and then be unable to do the thing it exists
     /// for — while looking configured.

@@ -147,31 +147,24 @@ fn max_recorded_body(payload_target_bytes: usize) -> usize {
     (payload_target_bytes * 2).max(MIN_RECORDED_BODY_CAP)
 }
 
+/// One request as the proxy saw it, and what came back.
+///
+/// **The request body is identified by its HASH, never stored.** A `method` and
+/// a `body` field lived here for one milestone with no reader outside
+/// `#[cfg(test)]` code, on the argument that a later milestone would want them;
+/// that is API surface without a consumer, and a test is not one. Adding them
+/// the day something reads them costs exactly what keeping them costs now, and
+/// buys certainty about the shape that reader actually needs.
 #[derive(Clone, Debug)]
 pub struct RequestRecord {
-    // `method` and `body` are the record's PAYLOAD: the whole point of a spy
-    // proxy is that a human can see what actually went on the wire. Nothing in
-    // this milestone reads them — the transparency scenario compares hashes —
-    // and MS1's native-routing scenario is their named consumer, since it
-    // verifies the new endpoint by looking at the recorded request. They are
-    // kept rather than deleted because a request recorder that stores only a
-    // digest cannot answer the question it exists for, and re-adding them later
-    // would mean re-deriving what to record.
-    /// The HTTP method of the recorded request, e.g. `"POST"`.
-    pub method: String,
     /// The request's path component only — no query string, no host. This is
     /// what [`RECORDED_RESPONSE_PATHS`] matches against.
     pub path: String,
-    /// Truncated at `max_recorded_body(..)`. `body_truncated` says so, because
-    /// an assertion reading a silently-cut body would fail for the wrong
-    /// reason.
-    pub body: Vec<u8>,
-    pub body_truncated: bool,
-    /// **Computed over the FULL body, before the kept copy is truncated.** If
-    /// it were computed over the truncated copy, `S2b` — which compares
-    /// transparency by checksum — would fail on the large payload because of
-    /// the cap, accusing the crate of something the harness did. The hash is
-    /// the load-bearing property; the stored body is for inspection only.
+    /// **Computed over the FULL body, whatever the recording cap says.** If it
+    /// were computed over a capped prefix, `S2b` — which compares transparency
+    /// by checksum — would fail on the large payload because of the cap,
+    /// accusing the crate of something the harness did. This hash IS the
+    /// record of what the request carried.
     pub body_sha256: String,
     /// The status the proxy relayed back. **Always recorded** — it costs
     /// nothing and it is what tells a 502 from a 200.
@@ -217,16 +210,13 @@ impl RequestRecord {
     /// a second lock and an index, and an interleaved connection could
     /// complete the wrong record.
     ///
-    /// Both halves hash the FULL body, BEFORE the copy is capped: `S2b`
-    /// compares transparency by checksum, and hashing the truncated copy would
+    /// The hash is over the FULL body, whatever the recording cap says: `S2b`
+    /// compares transparency by checksum, and a hash of a capped prefix would
     /// fail it on the large payload because of the cap — blaming the crate for
-    /// the harness.
-    pub fn record_of(body: &[u8], method: &str, path: &str, cap: usize) -> RequestRecord {
+    /// something the harness did.
+    pub fn record_of(body: &[u8], path: &str) -> RequestRecord {
         RequestRecord {
-            method: method.to_string(),
             path: path.to_string(),
-            body: body[..body.len().min(cap)].to_vec(),
-            body_truncated: body.len() > cap,
             body_sha256: sha256_hex(body),
             // Filled by `with_recorded_response`/`with_status_only`. A record
             // pushed without one would claim a 0-status answer that never
@@ -351,15 +341,40 @@ impl SpyProxy {
     /// snapshot taken after run 3 would hand run 3's assertions the records of
     /// runs 1 and 2 as well — and an assertion counting requests would be
     /// right about a set nobody asked about.
+    ///
+    /// Recovers a poisoned lock via `into_inner()` **and** marks `degraded`,
+    /// exactly like [`push`](SpyProxy::push) and
+    /// [`records_since`](SpyProxy::records_since). It used to answer `0` on a
+    /// poisoned lock, which is the worst possible answer: `0` is a VALID
+    /// watermark meaning "the registry was empty", so `records_since(0)` then
+    /// hands the run every EARLIER run's records — the precise confusion this
+    /// pair exists to prevent — while `is_degraded()` kept reporting clean and
+    /// the assertions reading that foreign traffic could still report `Pass`.
     pub fn mark(&self) -> usize {
-        self.records.lock().map(|g| g.len()).unwrap_or(0)
+        match self.records.lock() {
+            Ok(g) => g.len(),
+            Err(p) => {
+                self.degraded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                p.into_inner().len()
+            }
+        }
     }
 
     /// Everything recorded SINCE `mark`. Taken once, when the run ends.
+    ///
+    /// Recovers a poisoned lock the same way its siblings do, `degraded`
+    /// included: recovering the records while staying silent about the
+    /// poisoning would let a run report clean over a registry that may be
+    /// missing entries.
     pub fn records_since(&self, mark: usize) -> Vec<RequestRecord> {
         match self.records.lock() {
             Ok(g) => g.get(mark..).unwrap_or(&[]).to_vec(),
-            Err(p) => p.into_inner().get(mark..).unwrap_or(&[]).to_vec(),
+            Err(p) => {
+                self.degraded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                p.into_inner().get(mark..).unwrap_or(&[]).to_vec()
+            }
         }
     }
 
@@ -488,7 +503,7 @@ impl SpyProxy {
                 Bytes::new()
             }
         };
-        let rec = RequestRecord::record_of(&bytes, &method, &path, self.record_cap);
+        let rec = RequestRecord::record_of(&bytes, &path);
 
         // ONE push per request, AFTER the answer exists, so both halves land
         // in the same record. This connection owns `rec` until then — no
@@ -711,7 +726,40 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn records_the_full_request_body_not_just_the_path() {
+    async fn records_the_full_request_body_by_hash_not_just_the_path() {
+        // The record identifies the WHOLE body, not merely the envelope: the
+        // hash is taken over every byte that went on the wire, so a proxy that
+        // recorded only the path — or that hashed a capped prefix — fails here.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        // A literal body, so the exact bytes hashed are known to the test
+        // rather than dependent on how `serde_json` orders a map.
+        const BODY: &str = r#"{"model":"m","stream":false}"#;
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(BODY)
+            .send()
+            .await
+            .unwrap();
+
+        let rec = &proxy.records()[0];
+        assert_eq!(rec.path, "/api/chat");
+        assert_eq!(
+            rec.body_sha256,
+            sha256_hex(BODY.as_bytes()),
+            "the record must identify the full request body, not just its path"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_poisoned_registry_does_not_report_a_zero_watermark() {
+        // `0` is a VALID watermark meaning "the registry was empty", so
+        // answering `0` on a poisoned lock hands the next run every earlier
+        // run's records — the exact confusion `mark`/`records_since` exist to
+        // prevent — and does it while `is_degraded()` reports clean.
         let upstream = crate::testkit::spawn_echo_server().await;
         let proxy = SpyProxy::start(upstream.url(), 250_000)
             .await
@@ -719,16 +767,54 @@ mod tests {
         let client = reqwest::Client::new();
         client
             .post(format!("{}/api/chat", proxy.base_url()))
-            .json(&serde_json::json!({"model": "m", "stream": false}))
+            .body("{}")
             .send()
             .await
             .unwrap();
+        assert!(
+            !proxy.is_degraded(),
+            "nothing has gone wrong yet, so the flag must still be clean"
+        );
 
-        let rec = &proxy.records()[0];
-        assert_eq!(rec.method, "POST");
-        assert_eq!(rec.path, "/api/chat");
-        // Without the body, this would verify the envelope and not the letter.
-        assert!(String::from_utf8_lossy(&rec.body).contains("\"stream\":false"));
+        proxy.poison_for_test(); // a real poisoning, not a flag
+
+        assert_eq!(
+            proxy.mark(),
+            1,
+            "a poisoned registry must recover the real watermark, never fall back to 0"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "a poisoned registry must be visible on the degraded flag, or the run \
+             reports clean over a registry that may be missing entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_poisoned_registry_makes_records_since_report_degraded_too() {
+        // Its sibling `push` already marked `degraded`; `records_since`
+        // recovered the records but said nothing, so a run whose registry was
+        // poisoned only between the push and the read stayed silent about it.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        let client = reqwest::Client::new();
+        client
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .unwrap();
+        assert!(!proxy.is_degraded());
+
+        proxy.poison_for_test();
+
+        assert_eq!(proxy.records_since(0).len(), 1, "the records are recovered");
+        assert!(
+            proxy.is_degraded(),
+            "and the poisoning is reported rather than swallowed"
+        );
     }
 
     #[tokio::test]

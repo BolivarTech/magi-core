@@ -16,9 +16,10 @@ use std::path::{Path, PathBuf};
 /// Payload generation could not reach the requested size, or an underlying
 /// filesystem operation failed while building it.
 ///
-/// The message always names the requested target byte count (see [`generate`]):
-/// omitting it would send the reader hunting for the number that was actually
-/// being compared against.
+/// The message always names the thing that could not be satisfied: the
+/// requested target byte count for a short payload (see [`generate`]), or the
+/// path for a file that could not be read. Omitting either would send the
+/// reader hunting for what was actually being compared or opened.
 #[derive(Debug)]
 pub struct PayloadError(String);
 
@@ -149,6 +150,14 @@ const CAPACITY_HEADROOM_BYTES: usize = 4096;
 /// to serve (see the module docs), so falling short fails loudly and names
 /// both the size reached and the target.
 ///
+/// Also returns [`PayloadError`] if a collected `.rs` file cannot be read. A
+/// skip there would make the output depend on which files happened to be
+/// readable on this machine, which is precisely the non-determinism
+/// [`sort_deterministically`] is bought to remove. An unreadable DIRECTORY is
+/// still skipped, and deliberately so — see [`collect_rs`]: a root that does
+/// not exist at all (a project with no `examples/`) is an expected input to the
+/// widening, while a file the walk has already found and cannot open is not.
+///
 /// # Complexity
 ///
 /// `O(f + n)`, NOT `O(n)` alone: [`collect_rs`] walks and `stat`s a root's
@@ -171,9 +180,21 @@ pub fn generate(repo_root: &Path, target_bytes: usize) -> Result<Payload, Payloa
             if acc.len() >= target_bytes {
                 break;
             }
-            if let Ok(text) = std::fs::read_to_string(&f) {
-                acc.push_str(&text);
-            }
+            // A file that cannot be READ is an error, never a skip. The
+            // deterministic sort above exists so the same tree yields the same
+            // bytes; silently dropping whatever happened to be unreadable makes
+            // the payload depend on the state of the machine instead, which is
+            // the property the sort was bought to remove.
+            let text = std::fs::read_to_string(&f).map_err(|e| {
+                PayloadError(format!(
+                    "could not read {}: {e}. Skipping it would make the payload depend on \
+                     which files happened to be readable, so the same tree would stop \
+                     producing the same bytes — the one property the deterministic order \
+                     above exists to provide.",
+                    f.display()
+                ))
+            })?;
+            acc.push_str(&text);
         }
     }
 

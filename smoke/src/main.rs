@@ -96,8 +96,16 @@ impl Cli {
 /// `0` every assertion passed · `1` an assertion FAILED, which is a verdict
 /// about the crate · `2` could not test, which is a fault of ours: config,
 /// fixtures, backend, probe or proxy. Confusing `1` with `2` is the failure
-/// `outcome.rs` exists to eliminate, so the code is chosen in ONE place:
-/// [`report::Report::exit_code`].
+/// `outcome.rs` exists to eliminate, so **every code derived from a report is
+/// chosen in ONE place**: [`report::Report::exit_code`].
+///
+/// Two paths below return `2` without building a report, and both are honest
+/// about it: an unparsable command line and `--print-payload-size`. Neither
+/// evaluates a scenario, so there is no verdict for either to displace. *(A
+/// third such path existed — a certificate that could not be written returned
+/// `2` before the table was ever printed, discarding a `Fail` the run had
+/// already found. It now travels as a row; see
+/// [`report::Report::write_certificate_in`].)*
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     // A panic becomes an outcome instead of killing the harness.
@@ -162,7 +170,7 @@ async fn main() -> std::process::ExitCode {
     //    zero scenarios as passed — but it still evaluates the scenarios whose
     //    whole property IS what the preflight did.
     let live: Vec<&str> = scenarios.iter().map(|s| s.id).collect();
-    let ready = match preflight::run(&cfg, &live, cli.break_proxy).await {
+    let ready = match preflight::run(&cfg, &live, cli.break_proxy, cli.no_backend).await {
         Ok(r) => r,
         Err(e) => {
             let rows = evaluate_preflight_only(&scenarios, &e);
@@ -208,22 +216,22 @@ async fn main() -> std::process::ExitCode {
         run.probe(),
         matrix.as_deref(),
         cli.no_backend,
-        &status_before,
+        status_before.as_deref(),
     );
 
     // 6. Report, certificate, exit code.
-    let report = report::Report {
+    //
+    // The certificate is attempted BEFORE the JSON is rendered so both forms
+    // carry the same facts — a failure to write it becomes a row, and a row
+    // that exists only in the human table is a second source of truth. It never
+    // replaces the verdict: `exit_code` still decides, and a `Fail` outranks it.
+    let mut report = report::Report {
         rows,
         run: cycle_run(&cli),
     };
+    report.write_certificate_in(&paths::repo_root(), &crate_version(), &git_commit());
     if cli.json {
         println!("{}", report.render_json());
-    }
-    if let Some(text) = report.render_certificate(&crate_version(), &git_commit()) {
-        if let Err(e) = report::write_and_verify_certificate_in(&paths::repo_root(), &text) {
-            eprintln!("certificate discarded: {e}");
-            return std::process::ExitCode::from(2);
-        }
     }
     report.emit()
 }
@@ -252,6 +260,14 @@ fn cycle_run(cli: &Cli) -> report::CycleRun {
 /// was not asked to run" (exit 0). Marking a deliberate partition as `Skip`
 /// would make every `--no-backend` run exit 2 over a fault that did not happen.
 ///
+/// # Parameters
+///
+/// * `repo_status_before` — the pre-run `git status` baseline, or `None` when
+///   it could not be MEASURED. The two are not the same thing, and passing
+///   `Some("")` for a measurement that never happened would tell the no-trace
+///   scenario the tree was clean — so every pre-existing modification would be
+///   attributed to the harness and reported as a `Fail`.
+///
 /// # Complexity
 ///
 /// `O(s + r)` for `s` scenarios and `r` runs, plus one concatenation of every
@@ -260,9 +276,9 @@ fn evaluate(
     scenarios: &[runner::Scenario],
     results: &[runner::RunResult],
     probe: &runner::TransparencyProbe,
-    matrix: Option<&[(String, bool)]>,
+    matrix: Option<&[(String, runner::BuildOutcome)]>,
     no_backend: bool,
-    repo_status_before: &str,
+    repo_status_before: Option<&str>,
 ) -> Vec<report::AssertionRow> {
     // Built once: a session-scoped scenario reads every run's traffic, and
     // borrowing it per scenario would rebuild it per scenario.
@@ -275,7 +291,7 @@ fn evaluate(
     for scenario in scenarios {
         // The partition is selected by TAG, never by scenario name: a list
         // maintained by hand stops matching in silence.
-        if no_backend && scenario.backend_tag == Some(runner::BackendNeed::Required) {
+        if no_backend && scenario.backend_tag == runner::BackendNeed::Required {
             rows.push(report::AssertionRow {
                 scenario_id: scenario.id,
                 run_id: config::RunId::NoBackend,
@@ -336,7 +352,10 @@ fn evaluate(
             runner::Source::Session => {
                 ctx.records = &session_records;
                 ctx.proxy_degraded = results.iter().any(|r| r.proxy_degraded);
-                ctx.repo_status_before = Some(repo_status_before);
+                // Passed THROUGH, never wrapped: wrapping it in `Some(..)` made
+                // the scenario's own "no baseline, so skip" branch dead code,
+                // and its rustdoc said the opposite.
+                ctx.repo_status_before = repo_status_before;
             }
             runner::Source::Build => ctx.build_matrix = matrix,
         }
@@ -416,10 +435,31 @@ fn evaluate_preflight_only(
     rows
 }
 
-/// The four feature combinations, and whether each BUILT.
+/// Turns one `cargo` invocation's outcome into a [`runner::BuildOutcome`].
 ///
-/// A failure here is DATA, not an error: the scenario reading it needs two of
-/// them to fail. All four are run so the row is complete.
+/// **A failed BUILD and a failed SPAWN are not the same answer.** The first is
+/// data the scenario needs; the second means nothing was learned. Collapsing
+/// them — which `.map(|s| s.success()).unwrap_or(false)` did — made a `cargo`
+/// that could not be run indistinguishable from four combinations that all
+/// refused to compile, and the scenario reading that reported `Fail`: exit 1,
+/// a verdict about the crate, over a fault of ours.
+///
+/// # Parameters
+///
+/// * `status` — what `Command::status()` returned.
+fn build_outcome(status: std::io::Result<std::process::ExitStatus>) -> runner::BuildOutcome {
+    match status {
+        Ok(s) if s.success() => runner::BuildOutcome::Built,
+        Ok(_) => runner::BuildOutcome::DidNotBuild,
+        Err(_) => runner::BuildOutcome::CouldNotRun,
+    }
+}
+
+/// The four feature combinations, and what each one's `cargo check` did.
+///
+/// A build that FAILS is DATA, not an error: the scenario reading it needs two
+/// of them to fail. All four are run so the row is complete. A `cargo` that
+/// could not be run at all is a third state — see [`build_outcome`].
 ///
 /// **Every inner `cargo` gets its OWN `CARGO_TARGET_DIR`.** These run while the
 /// outer `cargo run` still holds the harness's own `target/`, and this project
@@ -431,7 +471,7 @@ fn evaluate_preflight_only(
 ///
 /// Four `cargo check` invocations, serially. Slow by construction, which is why
 /// it sits behind a flag.
-fn run_feature_matrix() -> Vec<(String, bool)> {
+fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
     const COMBINATIONS: [&str; 4] = ["tree", "published", "tree,published", ""];
     const NO_FEATURES_TAG: &str = "none";
     COMBINATIONS
@@ -446,17 +486,17 @@ fn run_feature_matrix() -> Vec<(String, bool)> {
             } else {
                 combo.replace(',', "-")
             };
-            let built = std::process::Command::new("cargo")
-                .args(&args)
-                .current_dir(paths::smoke_dir())
-                .env(
-                    "CARGO_TARGET_DIR",
-                    paths::smoke_dir().join("target-matrix").join(&tag),
-                )
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            (combo.to_string(), built)
+            let outcome = build_outcome(
+                std::process::Command::new("cargo")
+                    .args(&args)
+                    .current_dir(paths::smoke_dir())
+                    .env(
+                        "CARGO_TARGET_DIR",
+                        paths::smoke_dir().join("target-matrix").join(&tag),
+                    )
+                    .status(),
+            );
+            (combo.to_string(), outcome)
         })
         .collect()
 }
@@ -487,19 +527,42 @@ fn crate_version() -> String {
 
 /// `git status --porcelain --untracked-files=all` over the repository.
 ///
+/// See [`repo_status_of`], which this delegates to; it exists as its own
+/// function so the "could not measure" half is testable against a directory
+/// that is not a repository, instead of only against whatever state the real
+/// tree happens to be in.
+fn repo_status() -> Option<String> {
+    repo_status_of(&paths::repo_root())
+}
+
+/// `git status --porcelain --untracked-files=all` over `dir`.
+///
 /// `--untracked-files=all` because the default collapses an untracked directory
 /// to its name, which would hide the very paths a comparison needs to see.
-/// An empty string on any failure: the scenario reading it treats "no baseline"
-/// as a reason to skip, never as a clean tree.
-fn repo_status() -> String {
+///
+/// # Returns
+///
+/// `Some(status)` when git answered — **including `Some("")` for a genuinely
+/// clean tree** — and `None` when it could not be spawned or exited non-zero.
+///
+/// **The distinction is the whole point.** This used to return `""` for both,
+/// and the consequence was concrete: if this first call failed and the no-trace
+/// scenario's own later call succeeded, every pre-existing uncommitted line
+/// looked like something the harness had added, and the run reported `Fail` —
+/// exit 1, a verdict about the crate, for a fault of ours. `None` reaches the
+/// scenario as an absent baseline, which is a `Skip`.
+///
+/// # Parameters
+///
+/// * `dir` — the working tree to ask about.
+fn repo_status_of(dir: &std::path::Path) -> Option<String> {
     std::process::Command::new("git")
         .args(["status", "--porcelain", "--untracked-files=all"])
-        .current_dir(paths::repo_root())
+        .current_dir(dir)
         .output()
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default()
 }
 
 /// The commit the harness is running on. Travels INSIDE the certificate.
@@ -513,4 +576,80 @@ fn git_commit() -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| UNKNOWN.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_git_status_that_could_not_run_is_not_reported_as_a_clean_tree() {
+        // The two are opposite claims, and collapsing them makes the harness
+        // attribute somebody else's uncommitted work to itself.
+        assert!(
+            repo_status_of(&paths::repo_root()).is_some(),
+            "the real repository must be measurable"
+        );
+        // A directory that is not a git repository: git runs and exits non-zero.
+        assert_eq!(
+            repo_status_of(&std::env::temp_dir()),
+            None,
+            "a tree git could not report on is NOT a clean tree"
+        );
+        // A directory that does not exist at all: git cannot even be spawned.
+        assert_eq!(
+            repo_status_of(&std::env::temp_dir().join("magi-smoke-no-such-directory-anywhere")),
+            None
+        );
+    }
+
+    #[test]
+    fn without_a_baseline_the_no_trace_scenario_skips_instead_of_blaming_the_harness() {
+        // The other half of the same defect: `evaluate` wrapped the baseline in
+        // `Some(..)` unconditionally, so the scenario's own "no baseline" branch
+        // was unreachable and an unmeasurable tree read as an empty one.
+        let scenarios = scenarios::e1_scenarios();
+        let probe = runner::TransparencyProbe::default();
+        let rows = evaluate(&scenarios, &[], &probe, None, false, None);
+        let row = rows
+            .iter()
+            .find(|r| r.scenario_id == "S16")
+            .expect("the no-trace scenario always produces a row");
+        match &row.state {
+            outcome::ScenarioState::Skip(reason) => assert!(
+                reason.contains("baseline"),
+                "the skip must name the missing baseline: {reason:?}"
+            ),
+            other => panic!("expected a Skip with no baseline, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_cargo_that_could_not_be_spawned_is_not_a_failed_build() {
+        // A real `ExitStatus` on every side, not a stand-in.
+        let quiet = |args: &[&str]| {
+            std::process::Command::new("cargo")
+                .args(args)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+        };
+        assert_eq!(
+            build_outcome(quiet(&["--version"])),
+            runner::BuildOutcome::Built
+        );
+        assert_eq!(
+            build_outcome(quiet(&["--magi-smoke-no-such-flag"])),
+            runner::BuildOutcome::DidNotBuild,
+            "cargo ran and refused: that IS data the scenario needs"
+        );
+        assert_eq!(
+            build_outcome(
+                std::process::Command::new("magi-smoke-no-such-executable-anywhere").status()
+            ),
+            runner::BuildOutcome::CouldNotRun,
+            "a spawn failure teaches nothing about the crate and must not read as a \
+             combination that refused to compile"
+        );
+    }
 }

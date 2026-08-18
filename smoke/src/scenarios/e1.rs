@@ -30,7 +30,9 @@ use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::RotationKind;
 use crate::config::RunId;
 use crate::proxy::{sha256_hex, RequestRecord};
-use crate::runner::{assert_that, Assertion, BackendNeed, RunContext, Scenario, Source};
+use crate::runner::{
+    assert_that, Assertion, BackendNeed, BuildOutcome, RunContext, Scenario, Source,
+};
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -228,17 +230,12 @@ fn s2b_the_proxy_is_transparent(ctx: &RunContext<'_>) -> Vec<Assertion> {
             Assertion::skip(NAME_RESPONSE, "the probe response was not recorded"),
         ];
     }
-    // A record whose body hit the proxy's size cap holds a PREFIX, so its hash
-    // is the hash of a prefix. Comparing that against the whole body we sent
-    // would fail — and fail for a reason that says nothing about whether the
-    // proxy is transparent, which is the one thing this scenario is about.
-    if rec.body_truncated {
-        const WHY: &str = "the recorded request body was truncated at the proxy's cap, so its                            hash is of a prefix and cannot be compared to the whole body";
-        return vec![
-            Assertion::skip(NAME_REQUEST, WHY),
-            Assertion::skip(NAME_RESPONSE, WHY),
-        ];
-    }
+    // The comparison is by CHECKSUM, and `RequestRecord::record_of` hashes the
+    // FULL body before any recording cap applies — so the cap cannot make this
+    // comparison wrong, and there is deliberately no guard against it here. A
+    // previous round added one on the opposite belief; the code contradicted it,
+    // and the guard would have SKIPPED a valid comparison on exactly the large
+    // payload the cap exists for.
     vec![
         assert_that(NAME_REQUEST, rec.body_sha256 == sha256_hex(sent.as_bytes())),
         assert_that(NAME_RESPONSE, rec.response_sha256 == sha256_hex(direct)),
@@ -388,8 +385,8 @@ fn tags_response_has_a_64_hex_digest(body: &[u8]) -> bool {
 /// in `ctx.records` by the time this scenario runs.
 ///
 /// **FAILS, rather than skipping, on a shape it cannot parse** — that
-/// asymmetry is the scenario's whole point: "si la forma de la API cambio, el
-/// escenario FALLA en vez de degradar en silencio".
+/// asymmetry is the scenario's whole point: if the API's shape has changed, the
+/// scenario FAILS instead of degrading in silence.
 fn s5_the_probe_still_reads_what_it_expects(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_WINDOW: &str = "the probe returns a measurable context window";
     const NAME_DIGEST: &str = "the probe returns a 64-hex-character digest";
@@ -510,7 +507,7 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
 /// `Source::Preflight`: a config that fails to parse never reaches
 /// `preflight::run` at all — it is wrapped as the `Config` stage before the
 /// preflight starts, so no scenario runs against a default backend. Exercised
-/// by `cargo run -- --config <toml roto>` (six-invocation table, README).
+/// by `cargo run -- --config <a broken toml>` (six-invocation table, README).
 fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str =
         "an unreadable config names the offending field and cuts with exit 2 before any run";
@@ -701,12 +698,18 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 /// already compiled. Reads `ctx.build_matrix`, populated only under
 /// `--build-matrix`; without it, SKIP, never PASS (R25).
 ///
-/// **Only THREE of the four combinations are decidable in E1.** `published`
-/// alone resolves `magi-core = "4.0"` from crates.io, which does not exist
-/// while this stage runs (E1 exercises `3.2.0`). Asserting it here would make
-/// E1 red for a reason that is not a defect — that half belongs to a later
-/// stage, whose job starts only after the `cargo publish` that creates the
-/// version it needs.
+/// **THREE of the four combinations are asserted, and `published` alone is
+/// not.** *(The reason recorded here was stale: it said `published` resolves
+/// `magi-core = "4.0"`, "which does not exist". `smoke/Cargo.toml` pins
+/// `version = "3.2"`, which is on crates.io, so that combination resolves and
+/// compiles today.)*
+///
+/// The real reason is narrower. This scenario's property is that the two modes
+/// cannot be CONFUSED, and the three asserted combinations establish exactly
+/// that: `tree` builds, both together do not, neither does. Whether `published`
+/// builds on its own is a different claim — that the published mode works — and
+/// it depends on crates.io being reachable, which is a fact about the machine
+/// rather than about the crate under test.
 fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the two dependency modes cannot be confused";
     let Some(m) = ctx.build_matrix else {
@@ -715,11 +718,32 @@ fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> 
             "feature matrix not built; re-run with --build-matrix",
         )];
     };
-    let built = |name: &str| m.iter().any(|(c, ok)| c == name && *ok);
-    let fails = |name: &str| m.iter().any(|(c, ok)| c == name && !*ok);
+    // A combination `cargo` could not even be RUN for is not a combination that
+    // refused to compile. Reading the two the same way would report a missing
+    // toolchain as the very regression this scenario exists to catch.
+    let asserted = ["tree", "tree,published", ""];
+    let unrunnable: Vec<&str> = asserted
+        .into_iter()
+        .filter(|name| {
+            m.iter()
+                .any(|(c, o)| c == name && *o == BuildOutcome::CouldNotRun)
+        })
+        .collect();
+    if !unrunnable.is_empty() {
+        return vec![Assertion::skip(
+            NAME,
+            format!(
+                "cargo could not be run for {unrunnable:?}, so nothing was learned about \
+                 those combinations either way"
+            ),
+        )];
+    }
+    let outcome = |name: &str, want: BuildOutcome| m.iter().any(|(c, o)| c == name && *o == want);
     vec![assert_that(
         NAME,
-        built("tree") && fails("tree,published") && fails(""),
+        outcome("tree", BuildOutcome::Built)
+            && outcome("tree,published", BuildOutcome::DidNotBuild)
+            && outcome("", BuildOutcome::DidNotBuild),
     )]
 }
 
@@ -735,73 +759,73 @@ pub fn e1_scenarios() -> Vec<Scenario> {
         Scenario {
             id: "S1",
             source: Source::Run(RunId::NoBackend),
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s1_external_provider_fails_typed,
         },
         Scenario {
             id: "S2",
             source: Source::Run(RunId::HappySmall),
-            backend_tag: Some(BackendNeed::Required),
+            backend_tag: BackendNeed::Required,
             assert_fn: s2_happy_path_against_real_backend,
         },
         Scenario {
             id: "S2b",
             source: Source::Run(RunId::HappySmall),
-            backend_tag: Some(BackendNeed::Required),
+            backend_tag: BackendNeed::Required,
             assert_fn: s2b_the_proxy_is_transparent,
         },
         Scenario {
             id: "S4",
             source: Source::Run(RunId::Rotation),
-            backend_tag: Some(BackendNeed::Required),
+            backend_tag: BackendNeed::Required,
             assert_fn: s4_rotation_and_its_cause,
         },
         Scenario {
             id: "S5",
             source: Source::Run(RunId::HappySmall),
-            backend_tag: Some(BackendNeed::Required),
+            backend_tag: BackendNeed::Required,
             assert_fn: s5_the_probe_still_reads_what_it_expects,
         },
         Scenario {
             id: "S6",
             source: Source::Preflight,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s6_no_backend_no_green,
         },
         Scenario {
             id: "S7",
             source: Source::Preflight,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s7_a_saturated_endpoint_reports_cannot_test_with_its_scope,
         },
         Scenario {
             id: "S14",
             source: Source::Preflight,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s14_illegible_toml_is_fatal,
         },
         Scenario {
             id: "S15",
             source: Source::Run(RunId::Degradation),
-            backend_tag: Some(BackendNeed::Required),
+            backend_tag: BackendNeed::Required,
             assert_fn: s15_degradation_is_honest,
         },
         Scenario {
             id: "S16",
             source: Source::Session,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s16_no_trace_left_in_the_repo,
         },
         Scenario {
             id: "S20",
             source: Source::Preflight,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s20_broken_proxy_is_not_a_scenario_red,
         },
         Scenario {
             id: "S21",
             source: Source::Build,
-            backend_tag: Some(BackendNeed::None),
+            backend_tag: BackendNeed::None,
             assert_fn: s21_the_two_modes_cannot_be_confused,
         },
     ]
@@ -835,10 +859,7 @@ mod tests {
 
     fn record(path: &str, status: u16) -> RequestRecord {
         RequestRecord {
-            method: "POST".to_string(),
             path: path.to_string(),
-            body: Vec::new(),
-            body_truncated: false,
             body_sha256: String::new(),
             response_status: status,
             response_recorded: false,
@@ -902,15 +923,22 @@ mod tests {
 
     // -- structural tests (Step 1 of the task brief) --
 
+    // `every_scenario_declares_whether_it_needs_a_backend` USED to live here.
+    // It is gone because `Scenario::backend_tag` stopped being an `Option`: all
+    // twelve wrote `Some(..)`, so the `None` layer had no consumer and the test
+    // asserted over a case nothing could produce. The property is now enforced
+    // by the type — a scenario without a tag does not compile — which is
+    // strictly stronger than a test that runs.
+
     #[test]
-    fn every_scenario_declares_whether_it_needs_a_backend() {
-        for s in e1_scenarios() {
-            assert!(
-                s.backend_tag.is_some(),
-                "scenario {} has no backend tag",
-                s.id
-            );
-        }
+    fn the_no_backend_partition_is_neither_empty_nor_everything() {
+        // What the deleted test was reaching for, stated as a property the type
+        // cannot enforce: if every scenario needed a backend, `--no-backend`
+        // would report twelve OutOfScope rows and test nothing; if none did,
+        // the flag would be inert.
+        let tags: Vec<BackendNeed> = e1_scenarios().iter().map(|s| s.backend_tag).collect();
+        assert!(tags.contains(&BackendNeed::None));
+        assert!(tags.contains(&BackendNeed::Required));
     }
 
     #[test]
@@ -1028,32 +1056,6 @@ mod tests {
         let a = s2b_the_proxy_is_transparent(&ctx);
         assert_eq!(a.len(), 2);
         assert!(a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))));
-    }
-
-    #[test]
-    fn s2b_skips_rather_than_fails_when_the_recorded_body_was_truncated() {
-        // Without this guard the comparison FAILS on a truncated record — a red
-        // that accuses the proxy of rewriting when all it did was hit its own
-        // cap. The field existed and nothing read it.
-        let sent = "the probe body".to_string();
-        let direct = b"the probe response".to_vec();
-        let rec = recorded_response("/api/show", 200, &direct);
-        let rec = RequestRecord {
-            body_truncated: true,
-            body_sha256: sha256_hex(b"a prefix only"),
-            ..rec
-        };
-        let ctx = RunContext {
-            probe_record: Some(&rec),
-            probe_sent_body: Some(&sent),
-            direct_probe_body: Some(&direct),
-            ..blank_ctx(RunId::HappySmall)
-        };
-        let a = s2b_the_proxy_is_transparent(&ctx);
-        assert!(
-            a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))),
-            "a truncated record must not be reported as a transparency failure: {a:?}"
-        );
     }
 
     #[test]
@@ -1510,10 +1512,10 @@ mod tests {
     #[test]
     fn s21_passes_when_tree_builds_and_both_conflicting_combinations_fail() {
         let matrix = vec![
-            ("tree".to_string(), true),
-            ("published".to_string(), true),
-            ("tree,published".to_string(), false),
-            (String::new(), false),
+            ("tree".to_string(), BuildOutcome::Built),
+            ("published".to_string(), BuildOutcome::Built),
+            ("tree,published".to_string(), BuildOutcome::DidNotBuild),
+            (String::new(), BuildOutcome::DidNotBuild),
         ];
         let ctx = RunContext {
             build_matrix: Some(&matrix),
@@ -1528,10 +1530,10 @@ mod tests {
         // The exact regression this scenario exists to catch: the two
         // `compile_error!` guards silently stopped firing.
         let matrix = vec![
-            ("tree".to_string(), true),
-            ("published".to_string(), true),
-            ("tree,published".to_string(), true),
-            (String::new(), false),
+            ("tree".to_string(), BuildOutcome::Built),
+            ("published".to_string(), BuildOutcome::Built),
+            ("tree,published".to_string(), BuildOutcome::Built),
+            (String::new(), BuildOutcome::DidNotBuild),
         ];
         let ctx = RunContext {
             build_matrix: Some(&matrix),
@@ -1542,12 +1544,38 @@ mod tests {
     }
 
     #[test]
+    fn s21_skips_rather_than_fails_when_cargo_could_not_be_run() {
+        // A `cargo` that could not be SPAWNED told us nothing. Reading that as
+        // "the combination did not build" would report a missing toolchain as
+        // the regression this scenario exists to catch — exit 1, a verdict
+        // about the crate, over a fault of ours.
+        let matrix = vec![
+            ("tree".to_string(), BuildOutcome::CouldNotRun),
+            ("published".to_string(), BuildOutcome::CouldNotRun),
+            ("tree,published".to_string(), BuildOutcome::CouldNotRun),
+            (String::new(), BuildOutcome::CouldNotRun),
+        ];
+        let ctx = RunContext {
+            build_matrix: Some(&matrix),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s21_the_two_modes_cannot_be_confused(&ctx);
+        match &a[0].state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("cargo could not be run"),
+                "the skip must name what could not be done: {reason:?}"
+            ),
+            other => panic!("expected a Skip, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn s21_fails_when_the_default_mode_does_not_build() {
         let matrix = vec![
-            ("tree".to_string(), false),
-            ("published".to_string(), true),
-            ("tree,published".to_string(), false),
-            (String::new(), false),
+            ("tree".to_string(), BuildOutcome::DidNotBuild),
+            ("published".to_string(), BuildOutcome::Built),
+            ("tree,published".to_string(), BuildOutcome::DidNotBuild),
+            (String::new(), BuildOutcome::DidNotBuild),
         ];
         let ctx = RunContext {
             build_matrix: Some(&matrix),

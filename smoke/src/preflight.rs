@@ -143,10 +143,29 @@ pub fn preflight_step_order() -> [&'static str; 8] {
 /// R26's order, EXECUTED — the step list a test pins is worthless if nothing
 /// calls the steps in it. Every early return is exit 2: a preflight failure
 /// is ours, never a verdict about the crate.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration.
+/// * `live` — the scenario ids this run will evaluate, for the fixture audit.
+/// * `break_proxy` — the harness's own self-test hook; see [`raise_proxy`].
+/// * `no_backend` — when true, the two steps that REQUIRE a live backend
+///   (`backend` and `probe`) are skipped.
+///
+/// # Why `no_backend` reaches this function at all
+///
+/// It used not to, and the flag it comes from was therefore inert: `--no-backend`
+/// promises a partition that runs with no backend, and the preflight ran
+/// [`reachable`] and [`probe`] unconditionally, so the very first thing that
+/// invocation did was demand the backend it had just been told there was none
+/// of. Skipping them is not a softening — with the flag absent both still run
+/// exactly as before, which is what
+/// `no_backend_skips_the_backend_steps_and_nothing_else` pins from both sides.
 pub async fn run(
     cfg: &Config,
     live: &[&str],
     break_proxy: bool,
+    no_backend: bool,
 ) -> Result<Announcement, PreflightError> {
     check_seats(cfg).map_err(|m| PreflightError::cannot_test(Stage::Config, m))?; // config
 
@@ -171,18 +190,25 @@ pub async fn run(
     check_workspace_isolation(&smoke_dir())
         .map_err(|m| PreflightError::cannot_test(Stage::Workspace, m))?; // workspace
     check_lock_is_tracked(&repo_root()).map_err(|m| PreflightError::cannot_test(Stage::Lock, m))?; // lock
-    reachable(&cfg.endpoint)
-        .await
-        .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?; // backend
 
-    // FAIL-CLOSED: a probe that does not answer CUTS. An earlier version kept
-    // going "so a scenario would have something to read", which broke R26 —
-    // the preflight exists to stop. A preflight-only scenario is evaluated the
-    // same way, by calling the individual checks directly, not by letting
-    // `run` continue past a failed one.
-    probe(&cfg.endpoint, cfg.probe_timeout())
-        .await
-        .map_err(|m| PreflightError::cannot_test(Stage::Probe, m))?; // probe
+    // The only two steps that need a live backend, and the only two the
+    // no-backend partition skips. Everything before and after them still runs:
+    // a run without a backend still has a config, a fixture corpus, an isolated
+    // workspace, a tracked lock and a proxy to raise.
+    if !no_backend {
+        reachable(&cfg.endpoint)
+            .await
+            .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?; // backend
+
+        // FAIL-CLOSED: a probe that does not answer CUTS. An earlier version
+        // kept going "so a scenario would have something to read", which broke
+        // R26 — the preflight exists to stop. A preflight-only scenario is
+        // evaluated the same way, by calling the individual checks directly,
+        // not by letting `run` continue past a failed one.
+        probe(&cfg.endpoint, cfg.probe_timeout())
+            .await
+            .map_err(|m| PreflightError::cannot_test(Stage::Probe, m))?; // probe
+    }
 
     let proxy = raise_proxy(cfg, break_proxy).await?; // proxy
     Ok(Announcement {
@@ -191,20 +217,62 @@ pub async fn run(
     }) // cost
 }
 
-/// Rejects a config that cannot run anything, **naming the fix**.
+/// The mages a MAGI run is made of. Not a tunable: the scenarios read the
+/// TRIO — one asserts three agents answered, another asserts exactly two did
+/// once a seat is taken down — so a run with a different number of seats
+/// contradicts them by arithmetic rather than by defect.
+const REQUIRED_SEATS: usize = 3;
+
+/// Where the reader is sent, in every seat-related refusal.
+const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit it, or drop \
+                        the `seats` override to fall back to the built-in trio.";
+
+/// Rejects a config that cannot run the trio, **naming the fix**.
 ///
 /// Belongs to the `config` step of R26's order, not to a step of its own: the
 /// question is the config's own — *do I have anything to test WITH?* — and
 /// adding a step would move a boundary that a test pins.
+///
+/// # Errors
+///
+/// A config with no seats, with a number of seats other than [`REQUIRED_SEATS`],
+/// with a seat naming something that is not a mage, or with two seats naming the
+/// SAME mage.
+///
+/// **Only the zero case used to be rejected**, and one or two seats walked
+/// straight past — which is not a harmless permissiveness: the degradation
+/// scenario asserts that exactly two agents answered out of three, so a
+/// two-seat config produced a red row about the crate for a mistake in a TOML
+/// file. Two seats naming the same mage does the same thing by another route,
+/// since the builder registers per agent and the second silently replaces the
+/// first.
 pub fn check_seats(cfg: &Config) -> Result<(), String> {
     if cfg.seats.is_empty() {
-        return Err(
+        return Err(format!(
             "config has zero seats: every backend run needs models, so the harness would \
-             start and be unable to execute a single one. Copy magi-smoke.toml.example to \
-             magi-smoke.toml and edit it, or drop the `seats` override to fall back to the \
-             built-in trio."
-                .to_string(),
-        );
+             start and be unable to execute a single one. {SEAT_FIX}"
+        ));
+    }
+    if cfg.seats.len() != REQUIRED_SEATS {
+        return Err(format!(
+            "config has {} seats but a MAGI run is a trio of {REQUIRED_SEATS}: the \
+             degradation scenario asserts that exactly two of three agents answered, so \
+             any other number makes it report a red row about the crate for a mistake in \
+             this file. {SEAT_FIX}",
+            cfg.seats.len()
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for seat in &cfg.seats {
+        let name = seat.agent_name().map_err(|e| e.to_string())?;
+        if !seen.insert(name) {
+            return Err(format!(
+                "config seats {:?} twice: the builder registers one provider per agent, so \
+                 the second silently replaces the first and the trio is short a mage \
+                 without anything saying so. {SEAT_FIX}",
+                seat.agent
+            ));
+        }
     }
     Ok(())
 }
@@ -238,7 +306,8 @@ pub fn check_workspace_isolation(smoke: &Path) -> Result<(), String> {
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("workspace_root: cargo metadata output: {e}"))?;
     let root = v["workspace_root"].as_str().ok_or(
-        "workspace_root: cargo metadata returned no workspace_root; the isolation          check cannot be answered, so it fails closed rather than guessing",
+        "workspace_root: cargo metadata returned no workspace_root; the isolation check \
+         cannot be answered, so it fails closed rather than guessing",
     )?;
     // Full canonical paths, NOT a suffix: `ends_with("smoke")` also matches
     // `/repo/notsmoke`, so the check would pass on a tree it was meant to
@@ -496,9 +565,11 @@ fn pid_is_alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Seat;
     use crate::testkit::{
-        repo_where_the_negation_was_removed, run_with_broken_proxy, stub_that_is_always_slow,
-        stub_that_is_slow_on_first_request_only, temp_root_with,
+        repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
+        run_with_broken_proxy, stub_that_is_always_slow, stub_that_is_slow_on_first_request_only,
+        temp_root_with,
     };
 
     #[test]
@@ -614,6 +685,70 @@ mod tests {
         assert!(
             err.contains("seats") && err.contains("magi-smoke.toml.example"),
             "an empty seat list must name the fix, not just the symptom"
+        );
+    }
+
+    #[test]
+    fn a_config_that_is_not_a_full_trio_is_rejected_as_a_config_fault() {
+        // Only ZERO seats used to be rejected. One or two walked past, and the
+        // degradation scenario — which asserts that exactly two of three agents
+        // answered — then reported a red row about the CRATE for a mistake in a
+        // TOML file. That is the 1-versus-2 confusion the harness exists to
+        // eliminate, arriving through the config.
+        let full = Config::default();
+        assert!(check_seats(&full).is_ok(), "the built-in trio must pass");
+        for keep in [1, 2] {
+            let err = check_seats(&Config {
+                seats: full.seats.iter().take(keep).cloned().collect(),
+                ..full.clone()
+            })
+            .unwrap_err();
+            assert!(
+                err.contains("trio") && err.contains("magi-smoke.toml.example"),
+                "{keep} seats must be rejected by name, with the fix: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_seats_naming_the_same_mage_are_rejected_rather_than_silently_collapsing() {
+        // Three entries, two mages: the builder registers one provider per
+        // agent, so the duplicate replaces its twin and the run dispatches a
+        // duo while the count check is satisfied. Counting alone cannot see it.
+        let full = Config::default();
+        let duplicated: Vec<Seat> = full
+            .seats
+            .iter()
+            .map(|s| Seat {
+                agent: full.seats[0].agent.clone(),
+                ..s.clone()
+            })
+            .collect();
+        let err = check_seats(&Config {
+            seats: duplicated,
+            ..full
+        })
+        .unwrap_err();
+        assert!(err.contains("twice"), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn no_backend_skips_the_backend_steps_and_nothing_else() {
+        // Both directions, because only the pair proves anything. WITH the
+        // flag, the preflight completes against an endpoint that answers
+        // nothing — which is what `--no-backend` promises and what it could not
+        // do while the flag never reached this function. WITHOUT it, the SAME
+        // endpoint is rejected at the Backend stage, so the check was skipped
+        // rather than broken.
+        assert!(
+            run_against_an_unreachable_backend(true).await.is_ok(),
+            "--no-backend must not require a backend"
+        );
+        let err = run_against_an_unreachable_backend(false).await.unwrap_err();
+        assert_eq!(
+            err.stage,
+            Stage::Backend,
+            "without the flag the backend check must still cut: {err}"
         );
     }
 
