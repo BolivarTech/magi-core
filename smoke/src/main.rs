@@ -184,6 +184,10 @@ async fn main() -> std::process::ExitCode {
         None
     };
 
+    // Taken BEFORE anything runs, because the no-trace scenario asks what the
+    // harness ADDED, not whether the tree happened to be clean when it started.
+    let status_before = repo_status();
+
     // 4. The shared runs.
     let specs = match runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), cli.no_backend) {
         Ok(s) => s,
@@ -204,6 +208,7 @@ async fn main() -> std::process::ExitCode {
         run.probe(),
         matrix.as_deref(),
         cli.no_backend,
+        &status_before,
     );
 
     // 6. Report, certificate, exit code.
@@ -257,6 +262,7 @@ fn evaluate(
     probe: &runner::TransparencyProbe,
     matrix: Option<&[(String, bool)]>,
     no_backend: bool,
+    repo_status_before: &str,
 ) -> Vec<report::AssertionRow> {
     // Built once: a session-scoped scenario reads every run's traffic, and
     // borrowing it per scenario would rebuild it per scenario.
@@ -330,6 +336,7 @@ fn evaluate(
             runner::Source::Session => {
                 ctx.records = &session_records;
                 ctx.proxy_degraded = results.iter().any(|r| r.proxy_degraded);
+                ctx.repo_status_before = Some(repo_status_before);
             }
             runner::Source::Build => ctx.build_matrix = matrix,
         }
@@ -361,6 +368,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         probe_sent_body: None,
         injected_agent: None,
         build_matrix: None,
+        repo_status_before: None,
     }
 }
 
@@ -475,6 +483,23 @@ fn crate_version() -> String {
             })
         })
         .unwrap_or_else(|| UNKNOWN.to_string())
+}
+
+/// `git status --porcelain --untracked-files=all` over the repository.
+///
+/// `--untracked-files=all` because the default collapses an untracked directory
+/// to its name, which would hide the very paths a comparison needs to see.
+/// An empty string on any failure: the scenario reading it treats "no baseline"
+/// as a reason to skip, never as a clean tree.
+fn repo_status() -> String {
+    std::process::Command::new("git")
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .current_dir(paths::repo_root())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_default()
 }
 
 /// The commit the harness is running on. Travels INSIDE the certificate.

@@ -621,10 +621,21 @@ fn status_shows_nothing_outside_the_certificate(porcelain: &str) -> bool {
 /// invocation that writes it, i.e. it would fail exactly when everything else
 /// went right; the ordering in `evaluate()` (before `Report::render_certificate`)
 /// is what this scenario depends on.
-fn s16_no_trace_left_in_the_repo(_ctx: &RunContext<'_>) -> Vec<Assertion> {
-    const NAME: &str = "git status names nothing outside the fixed certificate path";
+fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    const NAME: &str = "the harness added nothing to the tree outside the certificate path";
+    // The claim is a DELTA, not absolute cleanliness. Asserting the tree is
+    // clean blames the harness for whatever was already uncommitted, so an
+    // operator running it over work in progress gets a red naming the harness
+    // for their own edits. What the harness can honestly claim is that it added
+    // nothing of its own.
+    let Some(before) = ctx.repo_status_before else {
+        return vec![Assertion::skip(
+            NAME,
+            "no pre-run baseline was captured, so nothing can be attributed to the harness",
+        )];
+    };
     let out = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "--untracked-files=all"])
         .current_dir(crate::paths::repo_root())
         .output();
     let Ok(out) = out else {
@@ -639,15 +650,24 @@ fn s16_no_trace_left_in_the_repo(_ctx: &RunContext<'_>) -> Vec<Assertion> {
             "git status did not exit successfully",
         )];
     }
-    let text = String::from_utf8_lossy(&out.stdout);
+    let after = String::from_utf8_lossy(&out.stdout);
+    let baseline: std::collections::BTreeSet<&str> = before.lines().collect();
+    let added: String = after
+        .lines()
+        .filter(|l| !baseline.contains(l))
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
     vec![assert_that(
         NAME,
-        status_shows_nothing_outside_the_certificate(&text),
+        status_shows_nothing_outside_the_certificate(&added),
     )]
 }
 
 // ---------------------------------------------------------------------------
-// S20 — the proxy roto NO produce un rojo de escenario
+// S20 — a broken proxy does NOT produce a scenario red
 // ---------------------------------------------------------------------------
 
 /// `S20` — a broken proxy does NOT produce a scenario red
@@ -809,6 +829,7 @@ mod tests {
             probe_sent_body: None,
             injected_agent: None,
             build_matrix: None,
+            repo_status_before: None,
         }
     }
 

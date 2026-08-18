@@ -134,6 +134,14 @@ pub struct RunContext<'a> {
     /// unless the feature matrix was built, in which case the scenario that
     /// reads it SKIPs naming the flag — never passes.
     pub build_matrix: Option<&'a [(String, bool)]>,
+    /// `git status` as it stood BEFORE any run started.
+    ///
+    /// The no-trace scenario needs a baseline, not an absolute: asserting the
+    /// tree is clean blames the harness for whatever was already uncommitted —
+    /// an operator running it over work in progress would get a red naming the
+    /// harness for their own edits. What the scenario can honestly claim is that
+    /// it added nothing.
+    pub repo_status_before: Option<&'a str>,
 }
 
 /// Where a scenario's assertion reads from.
@@ -399,7 +407,7 @@ impl RunSpec {
         repo_root: &Path,
         no_backend: bool,
     ) -> Result<Vec<RunSpec>, PayloadError> {
-        let small = payload::generate(repo_root, SMALL_PAYLOAD_BYTES)?;
+        let small = payload::generate(repo_root, cfg.run_payload_bytes)?;
         let no_backend_spec = RunSpec {
             id: RunId::NoBackend,
             seats: cfg.seats.clone(),
@@ -439,7 +447,13 @@ impl RunSpec {
             RunSpec {
                 id: RunId::Degradation,
                 seats: cfg.seats.clone(),
-                fallbacks: cfg.fallbacks.clone(),
+                // DELIBERATELY EMPTY, and this is what separates this run from
+                // the rotation one. Both inject the same failure; the difference
+                // is whether the seat has anywhere to go. With a pool it rotates
+                // and RECOVERS, so the run is not degraded and the scenario that
+                // asserts honest degradation has nothing to observe — which is
+                // exactly what happened the first time both runs shared a pool.
+                fallbacks: Vec::new(),
                 payload: small,
                 injection: Some(Injection::FailModel {
                     model: injected_seat,
@@ -451,13 +465,6 @@ impl RunSpec {
         ])
     }
 }
-
-/// Size of the payload the cheap runs analyse.
-///
-/// Small on purpose: these runs exist to exercise paths, not to reproduce the
-/// large-input failure, and the large payload's own run is not part of this
-/// stage.
-const SMALL_PAYLOAD_BYTES: usize = 2_048;
 
 /// The status the proxy injects when a run wants a model to fail.
 ///
@@ -845,6 +852,30 @@ mod tests {
                 candidate.model
             );
         }
+    }
+
+    #[test]
+    fn the_degradation_run_has_no_pool_so_the_seat_actually_degrades() {
+        // The two injected runs differ ONLY in whether a fallback exists. Give
+        // both a pool and the degraded run recovers by rotating, so every
+        // assertion about honest degradation reads a run that never degraded.
+        let cfg = Config::default();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the manifest dir always has a parent");
+        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
+        let degradation = specs
+            .iter()
+            .find(|s| s.id == RunId::Degradation)
+            .expect("the degradation run is part of this stage");
+        assert!(
+            degradation.fallbacks.is_empty(),
+            "a seat with somewhere to rotate to does not degrade"
+        );
+        assert!(
+            degradation.injection.is_some(),
+            "without an injection nothing fails and there is no degradation either"
+        );
     }
 
     #[test]
