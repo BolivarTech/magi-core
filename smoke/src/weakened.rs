@@ -14,7 +14,9 @@ use std::path::{Path, PathBuf};
 /// The one accepted shape. `<id>` is non-empty and free of whitespace.
 const MARK: &str = "// WEAKENED_FOR: ";
 
-/// This module's own file name.
+/// This module's own file name, matched against the scan root rather than by
+/// bare basename: `src/` has subdirectories, and a second file of this name in
+/// one of them would otherwise be exempted too.
 ///
 /// The tree walk skips it, and the reason is not convenience: this file's test
 /// fixtures ARE malformed marks, so scanning it would report the guard's own
@@ -155,7 +157,7 @@ pub fn scan_tree(root: &Path) -> Result<(), Vec<String>> {
                 stack.push(path);
                 continue;
             }
-            if path.file_name().is_some_and(|n| n == GUARD_OWN_FILE) {
+            if path == root.join(GUARD_OWN_FILE) {
                 continue;
             }
             if path.extension().is_some_and(|x| x == "rs") {
@@ -182,6 +184,7 @@ pub fn scan_tree(root: &Path) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testkit::tempdir_with;
 
     #[test]
     fn a_well_formed_mark_is_accepted() {
@@ -261,6 +264,24 @@ mod tests {
         assert!(
             errs[0].contains("could not read directory"),
             "the message must say what could not be read: {:?}",
+            errs[0]
+        );
+    }
+
+    #[test]
+    fn a_source_file_that_cannot_be_decoded_is_reported_too() {
+        // The directory-read failure had a test; the FILE-read failure did not,
+        // so a mutation reintroducing a silent skip at that second point would
+        // have gone unnoticed. A `.rs` file that is not valid UTF-8 forces it
+        // portably, and is a realistic way for a source file to be unreadable.
+        let dir = tempdir_with(&[("keep.rs", "// nothing to see")]);
+        std::fs::write(dir.path().join("broken.rs"), [0xff_u8, 0xfe, 0xff])
+            .expect("writing the fixture must succeed");
+        let errs = scan_tree(dir.path()).unwrap_err();
+        assert_eq!(errs.len(), 1);
+        assert!(
+            errs[0].contains("could not read file"),
+            "the message must say the file could not be read: {:?}",
             errs[0]
         );
     }
