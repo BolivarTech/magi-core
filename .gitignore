@@ -67,3 +67,10 @@ smoke/target/
 # The harness is a BINARY and wants a reproducible build, so its lock is tracked.
 # The bare `Cargo.lock` pattern above matches at any depth and would swallow it.
 !smoke/Cargo.lock
+
+# The real, operator-supplied config. `magi-smoke.toml.example` documents the WHY
+# of each key and IS tracked; this is the copy someone actually edits.
+smoke/magi-smoke.toml
+# The isolated target dirs the feature matrix builds into. Ignored for the same
+# reason `target/` is: S16 asserts the harness leaves no trace in the repo.
+smoke/target-matrix/
