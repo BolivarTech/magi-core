@@ -45,6 +45,13 @@ pub struct Config {
     /// wrong table.
     #[serde(default)]
     pub seats: Vec<Seat>,
+    /// The rotation candidates the trio can fall back to.
+    ///
+    /// Without at least one, the run that exists to exercise rotation has
+    /// nowhere to rotate TO, and the scenario reading it can only report that it
+    /// could not be tested — which is what it did before this field existed.
+    #[serde(default)]
+    pub fallbacks: Vec<Fallback>,
 }
 
 /// One agent's assignment: which mage seat, which model, which rotation
@@ -70,6 +77,23 @@ pub struct Seat {
     /// request. The mixed-trio scenario needs one that cannot.
     #[serde(default = "yes")]
     pub supports_reasoning_control: bool,
+}
+
+/// A rotation candidate the whole trio can fall back to.
+///
+/// It carries no `agent`, and that is not an omission: the crate's fallback pool
+/// is shared by every seat rather than declared per seat, so a candidate belongs
+/// to the run, not to a mage.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fallback {
+    /// The model identifier this candidate's provider is built with. Opaque
+    /// here: forwarded to the provider, never parsed.
+    pub model: String,
+    /// The rotation diversity key. A candidate sharing a seat's lineage buys
+    /// nothing — rotation exists to reach a DIFFERENT lineage — so it is
+    /// required for the same reason a seat's is.
+    pub lineage: String,
 }
 
 impl Seat {
@@ -462,12 +486,24 @@ impl Config {
             payload_target_bytes: default_payload_target(),
             budgets: Budgets::default(),
             seats: default_seats(),
+            fallbacks: default_fallbacks(),
         }
     }
 }
 
 /// The mixed trio. **`supports_reasoning_control` is NOT all-true**: S-C3 needs
 /// one seat that cannot honour it.
+/// The default rotation candidates.
+///
+/// One is enough for the property under test — that a seat whose model fails
+/// reaches a DIFFERENT lineage — and each extra one costs a preflight probe.
+fn default_fallbacks() -> Vec<Fallback> {
+    vec![Fallback {
+        model: "deepseek-v4-pro:cloud".into(),
+        lineage: "deepseek".into(),
+    }]
+}
+
 fn default_seats() -> Vec<Seat> {
     vec![
         Seat {

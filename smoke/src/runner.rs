@@ -29,9 +29,9 @@ use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder};
 use crate::alias::magi_core::provider::LlmProvider;
 use crate::alias::magi_core::providers::ollama::OllamaProvider;
 use crate::alias::magi_core::reporting::MagiReport;
-use crate::alias::magi_core::rotation::Lineage;
+use crate::alias::magi_core::rotation::{FallbackPool, Lineage};
 use crate::alias::magi_core::schema::{AgentName, Mode};
-use crate::config::{Config, RunId, Seat};
+use crate::config::{Config, Fallback, RunId, Seat};
 use crate::external;
 use crate::outcome::{run_catching, RunOutcome, ScenarioState};
 use crate::payload::{self, Payload, PayloadError};
@@ -203,6 +203,8 @@ pub struct RunSpec {
     /// and the proxy: the rotation and degradation scenarios need a specific
     /// model to fail, and nothing was telling the proxy so.
     pub injection: Option<Injection>,
+    /// The rotation candidates available to every seat during this run.
+    pub fallbacks: Vec<Fallback>,
     /// Which provider backs the seats.
     pub providers: ProviderKind,
 }
@@ -288,6 +290,11 @@ pub fn attempts_for(first: &RunOutcome) -> u32 {
 ///
 /// * `base_url` — the proxy's address, never the backend's.
 /// * `seats` — the trio to register.
+/// * `fallbacks` — the rotation candidates, registered as the crate's shared
+///   fallback pool. **Without them a seat whose model fails has nowhere to
+///   rotate to**, so the run that exists to exercise rotation becomes
+///   indistinguishable from the one that exercises degradation, and the scenario
+///   reading it can only report that it could not be tested.
 /// * `kind` — which provider backs them.
 ///
 /// # Errors
@@ -299,6 +306,7 @@ pub fn attempts_for(first: &RunOutcome) -> u32 {
 pub fn build_magi_against(
     base_url: &str,
     seats: &[Seat],
+    fallbacks: &[Fallback],
     kind: ProviderKind,
 ) -> Result<Magi, String> {
     let first = seats.first().ok_or("no seats configured")?;
@@ -325,7 +333,19 @@ pub fn build_magi_against(
                 builder =
                     builder.with_probing_agent(name, provider, Lineage::new(seat.lineage.clone()));
             }
-            builder.build().map_err(|e| e.to_string())
+            // The pool is shared by every seat, so it is built once and pushed
+            // once — it belongs to the run, not to a mage.
+            let mut pool = FallbackPool::builder();
+            for candidate in fallbacks {
+                let provider = Arc::new(
+                    OllamaProvider::new(base_url, &candidate.model).map_err(|e| e.to_string())?,
+                );
+                pool = pool.push_probing(provider, Lineage::new(candidate.lineage.clone()));
+            }
+            builder
+                .with_fallback_pool(pool.build())
+                .build()
+                .map_err(|e| e.to_string())
         }
         ProviderKind::ExternalStub => {
             // No probe, deliberately: the outside provider declares none, and the
@@ -376,6 +396,7 @@ impl RunSpec {
         let no_backend_spec = RunSpec {
             id: RunId::NoBackend,
             seats: cfg.seats.clone(),
+            fallbacks: cfg.fallbacks.clone(),
             payload: small.clone(),
             injection: None,
             providers: ProviderKind::ExternalStub,
@@ -392,6 +413,7 @@ impl RunSpec {
             RunSpec {
                 id: RunId::HappySmall,
                 seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
                 payload: small.clone(),
                 injection: None,
                 providers: ProviderKind::Ollama,
@@ -399,6 +421,7 @@ impl RunSpec {
             RunSpec {
                 id: RunId::Rotation,
                 seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
                 payload: small.clone(),
                 injection: Some(Injection::FailModel {
                     model: injected_seat.clone(),
@@ -409,6 +432,7 @@ impl RunSpec {
             RunSpec {
                 id: RunId::Degradation,
                 seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
                 payload: small,
                 injection: Some(Injection::FailModel {
                     model: injected_seat,
@@ -601,7 +625,12 @@ impl Runner {
     async fn run_once(proxy: &mut SpyProxy, spec: &RunSpec) -> RunResult {
         // Taken BEFORE the run so `records` below holds THIS run's traffic only.
         let mark = proxy.mark();
-        let magi = match build_magi_against(&proxy.base_url(), &spec.seats, spec.providers) {
+        let magi = match build_magi_against(
+            &proxy.base_url(),
+            &spec.seats,
+            &spec.fallbacks,
+            spec.providers,
+        ) {
             Ok(m) => m,
             // A build failure is a CONFIG fault of ours, not a verdict: it must
             // not be retried and must not read as the crate misbehaving.
@@ -767,6 +796,34 @@ mod tests {
             .expect("the manifest dir always has a parent");
         let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
         assert!(specs.iter().all(|s| s.id != RunId::Large62k));
+    }
+
+    #[test]
+    fn the_rotation_run_has_somewhere_to_rotate_to() {
+        // Without a fallback pool the rotation run is crate-identical to the
+        // degradation run: a seat's model fails and nothing takes its place, so
+        // the scenario that exists to observe rotation can only report that it
+        // could not be tested. It did exactly that until this was wired.
+        let cfg = Config::default();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the manifest dir always has a parent");
+        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
+        let rotation = specs
+            .iter()
+            .find(|s| s.id == RunId::Rotation)
+            .expect("the rotation run is part of this stage");
+        assert!(
+            !rotation.fallbacks.is_empty(),
+            "rotation with an empty pool tests nothing"
+        );
+        for candidate in &rotation.fallbacks {
+            assert!(
+                cfg.seats.iter().all(|s| s.lineage != candidate.lineage),
+                "candidate {:?} shares a lineage with a seat, so rotating to it                  reaches the same lineage the run was trying to leave",
+                candidate.model
+            );
+        }
     }
 
     #[test]

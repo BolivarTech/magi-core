@@ -33,9 +33,11 @@ large_payload_secs = 300   # ~90 s estimated; evidence run D took 2m13s to retur
 injected_secs      = 180   # two models, the first fails fast by injection
 no_backend_secs    = 30    # touches no network except the published docs
 
-# Seats MUST BE LAST IN THE FILE. In TOML every loose key must precede the first
-# array-of-tables, so a key added after this point parses into the wrong table,
-# silently. "Last in the file" leaves nowhere to get it wrong.
+# The array-of-tables sections MUST BE LAST IN THE FILE. In TOML every loose key
+# must precede the first array-of-tables, so a key added after this point parses
+# into the wrong table, silently. "Last in the file" leaves nowhere to get it
+# wrong. Another array-of-tables may follow — `[[fallbacks]]` does — because the
+# rule constrains loose keys, not sections.
 #
 # The mixed-trio scenario needs ONE seat whose provider CANNOT honour the
 # reasoning control. Without it, the property that replaced "fail loudly" cannot
@@ -59,3 +61,14 @@ agent = "caspar"
 model = "glm-5.2:cloud"
 lineage = "zhipu"
 supports_reasoning_control = true
+
+# Rotation candidates, shared by the whole trio rather than declared per seat —
+# the crate's fallback pool belongs to the run, not to a mage. Without at least
+# one the rotation run has nowhere to rotate TO, and the scenario that reads it
+# can only report that it could not be tested.
+#
+# `lineage` must DIFFER from every seat's: rotation exists to reach a different
+# lineage, so a candidate that shares one buys nothing.
+[[fallbacks]]
+model = "deepseek-v4-pro:cloud"
+lineage = "deepseek"
