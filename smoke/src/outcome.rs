@@ -22,6 +22,10 @@ const EXIT_OK: i32 = 0;
 
 // NOT `Copy`: `Skip` carries its reason, and dropping the reason to keep `Copy`
 // would trade the only field the operator can act on for a compiler convenience.
+//
+// And deliberately NO `From<bool>`: an `Into` conversion at a call site reads as
+// a cast, and the difference between FAIL and SKIP is the one thing this type
+// exists to keep visible. A caller decides which one it means, in the open.
 /// What became of one scenario.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScenarioState {
@@ -40,23 +44,6 @@ pub enum ScenarioState {
     /// `--no-backend`, for instance. Not a failure, and not an unanswered
     /// question either.
     OutOfScope,
-}
-
-impl ScenarioState {
-    /// The two-way shorthand. **There is no `From<bool>`**: an `Into` conversion
-    /// at a call site reads as a cast, and the difference between FAIL and SKIP
-    /// is the one thing this type exists to keep visible.
-    ///
-    /// # Parameters
-    ///
-    /// * `ok` — whether the asserted property held.
-    pub fn from_bool(ok: bool) -> Self {
-        if ok {
-            ScenarioState::Pass
-        } else {
-            ScenarioState::Fail
-        }
-    }
 }
 
 /// Result of one REAL run. Several scenarios read the same run, so the mapping
@@ -209,8 +196,15 @@ where
 /// `O(d · m)` for `d` harness-only dependency names against a location of length
 /// `m` — five substring searches over one path.
 pub fn classify_panic(location: Option<&str>) -> ScenarioState {
-    /// The harness's own crate name, as it appears in a panic location.
-    const HARNESS_CRATE: &str = "magi-smoke";
+    /// Prefix of the harness's own source paths, MEASURED rather than assumed.
+    ///
+    /// A panic raised in this crate reports `src\outcome.rs` — a path relative
+    /// to the package root, with **no crate name in it at all**. Matching on
+    /// `"magi-smoke"`, which is what the name suggests, matches nothing: that
+    /// arm was dead and every harness panic fell through to `Fail`. Dependencies
+    /// are the opposite — Cargo compiles them from an absolute path, so theirs
+    /// never begins with `src`.
+    const HARNESS_SOURCE_PREFIX: &str = "src";
     // ONLY crates the crate under test does NOT depend on. `reqwest` and `sha2`
     // are used by BOTH, so a panic there may well be the crate misusing them —
     // calling that a harness problem would bury exactly what we came to find.
@@ -222,7 +216,7 @@ pub fn classify_panic(location: Option<&str>) -> ScenarioState {
         "toml",
     ];
     match location {
-        Some(loc) if loc.contains(HARNESS_CRATE) => ScenarioState::Skip(format!(
+        Some(loc) if loc.starts_with(HARNESS_SOURCE_PREFIX) => ScenarioState::Skip(format!(
             "panic inside the harness at {loc}: ours, not the crate's"
         )),
         Some(loc) if HARNESS_ONLY_DEPS.iter().any(|d| loc.contains(d)) => {
@@ -270,6 +264,100 @@ mod tests {
             classify_panic(Some("/deps/hyper-1.0.0/src/server.rs")),
             ScenarioState::Skip(_)
         ));
+    }
+
+    #[test]
+    fn a_failure_exits_1_and_outranks_everything_else() {
+        // The 1-vs-2 split is the whole point of this function, and until now
+        // only the 2 side was pinned: a mutation sending Fail to 2 passed the
+        // suite untouched.
+        assert_eq!(exit_code(&[ScenarioState::Fail]), 1);
+        assert_eq!(
+            exit_code(&[ScenarioState::Fail, ScenarioState::OutOfScope]),
+            1
+        );
+        assert_eq!(
+            exit_code(&[
+                ScenarioState::Skip("no backend".into()),
+                ScenarioState::Fail
+            ]),
+            1,
+            "a contradiction is the strongest thing the run learned; it outranks \
+             an unanswered question regardless of order"
+        );
+    }
+
+    #[test]
+    fn out_of_scope_never_changes_an_answer_the_run_already_had() {
+        // Checked against a run that is already non-zero, not only against a
+        // clean one: OutOfScope must be inert in every direction, not just the
+        // convenient one.
+        assert_eq!(
+            exit_code(&[ScenarioState::Timeout, ScenarioState::OutOfScope]),
+            2
+        );
+        assert_eq!(exit_code(&[ScenarioState::OutOfScope]), 0);
+    }
+
+    #[test]
+    fn a_panic_in_a_dependency_the_crate_also_uses_is_not_blamed_on_the_harness() {
+        // `reqwest` and `tokio` are used by the harness AND by the crate, so a
+        // panic there may well be the crate misusing them. Calling it ours would
+        // bury exactly what the harness came to find — and nothing pinned that
+        // until now, so adding either name to the harness-only list would have
+        // passed the whole suite.
+        assert_eq!(
+            classify_panic(Some("/deps/reqwest-0.13.0/src/async_impl/client.rs")),
+            ScenarioState::Fail
+        );
+        assert_eq!(
+            classify_panic(Some("/deps/tokio-1.40.0/src/runtime/mod.rs")),
+            ScenarioState::Fail
+        );
+    }
+
+    #[test]
+    fn a_panic_in_the_harnesss_own_source_is_identified_as_ours() {
+        // MEASURED, not assumed: a panic raised in this crate reports a path
+        // like `src\outcome.rs`, relative to the package root and carrying no
+        // crate name. The arm that matched on "magi-smoke" therefore matched
+        // nothing, and every harness panic was blamed on the crate.
+        assert!(matches!(
+            classify_panic(Some(r"src\outcome.rs")),
+            ScenarioState::Skip(_)
+        ));
+        assert!(matches!(
+            classify_panic(Some("src/proxy.rs")),
+            ScenarioState::Skip(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_panic_inside_a_run_is_caught_and_attributed_instead_of_killing_the_harness() {
+        // The riskiest function in this module had no test at all: it bridges a
+        // SYNC `catch_unwind` to an ASYNC future through a thread-local that a
+        // panic hook fills, and every claim about it was reasoning rather than
+        // execution. This exercises the whole pipeline — hook, panic, catch,
+        // attribution — end to end.
+        install_panic_hook();
+        let outcome = run_catching(async {
+            panic!("simulated panic inside a run");
+        })
+        .await;
+        // The panic's location is this file, which IS harness source, so it is
+        // attributed to the harness — and an inconclusive result earns the one
+        // retry that a verdict does not.
+        assert_eq!(outcome, RunOutcome::PanickedInHarness);
+        assert!(outcome.is_inconclusive());
+    }
+
+    #[tokio::test]
+    async fn a_run_that_finishes_is_returned_untouched() {
+        // The companion to the test above: without it, a `run_catching` that
+        // always reported a panic would still pass.
+        let outcome = run_catching(async { RunOutcome::Complete }).await;
+        assert_eq!(outcome, RunOutcome::Complete);
+        assert!(!outcome.is_inconclusive());
     }
 
     #[test]
