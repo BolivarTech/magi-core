@@ -75,17 +75,7 @@ pub fn tempdir_with(files: &[(&str, &str)]) -> TempDir {
     TempDir(dir)
 }
 
-/// Creates a file symlink at `link` pointing at `target`.
-///
-/// Platform-specific because Unix and Windows expose different syscalls for
-/// file symlinks; there is no portable `std` equivalent.
-///
-/// # Panics
-///
-/// Panics if the platform call fails. On Windows this most commonly means
-/// Developer Mode is off and the process is not elevated — a test-environment
-/// gap, not a harness defect.
-/// Windows `ERROR_PRIVILEGE_NOT_HELD`. Creating a symlink there requires either
+/// Windows `ERROR_PRIVILEGE_NOT_HELD`. Creating a *symlink* there requires
 /// Developer Mode or an elevated process, and the refusal arrives as a raw OS
 /// code that `std` does not map to a named [`std::io::ErrorKind`] — so matching
 /// on `PermissionDenied` alone silently misses it, which is how this check
@@ -99,6 +89,25 @@ fn is_privilege_refusal(e: &std::io::Error) -> bool {
         || e.raw_os_error() == Some(WINDOWS_PRIVILEGE_NOT_HELD)
 }
 
+/// Creates a file symlink at `link` pointing at `target`, and reports whether
+/// it now exists.
+///
+/// # Why this returns a `bool` instead of panicking
+///
+/// Creating a symlink is a PRIVILEGED operation on Windows unless Developer
+/// Mode is on, and some Unix filesystems refuse it too. That refusal says
+/// nothing about the code under test, so the caller is told "could not create"
+/// and decides for itself — rather than turning a fact about the machine into
+/// a red test, which is how a gate stops being believed.
+///
+/// A junction is NOT a usable fallback here, and that was measured rather than
+/// assumed: `symlink_metadata` reports `is_dir() == false` for one, so the
+/// walker under test ignores it whether its guard is present or not.
+///
+/// # Panics
+///
+/// On any failure that is **not** a privilege refusal. Those are real defects
+/// and must not be swallowed.
 pub fn make_symlink(link: PathBuf, target: PathBuf) -> bool {
     #[cfg(unix)]
     let created = std::os::unix::fs::symlink(&target, &link);
@@ -107,13 +116,69 @@ pub fn make_symlink(link: PathBuf, target: PathBuf) -> bool {
 
     match created {
         Ok(()) => true,
-        // Creating a symlink is a PRIVILEGED operation on Windows unless Developer
-        // Mode is on, and some Unix filesystems refuse it too. That refusal says
-        // nothing about the code under test, so it is reported to the caller as
-        // "could not create" and the caller decides — rather than panicking and
-        // turning an environment fact into a red test.
         Err(e) if is_privilege_refusal(&e) => false,
-        // Anything else IS a real failure and must not be swallowed.
         Err(e) => panic!("failed to create symlink {link:?} -> {target:?}: {e}"),
     }
+}
+
+/// A minimal HTTP/1.1 responder for proxy tests (Task 4 and later): reads the
+/// full request body, discards it, and always answers `200 OK` with a fixed
+/// tiny body. It exists so `SpyProxy` tests have something real to forward to
+/// without depending on a live backend.
+///
+/// There is no shutdown handle and no request inspection — the two proxy
+/// tests that use this only care that a POST reaches SOME server and gets
+/// SOME response back; the proxy's own recording is what they actually
+/// assert on. The OS reclaims the ephemeral port when the test process exits.
+pub struct EchoServer {
+    addr: std::net::SocketAddr,
+}
+
+impl EchoServer {
+    /// The base URL a client (or a proxy under test) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// Binds on an ephemeral port and serves the fixed echo response until the
+/// test process exits.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup (see the module doc), and a setup
+/// failure should stop the test immediately rather than run against a proxy
+/// with nothing behind it.
+pub async fn spawn_echo_server() -> EchoServer {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind echo server");
+    let addr = listener.local_addr().expect("echo server local address");
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    |req: hyper::Request<hyper::body::Incoming>| async {
+                        // Drain the body so the connection completes cleanly;
+                        // its content is irrelevant to what the proxy tests
+                        // check — they read the PROXY's record, not this
+                        // server's reply.
+                        let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                        Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                            http_body_util::Full::new(hyper::body::Bytes::from_static(b"ok")),
+                        ))
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    EchoServer { addr }
 }
