@@ -726,6 +726,111 @@ mod tests {
         }
     }
 
+    /// The five scenarios whose subject is a FAILURE the operator has to ask
+    /// for: four preflight stages that only break when the invocation makes
+    /// them (`S6` an unreachable backend, `S7` a slow one, `S14` a broken
+    /// config, `S20` `--break-proxy`) and the build matrix (`S21`,
+    /// `--build-matrix`).
+    ///
+    /// A plain `cargo run` requests none of them, which is why they are the set
+    /// that decides whether exit `0` exists at all.
+    const NOT_INDUCED_BY_A_PLAIN_RUN: [&str; 5] = ["S6", "S7", "S14", "S20", "S21"];
+
+    #[test]
+    fn a_healthy_run_can_reach_exit_zero() {
+        // It could not. `exit_code` returns 2 on any `Skip`, and on a healthy
+        // run these five skipped BY DESIGN — so none of the six README
+        // invocations could ever return 0, and acceptance criterion 3bis ("E1 is
+        // GREEN against 3.2.0") was not demonstrable by any run.
+        //
+        // The ruling: a scenario whose precondition INVOCATION was not requested
+        // is OutOfScope, not Skip. `Skip` keeps its meaning — in partition, but
+        // the run did not produce the data it needed — which is what the
+        // companion test below pins.
+        let probe = runner::TransparencyProbe::default();
+        let rows = evaluate(
+            &scenarios::e1_scenarios(),
+            &[],
+            &probe,
+            None,
+            false,
+            Some(""),
+        );
+        for id in NOT_INDUCED_BY_A_PLAIN_RUN {
+            let row = rows
+                .iter()
+                .find(|r| r.scenario_id == id)
+                .unwrap_or_else(|| panic!("{id} always produces a row"));
+            assert_eq!(
+                row.state,
+                outcome::ScenarioState::OutOfScope,
+                "{id} was not asked for by this invocation, so it is out of scope — not a \
+                 question the run tried and failed to answer: {:?}",
+                row.state
+            );
+        }
+        let uninduced: Vec<report::AssertionRow> = rows
+            .iter()
+            .filter(|r| NOT_INDUCED_BY_A_PLAIN_RUN.contains(&r.scenario_id))
+            .cloned()
+            .collect();
+        assert_eq!(
+            report::Report::with(&uninduced).exit_code(),
+            0,
+            "a run whose only unevaluated rows are ones nobody asked for is a clean run"
+        );
+    }
+
+    #[test]
+    fn a_genuine_skip_still_reports_exit_two() {
+        // The distinction is the entire point of the ruling, so collapsing it
+        // would trade one blindness for a worse one: a question the run TRIED to
+        // answer and could not must still be exit 2. Two of them here.
+        //
+        // (1) The preflight stopped, so no run happened and every scenario that
+        //     reads a run is unanswered.
+        let err = preflight::PreflightError::cannot_test(
+            preflight::Stage::Backend,
+            "backend at http://127.0.0.1:1 did not answer",
+        );
+        let rows = evaluate_preflight_only(&scenarios::e1_scenarios(), &err);
+        assert_eq!(
+            report::Report::with(&rows).exit_code(),
+            2,
+            "a preflight that cut leaves real questions unanswered"
+        );
+
+        // (2) The matrix WAS asked for, and cargo could not be run — the harness
+        //     tried and could not test, which is not the same as not being asked.
+        let probe = runner::TransparencyProbe::default();
+        let unrunnable = [
+            ("tree".to_string(), runner::BuildOutcome::CouldNotRun),
+            (
+                "tree,published".to_string(),
+                runner::BuildOutcome::CouldNotRun,
+            ),
+            ("".to_string(), runner::BuildOutcome::CouldNotRun),
+        ];
+        let rows = evaluate(
+            &scenarios::e1_scenarios(),
+            &[],
+            &probe,
+            Some(&unrunnable),
+            false,
+            Some(""),
+        );
+        let s21 = rows
+            .iter()
+            .find(|r| r.scenario_id == "S21")
+            .expect("S21 always produces a row");
+        assert!(
+            matches!(s21.state, outcome::ScenarioState::Skip(_)),
+            "a matrix that was requested and could not be built is an unanswered question, \
+             not an unasked one: {:?}",
+            s21.state
+        );
+    }
+
     #[test]
     fn a_cargo_that_could_not_be_spawned_is_not_a_failed_build() {
         // A real `ExitStatus` on every side, not a stand-in.
