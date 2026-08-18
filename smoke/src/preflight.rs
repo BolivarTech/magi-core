@@ -227,7 +227,9 @@ pub fn check_workspace_isolation(smoke: &Path) -> Result<(), String> {
         })?;
     let v: serde_json::Value = serde_json::from_slice(&out.stdout)
         .map_err(|e| format!("workspace_root: cargo metadata output: {e}"))?;
-    let root = v["workspace_root"].as_str().unwrap_or_default();
+    let root = v["workspace_root"].as_str().ok_or(
+        "workspace_root: cargo metadata returned no workspace_root; the isolation          check cannot be answered, so it fails closed rather than guessing",
+    )?;
     // Full canonical paths, NOT a suffix: `ends_with("smoke")` also matches
     // `/repo/notsmoke`, so the check would pass on a tree it was meant to
     // reject.
@@ -426,7 +428,7 @@ pub fn announce_cost(cfg: &Config) -> String {
 /// Name format: `magi-smoke-<pid>-<ms>-<rand>`. A directory whose name does
 /// not parse is **left alone** — it is not ours to judge.
 pub(crate) fn sweep_stale_temps(root: &Path) {
-    // la llama main.rs (Task 12)
+    // called by main.rs
     let Ok(entries) = std::fs::read_dir(root) else {
         return; // unreadable temp dir is not fatal
     };
