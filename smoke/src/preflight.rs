@@ -653,7 +653,7 @@ mod tests {
     use crate::testkit::{
         repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
         run_with_broken_proxy, stub_that_is_always_slow, stub_that_is_slow_on_first_request_only,
-        temp_root_with,
+        temp_root_with, tempdir_with,
     };
 
     #[test]
@@ -742,13 +742,70 @@ mod tests {
         );
     }
 
+    /// The absorption message's own words — the ONE of the six error paths that
+    /// does not share the `workspace_root:` prefix with the other five, and
+    /// therefore the only string that can tell "the comparison ran and failed"
+    /// apart from "the comparison never ran".
+    const ABSORPTION_MESSAGE: &str = "the repository root absorbed the harness";
+
     #[test]
     fn workspace_absorption_is_detected() {
         // If the repo root ever gains a [workspace] section, the isolation
         // breaks SILENTLY and the crate's nine gate commands start reaching
         // the harness.
-        let err = check_workspace_isolation(Path::new("/repo/smoke")).unwrap_err();
-        assert!(err.contains("workspace_root"));
+        //
+        // This test used to hand the check a path that DOES NOT EXIST
+        // (`/repo/smoke`). `Command::current_dir` then failed to spawn, the
+        // function returned through its FIRST error branch, and the
+        // `reported != expected` comparison — which IS the requirement — never
+        // ran at all. The assertion could not notice, because ALL SIX error
+        // paths carry the `workspace_root:` prefix it was matching on: the test
+        // agreed with whatever the function said. A guard over the milestone's
+        // highest-blast-radius invariant guarded nothing.
+        //
+        // So the tree is REAL: a parent that declares `[workspace]`, and a child
+        // package inside it. `cargo metadata` run from the child reports the
+        // PARENT as its workspace root, which is exactly the shape of an
+        // absorbed harness — and the assertion is on the absorption message, the
+        // only one of the six that a spawn failure cannot produce.
+        let tree = tempdir_with(&[
+            (
+                "Cargo.toml",
+                "[workspace]\nmembers = [\"child\"]\nresolver = \"2\"\n",
+            ),
+            (
+                "child/Cargo.toml",
+                "[package]\nname = \"child\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+            ),
+            ("child/src/lib.rs", "// absorbed on purpose\n"),
+        ]);
+        let err = check_workspace_isolation(&tree.path().join("child")).unwrap_err();
+        assert!(
+            err.contains(ABSORPTION_MESSAGE),
+            "the check must report the ABSORPTION, not merely name the property it was \
+             checking — every one of its six error paths does that: {err}"
+        );
+    }
+
+    #[test]
+    fn an_isolated_package_passes_the_workspace_check() {
+        // The other direction, and only the pair proves anything: a check that
+        // reported absorption unconditionally would satisfy the test above while
+        // refusing every healthy tree, which is the same guard-that-guards-
+        // nothing defect wearing the opposite sign. An empty `[workspace]` table
+        // is what `smoke/Cargo.toml` itself uses to stay out of any parent.
+        let tree = tempdir_with(&[
+            (
+                "Cargo.toml",
+                "[package]\nname = \"lonely\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n\
+                 [workspace]\n",
+            ),
+            ("src/lib.rs", "// isolated on purpose\n"),
+        ]);
+        assert!(
+            check_workspace_isolation(tree.path()).is_ok(),
+            "a package that owns its workspace must pass"
+        );
     }
 
     #[test]
