@@ -206,7 +206,7 @@ pub async fn run(
         // R26 — the preflight exists to stop. A preflight-only scenario is
         // evaluated the same way, by calling the individual checks directly,
         // not by letting `run` continue past a failed one.
-        probe(&cfg.endpoint, cfg.probe_timeout())
+        probe(cfg, cfg.probe_timeout())
             .await
             .map_err(|m| PreflightError::cannot_test(Stage::Probe, m))?; // probe
     }
@@ -441,14 +441,14 @@ async fn try_once(endpoint: &str, window: Duration) -> Result<(), String> {
 /// One trivial request, retried ONCE with a widened window. The retry is what
 /// makes "clone and run" work without pre-warming anything: a cold model
 /// loads ONCE, so the second attempt passes.
-pub async fn probe(endpoint: &str, window: Duration) -> Result<(), String> {
-    if try_once(endpoint, window).await.is_ok() {
+pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
+    if try_once(&cfg.endpoint, window).await.is_ok() {
         return Ok(());
     }
     // `Duration * u32`, NOT the other way round: `Mul<u32> for Duration`
     // exists, `Mul<Duration> for u32` does not. A type error, not a style
     // choice.
-    if try_once(endpoint, window * PROBE_RETRY_FACTOR)
+    if try_once(&cfg.endpoint, window * PROBE_RETRY_FACTOR)
         .await
         .is_ok()
     {
@@ -653,7 +653,7 @@ mod tests {
     use crate::testkit::{
         repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
         run_with_broken_proxy, stub_that_is_always_slow, stub_that_is_slow_on_first_request_only,
-        temp_root_with, tempdir_with,
+        stub_that_records_requests, temp_root_with, tempdir_with,
     };
 
     #[test]
@@ -819,15 +819,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_contention_probe_sends_a_real_completion_not_a_manifest_listing() {
+        // R27/SD-3: the probe exists to detect that a MAGI instance is holding
+        // the backend's inference slots. `GET /api/tags` lists manifests — it
+        // never loads a model, never touches the GPU and never enters the
+        // inference queue, so a saturated Ollama answers it INSTANTLY. The probe
+        // would report "clear" and the harness would walk straight into the
+        // contention the step exists to catch.
+        //
+        // What queues is a completion, so that is what goes on the wire:
+        // `max_tokens: 1`, the smallest thing that still has to be generated.
+        // Every expectation below is a LITERAL, never a constant this module
+        // also defines: a test that reads the same constant as the code agrees
+        // with whatever the code says, which is precisely how the isolation
+        // guard came to guard nothing.
+        let stub = stub_that_records_requests().await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        probe(&cfg, cfg.probe_timeout())
+            .await
+            .expect("the stub answers immediately");
+
+        let seen = stub.seen();
+        let req = seen.first().expect("the probe must send something");
+        assert_eq!(
+            req.method, "POST",
+            "a listing is a GET; a completion is not"
+        );
+        assert_eq!(
+            req.path, "/v1/chat/completions",
+            "the probe must hit the path the crate's own provider completes on"
+        );
+        assert!(
+            req.body.contains("\"max_tokens\":1"),
+            "the probe must bound its output to one token: {}",
+            req.body
+        );
+        // "a model from the config" is R27's own wording, and asserting THAT
+        // rather than a particular name leaves the selection rule free to change
+        // without this test having an opinion it was never given.
+        let from_config = cfg
+            .seats
+            .iter()
+            .map(|s| s.model.as_str())
+            .chain(cfg.fallbacks.iter().map(|f| f.model.as_str()))
+            .any(|m| req.body.contains(m));
+        assert!(
+            from_config,
+            "the probe must name a model from the config, or nothing is queued: {}",
+            req.body
+        );
+    }
+
+    #[tokio::test]
+    async fn the_backend_step_and_the_probe_step_ask_different_questions() {
+        // R26 lists them as two steps, and two steps that send the same request
+        // to the same path are one step asked twice: the second learns nothing
+        // the first did not already answer. `reachable` asks "is anybody there?"
+        // — a listing answers that without loading anything, which is what makes
+        // it right THERE and wrong for the probe.
+        let stub = stub_that_records_requests().await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        reachable(&cfg.endpoint, cfg.probe_timeout())
+            .await
+            .expect("the stub answers immediately");
+        let after_reachable = stub.seen();
+        probe(&cfg, cfg.probe_timeout())
+            .await
+            .expect("the stub answers immediately");
+        let all = stub.seen();
+
+        let reach = after_reachable.first().expect("reachability sent nothing");
+        let probed = all
+            .get(after_reachable.len())
+            .expect("the probe sent nothing");
+        assert_eq!(
+            (reach.method.as_str(), reach.path.as_str()),
+            ("GET", "/api/tags"),
+            "reachability stays the cheap listing"
+        );
+        assert_ne!(
+            (&reach.method, &reach.path),
+            (&probed.method, &probed.path),
+            "the two preflight steps must not be the same request twice"
+        );
+    }
+
+    #[tokio::test]
     async fn a_cold_model_passes_on_the_second_probe_attempt() {
         // R27's retry is what makes "clone and run" work without
         // pre-warming anything: a cold model loads ONCE, so the second
         // attempt passes. Without a test, the retry is a claim — and the
         // mechanism that reports success is always the one to attack.
         let slow_once = stub_that_is_slow_on_first_request_only().await;
-        assert!(probe(&slow_once.url(), Duration::from_millis(50))
-            .await
-            .is_ok());
+        let cfg = Config {
+            endpoint: slow_once.url(),
+            ..Config::default()
+        };
+        assert!(probe(&cfg, Duration::from_millis(50)).await.is_ok());
         assert_eq!(
             slow_once.attempts(),
             2,
@@ -840,9 +934,11 @@ mod tests {
         // The retry must not turn a genuinely saturated endpoint into a
         // green run.
         let always_slow = stub_that_is_always_slow().await;
-        let err = probe(&always_slow.url(), Duration::from_millis(50))
-            .await
-            .unwrap_err();
+        let cfg = Config {
+            endpoint: always_slow.url(),
+            ..Config::default()
+        };
+        let err = probe(&cfg, Duration::from_millis(50)).await.unwrap_err();
         assert!(err.contains("contention") && err.contains("cold"));
     }
 

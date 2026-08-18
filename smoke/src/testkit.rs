@@ -492,6 +492,105 @@ pub fn repo_where_the_negation_was_removed() -> PathBuf {
     dir
 }
 
+/// One request as a stub received it: what it was, where it went, and what it
+/// carried.
+///
+/// The body is kept whole rather than hashed, unlike the spy proxy's own
+/// record: the question here is *what did we ASK the backend to do*, and a hash
+/// can only confirm a body somebody already knows. A probe that stopped naming a
+/// model, or stopped bounding its output, has to be readable as that.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeenRequest {
+    /// The HTTP method, e.g. `"GET"` or `"POST"`.
+    pub method: String,
+    /// The path, without the host.
+    pub path: String,
+    /// The request body, as sent.
+    pub body: String,
+}
+
+/// An HTTP stub that answers everything immediately and REMEMBERS what it was
+/// asked.
+///
+/// It exists for the one property no timing-based stub can show: that the
+/// contention probe puts a real completion on the wire. A stub that only counts
+/// requests, or only delays them, is satisfied just as well by a manifest
+/// listing — which is exactly how a probe that could not detect contention
+/// passed its own tests.
+pub struct RecordingStub {
+    addr: std::net::SocketAddr,
+    seen: Arc<std::sync::Mutex<Vec<SeenRequest>>>,
+}
+
+impl RecordingStub {
+    /// The base URL a client (or `probe`) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+
+    /// Every request received so far, in arrival order.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the lock is poisoned — which means a serving task panicked
+    /// while holding it, and a test reading a half-written log would be worse
+    /// than one that stops.
+    pub fn seen(&self) -> Vec<SeenRequest> {
+        self.seen.lock().expect("recording stub lock").clone()
+    }
+}
+
+/// Binds on an ephemeral port and answers `{}` to everything, recording the
+/// method, path and body of each request for the life of the test process.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the test
+/// immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_records_requests() -> RecordingStub {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind recording stub");
+    let addr = listener.local_addr().expect("recording stub local address");
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let log = Arc::clone(&log);
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let log = Arc::clone(&log);
+                        async move {
+                            let method = req.method().to_string();
+                            let path = req.uri().path().to_string();
+                            let body = http_body_util::BodyExt::collect(req.into_body())
+                                .await
+                                .map(|b| String::from_utf8_lossy(&b.to_bytes()).into_owned())
+                                .unwrap_or_default();
+                            if let Ok(mut l) = log.lock() {
+                                l.push(SeenRequest { method, path, body });
+                            }
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                            ))
+                        }
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    RecordingStub { addr, seen }
+}
+
 /// An HTTP stub whose FIRST request is answered only after a deliberate
 /// delay, and every later one immediately — the shape of a model that must
 /// load once and is fast forever after. Proves
