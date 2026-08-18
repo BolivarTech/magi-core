@@ -12,15 +12,32 @@ use serde::Deserialize;
 use std::path::Path;
 use std::time::Duration;
 
+/// The harness's full configuration: backend endpoint, contention-probe
+/// window, generated-payload size, per-run time budgets, and the trio of
+/// seats to run.
+///
+/// Every struct in this module derives `#[serde(deny_unknown_fields)]`, so an
+/// unrecognised key anywhere in the file is a parse error, never a silently
+/// ignored one — see the module doc for why that matters.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Base URL of the backend under test, e.g. `"http://localhost:11434"`.
+    /// No trailing path segment; each scenario appends its own.
     #[serde(default = "default_endpoint")]
     pub endpoint: String,
+    /// How long, in seconds, the contention probe waits for a trivial request
+    /// to answer before a run reports "cannot test" instead of attempting the
+    /// scenario. Converted to a [`Duration`] by [`Config::probe_timeout`]; the
+    /// retry widens this window by [`PROBE_RETRY_FACTOR`].
     #[serde(default = "default_probe_timeout")]
     pub probe_timeout_secs: u64,
+    /// Target size, in bytes, of the payload the large-payload scenario
+    /// generates. Bytes, not tokens: bytes are what the generator can measure
+    /// without a tokenizer, so the token count is asserted at runtime instead.
     #[serde(default = "default_payload_target")]
     pub payload_target_bytes: usize,
+    /// Per-scenario time caps. See [`Budgets`] and [`Config::budget`].
     #[serde(default)]
     pub budgets: Budgets,
     /// Seats MUST be last in the file: in TOML every loose key must precede the
@@ -30,10 +47,20 @@ pub struct Config {
     pub seats: Vec<Seat>,
 }
 
+/// One agent's assignment: which mage seat, which model, which rotation
+/// lineage, and whether that model's provider can honour a reasoning-control
+/// request. See [`Seat::agent_name`] for the mapping to the crate's own enum.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Seat {
+    /// Which mage seat this entry fills, as one of the three lowercase names
+    /// `"melchior"`, `"balthasar"` or `"caspar"`. Any other value is a config
+    /// error at load time (see [`Seat::agent_name`]) — never silently defaulted
+    /// or dropped.
     pub agent: String,
+    /// The model identifier this seat's provider is built with, e.g.
+    /// `"glm-5.2:cloud"`. Opaque to this harness: forwarded to the provider,
+    /// never parsed or validated here.
     pub model: String,
     /// The rotation diversity key. **Not optional and not derivable**:
     /// `MagiBuilder::with_probing_agent` takes it in the signature, so without it
@@ -61,15 +88,27 @@ impl Seat {
     }
 }
 
+/// Per-scenario time caps, in seconds. **Caps, not predictions**: a run that
+/// reaches its budget reports a TIME failure, never a verdict about the crate
+/// under test. See [`Config::budget`] for the [`RunId`] -> [`Duration`]
+/// mapping these back.
 #[derive(Debug, Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Budgets {
+    /// Budget for [`RunId::HappySmall`]: a small payload against a healthy
+    /// backend.
     #[serde(default = "b_happy")]
     pub happy_secs: u64,
+    /// Budget for [`RunId::Large62k`]: the large-payload scenario.
     #[serde(default = "b_large")]
     pub large_payload_secs: u64,
+    /// Budget shared by [`RunId::Rotation`] and [`RunId::Degradation`]: runs
+    /// that inject a failure into the first model and expect the harness to
+    /// recover or degrade rather than hang.
     #[serde(default = "b_injected")]
     pub injected_secs: u64,
+    /// Budget for [`RunId::NoBackend`]: the offline run, which touches no
+    /// network except the published docs.
     #[serde(default = "b_nobackend")]
     pub no_backend_secs: u64,
 }
@@ -110,6 +149,11 @@ impl Default for Budgets {
     }
 }
 
+/// A configuration error. Its `Display` always NAMES the offending field or
+/// environment variable, so a reader is never sent hunting through the file or
+/// the environment to find what was wrong — every fallible `Config` operation
+/// (parsing, range validation, environment-override handling) constructs one
+/// this way.
 #[derive(Debug)]
 pub struct ConfigError(String);
 
@@ -172,6 +216,17 @@ impl RunId {
     }
 }
 
+/// Upper bound for `probe_timeout_secs`, in seconds. Ten minutes is generous
+/// slack over any sane contention-probe window; above it the "probe" would be
+/// long enough to hide a hung backend rather than detect one.
+const MAX_PROBE_TIMEOUT_SECS: u64 = 600;
+
+/// Lower bound for `payload_target_bytes`, in bytes. Below this the
+/// large-payload scenario cannot reproduce the failure the harness exists to
+/// catch — a reasoning model exhausting its output budget on a large
+/// payload — and would certify exactly what never fails.
+const MIN_PAYLOAD_TARGET_BYTES: usize = 100_000;
+
 impl Config {
     pub fn from_str(text: &str) -> Result<Self, ConfigError> {
         let cfg: Config = toml::from_str(text).map_err(|e| ConfigError(e.to_string()))?;
@@ -220,18 +275,17 @@ impl Config {
         // nothing invoked it, i.e. it was documentation with Rust syntax. Three
         // mages flagged it independently.
         self.validate_probe_window()?;
-        if self.probe_timeout_secs == 0 || self.probe_timeout_secs > 600 {
-            return Err(ConfigError(
-                "probe_timeout_secs must be in 1..=600; 0 disables the contention probe silently"
-                    .into(),
-            ));
+        if self.probe_timeout_secs == 0 || self.probe_timeout_secs > MAX_PROBE_TIMEOUT_SECS {
+            return Err(ConfigError(format!(
+                "probe_timeout_secs must be in 1..={MAX_PROBE_TIMEOUT_SECS}; 0 disables the \
+                 contention probe silently"
+            )));
         }
-        if self.payload_target_bytes < 100_000 {
-            return Err(ConfigError(
-                "payload_target_bytes must be >= 100000: below that the large-payload scenario \
-                 stops being large and certifies exactly what never fails"
-                    .into(),
-            ));
+        if self.payload_target_bytes < MIN_PAYLOAD_TARGET_BYTES {
+            return Err(ConfigError(format!(
+                "payload_target_bytes must be >= {MIN_PAYLOAD_TARGET_BYTES}: below that the \
+                 large-payload scenario stops being large and certifies exactly what never fails"
+            )));
         }
         for (name, v) in [
             ("happy_secs", self.budgets.happy_secs),
@@ -484,6 +538,36 @@ impl Default for Config {
 mod tests {
     use super::*;
 
+    /// Serializes the tests that touch the REAL process environment.
+    ///
+    /// Env vars are process-global, and `cargo test` runs a binary's tests on
+    /// multiple threads by default, so two tests on different threads can
+    /// otherwise observe each other's `MAGI_SMOKE_*` mutations — the crate
+    /// itself pulls in `serial_test` for exactly this reason. The harness does
+    /// not take that dependency, so this lock is the same isolation, hand
+    /// rolled with only the standard library, and scoped to the handful of
+    /// tests below that actually read or write the ambient environment.
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII guard that unsets a `MAGI_SMOKE_*` variable on drop. Combined with
+    /// [`ENV_LOCK`], a test using this guard cannot leave the variable set for
+    /// whichever test runs next on the same thread — even if the assertion
+    /// between `set` and drop panics, since unwinding still runs `Drop`.
+    struct EnvVarGuard(&'static str);
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            std::env::set_var(key, value);
+            Self(key)
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            std::env::remove_var(self.0);
+        }
+    }
+
     #[test]
     fn unknown_field_is_a_parse_error_not_a_warning() {
         let toml = r#"
@@ -519,6 +603,9 @@ mod tests {
 
     #[test]
     fn absent_file_yields_defaults_and_says_so() {
+        // Reads the real process environment via `load_or_default`, so it
+        // shares ENV_LOCK with the two env-mutating tests below.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let (cfg, announcement) = Config::load_or_default(None).unwrap();
         assert_eq!(cfg.endpoint, "http://localhost:11434");
         assert!(
@@ -526,6 +613,36 @@ mod tests {
             "a silent default makes 'I pointed where I meant' indistinguishable from \
              'I pointed at the default without knowing'"
         );
+    }
+
+    #[test]
+    fn an_unmatched_magi_smoke_var_is_rejected_and_named() {
+        // This is the Err branch of `reject_unknown_smoke_vars` — until this
+        // test, nothing in the suite ever set an unmatched `MAGI_SMOKE_*`
+        // variable, so a guard that silently accepted everything would have
+        // passed the whole suite. Exercised through `load_or_default`, the
+        // real (and only) call site, not the bare function, so the test
+        // proves the integration, not just the unit.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        const TYPO: &str = "MAGI_SMOKE_ENDPOINTS"; // trailing 's' — not in ENV_OVERRIDES
+        let _guard = EnvVarGuard::set(TYPO, "http://example.invalid");
+        let err = Config::load_or_default(None).unwrap_err();
+        assert!(
+            format!("{err}").contains(TYPO),
+            "the error must NAME the unmatched variable, not just say something is wrong"
+        );
+    }
+
+    #[test]
+    fn a_correctly_spelled_override_still_loads() {
+        // Companion to the test above: proves `reject_unknown_smoke_vars`
+        // rejects the TYPO specifically, not every `MAGI_SMOKE_*` variable —
+        // without this, the previous test could pass because the guard
+        // rejects everything, which is not the property being verified.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = EnvVarGuard::set("MAGI_SMOKE_ENDPOINT", "http://example.invalid:9999");
+        let (cfg, _origin) = Config::load_or_default(None).unwrap();
+        assert_eq!(cfg.endpoint, "http://example.invalid:9999");
     }
 
     #[test]
