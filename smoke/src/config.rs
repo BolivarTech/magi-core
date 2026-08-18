@@ -64,6 +64,13 @@ pub struct Config {
     /// Without at least one, the run that exists to exercise rotation has
     /// nowhere to rotate TO, and the scenario reading it can only report that it
     /// could not be tested — which is what it did before this field existed.
+    ///
+    /// **Declared strongest first**, the same convention `magi-ollama.toml`
+    /// uses for its own `[[fallback]]` entries. Rotation itself does not depend
+    /// on the order — it takes the first candidate of another lineage that fits
+    /// — but [`Config::probe_model`] does: the last entry is the weakest model
+    /// the operator named, which is the only answer to R27's "smallest" that
+    /// this file actually contains.
     #[serde(default)]
     pub fallbacks: Vec<Fallback>,
 }
@@ -339,6 +346,48 @@ impl Config {
     /// Contention-probe window. See R27 for what it does NOT cover.
     pub fn probe_timeout(&self) -> Duration {
         Duration::from_secs(self.probe_timeout_secs)
+    }
+
+    /// The model the contention probe names in its one-token completion (R27:
+    /// *"the smallest model in the config"*).
+    ///
+    /// # The harness CANNOT rank models by size, and does not pretend to
+    ///
+    /// Nothing in this file carries a parameter count, and asking the backend
+    /// would be a second round trip before the step that exists to find out
+    /// whether the backend has time for one. So the rule is the config's own
+    /// declared ORDER: rotation candidates are written strongest-first (see
+    /// [`Config::fallbacks`]), which makes the LAST of them the weakest model
+    /// the operator named — and the closest thing to R27's "smallest" that is
+    /// actually knowable here. With no candidates declared, the last seat.
+    ///
+    /// # What a wrong guess costs, said plainly
+    ///
+    /// Latency, not correctness. The property being probed is that a request
+    /// which must be GENERATED gets served promptly, and every model in this
+    /// file enters the same inference queue; a larger one merely takes longer
+    /// to answer, which the configured window and its one widened retry already
+    /// absorb. The direction of harm is a probe that reports "saturated" on a
+    /// slow-but-idle backend — an exit 2 that names contention as one of two
+    /// possible causes, never a verdict about the crate.
+    ///
+    /// # Panics
+    ///
+    /// Never. `check_seats` has already rejected a config with no seats by the
+    /// time anything calls this, but the empty case is still answered with a
+    /// name rather than an unwrap: a probe that cannot name a model would put
+    /// `null` on the wire, and the backend's rejection would read as a defect
+    /// of the crate's rather than of this file's.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` — one index into each of two vectors.
+    pub fn probe_model(&self) -> String {
+        self.fallbacks
+            .last()
+            .map(|f| f.model.clone())
+            .or_else(|| self.seats.last().map(|s| s.model.clone()))
+            .unwrap_or_else(|| NO_MODEL_DECLARED.to_string())
     }
 
     /// Per-run time cap (R32). **Caps, not predictions**: a run that reaches one
@@ -712,6 +761,16 @@ fn default_seats() -> Vec<Seat> {
         },
     ]
 }
+
+/// What [`Config::probe_model`] names when a config declares neither a seat nor
+/// a rotation candidate.
+///
+/// A placeholder STRING rather than an `Option` the caller must handle: the
+/// preflight's `config` step rejects a seatless config before the probe step is
+/// reached, so the only way here is a caller that skipped that check — and a
+/// backend answering "no such model" is a far more legible symptom than a
+/// `null` in the request body.
+const NO_MODEL_DECLARED: &str = "no-model-declared-in-config";
 
 /// The widened second window. **The config validates `window * (1 + FACTOR)`
 /// against the shortest run budget, not `window` alone** — validating the bare

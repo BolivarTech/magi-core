@@ -368,13 +368,27 @@ pub fn check_lock_is_tracked(repo: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The path both [`reachable`] and [`try_once`] hit. Listing tags never
-/// depends on a model being loaded, which is exactly what makes it the right
-/// call for `reachable` ("is anybody there?") — and the right call for
-/// `try_once` too, since without a specific model to name (see the module's
-/// scope note on [`probe_failure_message`]) it is the only trivial request
-/// this module can send that is not itself model-specific.
-const PROBE_PATH: &str = "/api/tags";
+/// The path [`reachable`] hits. Listing tags never depends on a model being
+/// loaded, which is exactly what makes it the right call for "is anybody
+/// there?" — and exactly what disqualifies it from [`try_once`], which has to
+/// ask a question only a busy backend answers slowly.
+const REACHABILITY_PATH: &str = "/api/tags";
+
+/// The path [`try_once`] hits: the OpenAI-compatible completions endpoint
+/// `OllamaProvider` itself speaks in `3.2.0`, so the probe queues behind the
+/// same work the run is about to do rather than behind a different subsystem.
+const COMPLETIONS_PATH: &str = "/v1/chat/completions";
+
+/// The output bound on the probe's completion (R27: `max_tokens: 1`).
+///
+/// One token is the smallest request that still has to be GENERATED, which is
+/// the whole point: generation is what enters the inference queue, and the
+/// queue is what contention shows up in.
+const PROBE_MAX_TOKENS: u32 = 1;
+
+/// The prompt the probe sends. Deliberately trivial — the probe measures
+/// whether the backend can get to the work at all, never how well it does it.
+const PROBE_PROMPT: &str = "hi";
 
 /// Is anybody there at all? One request, bounded by `window`, with no retry:
 /// a completely unreachable endpoint is a different failure than a reachable
@@ -388,10 +402,16 @@ const PROBE_PATH: &str = "/api/tags";
 /// timeout for a slow backend is declaring exactly how long a trivial request
 /// may take, and a fixed ten-second cut would still report their live backend
 /// as unreachable — a preflight refusal, on the strength of a number they had
-/// already overridden. This function and [`try_once`] send the SAME trivial
-/// request to the SAME path ([`PROBE_PATH`]); one knob is what makes them
-/// answer to the same declaration of patience. The difference between them
-/// stays what it always was: no retry here, one widened retry there.
+/// already overridden. One knob is what makes both steps answer to the same
+/// declaration of patience.
+///
+/// # This is NOT the same request [`try_once`] sends, and that is the point
+///
+/// The two used to hit the same path with the same method, which made R26's
+/// two steps one question asked twice — the second learning nothing the first
+/// had not already answered. Reachability asks *is anybody there?*, and a
+/// listing answers that without loading anything; the probe asks *can the
+/// backend get to work?*, which only a completion can put to it.
 ///
 /// # Parameters
 ///
@@ -404,7 +424,7 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
         .build()
         .map_err(|e| format!("backend reachability: {e}"))?;
     let resp = client
-        .get(format!("{endpoint}{PROBE_PATH}"))
+        .get(format!("{endpoint}{REACHABILITY_PATH}"))
         .send()
         .await
         .map_err(|e| format!("backend at {endpoint} did not answer: {e}"))?;
@@ -418,40 +438,61 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
     }
 }
 
-/// One bounded attempt: the WHOLE request (connect + send + read) must
-/// complete inside `window`, or it is treated as a failure regardless of
-/// whether the connection is later going to succeed.
-async fn try_once(endpoint: &str, window: Duration) -> Result<(), String> {
+/// One bounded attempt at a REAL completion: the WHOLE request — connect, send
+/// and read — must complete inside `window`, or it is treated as a failure
+/// regardless of whether the connection is later going to succeed.
+///
+/// # Why a completion and not a listing
+///
+/// This used to be `GET /api/tags`, which reads manifests off disk: it never
+/// loads a model, never touches the GPU and never enters the inference queue.
+/// An Ollama saturated by three mages answers it INSTANTLY, so the probe
+/// reported "clear" and the harness walked into the contention R27 exists to
+/// detect. Generation is the thing that queues, so generation is what is asked
+/// for — bounded to [`PROBE_MAX_TOKENS`] so asking costs almost nothing.
+///
+/// # A non-2xx answer is still an ANSWER
+///
+/// A model the backend does not hold replies `404`, and quickly. That says the
+/// endpoint is responsive, which is this step's entire question — treating it
+/// as a probe failure would report "saturated" for a config naming a model
+/// nobody pulled. Only a request that does not COMPLETE in `window` counts
+/// against the probe.
+///
+/// # Parameters
+///
+/// * `cfg` — the configuration, for the endpoint and the model to name.
+/// * `window` — how long the whole request may take.
+async fn try_once(cfg: &Config, window: Duration) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .timeout(window)
         .build()
         .map_err(|e| format!("probe: {e}"))?;
-    let resp = client
-        .get(format!("{endpoint}{PROBE_PATH}"))
+    let body = serde_json::json!({
+        "model": cfg.probe_model(),
+        "max_tokens": PROBE_MAX_TOKENS,
+        "messages": [{ "role": "user", "content": PROBE_PROMPT }],
+    });
+    client
+        .post(format!("{}{COMPLETIONS_PATH}", cfg.endpoint))
+        .json(&body)
         .send()
         .await
-        .map_err(|e| format!("probe: {e}"))?;
-    if resp.status().is_success() {
-        Ok(())
-    } else {
-        Err(format!("probe: status {}", resp.status()))
-    }
+        .map(|_| ())
+        .map_err(|e| format!("probe: {e}"))
 }
 
-/// One trivial request, retried ONCE with a widened window. The retry is what
-/// makes "clone and run" work without pre-warming anything: a cold model
+/// One trivial completion, retried ONCE with a widened window. The retry is
+/// what makes "clone and run" work without pre-warming anything: a cold model
 /// loads ONCE, so the second attempt passes.
 pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
-    if try_once(&cfg.endpoint, window).await.is_ok() {
+    if try_once(cfg, window).await.is_ok() {
         return Ok(());
     }
     // `Duration * u32`, NOT the other way round: `Mul<u32> for Duration`
     // exists, `Mul<Duration> for u32` does not. A type error, not a style
     // choice.
-    if try_once(&cfg.endpoint, window * PROBE_RETRY_FACTOR)
-        .await
-        .is_ok()
-    {
+    if try_once(cfg, window * PROBE_RETRY_FACTOR).await.is_ok() {
         return Ok(());
     }
     Err(probe_failure_message())

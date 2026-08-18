@@ -66,8 +66,16 @@ recorded traffic skips rather than failing over a registry it knows is partial.
 
 ## 4. The contention probe, and its declared scope
 
-Before any run, the harness sends one trivial request and waits. If it does not answer within
-the configured window, the run reports **cannot test** rather than starting.
+Before any run, the harness asks the backend for **one real completion of one token** — a `POST`
+to the completions endpoint, naming the weakest model the config declares. If it does not answer
+within the configured window, the run reports **cannot test** rather than starting.
+
+**It must be a completion, and that is the whole design.** A manifest listing (`GET /api/tags`)
+reads files off disk: it never loads a model, never touches the GPU and never enters the
+inference queue, so a backend saturated by three mages answers it instantly. Generation is what
+queues, so generation is what gets asked for — bounded to one token so asking costs nothing.
+Reachability, the step before, *does* use the listing, because "is anybody there?" is a different
+question and a listing is the right way to ask it.
 
 **What it catches:** an endpoint that is saturated, or a model cold enough that loading it would
 swallow the run's whole budget. It retries once with a widened window, so "clone and run" works
