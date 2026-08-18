@@ -890,6 +890,113 @@ mod tests {
         );
     }
 
+    thread_local! {
+        /// How many records the counting scenario below saw.
+        ///
+        /// A thread-local and not a captured variable: `Scenario::assert_fn` is
+        /// a bare `fn` pointer, so it cannot close over anything. Thread-local
+        /// rather than static because `cargo test` runs tests on several
+        /// threads, and a shared cell would let one test read another's count.
+        static COUNTED_RECORDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// A run result carrying `n` recorded requests and nothing else.
+    fn run_with(id: config::RunId, n: usize) -> runner::RunResult {
+        runner::RunResult {
+            run: id,
+            outcome: outcome::RunOutcome::Complete,
+            report: None,
+            error: None,
+            records: (0..n)
+                .map(|_| proxy::RequestRecord {
+                    path: "/v1/chat/completions".to_string(),
+                    body_sha256: String::new(),
+                    response_status: 200,
+                    response_recorded: true,
+                    response_sha256: String::new(),
+                    response_body: Vec::new(),
+                })
+                .collect(),
+            proxy_degraded: false,
+            attempts: 1,
+            over_budget: None,
+            injected_agent: None,
+        }
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn a_scenario_reading_one_run_never_sees_ANOTHER_runs_records() {
+        // Every run shares ONE proxy, so the isolation comes from
+        // `records_since(mark)`. If `evaluate` built the context from the whole
+        // registry, an assertion about the happy-path run would count the
+        // rotation run's requests too — and be right about a set nobody asked
+        // it about.
+        //
+        // Pinned at the `evaluate` level, which is where the context is
+        // assembled. The proxy's own `records_since` is tested in its module;
+        // what was untested is the wiring between them.
+        let probe = runner::TransparencyProbe::default();
+        COUNTED_RECORDS.with(|c| c.set(usize::MAX));
+        let scenario = runner::Scenario {
+            id: "S-counting",
+            source: runner::Source::Run(config::RunId::HappySmall),
+            backend_tag: runner::BackendNeed::Required,
+            assert_fn: |ctx| {
+                COUNTED_RECORDS.with(|c| c.set(ctx.records.len()));
+                vec![runner::assert_that("counted its own run's records", true)]
+            },
+        };
+        evaluate(
+            &[scenario],
+            &[
+                run_with(config::RunId::HappySmall, 2),
+                run_with(config::RunId::Rotation, 5),
+            ],
+            &probe,
+            None,
+            false,
+            None,
+        );
+        assert_eq!(
+            COUNTED_RECORDS.with(|c| c.get()),
+            2,
+            "it must see 2, not 7: the other run's traffic is not its evidence"
+        );
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn a_scenario_filtered_out_by_no_backend_is_OUT_OF_SCOPE_not_omitted() {
+        // "The table never shrinks in silence." `evaluate` uses `continue` for
+        // a filtered scenario, which is correct — but nothing asserted that
+        // every scenario still produced a row, so a filter that dropped one
+        // would have been invisible: green by omission, which R25 forbids.
+        let scenarios = scenarios::e1_scenarios();
+        let probe = runner::TransparencyProbe::default();
+        let rows = evaluate(&scenarios, &[], &probe, None, true, Some(""));
+
+        for scenario in &scenarios {
+            assert!(
+                rows.iter().any(|r| r.scenario_id == scenario.id),
+                "{} produced no row at all under --no-backend",
+                scenario.id
+            );
+        }
+        assert!(
+            rows.len() >= scenarios.len(),
+            "one scenario produces several assertions, so the table can only grow: {} rows \
+             for {} scenarios",
+            rows.len(),
+            scenarios.len()
+        );
+        assert!(
+            rows.iter()
+                .any(|r| r.state == outcome::ScenarioState::OutOfScope),
+            "a partition nobody asked to run is OutOfScope, not a failure to test"
+        );
+    }
+
     #[test]
     fn a_cargo_that_could_not_be_spawned_is_not_a_failed_build() {
         // A real `ExitStatus` on every side, not a stand-in.

@@ -336,10 +336,7 @@ pub fn check_workspace_isolation(smoke: &Path) -> Result<(), String> {
     let out = std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1", "--no-deps"])
         .current_dir(smoke)
-        .env(
-            "CARGO_TARGET_DIR",
-            std::env::temp_dir().join("magi-smoke-metadata"),
-        )
+        .env("CARGO_TARGET_DIR", crate::paths::metadata_target_dir())
         .output()
         .map_err(|e| {
             format!(
@@ -862,6 +859,45 @@ mod tests {
             )),
             "the tokens must come from the payload the launched runs analyse, not from the \
              one that sizes the absent run: {announced}"
+        );
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER() {
+        // R31, and it had no test: the plan named it in prose only, so its
+        // implementation depended on somebody remembering an unverified
+        // requirement — the class of omission this harness exists to catch in
+        // others.
+        //
+        // ANNOUNCED BEFORE matters more than it looks. After the run, "it cost
+        // this much" is a receipt; before it, the same number is a decision the
+        // operator can still make. The ledger is what turns that ordering from a
+        // convention about where two prints sit into something a test can fail:
+        // `record` REFUSES when nothing was announced.
+        let cfg = Config::default();
+        let mut ledger = CostLedger::new();
+
+        let refusal = ledger
+            .record()
+            .expect_err("a receipt before the estimate is not a receipt");
+        assert!(
+            refusal.contains("before the estimate was announced"),
+            "the refusal must say what order was violated, not merely that something was: \
+             {refusal}"
+        );
+
+        let announced = ledger.announce(&cfg, false);
+        assert!(
+            announced.contains("about to start"),
+            "the estimate speaks of runs that have not happened yet: {announced}"
+        );
+        let recorded = ledger
+            .record()
+            .expect("once announced, the real cost can be recorded");
+        assert!(
+            recorded.contains("backend run(s) in"),
+            "the receipt reports what was actually spent: {recorded}"
         );
     }
 

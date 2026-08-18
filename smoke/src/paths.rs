@@ -84,6 +84,62 @@ pub fn feature_matrix_target_dir(tag: &str) -> PathBuf {
     std::env::temp_dir().join(FEATURE_MATRIX_DIR).join(tag)
 }
 
+/// Where the preflight's `cargo metadata` builds: `<temp>/magi-smoke-metadata`.
+///
+/// `--no-deps` does not build, but it still locks the target directory on some
+/// platforms, so the isolation check gets one of its own rather than contending
+/// with the build that is about to start.
+///
+/// It lives here rather than inline in the preflight for one reason:
+/// [`writable_locations`] has to be able to enumerate it. A write site the
+/// enumeration cannot see is a write site the no-trace guard does not cover,
+/// which is the difference between a guard and a list of the paths somebody
+/// remembered.
+pub fn metadata_target_dir() -> PathBuf {
+    std::env::temp_dir().join("magi-smoke-metadata")
+}
+
+/// **Every directory this harness writes into.** The no-trace guard reads this
+/// list; nothing else does.
+///
+/// # Why a list and not three assertions
+///
+/// The property R36 states is about the harness as a whole — *nothing it
+/// generates lands in the repository* — and three tests each pinning one path
+/// prove it for the three paths somebody thought of. A write site added
+/// tomorrow is invisible to all three. Enumerating here means the guard is
+/// wrong in a visible way (a location missing from a list someone must edit)
+/// instead of in an invisible one.
+///
+/// # What is deliberately NOT here
+///
+/// The certificate (`docs/test/smoke-certificate.md`) is the one thing the
+/// harness writes INSIDE the tree, and R37 makes it the declared exception. It
+/// is excluded because it is the exception, not because it was forgotten — the
+/// guard's own test names it.
+///
+/// The payload is not here either, and for a stronger reason: it is generated
+/// in MEMORY and never touches a filesystem at all.
+///
+/// # `#[cfg(test)]`, and not because it is a fixture
+///
+/// Nothing in the binary calls it: the no-trace guard is a TEST-time mechanism
+/// whose whole job is to fail `cargo test` when the harness gains a write site
+/// inside the tree — the same shape as the assertion-relaxation mark guard this
+/// crate already keeps behind the same gate. Inventing a runtime caller so it
+/// could be `pub` would be fabricating a consumer to satisfy the linter, which
+/// this project's standards forbid outright.
+#[cfg(test)]
+pub fn writable_locations() -> Vec<PathBuf> {
+    vec![
+        metadata_target_dir(),
+        feature_matrix_target_dir("tree"),
+        // The sweep's own root: the harness creates per-run temp directories
+        // under it, and cleans them from it on entry.
+        std::env::temp_dir(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +167,80 @@ mod tests {
         assert_ne!(
             feature_matrix_target_dir("tree"),
             feature_matrix_target_dir("tree-published")
+        );
+    }
+
+    #[test]
+    fn nothing_the_harness_generates_lands_in_the_repo() {
+        // R36, and the plan named this test in Step 1 of Task 12. Writing into
+        // the tree breaks three things at once: §8 wants a clean `git status`,
+        // Paso 0 would see files outside the plan, and `scoped_tests` widens to
+        // the full suite on any unknown path.
+        //
+        // It asserts over `writable_locations` rather than over `git status`,
+        // and the difference is the point: `git status` cannot see a gitignored
+        // path, and `smoke/target/` and `smoke/target-matrix/` are both
+        // gitignored — so a temporary landing in either would satisfy a
+        // status-based check while sitting inside somebody's checkout. Asking
+        // where the harness WRITES answers the question the requirement asks.
+        let repo = repo_root()
+            .canonicalize()
+            .expect("the repository root must be resolvable");
+        for location in writable_locations() {
+            let resolved = resolve_deepest_existing(&location);
+            assert!(
+                !resolved.starts_with(&repo),
+                "the harness writes to {resolved:?}, which is inside the repository at \
+                 {repo:?}. The certificate is the ONE declared exception (R37); everything \
+                 else belongs where the operating system already collects it."
+            );
+        }
+    }
+
+    /// Canonicalises the deepest ANCESTOR of `p` that exists, and re-appends the
+    /// rest.
+    ///
+    /// # Why not just `canonicalize().unwrap_or(p)`
+    ///
+    /// That is what this test did first, and a mutation proved it vacuous: a
+    /// build directory that has not been created yet cannot be canonicalised, so
+    /// the fallback returned the raw path — which on Windows lacks the `\\?\`
+    /// prefix the canonical repo root carries, so `starts_with` was false for a
+    /// location sitting squarely inside the checkout. The guard compared two
+    /// spellings of the filesystem and reported success.
+    ///
+    /// The locations under test are directories the harness creates ON DEMAND,
+    /// so "does not exist yet" is their NORMAL state — which made the vacuous
+    /// branch the one that always ran.
+    fn resolve_deepest_existing(p: &std::path::Path) -> PathBuf {
+        let mut cursor = p;
+        let mut trailing = PathBuf::new();
+        loop {
+            if let Ok(found) = cursor.canonicalize() {
+                return found.join(&trailing);
+            }
+            let Some(name) = cursor.file_name() else {
+                return p.to_path_buf();
+            };
+            trailing = PathBuf::from(name).join(&trailing);
+            match cursor.parent() {
+                Some(parent) => cursor = parent,
+                None => return p.to_path_buf(),
+            }
+        }
+    }
+
+    #[test]
+    fn the_certificate_is_the_one_declared_exception_and_it_is_named() {
+        // The other half of the guard above, and it has to be written down or
+        // the exception becomes an oversight the next reader has to rediscover:
+        // exactly one thing the harness writes lives inside the tree, R37 says
+        // which, and it is deliberately absent from `writable_locations`.
+        let cert = repo_root().join(crate::report::CERT_PATH);
+        assert!(
+            !writable_locations().contains(&cert),
+            "the certificate must not be in the list the no-trace guard rejects, or the guard \
+             would forbid the one write R37 requires"
         );
     }
 
