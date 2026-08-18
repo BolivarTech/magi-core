@@ -12,7 +12,9 @@
 //! nothing extra in rigor.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 /// A directory under the OS temp root, removed on drop.
 ///
@@ -251,4 +253,242 @@ pub async fn spawn_truncating_server() -> TruncatingServer {
         }
     });
     TruncatingServer { addr }
+}
+
+// --- Task 8: preflight helpers ---------------------------------------------
+//
+// `fresh_temp_dir`, `temp_root_with` and `repo_where_the_negation_was_removed`
+// deliberately return a bare `PathBuf`, NOT a `TempDir`: the production code
+// they feed (`check_lock_is_tracked`, `sweep_stale_temps`) takes `&Path`
+// directly, and `TempDir` has no `Deref<Target = Path>` for that reference to
+// coerce through. The directories are never cleaned up — accepted the same
+// way `TempDir`'s own doc accepts it for the OS-level fallback: they are tiny
+// scaffolding under the OS temp root, and [`UNIQUE`] guarantees the next call
+// never collides with what this one leaves behind.
+
+/// A fresh, uniquely-named directory under the OS temp root, without
+/// automatic cleanup. See the module note above for why the callers below
+/// need a bare [`PathBuf`] instead of a self-cleaning [`TempDir`].
+///
+/// # Panics
+///
+/// Panics if the directory cannot be created. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a partial tree.
+fn fresh_temp_dir(prefix: &str) -> PathBuf {
+    let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create temp directory");
+    dir
+}
+
+/// Builds a scratch parent directory containing one throwaway, EMPTY
+/// subdirectory per `(name, _)` pair, named EXACTLY as given.
+///
+/// The second element of each pair is not read by this function — it exists
+/// in the test data purely to document, next to the name, what the caller
+/// EXPECTS [`crate::preflight::sweep_stale_temps`] to do with that entry. The
+/// name itself is what actually drives the behaviour under test: a name whose
+/// embedded PID parses and is dead gets deleted, a name whose PID is alive or
+/// does not parse at all (as `SELF` deliberately does not — the sweep's own
+/// contract is to leave an unparseable name alone, "not ours to judge") is
+/// left standing.
+pub fn temp_root_with(entries: &[(&str, bool)]) -> PathBuf {
+    let root = fresh_temp_dir("magi-smoke-sweep-test");
+    for (name, _expected_to_survive) in entries {
+        std::fs::create_dir_all(root.join(name)).expect("create sweep-test entry");
+    }
+    root
+}
+
+/// Builds a throwaway git repository whose `smoke/Cargo.lock` is untracked —
+/// the state after the `!smoke/Cargo.lock` negation in `.gitignore` stops
+/// applying (R8).
+///
+/// `git ls-files --error-unmatch` needs no commit history to answer
+/// truthfully: a freshly initialised repo has an empty index, so the command
+/// fails on any path — which is exactly the state
+/// [`crate::preflight::check_lock_is_tracked`] exists to catch.
+///
+/// # Panics
+///
+/// Panics if the fixture files or `git init` fail. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a partial repo.
+pub fn repo_where_the_negation_was_removed() -> PathBuf {
+    let dir = fresh_temp_dir("magi-smoke-lock-test");
+    // The `.gitignore` content is narrative, not load-bearing: `git ls-files`
+    // does not consult it at all. What actually reproduces R8's failure is
+    // that `smoke/Cargo.lock` is written to disk but never `git add`ed.
+    std::fs::write(dir.join(".gitignore"), "target/\nCargo.lock\n")
+        .expect("write fixture .gitignore");
+    std::fs::create_dir_all(dir.join("smoke")).expect("create fixture smoke/ dir");
+    std::fs::write(
+        dir.join("smoke/Cargo.lock"),
+        "# never staged, so never tracked",
+    )
+    .expect("write fixture Cargo.lock");
+    let out = std::process::Command::new("git")
+        .arg("init")
+        .current_dir(&dir)
+        .output()
+        .expect("git init for the fixture repo");
+    assert!(
+        out.status.success(),
+        "git init failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    dir
+}
+
+/// An HTTP stub whose FIRST request is answered only after a deliberate
+/// delay, and every later one immediately — the shape of a model that must
+/// load once and is fast forever after. Proves
+/// [`crate::preflight::probe`]'s retry recovers from exactly that case.
+pub struct SlowOnceStub {
+    addr: std::net::SocketAddr,
+    attempts: Arc<AtomicUsize>,
+}
+
+impl SlowOnceStub {
+    /// The base URL a client (or `probe`) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+
+    /// Total requests this stub has received so far.
+    pub fn attempts(&self) -> usize {
+        self.attempts.load(Ordering::SeqCst)
+    }
+}
+
+/// How long the FIRST request is held before answering. Comfortably longer
+/// than the 50ms window `probe`'s tests use for their FIRST attempt, so that
+/// attempt reliably times out; every later request answers immediately, so
+/// the widened second window never has to absorb this delay at all.
+const SLOW_ONCE_DELAY: Duration = Duration::from_millis(300);
+
+/// Binds on an ephemeral port and serves until the test process exits: the
+/// first request received is delayed by [`SLOW_ONCE_DELAY`], every
+/// subsequent one answers immediately.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_is_slow_on_first_request_only() -> SlowOnceStub {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind slow-once stub");
+    let addr = listener.local_addr().expect("slow-once stub local address");
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&attempts);
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let counter = Arc::clone(&counter);
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let counter = Arc::clone(&counter);
+                        async move {
+                            let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                            let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
+                            if n == 1 {
+                                tokio::time::sleep(SLOW_ONCE_DELAY).await;
+                            }
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                            ))
+                        }
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    SlowOnceStub { addr, attempts }
+}
+
+/// An HTTP stub that delays EVERY request past both of `probe`'s windows —
+/// the shape of a genuinely saturated endpoint, as opposed to
+/// [`SlowOnceStub`]'s one-time cold-start delay.
+pub struct AlwaysSlowStub {
+    addr: std::net::SocketAddr,
+}
+
+impl AlwaysSlowStub {
+    /// The base URL a client (or `probe`) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// Longer than `probe`'s WIDENED window (`50ms * PROBE_RETRY_FACTOR =
+/// 150ms`) as well as its first, so neither attempt can succeed against this
+/// stub.
+const ALWAYS_SLOW_DELAY: Duration = Duration::from_millis(500);
+
+/// Binds on an ephemeral port and answers every request only after
+/// [`ALWAYS_SLOW_DELAY`], for the life of the test process.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_is_always_slow() -> AlwaysSlowStub {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind always-slow stub");
+    let addr = listener
+        .local_addr()
+        .expect("always-slow stub local address");
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    |req: hyper::Request<hyper::body::Incoming>| async move {
+                        let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                        tokio::time::sleep(ALWAYS_SLOW_DELAY).await;
+                        Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                            http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                        ))
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    AlwaysSlowStub { addr }
+}
+
+/// Runs the REAL preflight, end to end, with `break_proxy = true` — proves
+/// `S20`: a broken proxy is reported as "cannot test", never as a scenario
+/// failure.
+///
+/// Config, fixtures, workspace and lock all run against the REAL repository
+/// tree (see `paths.rs`), which is exactly what makes this prove the FULL
+/// pipeline instead of a stand-in for it; only the backend is a stub, because
+/// a probe against a real Ollama is not this test's concern.
+pub async fn run_with_broken_proxy(
+) -> Result<crate::preflight::Announcement, crate::preflight::PreflightError> {
+    let upstream = spawn_echo_server().await;
+    let cfg = crate::config::Config {
+        endpoint: upstream.url(),
+        ..crate::config::Config::default()
+    };
+    crate::preflight::run(&cfg, &[], true).await
 }
