@@ -1,4 +1,8 @@
 #!/bin/sh
+# Author: Julian Bolivar
+# Version: 1.0.0
+# Date: 2026-08-18
+
 # smoke/sync-fixtures.sh — R23. Copies the fixture corpus from the gitignored
 # ORIGIN into the tracked tree and REGENERATES manifest.toml with the hashes
 # of what it copied.
@@ -6,13 +10,16 @@
 # The manifest is GENERATED, never hand-edited: a hand-written hash is a hash
 # that can match nothing.
 #
-# In E1 `wanted.txt` does not exist yet, so the loop below does not iterate
-# and this run only (re)writes the header comment documenting the format —
-# the machinery ships now, the data arrives with F0 of MS1.
+# In E1 `wanted.txt` does not exist yet, so the sync step below reports that
+# plainly and does nothing else — the machinery ships now, the data arrives
+# with F0 of MS1. That is deliberately DIFFERENT output from "wanted.txt
+# exists and lists nothing": an absent input and a completed job with zero
+# items must not read as the same thing.
 set -eu
 
 SRC="${1:-../sbtdd/ec-evidence}"
 DST="smoke/fixtures"
+WANTED="${DST}/wanted.txt"
 
 test -d "$SRC" || {
   echo "FATAL: source $SRC is missing (it is gitignored, so it only exists" \
@@ -45,22 +52,39 @@ cat > "$DST/manifest.toml" <<'HEADER'
 # scenario = "S9"                          # must be in the LIVE list of the stage
 # path     = "native-E-malformed.json"
 # sha256   = "<64 lowercase hex>"
-# currency = "verificada-por: S9b"         # or "sin-verificar: <reason>"
+# currency = "verified-by: S9b"         # or "unverified: <reason>"
 HEADER
 
 # `wanted.txt` is TRACKED and written by the task that adds fixtures — F0 of
 # MS1 — one line per `<file> <scenario> <currency>`. It is the list of what
 # the harness needs, and it lives in git even though the corpus does not:
 # whoever clones the repo can see WHAT is missing, even before it exists.
-while read -r f scenario currency; do
-  [ -n "$f" ] || continue
-  cp "$SRC/$f" "$DST/$f"
-  # The four keys `FixtureEntry` requires. Generating an incomplete entry
-  # would make the manifest fail to deserialize — and that error would
-  # surface at the preflight, far from the script that produced it.
-  printf '\n[[fixture]]\nscenario = "%s"\npath = "%s"\nsha256 = "%s"\ncurrency = "%s"\n' \
-    "$scenario" "$f" "$(sha256sum "$DST/$f" | cut -d' ' -f1)" "$currency" \
-    >> "$DST/manifest.toml"
-done < "${DST}/wanted.txt" 2>/dev/null || true
+#
+# The absent-file case is checked EXPLICITLY, not folded into the loop's
+# error handling: piping the loop's stderr to /dev/null with a trailing
+# `|| true` would make "wanted.txt is not there yet" and "wanted.txt exists
+# and lists zero fixtures" print the exact same "synced 0 fixtures" line —
+# the one distinction this script exists to preserve.
+if [ -f "$WANTED" ]; then
+  while read -r f scenario currency; do
+    [ -n "$f" ] || continue
+    cp "$SRC/$f" "$DST/$f"
+    # The four keys `FixtureEntry` requires. Generating an incomplete entry
+    # would make the manifest fail to deserialize — and that error would
+    # surface at the preflight, far from the script that produced it.
+    printf '\n[[fixture]]\nscenario = "%s"\npath = "%s"\nsha256 = "%s"\ncurrency = "%s"\n' \
+      "$scenario" "$f" "$(sha256sum "$DST/$f" | cut -d' ' -f1)" "$currency" \
+      >> "$DST/manifest.toml"
+  done < "$WANTED"
+else
+  echo "NOTE: $WANTED is absent — nothing to sync yet (expected until F0 of MS1 adds it)"
+fi
 
-echo "synced $(grep -c '^\[\[fixture\]\]' "$DST/manifest.toml" || echo 0) fixtures"
+# `grep -c` prints a valid count ("0" included) on stdout REGARDLESS of
+# whether it matched anything; its exit code just says whether it matched at
+# least once (1 = no match). Trailing `|| true` swallows that exit code
+# without invoking a second command, so the count is captured exactly once —
+# `|| echo 0` here would run grep's own "0" AND echo's "0" into the same
+# substitution, printing the count on two lines instead of one.
+fixture_count=$(grep -c '^\[\[fixture\]\]' "$DST/manifest.toml") || true
+echo "synced ${fixture_count} fixtures"

@@ -15,8 +15,8 @@
 //! **INTEGRITY is not CURRENCY.** The sha256 in an entry proves the file on
 //! disk is the one this project recorded; it does NOT prove the backend
 //! still answers that way. Only re-running the scenario against a live
-//! backend proves currency — that is exactly what `currency = "sin-verificar:
-//! <reason>"` admits, and what `currency = "verificada-por: <id>"` claims.
+//! backend proves currency — that is exactly what `currency = "unverified:
+//! <reason>"` admits, and what `currency = "verified-by: <id>"` claims.
 //!
 //! In E1 the manifest ships with zero `[[fixture]]` entries: no E1 scenario
 //! replays a fixture (see `smoke/fixtures/manifest.toml`), so both directions
@@ -29,20 +29,20 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-/// Recognized `sin-verificar: <reason>` reasons. Widening this list on a
+/// Recognized `unverified: <reason>` reasons. Widening this list on a
 /// fixture's behalf must be a deliberate edit here, not a typo that quietly
 /// starts being accepted as a currency justification.
-const KNOWN_REASONS: [&str; 3] = ["cold-start", "no-reproducible", "deprecado"];
+const KNOWN_REASONS: [&str; 3] = ["cold-start", "no-reproducible", "deprecated"];
 
 /// Prefix for a currency line whose backend answer has NOT been re-checked.
 /// The text after it is the reason, matched against [`KNOWN_REASONS`].
-const SIN_VERIFICAR_PREFIX: &str = "sin-verificar: ";
+const UNVERIFIED_PREFIX: &str = "unverified: ";
 
 /// Prefix for a currency line whose backend answer WAS re-checked. The text
 /// after it identifies what did the checking (e.g. a scenario id); this
 /// implementation only requires the prefix itself to be present — the id is
 /// for a human reading the manifest, not something this module validates.
-const VERIFICADA_POR_PREFIX: &str = "verificada-por: ";
+const VERIFIED_BY_PREFIX: &str = "verified-by: ";
 
 /// The manifest's own filename inside the fixture directory. Exempted from
 /// the disk->manifest half of [`Manifest::verify`]: the manifest does not
@@ -73,7 +73,7 @@ pub struct FixtureEntry {
     pub path: String,
     /// Lowercase hex sha256 of the file's bytes at `path`.
     pub sha256: String,
-    /// `verificada-por: <id>` or `sin-verificar: <reason>`; an unrecognized
+    /// `verified-by: <id>` or `unverified: <reason>`; an unrecognized
     /// form makes the harness DECLINE to run rather than assume the corpus is
     /// current.
     pub currency: String,
@@ -90,11 +90,12 @@ pub struct FixtureAudit {
     /// skip.
     pub orphans: Vec<String>,
     /// Present and declared, but the hash or the currency reason does not
-    /// hold.
+    /// hold — or the fixture directory itself could not be read at all (see
+    /// `Manifest::verify`'s direction-2 comment).
     pub corrupt: Vec<String>,
     /// Total `[[fixture]]` entries the manifest declared.
     pub total: usize,
-    /// Entries whose currency is `sin-verificar:` — recorded but not
+    /// Entries whose currency is `unverified:` — recorded but not
     /// re-checked against a live backend. Feeds the 30% warning of Task 12.
     pub unverified: usize,
 }
@@ -174,20 +175,37 @@ impl Manifest {
         }
 
         // (2) Disk -> manifest. The half a one-directional check would skip.
-        if let Ok(read_dir) = std::fs::read_dir(dir) {
-            for dir_entry in read_dir.flatten() {
-                let file_name = dir_entry.file_name();
-                let Some(name) = file_name.to_str() else {
-                    continue;
-                };
-                if NON_FIXTURE_FILES.contains(&name) {
-                    continue;
-                }
-                if !declared.contains(name) {
-                    audit.orphans.push(format!(
-                        "{name}: on disk and declared by nobody — copied for nothing, and its \
-                         currency is unknowable"
-                    ));
+        //
+        // An unreadable `dir` — missing, wrong path, sparse checkout — is a
+        // FINDING, not a reason to skip this direction in silence: with an
+        // empty manifest (E1's own state) direction (1) above has nothing to
+        // report either, so swallowing the `Err` here would make `verify`
+        // return a CLEAN audit over a corpus that is not there at all —
+        // exactly the "guard reports success while guarding nothing" defect
+        // this module exists to catch. A directory that EXISTS and is empty
+        // is E1's legitimate state and takes the `Ok` arm below, untouched.
+        match std::fs::read_dir(dir) {
+            Err(e) => {
+                audit.corrupt.push(format!(
+                    "{}: fixture directory could not be read: {e}",
+                    dir.display()
+                ));
+            }
+            Ok(read_dir) => {
+                for dir_entry in read_dir.flatten() {
+                    let file_name = dir_entry.file_name();
+                    let Some(name) = file_name.to_str() else {
+                        continue;
+                    };
+                    if NON_FIXTURE_FILES.contains(&name) {
+                        continue;
+                    }
+                    if !declared.contains(name) {
+                        audit.orphans.push(format!(
+                            "{name}: on disk and declared by nobody — copied for nothing, and \
+                             its currency is unknowable"
+                        ));
+                    }
                 }
             }
         }
@@ -200,13 +218,13 @@ impl Manifest {
     /// (and counting `audit.unverified`) as needed.
     ///
     /// **Extends the brief's reference implementation**: it only validated
-    /// the `sin-verificar:` branch. `FixtureEntry::currency`'s own contract
-    /// says a form that is neither `verificada-por:` nor `sin-verificar:`
+    /// the `unverified:` branch. `FixtureEntry::currency`'s own contract
+    /// says a form that is neither `verified-by:` nor `unverified:`
     /// must make the harness decline to run — silently accepting it would be
     /// exactly the "assume the corpus is current" failure that doc comment
     /// exists to name.
     fn check_currency(entry: &FixtureEntry, audit: &mut FixtureAudit) {
-        if let Some(reason) = entry.currency.strip_prefix(SIN_VERIFICAR_PREFIX) {
+        if let Some(reason) = entry.currency.strip_prefix(UNVERIFIED_PREFIX) {
             if !KNOWN_REASONS.contains(&reason.trim()) {
                 audit.corrupt.push(format!(
                     "{}: unrecognized currency reason '{}'. Accepted: {KNOWN_REASONS:?}. \
@@ -216,10 +234,10 @@ impl Manifest {
                 ));
             }
             audit.unverified += 1;
-        } else if entry.currency.strip_prefix(VERIFICADA_POR_PREFIX).is_none() {
+        } else if entry.currency.strip_prefix(VERIFIED_BY_PREFIX).is_none() {
             audit.corrupt.push(format!(
-                "{}: unrecognized currency form '{}'. Expected 'verificada-por: <id>' or \
-                 'sin-verificar: <reason>'.",
+                "{}: unrecognized currency form '{}'. Expected 'verified-by: <id>' or \
+                 'unverified: <reason>'.",
                 entry.path, entry.currency
             ));
         }
@@ -247,7 +265,7 @@ mod tests {
             scenario = "S9"
             path     = "native-E-malformed.json"
             sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
-            currency = "verificada-por: S9b"
+            currency = "verified-by: S9b"
         "#,
         )
         .unwrap();
@@ -286,7 +304,7 @@ mod tests {
             scenario = "S99"
             path     = "native-N1.json"
             sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
-            currency = "sin-verificar: no-reproducible"
+            currency = "unverified: no-reproducible"
         "#,
         )
         .unwrap();
@@ -318,20 +336,20 @@ mod tests {
             scenario = "S9"
             path     = "native-N1.json"
             sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
-            currency = "sin-verificar: porque si"
+            currency = "unverified: just because"
         "#,
         )
         .unwrap();
         let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
-        assert!(audit.corrupt.iter().any(|s| s.contains("porque si")));
+        assert!(audit.corrupt.iter().any(|s| s.contains("just because")));
     }
 
     #[test]
     fn an_unrecognized_currency_form_is_rejected() {
-        // Neither `verificada-por:` nor `sin-verificar:` — the
+        // Neither `verified-by:` nor `unverified:` — the
         // `FixtureEntry::currency` contract says this must make the harness
         // decline to run, not pass silently. The brief's reference
-        // implementation only validated the `sin-verificar:` branch; this
+        // implementation only validated the `unverified:` branch; this
         // pins the other half of that contract (see
         // `Manifest::check_currency`'s doc).
         let m = Manifest::from_str(
@@ -349,6 +367,28 @@ mod tests {
             .corrupt
             .iter()
             .any(|s| s.contains("unrecognized currency form")));
+    }
+
+    #[test]
+    fn a_missing_fixtures_directory_is_reported_not_silently_clean() {
+        // Fix round 1, Finding 1 (Critical): the disk->manifest scan used to
+        // swallow the `Err` from `std::fs::read_dir`, so with an empty
+        // manifest (E1's own state, which has nothing for direction 1 to
+        // report either) a directory that does not exist at all verified as
+        // CLEAN. A directory that exists and is empty must stay clean — see
+        // `an_empty_manifest_verifies_clean_which_is_exactly_e1` — but one
+        // that cannot be read must not.
+        let dir = tempdir_with(&[]);
+        let missing = dir.path().join("does-not-exist");
+        let audit = Manifest::from_str("")
+            .unwrap()
+            .verify(&missing, &[])
+            .unwrap();
+        assert!(!audit.is_clean());
+        assert!(audit
+            .corrupt
+            .iter()
+            .any(|s| s.contains(&missing.display().to_string())));
     }
 
     #[test]

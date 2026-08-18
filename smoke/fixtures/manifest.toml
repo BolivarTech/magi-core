@@ -25,4 +25,4 @@
 # scenario = "S9"                          # must be in the LIVE list of the stage
 # path     = "native-E-malformed.json"
 # sha256   = "<64 lowercase hex>"
-# currency = "verificada-por: S9b"         # or "sin-verificar: <reason>"
+# currency = "verified-by: S9b"         # or "unverified: <reason>"
