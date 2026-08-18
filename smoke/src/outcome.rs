@@ -208,7 +208,7 @@ where
 /// # Complexity
 ///
 /// `O(d · m)` for `d` harness-only dependency names against a location of length
-/// `m` — five substring searches over one path.
+/// `m` — one split of the path per name, five names.
 pub fn classify_panic(location: Option<&str>) -> ScenarioState {
     /// Prefix of the harness's own source paths, MEASURED rather than assumed.
     ///
@@ -233,11 +233,77 @@ pub fn classify_panic(location: Option<&str>) -> ScenarioState {
         Some(loc) if loc.starts_with(HARNESS_SOURCE_PREFIX) => ScenarioState::Skip(format!(
             "panic inside the harness at {loc}: ours, not the crate's"
         )),
-        Some(loc) if HARNESS_ONLY_DEPS.iter().any(|d| loc.contains(d)) => {
+        Some(loc)
+            if HARNESS_ONLY_DEPS
+                .iter()
+                .any(|d| is_dependency_source(loc, d)) =>
+        {
             ScenarioState::Skip(format!("panic in a HARNESS-only dependency at {loc}"))
         }
         _ => ScenarioState::Fail,
     }
+}
+
+/// The two path separators a panic location can carry. Both are checked
+/// regardless of platform: the harness is developed on Windows and read on
+/// Linux CI, and a test that writes a `/` path must classify the same way as
+/// the `\` path the same build would really produce.
+const PATH_SEPARATORS: [char; 2] = ['/', '\\'];
+
+/// Whether `location` lies inside the source tree of the dependency `dep`, as
+/// opposed to merely containing its name somewhere.
+///
+/// # Why a substring is not good enough
+///
+/// The previous form was `loc.contains(dep)`, and it matched any path with the
+/// name anywhere in it — including `magi-core`'s own sources. A crate file
+/// named `hyper_compat.rs`, or a checkout under a directory called `toml`, was
+/// attributed to a HARNESS dependency and reported as `Skip`, which buries a
+/// crate defect and reports green: the one direction this function's own
+/// contract says must never happen.
+///
+/// # What identifies a dependency, MEASURED rather than assumed
+///
+/// Cargo compiles a registry dependency from a directory named
+/// `{name}-{version}`, and a panic location is the full path to the file inside
+/// it. Read out of this harness's own built binary on this platform:
+///
+/// ```text
+/// C:\Users\...\registry\src\index.crates.io-1949cf8c6b5b557f\hyper-1.11.0\src\body\incoming.rs
+/// ```
+///
+/// So the test is a whole path SEGMENT equal to `{dep}-{version}`, with the
+/// version recognised by its leading digit. The digit is what keeps `hyper`
+/// from claiming `hyper-util-0.1.20`, and what keeps a source file called
+/// `hyper_compat.rs` from being a segment at all.
+///
+/// `magi-core` is a path dependency here, so its panics report an absolute path
+/// (`C:\...\MAGI-Core\src\orchestrator.rs`) with no `{name}-{version}` segment
+/// anywhere — which is why it can never satisfy this and always falls to
+/// `Fail`.
+///
+/// # Direction of error
+///
+/// A dependency whose directory does NOT carry a numeric version — a `git`
+/// checkout, a `[patch]`, a vendored tree — fails this test and lands on
+/// `Fail`. That is the safe side, and the same rule the whole function
+/// follows: `Skip` only on positive identification.
+///
+/// # Parameters
+///
+/// * `location` — the source path the panic reported.
+/// * `dep` — the dependency's crate name, e.g. `"hyper"`.
+///
+/// # Complexity
+///
+/// `O(m)` in the length of `location`: one split, one prefix test per segment.
+fn is_dependency_source(location: &str, dep: &str) -> bool {
+    location.split(PATH_SEPARATORS).any(|segment| {
+        segment
+            .strip_prefix(dep)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+    })
 }
 
 #[cfg(test)]
@@ -277,6 +343,82 @@ mod tests {
         assert!(matches!(
             classify_panic(Some("/deps/hyper-1.0.0/src/server.rs")),
             ScenarioState::Skip(_)
+        ));
+    }
+
+    #[test]
+    fn a_crate_path_that_merely_contains_a_dependency_name_is_still_the_crates() {
+        // `contains` matched a NAME anywhere in the path, so a `magi-core`
+        // source file whose own path happened to spell one was attributed to a
+        // harness dependency and reported as Skip — burying a crate defect and
+        // reporting green, which is the one direction this function must never
+        // fail in.
+        //
+        // Both platforms' separators, because the harness is written on Windows
+        // and read on Linux CI, and the paths are shaped the same way on both.
+        for path in [
+            r"C:\Users\dev\Projects\MAGI-Core\src\providers\hyper_compat.rs",
+            "/home/dev/MAGI-Core/src/providers/hyper_compat.rs",
+            // A checkout directory that merely spells a dependency's name.
+            r"C:\toml\MAGI-Core\src\orchestrator.rs",
+            "/work/futures-utils/MAGI-Core/src/rotation.rs",
+        ] {
+            assert_eq!(
+                classify_panic(Some(path)),
+                ScenarioState::Fail,
+                "{path} is crate source; only a real {{name}}-{{version}} directory is a \
+                 harness dependency"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_dependency_directory_is_still_recognised_on_both_platforms() {
+        // The companion to the test above: narrowing the match must not turn the
+        // harness-only arm into dead code, which would send every `hyper` panic
+        // to Fail and accuse the crate of a fault in a library the HARNESS chose.
+        //
+        // The Windows path is the shape MEASURED out of this harness's own built
+        // binary, not an invented one.
+        for path in [
+            concat!(
+                r"C:\Users\dev\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f",
+                r"\hyper-1.11.0\src\body\incoming.rs"
+            ),
+            "/home/dev/.cargo/registry/src/index.crates.io-6f17d22bba15001f/toml-0.8.23/src/lib.rs",
+            "/deps/hyper-util-0.1.20/src/rt/tokio.rs",
+        ] {
+            assert!(
+                matches!(classify_panic(Some(path)), ScenarioState::Skip(_)),
+                "{path} is a harness-only dependency and must not be blamed on the crate"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dependency_name_only_claims_its_own_versioned_directory() {
+        // `hyper` must not claim `hyper-util`'s directory, and the leading digit
+        // of the version is the whole reason it cannot: `hyper-util-0.1.20`
+        // continues with `u`, not a digit. Checked on the helper directly so the
+        // property is pinned per (path, name) pair rather than through a
+        // classification that both names happen to agree on.
+        assert!(is_dependency_source(
+            "/deps/hyper-1.11.0/src/lib.rs",
+            "hyper"
+        ));
+        assert!(!is_dependency_source(
+            "/deps/hyper-util-0.1.20/src/lib.rs",
+            "hyper"
+        ));
+        assert!(is_dependency_source(
+            "/deps/hyper-util-0.1.20/src/lib.rs",
+            "hyper-util"
+        ));
+        // No numeric version: a git checkout or a vendored tree. Positive
+        // identification failed, so it falls to the safe side.
+        assert!(!is_dependency_source(
+            "/git/checkouts/hyper-abc123/src/lib.rs",
+            "hyper"
         ));
     }
 

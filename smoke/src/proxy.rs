@@ -49,6 +49,15 @@
 //! "nothing recorded," never as "recorded, and it was empty." See
 //! [`RequestRecord::response_recorded`]'s fix note and the test
 //! `a_broken_response_read_is_not_recorded_as_an_empty_answer`.
+//!
+//! # Fixes from review round 2 (the same defect, on the REQUEST side)
+//!
+//! The response half of that fix landed while the request half kept the bug: a
+//! failed `body.collect()` in [`SpyProxy::handle`] became `Bytes::new()` and was
+//! FORWARDED, so the backend received an empty request the client never sent,
+//! and the transparency comparison could then blame the crate for a body the
+//! HARNESS substituted. Nothing is forwarded now; see the `Err` arm in `handle`
+//! and `an_unreadable_request_is_not_forwarded_as_an_empty_one`.
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
@@ -135,6 +144,60 @@ const MIN_RECORDED_BODY_CAP: usize = 1 << 20;
 /// backend itself returned. Named so a reader does not have to reverse the
 /// meaning of a bare `502` out of the code that sends it.
 const UPSTREAM_UNREACHABLE_STATUS: u16 = 502;
+
+/// The status the proxy answers with when it could not read the request body it
+/// was handed — see [`SpyProxy::handle`] for why nothing is forwarded in that
+/// case.
+///
+/// **`5xx` and deliberately not `4xx`.** For this exchange the proxy IS the
+/// server, and the party that failed is the proxy; a `4xx` would tell the crate
+/// its own request was malformed, which is a claim the harness has no basis for
+/// and which points an investigation straight at the crate — the misattribution
+/// this whole harness exists to prevent. The crate reads a `5xx` as the server
+/// side failing, which is true, and [`SpyProxy::is_degraded`] is what tells the
+/// scenarios to report SKIP rather than either verdict.
+const REQUEST_UNREADABLE_STATUS: u16 = 500;
+
+/// The body sent with [`REQUEST_UNREADABLE_STATUS`]. Says who failed, so the
+/// line is legible in a captured trace without cross-referencing the status.
+const REQUEST_UNREADABLE_BODY: &[u8] = b"spy proxy: could not read the request body";
+
+/// Headers that belong to ONE hop of a connection and must never be relayed to
+/// the next one, in the lowercase form `hyper` and `reqwest` both hand back.
+///
+/// Two of these corrupt framing rather than merely being untidy:
+/// `transfer-encoding` describes how the body was framed on the connection the
+/// proxy read it from, and both directions here are re-framed by the library
+/// that writes them, so relaying it end to end announces an encoding that is
+/// not the one on the wire. `connection` names further headers that are
+/// themselves per-hop, so passing it on can make the far end treat an
+/// end-to-end header as disposable.
+///
+/// The list is RFC 9110's set of connection-specific fields plus `proxy-*`; it
+/// is a closed set and does not grow with what the harness happens to see.
+const HOP_BY_HOP_HEADERS: [&str; 8] = [
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
+
+/// Whether `name` is a per-hop header that must be dropped rather than relayed.
+///
+/// # Parameters
+///
+/// * `name` — a header name as `hyper`/`reqwest` expose it, already lowercase.
+///
+/// # Complexity
+///
+/// `O(h)` over the eight names in [`HOP_BY_HOP_HEADERS`].
+fn is_hop_by_hop(name: &str) -> bool {
+    HOP_BY_HOP_HEADERS.contains(&name)
+}
 
 /// Cap on the recorded copy of a request body, **derived from the configured
 /// payload target** instead of hardcoded: the whole point of the large-payload
@@ -266,6 +329,21 @@ pub struct SpyProxy {
     injection: Arc<Mutex<Option<Injection>>>,
     /// Derived once from the configured payload target at `start()`.
     record_cap: usize,
+    /// The upstream client, built ONCE at [`start`](SpyProxy::start) and reused
+    /// by every forward.
+    ///
+    /// `forward` used to call `reqwest::Client::new()` per request, which throws
+    /// away the connection pool the client exists to hold: every forwarded
+    /// request paid a fresh TCP connect, and the real runs forward one per
+    /// completion, per probe, per retry and per rotation. It also made each
+    /// request open its own socket against the backend, which is a load pattern
+    /// the crate never produces on its own — so the harness would have been
+    /// measuring itself into the picture.
+    ///
+    /// `reqwest::Client` is internally reference-counted and `Clone` is cheap,
+    /// so sharing it through `SpyProxy`'s own `Clone` (the serving task holds
+    /// one) needs no `Arc` of our own.
+    client: reqwest::Client,
 }
 
 impl SpyProxy {
@@ -446,12 +524,20 @@ impl SpyProxy {
     ) -> Result<Self, std::io::Error> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let base_url = format!("http://{}", listener.local_addr()?);
+        // Built here rather than per request (see the `client` field), and
+        // through `builder().build()` rather than `Client::new()` so a client
+        // that cannot be constructed becomes this function's error instead of a
+        // panic inside a dependency.
+        let client = reqwest::Client::builder()
+            .build()
+            .map_err(std::io::Error::other)?;
         let this = Self {
             base_url,
             records: Arc::new(Mutex::new(Vec::new())),
             degraded: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             injection: Arc::new(Mutex::new(None)),
             record_cap: max_recorded_body(payload_target_bytes),
+            client,
         };
         let srv = this.clone();
         tokio::spawn(async move {
@@ -497,10 +583,41 @@ impl SpyProxy {
         let method = parts.method.to_string();
         let bytes = match body.collect().await {
             Ok(c) => c.to_bytes(),
+            // The request could not be read in full. **Nothing is forwarded.**
+            //
+            // This used to substitute `Bytes::new()` and forward that, so the
+            // backend received a request the client never sent — an EMPTY body
+            // in place of whatever was on the wire. Everything downstream then
+            // described that fabrication: the record's hash identified a body
+            // nobody sent, and the transparency scenario, which compares the
+            // proxied request against a direct one by checksum, would have
+            // reported a difference the CRATE never introduced. A proxy that
+            // cannot read its input has exactly three honest options —
+            // fail, drop, or read it correctly — and forwarding something
+            // else is not among them.
+            //
+            // The failure is made visible on both sides instead of being
+            // swallowed: `degraded` is latched, which routes every assertion
+            // that reads the registry to SKIP, and the client is answered with
+            // [`REQUEST_UNREADABLE_STATUS`] naming the proxy as the party that
+            // failed.
+            //
+            // **No record is pushed, deliberately.** Every field of one would be
+            // a claim about a request that was never fully received:
+            // `body_sha256` is computed over the FULL body precisely so the
+            // transparency comparison can trust it, and hashing a truncated
+            // prefix would put a confident, wrong checksum into the registry —
+            // the same class of lie as recording an unreadable response as an
+            // empty one (see [`RequestRecord::response_recorded`]). Absence
+            // here is not silence: `degraded` is the signal, and it is louder
+            // than a row.
             Err(_) => {
                 self.degraded
                     .store(true, std::sync::atomic::Ordering::SeqCst);
-                Bytes::new()
+                return Ok(hyper::Response::builder()
+                    .status(REQUEST_UNREADABLE_STATUS)
+                    .body(fixed(REQUEST_UNREADABLE_BODY))
+                    .unwrap_or_else(|_| hyper::Response::new(empty_body())));
             }
         };
         let rec = RequestRecord::record_of(&bytes, &path);
@@ -636,15 +753,21 @@ impl SpyProxy {
         body: Bytes,
         upstream: &str,
     ) -> hyper::Response<ProxyBody> {
-        let client = reqwest::Client::new();
         let url = format!("{}{}", upstream.trim_end_matches('/'), path);
         let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
 
-        let mut req = client.request(m, &url).body(body.to_vec());
+        let mut req = self.client.request(m, &url).body(body.to_vec());
         for (name, value) in headers.iter() {
-            // Hop-by-hop headers must not be forwarded; `host` would point at
-            // the proxy and make the upstream reject or misroute the request.
-            if matches!(name.as_str(), "host" | "connection" | "content-length") {
+            // Hop-by-hop headers must not be forwarded (see
+            // [`HOP_BY_HOP_HEADERS`]); this list used to name only `connection`,
+            // leaving `transfer-encoding`, `te`, `upgrade` and their kin to be
+            // relayed end to end.
+            //
+            // `host` and `content-length` are dropped for a different reason
+            // and are NOT hop-by-hop: `host` would still point at the proxy,
+            // and `content-length` describes the body as it arrived, which
+            // `reqwest` recomputes for the request it is about to write.
+            if is_hop_by_hop(name.as_str()) || matches!(name.as_str(), "host" | "content-length") {
                 continue;
             }
             req = req.header(name.as_str(), value.as_bytes());
@@ -669,6 +792,20 @@ impl SpyProxy {
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>);
                 let mut out = hyper::Response::builder().status(status.as_u16());
                 for (n, v) in hdrs.iter() {
+                    // The RESPONSE path had no filter at all, so every per-hop
+                    // header the upstream set was relayed to the crate. The one
+                    // that actually corrupts rather than merely misinforms is
+                    // `transfer-encoding`: the body below is re-framed by
+                    // `hyper` as it writes it, so announcing the encoding of the
+                    // connection it was READ from describes a framing that is
+                    // not the one being sent.
+                    //
+                    // `content-length` is kept: it is end-to-end, it is the same
+                    // number for the same body, and the stream forwards exactly
+                    // those bytes.
+                    if is_hop_by_hop(n.as_str()) {
+                        continue;
+                    }
                     out = out.header(n.as_str(), v.as_bytes());
                 }
                 out.body(boxed(StreamBody::new(stream)))
@@ -936,6 +1073,73 @@ mod tests {
             "a failed body read must be recorded as NOTHING recorded, \
              never as a genuine (empty) response"
         );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_request_is_not_forwarded_as_an_empty_one() {
+        // The client promises 1000 body bytes and sends 10, then closes its
+        // write half: the proxy's `body.collect()` must fail. Before the fix it
+        // substituted an EMPTY body and forwarded that, so the backend received
+        // a request the client never sent — and the transparency scenario, which
+        // compares proxied against direct by checksum, could report a difference
+        // the crate never introduced.
+        //
+        // The load-bearing assertion is the one the proxy's own registry cannot
+        // make: that the upstream received NOTHING.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000)
+            .await
+            .expect("proxy bind");
+        assert_eq!(upstream.received(), 0, "nothing has been sent yet");
+
+        crate::testkit::send_truncated_request(&proxy.base_url(), "/api/chat").await;
+
+        assert_eq!(
+            upstream.received(),
+            0,
+            "a request the proxy could not read must not reach the backend at all: \
+             forwarding a substitute for it is the one option that is wrong"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "and the failure must be visible rather than silent, or a run reports clean \
+             over a request it mishandled"
+        );
+        assert!(
+            proxy.records().is_empty(),
+            "no record either: every field of one would describe a request that was never \
+             fully received, and `body_sha256` in particular is what the transparency \
+             comparison trusts"
+        );
+    }
+
+    #[tokio::test]
+    async fn hop_by_hop_headers_are_not_relayed_in_either_direction() {
+        // Relaying `transfer-encoding` is the one that corrupts rather than
+        // merely misinforms: both directions are re-framed by the library that
+        // writes them, so announcing the encoding of the connection the message
+        // was READ from describes framing that is not the one being sent.
+        //
+        // Asserted on the classifier, per name, rather than through a live
+        // exchange: `hyper` and `reqwest` both strip and regenerate these
+        // themselves, so a round trip would go green whether the filter existed
+        // or not — which is precisely the mechanism-that-reports-success shape
+        // this milestone keeps producing.
+        for name in HOP_BY_HOP_HEADERS {
+            assert!(is_hop_by_hop(name), "{name} must be filtered");
+        }
+        // End-to-end headers must survive, or the forward stops being verbatim
+        // and the transparency claim stops being checkable.
+        for name in ["content-type", "authorization", "accept", "user-agent"] {
+            assert!(
+                !is_hop_by_hop(name),
+                "{name} is end-to-end and must be forwarded untouched"
+            );
+        }
+        // `content-length` is NOT hop-by-hop, and the distinction is
+        // load-bearing: the request path drops it for its own reason (the body
+        // is rewritten by `reqwest`), while the response path keeps it.
+        assert!(!is_hop_by_hop("content-length"));
     }
 
     #[tokio::test]

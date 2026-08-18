@@ -401,6 +401,40 @@ pub fn build_magi_against(
     }
 }
 
+/// The ids [`RunSpec::for_stage_e1`] produces, without generating a payload.
+///
+/// It exists because the cost announcement is printed by the PREFLIGHT, before
+/// any spec is built, and announcing a cost means naming the runs about to
+/// happen. A second hand-written list of run ids would be one more thing that
+/// can drift out of step with `for_stage_e1` in silence — which is exactly what
+/// happened: the announcement summed the large-payload run's budget, a run this
+/// stage deliberately never launches, and so promised time nobody was going to
+/// spend.
+///
+/// `the_announced_runs_are_the_runs_this_stage_actually_launches` compares this
+/// against what `for_stage_e1` really returns, so the two cannot disagree
+/// without a red test.
+///
+/// # Parameters
+///
+/// * `no_backend` — the partition flag, with the same meaning it has in
+///   [`RunSpec::for_stage_e1`].
+///
+/// # Complexity
+///
+/// `O(1)`: it allocates a fixed-size list and reads nothing.
+pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
+    if no_backend {
+        return vec![RunId::NoBackend];
+    }
+    vec![
+        RunId::HappySmall,
+        RunId::Rotation,
+        RunId::Degradation,
+        RunId::NoBackend,
+    ]
+}
+
 impl RunSpec {
     /// This stage's runs.
     ///
@@ -848,6 +882,32 @@ mod tests {
             .expect("the manifest dir always has a parent");
         let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
         assert!(specs.iter().all(|s| s.id != RunId::Large62k));
+    }
+
+    #[test]
+    fn the_announced_runs_are_the_runs_this_stage_actually_launches() {
+        // `stage_e1_run_ids` exists so the preflight can name the runs before a
+        // spec is built, and a second hand-written list is precisely what drifts
+        // out of step in silence — the announcement used to sum the
+        // large-payload run's budget for a run that never launches. This is the
+        // comparison that makes the two fail together instead.
+        let cfg = Config::default();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the manifest dir always has a parent");
+        for no_backend in [false, true] {
+            let real: Vec<RunId> = RunSpec::for_stage_e1(&cfg, root, no_backend)
+                .expect("payload generation")
+                .iter()
+                .map(|s| s.id)
+                .collect();
+            assert_eq!(
+                stage_e1_run_ids(no_backend),
+                real,
+                "the announced run list must BE the launched one, in the same order \
+                 (no_backend = {no_backend})"
+            );
+        }
     }
 
     #[test]

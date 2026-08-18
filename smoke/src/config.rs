@@ -211,8 +211,14 @@ impl std::fmt::Display for ConfigError {
 ///
 /// **It is explicit because without it "validation also covers env vars" cannot
 /// be verified or implemented completely**: there is nothing to check coverage
-/// against. A test walks this list and requires `apply_env_override` to handle
-/// **every** entry.
+/// against.
+///
+/// The test `every_declared_env_override_is_actually_handled` walks this list
+/// and requires [`Config::apply_env_override`] to handle **every** entry —
+/// where "handled" means an arm of its own that CHANGES the config, not merely
+/// the absence of an error. This sentence used to be a claim with no such test
+/// behind it, and `MAGI_SMOKE_RUN_PAYLOAD_BYTES` was declared here for a whole
+/// milestone with no arm to receive it.
 ///
 /// **Credentials are NOT here, on purpose**: they travel by environment and
 /// **never** touch the file, so they have no file-side counterpart to override.
@@ -256,6 +262,18 @@ impl RunId {
             Self::NoBackend => "no_backend",
         }
     }
+
+    /// Whether this run sends anything to the backend.
+    ///
+    /// An exhaustive `match` rather than a list of the ones that do: a run added
+    /// later stops the compilation here and its answer gets decided, instead of
+    /// being inherited from whichever side the author of the list forgot.
+    pub fn uses_backend(self) -> bool {
+        match self {
+            Self::HappySmall | Self::Large62k | Self::Rotation | Self::Degradation => true,
+            Self::NoBackend => false,
+        }
+    }
 }
 
 /// Upper bound for `probe_timeout_secs`, in seconds. Ten minutes is generous
@@ -268,6 +286,19 @@ const MAX_PROBE_TIMEOUT_SECS: u64 = 600;
 /// catch — a reasoning model exhausting its output budget on a large
 /// payload — and would certify exactly what never fails.
 const MIN_PAYLOAD_TARGET_BYTES: usize = 100_000;
+
+/// Lower bound for `run_payload_bytes`, in bytes.
+///
+/// **One, and deliberately not a rounder-looking number.** The only bound this
+/// field has a defensible basis for is "not empty": a zero-byte payload makes
+/// every backend run analyse nothing, and a trio that agrees about nothing
+/// still produces a report, so the runs would pass over an input that was never
+/// there — green by omission, arrived at through configuration. Anything above
+/// `1` would be a size someone invented, and there is no upper bound at all
+/// because raising this value **is** the documented way to reproduce the
+/// large-input failure by hand (see [`Config::run_payload_bytes`]); a ceiling
+/// here would forbid the one use the field exists for.
+const MIN_RUN_PAYLOAD_BYTES: usize = 1;
 
 impl Config {
     pub fn from_str(text: &str) -> Result<Self, ConfigError> {
@@ -327,6 +358,13 @@ impl Config {
             return Err(ConfigError(format!(
                 "payload_target_bytes must be >= {MIN_PAYLOAD_TARGET_BYTES}: below that the \
                  large-payload scenario stops being large and certifies exactly what never fails"
+            )));
+        }
+        if self.run_payload_bytes < MIN_RUN_PAYLOAD_BYTES {
+            return Err(ConfigError(format!(
+                "run_payload_bytes must be >= {MIN_RUN_PAYLOAD_BYTES}: an empty payload makes \
+                 every backend run analyse nothing, and a run that analysed nothing still \
+                 reports — so the suite would go green over an input that was never sent"
             )));
         }
         for (name, v) in [
@@ -404,6 +442,25 @@ impl Config {
                     .parse()
                     .map_err(|_| ConfigError(format!("{key}: not a number")))?;
             }
+            // The arm this list PROMISED and did not have. `ENV_OVERRIDES`
+            // declared the variable, so `reject_unknown_smoke_vars` let it
+            // through, and it then fell into the catch-all below and was
+            // refused as an "unknown override" — a variable the harness
+            // advertises and then rejects. The test
+            // `every_declared_env_override_is_actually_handled` is what now
+            // makes the list and this `match` fail together instead of drifting.
+            "MAGI_SMOKE_RUN_PAYLOAD_BYTES" => {
+                base.run_payload_bytes = raw
+                    .parse()
+                    .map_err(|_| ConfigError(format!("{key}: not a number")))?;
+            }
+            // The arm this list PROMISED and did not have. `ENV_OVERRIDES`
+            // declared the variable, so `reject_unknown_smoke_vars` let it
+            // through, and it then fell into the catch-all below and was
+            // refused as an "unknown override" — a variable the harness
+            // advertises and then rejects. The test
+            // `every_declared_env_override_is_actually_handled` is what now
+            // makes the list and this `match` fail together instead of drifting.
             other if other.starts_with("MAGI_SMOKE_") => {
                 return Err(ConfigError(format!(
                     "{other}: unknown override. Known keys: {}",
@@ -654,6 +711,105 @@ mod tests {
             Config::apply_env_override("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "0", Config::default())
                 .unwrap_err();
         assert!(format!("{err}").contains("probe_timeout_secs"));
+    }
+
+    /// A raw value for `key` that is VALID and DIFFERENT from the built-in
+    /// default, so applying it must be observable in the resulting config.
+    ///
+    /// The catch-all does not return a placeholder: it panics, naming the key.
+    /// A default arm here would let a newly declared `ENV_OVERRIDES` entry be
+    /// "covered" by a value that changes nothing, and the coverage test would
+    /// report success while checking that entry not at all — the exact shape of
+    /// defect this pair of test and list exists to close.
+    fn representative_value_for(key: &str) -> &'static str {
+        match key {
+            "MAGI_SMOKE_ENDPOINT" => "http://example.invalid:9999",
+            "MAGI_SMOKE_PROBE_TIMEOUT_SECS" => "5",
+            "MAGI_SMOKE_PAYLOAD_TARGET_BYTES" => "300000",
+            "MAGI_SMOKE_RUN_PAYLOAD_BYTES" => "4096",
+            "MAGI_SMOKE_BUDGET_HAPPY_SECS" => "121",
+            "MAGI_SMOKE_BUDGET_LARGE_SECS" => "301",
+            "MAGI_SMOKE_BUDGET_INJECTED_SECS" => "181",
+            "MAGI_SMOKE_BUDGET_NO_BACKEND_SECS" => "31",
+            unknown => panic!(
+                "{unknown} was added to ENV_OVERRIDES without a representative value here; \
+                 add one, or the coverage test cannot check that entry at all"
+            ),
+        }
+    }
+
+    #[test]
+    fn every_declared_env_override_is_actually_handled() {
+        // The guard the `ENV_OVERRIDES` docstring PROMISED and did not have.
+        // Without it, `MAGI_SMOKE_RUN_PAYLOAD_BYTES` sat in the list for a whole
+        // milestone with no arm in `apply_env_override`, and the comment
+        // claiming a test enforced coverage is what kept anyone from looking.
+        //
+        // # How it tells "handled" from "fell through", mechanically
+        //
+        // Two independent checks, because either one alone can be satisfied by
+        // an arm that does nothing:
+        //
+        // 1. **No `Err`.** Every key here starts with `MAGI_SMOKE_`, so a key
+        //    with no arm of its own reaches the catch-all guard
+        //    `other if other.starts_with("MAGI_SMOKE_")` and is refused as an
+        //    "unknown override". Falling through is therefore observable from
+        //    outside, and it is what this half detects.
+        // 2. **The config CHANGED.** `Config` derives `PartialEq`, and every
+        //    value from `representative_value_for` differs from the built-in
+        //    default, so an arm that parses and then discards the value leaves
+        //    the config equal to the base and fails here.
+        for (key, field) in ENV_OVERRIDES {
+            let raw = representative_value_for(key);
+            let applied =
+                Config::apply_env_override(key, raw, Config::default()).unwrap_or_else(|e| {
+                    panic!(
+                        "{key} is declared in ENV_OVERRIDES for `{field}` but \
+                         apply_env_override has no arm for it: {e}"
+                    )
+                });
+            assert_ne!(
+                applied,
+                Config::default(),
+                "{key} was accepted but changed nothing, so `{field}` is not really \
+                 overridable — an operator would debug a value they believe they set"
+            );
+        }
+    }
+
+    #[test]
+    fn the_run_payload_has_a_range_and_violating_it_names_the_field() {
+        // Every numeric value has a range and the message NAMES the field; this
+        // one had neither, so a zero-byte run payload was accepted and every
+        // backend run would have analysed nothing while still reporting.
+        let zero = Config {
+            run_payload_bytes: 0,
+            ..Config::default()
+        };
+        let err = zero
+            .validate()
+            .expect_err("a zero-byte run payload must be rejected");
+        assert!(
+            format!("{err}").contains("run_payload_bytes"),
+            "the error must NAME the field: {err}"
+        );
+        // The boundary itself, from both sides: one byte below is refused and
+        // exactly the minimum is accepted. Asserting only the rejection would
+        // pass just as well against a check that refuses every value.
+        let at_minimum = Config {
+            run_payload_bytes: MIN_RUN_PAYLOAD_BYTES,
+            ..Config::default()
+        };
+        assert!(
+            at_minimum.validate().is_ok(),
+            "the minimum itself must be accepted, or the bound is off by one"
+        );
+        // And the same range applies through the environment, which is the
+        // HIGHEST-precedence path (R30).
+        let via_env =
+            Config::apply_env_override("MAGI_SMOKE_RUN_PAYLOAD_BYTES", "0", Config::default())
+                .expect_err("the env path goes through the same ranges as the file path");
+        assert!(format!("{via_env}").contains("run_payload_bytes"));
     }
 
     #[test]

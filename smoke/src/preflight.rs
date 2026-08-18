@@ -33,6 +33,7 @@ use crate::config::{Config, RunId, PROBE_RETRY_FACTOR};
 use crate::fixtures;
 use crate::paths::{fixture_dir, repo_root, smoke_dir};
 use crate::proxy::SpyProxy;
+use crate::runner::stage_e1_run_ids;
 use std::path::Path;
 use std::time::Duration;
 
@@ -213,7 +214,7 @@ pub async fn run(
     let proxy = raise_proxy(cfg, break_proxy).await?; // proxy
     Ok(Announcement {
         proxy,
-        cost_announcement: announce_cost(cfg),
+        cost_announcement: announce_cost(cfg, no_backend),
     }) // cost
 }
 
@@ -463,37 +464,61 @@ pub async fn raise_proxy(cfg: &Config, break_proxy: bool) -> Result<SpyProxy, Pr
 /// bound, not a measurement.
 const TOKEN_ESTIMATE_DIVISOR: usize = 4;
 
-/// The four runs this preflight is actually preparing for: the ones that
-/// touch the backend through the proxy it just raised. `RunId::NoBackend`
-/// never reaches that proxy, so it is not one of "the runs about to launch"
-/// against it — summing it in would announce time this preflight has no part
-/// in spending.
-const BACKEND_RUNS: [RunId; 4] = [
-    RunId::HappySmall,
-    RunId::Large62k,
-    RunId::Rotation,
-    RunId::Degradation,
-];
-
 /// R31: the sentence printed BEFORE the first run — estimated tokens and the
 /// expected time budget, so an operator sees the cost before anything spends
 /// it.
 ///
-/// Tokens are `payload_target_bytes / 4`, the same coarse bound the crate
-/// itself uses, stated as a coarse bound rather than a measurement. Time is
-/// the SUM of the budgets of the backend runs about to launch (see
-/// [`BACKEND_RUNS`]) — a cap on what each run may spend, not a prediction of
-/// what it will.
-pub fn announce_cost(cfg: &Config) -> String {
-    let estimated_tokens = cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR;
-    let expected_secs: u64 = BACKEND_RUNS
+/// # It announces the runs that will ACTUALLY happen
+///
+/// Both halves of this sentence used to describe a run this stage never
+/// launches. The time was the sum over a hand-written list that included
+/// [`RunId::Large62k`], deliberately excluded from the stage
+/// ([`RunSpec::for_stage_e1`](crate::runner::RunSpec::for_stage_e1)), so the
+/// figure promised time nobody was going to spend. And the tokens came from
+/// `payload_target_bytes`, which sizes that same absent run, while every run
+/// that does launch analyses `run_payload_bytes` — two orders of magnitude
+/// apart with the shipped defaults.
+///
+/// The run list now comes from [`stage_e1_run_ids`], the same function the
+/// runner's own list is checked against, so an announcement that stops matching
+/// the runs is a red test rather than a wrong number nobody re-reads.
+///
+/// # Both figures are stated as what they are
+///
+/// Tokens are `bytes / 4`, the same coarse bound the crate itself uses, said to
+/// be a coarse bound and not a measurement. Time is the SUM of the budgets of
+/// the backend runs about to launch — a cap on what each may spend, never a
+/// prediction of what it will.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration, for the payload size and the budgets.
+/// * `no_backend` — the partition flag. With it, no run reaches the backend at
+///   all, and the sentence says so rather than announcing a cost of zero as if
+///   zero were an estimate.
+///
+/// # Complexity
+///
+/// `O(r)` in the number of runs the stage launches.
+pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
+    let backend_runs: Vec<RunId> = stage_e1_run_ids(no_backend)
         .into_iter()
-        .map(|r| cfg.budget(r).as_secs())
-        .sum();
+        .filter(|r| r.uses_backend())
+        .collect();
+    if backend_runs.is_empty() {
+        return "preflight: no run in this partition reaches the backend, so nothing will be \
+                spent on it"
+            .to_string();
+    }
+    let estimated_tokens = cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR;
+    let expected_secs: u64 = backend_runs.iter().map(|r| cfg.budget(*r).as_secs()).sum();
+    let names: Vec<&str> = backend_runs.iter().map(|r| r.as_str()).collect();
     format!(
-        "preflight: ~{estimated_tokens} tokens estimated (bytes/4, a coarse bound, not a \
-         measurement); expected time budget ~{expected_secs}s across the backend runs about \
-         to start"
+        "preflight: {} backend run(s) about to start ({}), each analysing ~{estimated_tokens} \
+         input tokens (bytes/4, a coarse bound, not a measurement); expected time budget \
+         ~{expected_secs}s in total",
+        backend_runs.len(),
+        names.join(", ")
     )
 }
 
@@ -594,6 +619,58 @@ mod tests {
                 "proxy",
                 "cost"
             ]
+        );
+    }
+
+    #[test]
+    fn the_cost_announced_is_the_cost_of_the_runs_that_will_actually_happen() {
+        // It used to sum the large-payload run's budget — a run this stage
+        // deliberately never launches — and to size its token estimate from
+        // `payload_target_bytes`, which belongs to that same absent run. Both
+        // halves therefore promised more than the invocation could ever spend,
+        // and an announcement that overstates is one an operator learns to
+        // ignore.
+        let cfg = Config::default();
+        let announced = announce_cost(&cfg, false);
+
+        let expected_secs: u64 = cfg.budget(RunId::HappySmall).as_secs()
+            + cfg.budget(RunId::Rotation).as_secs()
+            + cfg.budget(RunId::Degradation).as_secs();
+        assert!(
+            announced.contains(&format!("~{expected_secs}s")),
+            "the time must be the sum over the launched backend runs: {announced}"
+        );
+        assert!(
+            !announced.contains(&format!(
+                "~{}s",
+                expected_secs + cfg.budget(RunId::Large62k).as_secs()
+            )),
+            "the large-payload run is not launched, so its budget must not be in the \
+             announcement: {announced}"
+        );
+        assert!(
+            !announced.contains(RunId::Large62k.as_str()),
+            "and it must not be named as a run about to start: {announced}"
+        );
+        assert!(
+            announced.contains(&format!(
+                "~{} input tokens",
+                cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR
+            )),
+            "the tokens must come from the payload the launched runs analyse, not from the \
+             one that sizes the absent run: {announced}"
+        );
+    }
+
+    #[test]
+    fn with_no_backend_the_announcement_says_nothing_will_be_spent() {
+        // A partition where no run reaches the backend has no backend cost, and
+        // saying "~0s across the backend runs" would read as an estimate of
+        // something rather than as the absence of it.
+        let announced = announce_cost(&Config::default(), true);
+        assert!(
+            announced.contains("no run in this partition reaches the backend"),
+            "{announced}"
         );
     }
 

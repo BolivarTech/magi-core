@@ -134,12 +134,24 @@ pub fn make_symlink(link: PathBuf, target: PathBuf) -> bool {
 /// assert on. The OS reclaims the ephemeral port when the test process exits.
 pub struct EchoServer {
     addr: std::net::SocketAddr,
+    received: Arc<AtomicUsize>,
 }
 
 impl EchoServer {
     /// The base URL a client (or a proxy under test) should send requests to.
     pub fn url(&self) -> String {
         format!("http://{}", self.addr)
+    }
+
+    /// How many requests this server has actually received.
+    ///
+    /// It exists for the one property that cannot be observed from the proxy's
+    /// own side: that a request was **not** forwarded. Reading the proxy's
+    /// registry cannot answer that — a proxy that forwarded a corrupted body
+    /// and one that forwarded nothing can leave the registry looking the same —
+    /// so the question has to be put to the far end.
+    pub fn received(&self) -> usize {
+        self.received.load(Ordering::SeqCst)
     }
 }
 
@@ -157,23 +169,34 @@ pub async fn spawn_echo_server() -> EchoServer {
         .await
         .expect("bind echo server");
     let addr = listener.local_addr().expect("echo server local address");
+    let received = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&received);
     tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else {
                 continue;
             };
+            let counter = Arc::clone(&counter);
             tokio::spawn(async move {
                 let io = hyper_util::rt::TokioIo::new(stream);
                 let svc = hyper::service::service_fn(
-                    |req: hyper::Request<hyper::body::Incoming>| async {
-                        // Drain the body so the connection completes cleanly;
-                        // its content is irrelevant to what the proxy tests
-                        // check — they read the PROXY's record, not this
-                        // server's reply.
-                        let _ = http_body_util::BodyExt::collect(req.into_body()).await;
-                        Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                            http_body_util::Full::new(hyper::body::Bytes::from_static(b"ok")),
-                        ))
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let counter = Arc::clone(&counter);
+                        async move {
+                            // Counted BEFORE the body is drained: what the
+                            // caller asks is whether the request ARRIVED at
+                            // all, and a request that arrives and then fails
+                            // to be read still arrived.
+                            counter.fetch_add(1, Ordering::SeqCst);
+                            // Drain the body so the connection completes
+                            // cleanly; its content is irrelevant to what the
+                            // proxy tests check — they read the PROXY's
+                            // record, not this server's reply.
+                            let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"ok")),
+                            ))
+                        }
                     },
                 );
                 let _ = hyper::server::conn::http1::Builder::new()
@@ -182,7 +205,70 @@ pub async fn spawn_echo_server() -> EchoServer {
             });
         }
     });
-    EchoServer { addr }
+    EchoServer { addr, received }
+}
+
+/// The body length a truncated request PROMISES but never delivers in full.
+const TRUNCATED_REQUEST_CONTENT_LENGTH: usize = 1000;
+
+/// The body bytes a truncated request actually writes before closing its write
+/// half — deliberately far short of [`TRUNCATED_REQUEST_CONTENT_LENGTH`].
+const TRUNCATED_REQUEST_ACTUAL_BODY: &[u8] = b"0123456789";
+
+/// Sends a `POST` whose `Content-Length` promises more body than it delivers,
+/// then closes the write half — the CLIENT-side mirror of
+/// [`spawn_truncating_server`], and the only way to make a server's request
+/// body read genuinely fail.
+///
+/// Deliberately bypasses `reqwest` and `hyper` on the client side, for the same
+/// reason [`spawn_truncating_server`] bypasses `hyper` on the server side: both
+/// libraries keep a `Content-Length` and the bytes they write in sync by
+/// construction, so there is no way to ask either of them to lie. Producing the
+/// failure means writing the wire bytes by hand.
+///
+/// It then reads the connection to EOF, which is what makes the caller's
+/// assertions safe to make: the server holds the socket open for as long as it
+/// is handling the request, so EOF means the handler has finished with it.
+///
+/// # Parameters
+///
+/// * `base_url` — the server's base URL, as [`EchoServer::url`] renders it.
+/// * `path` — the request path, e.g. `/api/chat`.
+///
+/// # Panics
+///
+/// Panics if the connection cannot be opened or written. Acceptable here: this
+/// is `#[cfg(test)]`-only fixture code, and a setup failure should stop the
+/// test rather than let it assert against a request that was never sent.
+pub async fn send_truncated_request(base_url: &str, path: &str) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let addr = base_url
+        .strip_prefix("http://")
+        .expect("the harness only ever serves plaintext http");
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect to the server under test");
+    let head = format!(
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\n\
+         Content-Length: {TRUNCATED_REQUEST_CONTENT_LENGTH}\r\n\r\n"
+    );
+    stream
+        .write_all(head.as_bytes())
+        .await
+        .expect("write the request head");
+    stream
+        .write_all(TRUNCATED_REQUEST_ACTUAL_BODY)
+        .await
+        .expect("write the short body");
+    stream
+        .shutdown()
+        .await
+        .expect("close the write half, so the server sees EOF mid-body");
+    // Read to EOF. Whatever comes back is irrelevant — the point is to wait
+    // until the server is done with this connection, so the caller is not
+    // racing the handler it means to observe.
+    let mut sink = Vec::new();
+    let _ = stream.read_to_end(&mut sink).await;
 }
 
 /// A raw TCP responder that promises more body than it ever sends, then
