@@ -303,6 +303,13 @@ pub struct CertificateFacts {
     /// certificate a guess too — the same reason `--smoke-2` is not detected
     /// either.
     pub round: u32,
+    /// What the fixture audit counted, for R23's 30 % warning.
+    ///
+    /// It rides in the certificate rather than in stdout because R23 says so
+    /// and gives the reason: *"a count that only lives in stdout is lost; one
+    /// in the certificate stays in git history"* — it belongs where somebody
+    /// decides a release, not in the output of a run nobody kept.
+    pub fixtures: crate::fixtures::FixtureSummary,
 }
 
 /// `YYYY-MM-DD` in UTC for an instant.
@@ -770,6 +777,7 @@ mod tests {
             mode: "tree",
             cost: "3 backend run(s) in 41.5s".to_string(),
             round: 3,
+            fixtures: crate::fixtures::FixtureSummary::default(),
         }
     }
 
@@ -810,6 +818,43 @@ mod tests {
                 "the certificate must declare the {field} it was issued with: {cert}"
             );
         }
+    }
+
+    #[test]
+    fn a_corpus_over_the_unverified_threshold_warns_in_the_certificate() {
+        // R23 puts the warning HERE and says why: a count that lives only in
+        // stdout is lost, and one in the certificate stays in git history —
+        // where somebody decides a release. `FixtureAudit::unverified` was
+        // computed and read by nobody, so this warning did not exist at all.
+        //
+        // Both directions, because a certificate that always warned would
+        // satisfy the first assertion while making the signal worthless.
+        let over = CertificateFacts {
+            fixtures: crate::fixtures::FixtureSummary {
+                total: 10,
+                unverified: 9,
+            },
+            ..sample_facts()
+        };
+        let cert = render_certificate(&sample_results(), &over);
+        assert!(
+            cert.contains("unverified"),
+            "9 of 10 unverified must be visible to whoever cites this: {cert}"
+        );
+
+        let under = CertificateFacts {
+            fixtures: crate::fixtures::FixtureSummary {
+                total: 10,
+                unverified: 1,
+            },
+            ..sample_facts()
+        };
+        let quiet = render_certificate(&sample_results(), &under);
+        assert!(
+            !quiet.contains("unverified"),
+            "a corpus within the threshold must not carry a warning, or the warning stops \
+             meaning anything: {quiet}"
+        );
     }
 
     #[test]

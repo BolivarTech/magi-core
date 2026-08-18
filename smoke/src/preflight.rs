@@ -52,6 +52,14 @@ pub struct Announcement {
     /// made here — which is what makes "announced before, recorded after"
     /// structural instead of a convention about where two prints sit.
     pub ledger: CostLedger,
+    /// What the fixture audit counted (R23), on its way to the end-of-run
+    /// report and the certificate.
+    ///
+    /// The audit is computed HERE and was dropped here: nothing read
+    /// `unverified` outside `fixtures.rs`, so the count R23 asks for and the
+    /// warning it feeds both went missing. This field is the connection that
+    /// did not exist.
+    pub fixtures: fixtures::FixtureSummary,
 }
 
 /// Hand-written rather than derived: [`SpyProxy`] itself does not implement
@@ -64,6 +72,7 @@ impl std::fmt::Debug for Announcement {
             .field("proxy", &"SpyProxy { .. }")
             .field("cost_announcement", &self.cost_announcement)
             .field("ledger", &"CostLedger { .. }")
+            .field("fixtures", &self.fixtures)
             .finish()
     }
 }
@@ -227,6 +236,7 @@ pub async fn run(
         proxy,
         cost_announcement,
         ledger,
+        fixtures: audit.summary(),
     })
 }
 

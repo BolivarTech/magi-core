@@ -258,6 +258,9 @@ async fn main() -> std::process::ExitCode {
     // informative than a plausible-looking number.
     let real_cost = ready.ledger.record().unwrap_or_else(|refusal| refusal);
     eprintln!("magi-smoke — real cost: {real_cost}");
+    // R23's end-of-run count. It is printed even when nothing is unverified,
+    // because a corpus reported as clean is information and a silence is not.
+    eprintln!("magi-smoke — {}", ready.fixtures.report_line());
 
     // 5. Evaluate. Each scenario reads ONE source and never touches the network:
     //    that is what makes "one run, many assertions" both cheap and honest.
@@ -289,6 +292,7 @@ async fn main() -> std::process::ExitCode {
             mode: alias::MODE,
             cost: real_cost,
             round: cli.round,
+            fixtures: ready.fixtures,
         },
     );
     if cli.json {

@@ -109,6 +109,69 @@ impl FixtureAudit {
     pub fn is_clean(&self) -> bool {
         self.missing.is_empty() && self.orphans.is_empty() && self.corrupt.is_empty()
     }
+
+    /// The two counts that outlive the preflight, for the end-of-run report and
+    /// the certificate.
+    ///
+    /// The audit's own vectors do not travel: they exist to FAIL the preflight
+    /// and are already rendered into that failure's message. What the rest of
+    /// the run needs is the pair R23 asks to be surfaced.
+    pub fn summary(&self) -> FixtureSummary {
+        FixtureSummary {
+            total: self.total,
+            unverified: self.unverified,
+        }
+    }
+}
+
+/// Above this percentage of `unverified:` entries, the certificate carries a
+/// visible warning (R23). **Strictly above**: at exactly the threshold nothing
+/// fires, which is what [`FixtureSummary::unverified_warning`]'s own test pins
+/// from both sides.
+const UNVERIFIED_WARNING_PERCENT: usize = 30;
+
+/// What the fixture audit found, in the two numbers that have to leave the
+/// preflight alive.
+///
+/// # Why this exists at all
+///
+/// [`FixtureAudit::unverified`] was computed and dropped: nothing outside this
+/// module ever read it, so neither R23's end-of-run count nor its 30 % warning
+/// existed. That is precisely the failure R23 was written to prevent — *"a
+/// field nobody counts fills up with `unverified` without the figure ever
+/// appearing"* — reproduced in the code meant to implement it. Latent while
+/// the manifest is empty; live from the first fixture MS1 adds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct FixtureSummary {
+    /// Every `[[fixture]]` entry the manifest declared.
+    pub total: usize,
+    /// Those whose currency is `unverified:` — recorded, but never re-checked
+    /// against a live backend.
+    pub unverified: usize,
+}
+
+impl FixtureSummary {
+    /// The end-of-run count: how many fixtures of each class this run verified.
+    ///
+    /// R23 asks for it explicitly, and for the same reason the warning exists:
+    /// a distinction that is never counted lives in the schema and not in
+    /// practice.
+    pub fn report_line(&self) -> String {
+        String::new()
+    }
+
+    /// The certificate's warning, or `None` when the corpus is within R23's
+    /// threshold.
+    ///
+    /// # Why the CERTIFICATE and not stdout
+    ///
+    /// R23 is explicit: *"a count that only lives in stdout is lost; one in the
+    /// certificate stays in git history"*. It is advisory and blocks nothing —
+    /// some fixtures cannot have their currency verified at all — but it
+    /// appears where somebody decides a release.
+    pub fn unverified_warning(&self) -> Option<String> {
+        None
+    }
 }
 
 impl Manifest {
@@ -527,5 +590,71 @@ mod tests {
         let dir = tempdir_with(&[]);
         let m = Manifest::load(dir.path()).expect("a missing manifest.toml must not error");
         assert!(m.fixtures.is_empty());
+    }
+
+    #[test]
+    fn the_thirty_percent_warning_fires_only_strictly_above_the_threshold() {
+        // R23 says "if the unverified EXCEED 30% of the fixtures". Both sides
+        // of the boundary, because a threshold test that only checks the far
+        // side passes just as well with the comparison written backwards.
+        let s = |total, unverified| FixtureSummary { total, unverified };
+        assert_eq!(
+            s(10, 3).unverified_warning(),
+            None,
+            "exactly 30% is not more than 30%"
+        );
+        let warned = s(10, 4)
+            .unverified_warning()
+            .expect("4 of 10 is above the threshold");
+        assert!(
+            warned.contains("4") && warned.contains("10"),
+            "the warning must carry the counts a reader would act on: {warned}"
+        );
+        assert_eq!(
+            s(0, 0).unverified_warning(),
+            None,
+            "an empty corpus has no unverified share, and 0 of 0 must not read as a problem"
+        );
+        assert_eq!(
+            s(3, 3).unverified_warning().is_some(),
+            true,
+            "a corpus that is entirely unverified is the case the warning exists for"
+        );
+    }
+
+    #[test]
+    fn the_end_of_run_count_names_both_classes() {
+        // R23 asks the harness to report how many there are of each class when
+        // it finishes. `unverified` was computed and read by nobody: grep for
+        // it outside this module returned nothing, so neither this count nor
+        // the certificate warning existed. That is the exact failure R23 was
+        // written to prevent, reproduced in the code meant to implement it.
+        let line = FixtureSummary {
+            total: 7,
+            unverified: 2,
+        }
+        .report_line();
+        assert!(
+            line.contains("7") && line.contains("2"),
+            "the count must name the total and the unverified share: {line}"
+        );
+    }
+
+    #[test]
+    fn the_audit_hands_on_the_counts_it_computed() {
+        // The connection that did not exist: the audit knew both numbers and
+        // nothing carried them out of the preflight.
+        let audit = FixtureAudit {
+            total: 5,
+            unverified: 2,
+            ..FixtureAudit::default()
+        };
+        assert_eq!(
+            audit.summary(),
+            FixtureSummary {
+                total: 5,
+                unverified: 2
+            }
+        );
     }
 }
