@@ -241,13 +241,7 @@ where
 /// reads the real graph and fails if a name reappears in it. A criterion that
 /// nothing compares against the thing it is about is a comment, not a rule —
 /// which is how four names sat here contradicting it.
-const HARNESS_ONLY_DEPS: [&str; 5] = [
-    "hyper-util",
-    "http-body-util",
-    "futures-util",
-    "hyper",
-    "toml",
-];
+const HARNESS_ONLY_DEPS: [&str; 1] = ["toml"];
 
 /// Attributes a panic to the harness (`Skip`) or to the crate (`Fail`).
 ///
@@ -291,7 +285,8 @@ const HARNESS_ONLY_DEPS: [&str; 5] = [
 /// # Complexity
 ///
 /// `O(d · m)` for `d` harness-only dependency names against a location of length
-/// `m` — one split of the path per name, five names.
+/// `m` — one split of the path per name; see [`HARNESS_ONLY_DEPS`] for how many
+/// there are, rather than a number here that has already been wrong once.
 pub fn classify_panic(location: Option<&str>) -> ScenarioState {
     match location {
         Some(loc) if is_harness_source(loc) => ScenarioState::Skip(format!(
