@@ -12,6 +12,24 @@
 //! letting the first scenario discover a broken corpus or an absent backend
 //! after it has already spent tokens finding out.
 //!
+//! # Two of this module's requests do NOT go through the proxy, and that is
+//! declared here rather than left to be discovered
+//!
+//! R9 says every request goes through the spy proxy, and the transparency
+//! probe already declares itself the deliberate exception. It is not the only
+//! one: [`reachable`] and [`try_once`] both talk to the backend directly.
+//!
+//! They cannot do otherwise. R26 fixes the order, and `proxy` comes AFTER
+//! `backend` and `probe` — by the time these two run, there is no proxy to go
+//! through. Reordering to fix that would defeat both steps anyway: the proxy's
+//! upstream bound is derived from the run budgets, so raising it in front of a
+//! reachability check would make an unreachable backend look merely slow.
+//!
+//! Nothing is lost by the exception, because neither request is a scenario
+//! observation: they establish whether there is anything to test AGAINST, and
+//! no assertion reads their traffic. The rule they stand outside of is about
+//! what the crate under test sends, and the crate has not been built yet.
+//!
 //! # Deviations from the brief, found while making it compile
 //!
 //! 1. The brief's `Step 3` pseudo-code calls `.map_err(PreflightError::cannot_test)`
