@@ -217,10 +217,30 @@ where
 /// are used by BOTH, so a panic there may well be the crate misusing them —
 /// calling that a harness problem would bury exactly what we came to find.
 ///
-/// At module scope rather than inside [`classify_panic`] so that
-/// `every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph` can
-/// check the list against the graph it claims to be disjoint from. A criterion
-/// nothing compares against the thing it is about is a comment, not a rule.
+/// # It used to name four crates that fail its own criterion
+///
+/// `smoke/Cargo.toml` builds `magi-core` with `features = ["ollama"]`, so the
+/// crate links `reqwest`, which is built on `hyper` and pulls `hyper-util`,
+/// `http-body-util` and `futures-util`. All four were listed here as
+/// harness-only, so a panic raised inside hyper from the crate's OWN request
+/// path — an invalid header, a body polled after completion, a `HeaderMap`
+/// capacity panic — was attributed to the harness, returned as
+/// [`ScenarioState::Skip`] and mapped to exit 2. That is the direction
+/// [`classify_panic`] documents as the one that hides a defect and reports
+/// green, produced by the list written to prevent it.
+///
+/// Verified against `cargo tree -p magi-core --features ollama`: of the five,
+/// only `toml` is genuinely absent from that graph. The narrowing costs the
+/// other direction — a real hyper panic from the harness's own proxy is now
+/// attributed to the crate — and that is the cheap error the whole function is
+/// built around: one investigation that finds nothing, against a buried defect.
+///
+/// # At module scope, so the criterion is CHECKED
+///
+/// `every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph`
+/// reads the real graph and fails if a name reappears in it. A criterion that
+/// nothing compares against the thing it is about is a comment, not a rule —
+/// which is how four names sat here contradicting it.
 const HARNESS_ONLY_DEPS: [&str; 5] = [
     "hyper-util",
     "http-body-util",
@@ -545,18 +565,47 @@ mod tests {
         // to Fail and accuse the crate of a fault in a library the HARNESS chose.
         //
         // The Windows path is the shape MEASURED out of this harness's own built
-        // binary, not an invented one.
+        // binary, not an invented one. All three shapes are kept and spelled
+        // with the one crate that really is harness-only: what this pins is that
+        // the ARM still fires, and the arm does not care which name matched.
         for path in [
             concat!(
                 r"C:\Users\dev\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f",
-                r"\hyper-1.11.0\src\body\incoming.rs"
+                r"\toml-0.8.23\src\de.rs"
             ),
             "/home/dev/.cargo/registry/src/index.crates.io-6f17d22bba15001f/toml-0.8.23/src/lib.rs",
-            "/deps/hyper-util-0.1.20/src/rt/tokio.rs",
+            "/deps/toml-0.8.23/src/ser.rs",
         ] {
             assert!(
                 matches!(classify_panic(Some(path)), ScenarioState::Skip(_)),
                 "{path} is a harness-only dependency and must not be blamed on the crate"
+            );
+        }
+    }
+
+    #[test]
+    fn a_panic_in_a_library_the_CRATE_also_links_is_the_crates() {
+        // These four used to be listed as harness-only, which they are not: the
+        // crate under test is built with `features = ["ollama"]`, so it links
+        // `reqwest`, and `reqwest` is built on `hyper` and pulls the other
+        // three. A panic raised inside any of them may be the crate misusing
+        // them from its own request path, and calling that a harness fault
+        // returns Skip — exit 2, the code nobody investigates.
+        //
+        // Attributing a genuine harness-side hyper panic to the crate is the
+        // other direction, and it is the cheap one: one investigation that
+        // finds nothing, against a buried defect reported green.
+        for path in [
+            "/deps/hyper-1.11.0/src/body/incoming.rs",
+            "/deps/hyper-util-0.1.20/src/rt/tokio.rs",
+            "/deps/http-body-util-0.1.3/src/full.rs",
+            "/deps/futures-util-0.3.32/src/stream/try_stream/mod.rs",
+        ] {
+            assert_eq!(
+                classify_panic(Some(path)),
+                ScenarioState::Fail,
+                "{path} is in the crate under test's own graph, so it cannot be positively \
+                 identified as ours"
             );
         }
     }
