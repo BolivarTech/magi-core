@@ -253,6 +253,16 @@ const REQUEST_UNREADABLE_STATUS: u16 = 500;
 /// line is legible in a captured trace without cross-referencing the status.
 const REQUEST_UNREADABLE_BODY: &[u8] = b"spy proxy: could not read the request body";
 
+/// Status the proxy answers with when it cannot parse the request method well
+/// enough to relay it.
+///
+/// [`LOCAL_BUILD_FAILED_STATUS`] and not [`RELAY_BUILD_FAILED_STATUS`]: the
+/// parse fails before any forward is attempted, so a `502` would claim a
+/// conversation with the backend that never happened. It is an alias rather than
+/// a fresh number so that the two cannot drift into disagreeing about which side
+/// of the hop failed — the proxy is the server here, in both.
+const METHOD_UNRELAYABLE_STATUS: hyper::StatusCode = LOCAL_BUILD_FAILED_STATUS;
+
 /// How long the accept loop waits after a failed `accept()` before trying
 /// again.
 ///
@@ -1034,6 +1044,10 @@ impl SpyProxy {
     /// A transport failure against the upstream is the UPSTREAM's problem, so
     /// it travels back as a `502` that the crate can classify. **The proxy
     /// never invents a verdict.**
+    ///
+    /// A method it cannot parse is answered with
+    /// [`METHOD_UNRELAYABLE_STATUS`] and **nothing is sent upstream** — see the
+    /// comment at that arm.
     async fn forward(
         &self,
         method: &str,
@@ -1043,7 +1057,29 @@ impl SpyProxy {
         upstream: &str,
     ) -> hyper::Response<ProxyBody> {
         let url = format!("{}{}", upstream.trim_end_matches('/'), path);
-        let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::POST);
+        // A proxy that promises a VERBATIM forward must not substitute a method
+        // it could not parse. This was `unwrap_or(Method::POST)`, which sends the
+        // BACKEND a request the client never made — the same fabrication as the
+        // empty request body of round 2 and the empty response of round 4, in the
+        // request line. Everything downstream would then describe the
+        // substitution, and the transparency comparison would report a difference
+        // the CRATE never introduced.
+        //
+        // Unreachable from the one production caller, which hands over a method
+        // `hyper` already parsed — and that is not a reason to leave it aimed the
+        // wrong way, for the same reason the five build-failure fallbacks were
+        // not left aimed at `200`.
+        //
+        // LOCAL, not relay: the parse fails BEFORE any forward is attempted, so
+        // there is no gateway leg to blame. `degraded` is latched for the reason
+        // the injection path latches it — without that, a harness defect arrives
+        // at the crate as a plain server error and a scenario goes red for
+        // something the proxy did.
+        let Ok(m) = reqwest::Method::from_bytes(method.as_bytes()) else {
+            self.degraded
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            return build_failed(METHOD_UNRELAYABLE_STATUS);
+        };
 
         let mut req = self.client.request(m, &url).body(body.to_vec());
         for (name, value) in headers.iter() {
