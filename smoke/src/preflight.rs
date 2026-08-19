@@ -261,8 +261,8 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 /// # Errors
 ///
 /// A config with no seats, with a number of seats other than [`REQUIRED_SEATS`],
-/// with a seat naming something that is not a mage, or with two seats naming the
-/// SAME mage.
+/// with a seat naming something that is not a mage, with two seats naming the
+/// SAME mage, or with two seats declaring the same LINEAGE.
 ///
 /// **Only the zero case used to be rejected**, and one or two seats walked
 /// straight past — which is not a harmless permissiveness: the degradation
@@ -270,7 +270,8 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 /// two-seat config produced a red row about the crate for a mistake in a TOML
 /// file. Two seats naming the same mage does the same thing by another route,
 /// since the builder registers per agent and the second silently replaces the
-/// first.
+/// first. Two seats on one LINEAGE is the third route to the same red row: a
+/// run-wide lineage condemnation takes both of them down together.
 pub fn check_seats(cfg: &Config) -> Result<(), String> {
     if cfg.seats.is_empty() {
         return Err(format!(
@@ -305,6 +306,23 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
             return Err(format!(
                 "fallback {:?} declares lineage {:?}, which a seat already uses: rotating to it reaches the same lineage the run was trying to leave, so the scenario would pass over a rotation that proved nothing. {SEAT_FIX}",
                 candidate.model, candidate.lineage
+            ));
+        }
+    }
+    // The SYMMETRIC case of the check above, and the more expensive one. A
+    // lineage is condemned RUN-WIDE by `3.2.0` once a failure on it is
+    // classified `Http` -> `Transport`, so two seats declaring one lineage lose
+    // it TOGETHER: the injected failure takes down two mages instead of one,
+    // the degradation scenario sees a single answer where it asserts two, and
+    // the harness exits 1 — a verdict about the crate — for a duplicated field
+    // in this file. That 1-versus-2 confusion is the whole reason this step
+    // exists.
+    let mut lineages: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+    for seat in &cfg.seats {
+        if let Some(first) = lineages.insert(seat.lineage.as_str(), seat.agent.as_str()) {
+            return Err(format!(
+                "seats {:?} and {:?} both declare lineage {:?}: a run-wide lineage condemnation takes down BOTH of them at once, so the degradation scenario sees one agent where it asserts two and reports a red row about the crate for a mistake in this file. {SEAT_FIX}",
+                first, seat.agent, seat.lineage
             ));
         }
     }
