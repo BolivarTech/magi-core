@@ -138,11 +138,37 @@ impl Report {
     /// cycle-run gate lived inline in [`Self::render_certificate`], and the
     /// failed-assertion gate did not exist at all, so a `--smoke-2` run with a
     /// red row still produced a certificate.
-    fn certificate_refusal(&self) -> Option<&'static str> {
+    fn certificate_refusal(&self, facts: &CertificateFacts) -> Option<&'static str> {
         if self.run != CycleRun::Second {
             // Certifying from #1 would certify an artifact the gate has not
             // touched yet.
             return Some("this is not the certifying run (pass --smoke-2 for SMOKE #2)");
+        }
+        // A document that cannot name WHAT it certifies is not a weaker
+        // certificate, it is not one. It used to be written with the word
+        // "unknown" in place of the version or the commit, and with the
+        // ledger's own refusal sentence in place of the cost — all three in the
+        // artifact that SURVIVES the run and gets cited later. This project has
+        // already spent a release fixing published prose it could not correct
+        // in place, which is the cost of letting one out.
+        if facts.version.is_none() {
+            return Some(
+                "the magi-core version could not be resolved, so there is nothing to \
+                         certify a run against",
+            );
+        }
+        if facts.commit.is_none() {
+            return Some(
+                "the commit could not be resolved, and a certificate is a claim about \
+                         one specific commit",
+            );
+        }
+        if facts.cost.is_none() {
+            return Some(
+                "the ledger refused to produce a receipt, so the run's real cost is \
+                         unknown and the historical series this document exists for would \
+                         gain an entry nothing measured",
+            );
         }
         if self.rows.iter().any(|r| r.state == ScenarioState::Fail) {
             // The certificate's whole claim is "nothing regressed and everything
@@ -167,7 +193,7 @@ impl Report {
     /// * `facts` — the six things R37 requires the document to declare about
     ///   itself.
     pub fn render_certificate(&self, facts: &CertificateFacts) -> Option<String> {
-        match self.certificate_refusal() {
+        match self.certificate_refusal(facts) {
             Some(_) => None,
             None => Some(render_certificate(&self.rows, facts)),
         }
@@ -201,7 +227,7 @@ impl Report {
                 // Announced only for the run that was SUPPOSED to certify.
                 // Saying it on every SMOKE #1 would be noise on the normal path.
                 if self.run == CycleRun::Second {
-                    if let Some(why) = self.certificate_refusal() {
+                    if let Some(why) = self.certificate_refusal(facts) {
                         eprintln!("no certificate written: {why}");
                     }
                 }
