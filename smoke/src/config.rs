@@ -467,6 +467,27 @@ impl Config {
                  contention probe silently"
             )));
         }
+        // ORDER IS LOAD-BEARING HERE TOO, and for the same reason one step up:
+        // `validate_probe_window` compares the widened probe window against the
+        // SHORTEST backend budget, so a budget of zero makes EVERY probe window
+        // look too long and the refusal names `probe_timeout_secs` — a field the
+        // operator never touched — while the budget's own message became
+        // unreachable for the three fields that comparison reads. A range check
+        // that feeds another comparison has to run before it.
+        for (name, v) in [
+            ("happy_secs", self.budgets.happy_secs),
+            ("large_payload_secs", self.budgets.large_payload_secs),
+            ("injected_secs", self.budgets.injected_secs),
+            ("no_backend_secs", self.budgets.no_backend_secs),
+        ] {
+            if v == 0 || v > MAX_BUDGET_SECS {
+                return Err(ConfigError(format!(
+                    "budgets.{name} must be in 1..={MAX_BUDGET_SECS}: zero caps a run at \
+                     nothing, and a budget beyond the ceiling stops being a cap at all — a \
+                     run that can last a day reports a TIME failure nobody will ever see"
+                )));
+            }
+        }
         // THE CALL, which was missing: `validate_probe_window` existed and
         // nothing invoked it, i.e. it was documentation with Rust syntax. Three
         // mages flagged it independently.
@@ -484,20 +505,6 @@ impl Config {
                  every backend run analyse nothing, and a run that analysed nothing still \
                  reports — so the suite would go green over an input that was never sent"
             )));
-        }
-        for (name, v) in [
-            ("happy_secs", self.budgets.happy_secs),
-            ("large_payload_secs", self.budgets.large_payload_secs),
-            ("injected_secs", self.budgets.injected_secs),
-            ("no_backend_secs", self.budgets.no_backend_secs),
-        ] {
-            if v == 0 || v > MAX_BUDGET_SECS {
-                return Err(ConfigError(format!(
-                    "budgets.{name} must be in 1..={MAX_BUDGET_SECS}: zero caps a run at \
-                     nothing, and a budget beyond the ceiling stops being a cap at all — a \
-                     run that can last a day reports a TIME failure nobody will ever see"
-                )));
-            }
         }
         // The probe bound is checked ONCE, by `validate_probe_window` above. A
         // second, weaker `probe_timeout_secs > shortest_guarded` comparison used
