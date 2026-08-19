@@ -719,9 +719,14 @@ impl CostLedger {
     ///
     /// * nothing was announced — the estimate has to come first, since before
     ///   the spend the same number is a decision the operator can still make;
-    /// * the runs were never measured — there is no interval to report and
-    ///   nothing has been spent, so a number here would be a receipt for work
-    ///   that has not happened.
+    /// * the runs were never measured — there is no interval to report, so a
+    ///   number here would be a receipt for work nothing timed. It says
+    ///   MEASURED and not "the runs never started", because the two are not
+    ///   the same claim and only one of them is always true: a [`measure`]
+    ///   future dropped mid-await leaves runs that did start and still no
+    ///   interval, and the refusal has to be honest about that case too.
+    ///
+    /// [`measure`]: CostLedger::measure
     pub fn record(&self) -> Result<String, String> {
         if !self.announced {
             return Err(
@@ -732,9 +737,8 @@ impl CostLedger {
             );
         }
         let measured = self.measured.ok_or_else(|| {
-            "the real cost cannot be recorded before the runs started: there is no interval to \
-             report and nothing has been spent yet, so a number here would be a receipt for work \
-             that has not happened"
+            "the real cost cannot be recorded before the runs were measured: there is no \
+             interval to report, so a number here would be a receipt for work nothing timed"
                 .to_string()
         })?;
         Ok(format!(
@@ -1004,9 +1008,9 @@ mod tests {
 
         let refusal = ledger
             .record()
-            .expect_err("a receipt for runs that never started is not a receipt");
+            .expect_err("a receipt for runs nothing timed is not a receipt");
         assert!(
-            refusal.contains("before the runs started"),
+            refusal.contains("before the runs were measured"),
             "the refusal must name WHICH half is missing — the announcement was made, so a \
              message about the announcement would send the reader to the wrong place: {refusal}"
         );
