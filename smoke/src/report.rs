@@ -1029,6 +1029,32 @@ mod tests {
     }
 
     #[test]
+    fn the_fixture_repository_starts_empty_even_on_a_reused_path() {
+        // The two certificate tests below assume their repository holds nothing
+        // but what they put there, and the path is `{pid}-{counter}` — which
+        // repeats across `cargo test` runs, because the operating system reuses
+        // pids and the counter restarts at zero. Nothing removed the previous
+        // run's directory, so a dirty-tree test could land on a path where the
+        // clean-tree test had already written a certificate, and fail asserting
+        // that no certificate exists. Measured: 577 such directories left in the
+        // system temp directory, 262 of them holding a certificate.
+        //
+        // It is intermittent, and that is what makes it worth closing rather
+        // than tolerating: an intermittent red is a red that gets re-run until
+        // it goes away, which is how a real one gets rationalised past.
+        let stale = std::env::temp_dir().join("magi-smoke-report-test-stale-path");
+        let planted = stale.join(CERT_PATH);
+        std::fs::create_dir_all(planted.parent().expect("the certificate path has a parent"))
+            .expect("plant a stale certificate");
+        std::fs::write(&planted, "left by an earlier run").expect("plant a stale certificate");
+        let repo = fixture_repo_at(stale);
+        assert!(
+            !repo.join(CERT_PATH).exists(),
+            "the fixture repository must start from a known-empty directory, or a test asserting              that no certificate was written is asserting about somebody else's file"
+        );
+    }
+
+    #[test]
     fn a_dirty_tree_gets_no_certificate_not_a_caveated_one() {
         // R37. One marked "issued over a dirty tree" still exists, and what
         // exists gets cited as a certificate. One that was never written
