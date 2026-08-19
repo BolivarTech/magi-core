@@ -564,7 +564,28 @@ impl RunSpec {
 ///
 /// A server error rather than a client one: the crate must read it as the
 /// backend failing, not as a request it built wrongly.
-const INJECTED_FAILURE_STATUS: u16 = 500;
+///
+/// `pub(crate)` because the scenario that asserts no completion carried it read
+/// the number from a copy of its own. Two spellings of one wire fact drift in
+/// silence: the copy would keep asserting `500` after this one moved, and the
+/// assertion would go on passing while checking nothing.
+pub(crate) const INJECTED_FAILURE_STATUS: u16 = 500;
+
+/// The OpenAI-compatible completions path `OllamaProvider` speaks in `3.2.0`
+/// (the native `/api/chat` path arrives with the EC major, out of scope for
+/// this stage).
+///
+/// Here rather than in a scenario because this module is what puts completions
+/// on the wire, and every reader of that traffic has to name the same path to
+/// find it.
+///
+/// # One copy is still outside this seam, and it is named rather than implied
+///
+/// `preflight.rs` keeps a private constant of its own for the probe it sends
+/// before any run. It is not imported from here yet because that module belongs
+/// to another change in flight; until it is, the two can still drift, and the
+/// symptom would be a probe aimed at a path no scenario reads.
+pub(crate) const COMPLETIONS_PATH: &str = "/v1/chat/completions";
 
 /// What the transparency probe left behind.
 ///

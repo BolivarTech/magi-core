@@ -63,23 +63,12 @@ use crate::config::RunId;
 use crate::proxy::{sha256_hex, RequestRecord};
 use crate::runner::{
     assert_that, Assertion, BackendNeed, BuildOutcome, RunContext, Scenario, Source,
+    COMPLETIONS_PATH, INJECTED_FAILURE_STATUS,
 };
 
 // ---------------------------------------------------------------------------
 // Shared constants
 // ---------------------------------------------------------------------------
-
-/// The OpenAI-compatible completions path `OllamaProvider` speaks in `3.2.0`
-/// (the native `/api/chat` path arrives with the EC major, out of scope for
-/// this stage). Duplicated from `runner.rs`'s own doc comment rather than
-/// imported: no `pub` constant exists there for it, and this task does not
-/// touch that module.
-const COMPLETIONS_PATH: &str = "/v1/chat/completions";
-
-/// Mirrors `runner.rs`'s private `INJECTED_FAILURE_STATUS`. Duplicated, not
-/// imported, for the same reason as [`COMPLETIONS_PATH`]: the constant is
-/// private to a module this task does not own.
-const INJECTED_FAILURE_STATUS: u16 = 500;
 
 /// Repo-relative suffix of the fixed certificate path
 /// (`docs/test/smoke-certificate.md`), which `S16` must find to be the ONLY

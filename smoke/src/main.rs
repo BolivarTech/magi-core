@@ -1014,7 +1014,7 @@ mod tests {
             error: None,
             records: (0..n)
                 .map(|_| proxy::RequestRecord {
-                    path: "/v1/chat/completions".to_string(),
+                    path: runner::COMPLETIONS_PATH.to_string(),
                     body_sha256: String::new(),
                     response_status: 200,
                     response_recorded: true,
