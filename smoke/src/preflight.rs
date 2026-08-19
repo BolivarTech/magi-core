@@ -2322,6 +2322,28 @@ mod tests {
     }
 
     #[test]
+    fn two_fallbacks_sharing_one_lineage_are_rejected_too() {
+        // The check existed for seats and for a fallback colliding with a
+        // seat, and not for two fallbacks colliding with each other — the one
+        // combination left, and it fails the same way. Rotation leaves a
+        // lineage; a run-wide condemnation takes every candidate on the same
+        // one down together, so the second is not a second chance. A pool that
+        // LOOKS two deep and is one is how a rotation scenario reports a red
+        // row about the crate for a duplicated field in this file.
+        let mut cfg = Config::default();
+        let taken = cfg.fallbacks[0].lineage.clone();
+        cfg.fallbacks.push(crate::config::Fallback {
+            model: "another-model:latest".into(),
+            lineage: taken.clone(),
+        });
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding lineage: {err}"
+        );
+    }
+
+    #[test]
     fn two_seats_sharing_one_lineage_are_rejected() {
         // The symmetric case of the fallback check above, and the one that
         // costs a verdict. With two seats on one lineage, an injected failure
