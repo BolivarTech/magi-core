@@ -1931,8 +1931,52 @@ mod tests {
     #[test]
     fn a_backend_holding_every_seat_model_passes_the_check() {
         let cfg = Config::default();
-        let held: Vec<String> = cfg.seats.iter().map(|s| s.model.clone()).collect();
+        let held: Vec<String> = cfg
+            .seats
+            .iter()
+            .map(|s| s.model.clone())
+            .chain(cfg.fallbacks.iter().map(|f| f.model.clone()))
+            .collect();
         assert!(check_seat_models(&cfg, Some(&held)).is_ok());
+    }
+
+    #[test]
+    fn a_rotation_candidate_the_backend_does_not_hold_is_refused_too() {
+        // The contention probe names ONE candidate — the last — and only
+        // notices its absence through a 404 at probe time. Rotation reaches
+        // the FIRST that fits, and the pool is as long as the operator makes
+        // it, so every other entry was unchecked: a typo there survived the
+        // preflight and produced a red row about the crate from the rotation
+        // run, which is the inversion this harness exists to remove.
+        let mut cfg = Config::default();
+        cfg.fallbacks.push(crate::config::Fallback {
+            model: "not-pulled-anywhere:latest".into(),
+            lineage: "openai".into(),
+        });
+        let held: Vec<String> = cfg
+            .seats
+            .iter()
+            .map(|s| s.model.clone())
+            .chain(cfg.fallbacks.iter().take(1).map(|f| f.model.clone()))
+            .collect();
+        let err = check_seat_models(&cfg, Some(&held)).unwrap_err();
+        assert!(
+            err.contains("not-pulled-anywhere:latest"),
+            "the refusal must name the absent candidate, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_listing_does_not_refuse_a_rotation_candidate_either() {
+        // The fail-open boundary is the SAME one the seats keep: only a proven
+        // absence refuses. Extending the check must not extend it past that,
+        // or a backend merely shaped differently starts refusing every run.
+        let mut cfg = Config::default();
+        cfg.fallbacks.push(crate::config::Fallback {
+            model: "not-pulled-anywhere:latest".into(),
+            lineage: "openai".into(),
+        });
+        assert!(check_seat_models(&cfg, None).is_ok());
     }
 
     #[test]
