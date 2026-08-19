@@ -2462,6 +2462,47 @@ mod tests {
     }
 
     #[test]
+    fn two_seats_sharing_one_model_are_rejected() {
+        // The lineage checks above have no equivalent on the MODEL, and the
+        // injection primitive discriminates on exactly that: `Injection::FailModel`
+        // matches the request body's `model` field, so a failure injected for one
+        // seat is served to every seat naming the same model. Two mages fall where
+        // the degradation scenario asserts one does, one agent answers where it
+        // asserts two, and the harness exits 1 — a verdict about the crate — for a
+        // duplicated field in this file. Distinct lineages do not save it: the
+        // proxy never sees a lineage.
+        let mut cfg = Config::default();
+        let taken = cfg.seats[0].model.clone();
+        cfg.seats[1].model = taken.clone();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding model: {err}"
+        );
+        assert!(
+            err.contains(&cfg.seats[1].agent),
+            "and the seat that carries it, the way the neighbouring checks name their field: {err}"
+        );
+    }
+
+    #[test]
+    fn a_fallback_sharing_a_seats_model_is_rejected() {
+        // The same collision through the pool. A candidate that names a seat's
+        // model rotates INTO the failure the run was rotating away from — the
+        // injection is keyed by model, so the new provider is served the same
+        // refusal — and the rotation scenario reports a red row about the crate
+        // for a candidate that could never have worked.
+        let mut cfg = Config::default();
+        let taken = cfg.seats[0].model.clone();
+        cfg.fallbacks[0].model = taken.clone();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding model: {err}"
+        );
+    }
+
+    #[test]
     fn the_probe_window_is_configurable_and_defaults_to_ten_seconds() {
         // An idle endpoint answers one token in well under a second even
         // against cloud, so 10 s is an order of magnitude of slack — long
