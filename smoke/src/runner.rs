@@ -115,6 +115,23 @@ pub fn assert_that(name: &'static str, held: bool) -> Assertion {
     }
 }
 
+/// Which of the two things a typed failure from `analyze()` can mean.
+///
+/// The distinction exists because both arrive as an `Err` from the same call and
+/// only the variant tells them apart: the crate breaking is a verdict about the
+/// crate, while the crate reporting that its backend died is the crate working.
+/// Collapsing them costs an exit code in one direction or the other, and both
+/// directions have already been paid for once — see
+/// [`crate::scenarios::e1`]'s `analyze_produced_a_report`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorClass {
+    /// The crate's own logic produced the failure. A verdict, exit 1.
+    CrateFailure,
+    /// The crate correctly REPORTED a failure of the environment around it —
+    /// no reachable endpoint, or too few seats left standing. Not a verdict.
+    Environment,
+}
+
 /// What a scenario gets to look at: everything a run produced, and NOTHING it
 /// did not.
 ///
@@ -146,6 +163,8 @@ pub struct RunContext<'a> {
     /// interception this field was ambiguous, and a configuration fault was
     /// once read as though `analyze()` had returned it.
     pub error: Option<&'a str>,
+    /// How `error` must be READ. `Some` exactly when `error` is.
+    pub error_class: Option<ErrorClass>,
     /// Everything the proxy saw on the wire during THIS run.
     pub records: &'a [RequestRecord],
     /// True if the proxy degraded. Assertions that read `records` must SKIP,
@@ -306,6 +325,9 @@ pub struct RunResult {
     /// failed in a typed way" (FAIL) from "the run never happened" (SKIP), and
     /// collapsing those two buries crate defects under a SKIP nobody reads.
     pub error: Option<String>,
+    /// How `error` must be read. `Some` exactly when `error` is, and derived
+    /// from the SAME failure, so the two cannot disagree about one run.
+    pub error_class: Option<ErrorClass>,
     /// Everything the proxy saw during this run.
     pub records: Vec<RequestRecord>,
     /// Whether the proxy degraded while this run was in flight.
@@ -341,6 +363,10 @@ impl RunResult {
             outcome: RunOutcome::CannotTest,
             report: None,
             error: Some(reason),
+            // Never read by a scenario: `main::evaluate` intercepts
+            // `CannotTest` before one sees it. Classed all the same, so the
+            // "`Some` exactly when `error` is" invariant holds everywhere.
+            error_class: Some(ErrorClass::Environment),
             records: Vec::new(),
             proxy_degraded: false,
             attempts: 1,
@@ -742,6 +768,7 @@ impl Runner {
                 outcome,
                 report: None,
                 error: None,
+                error_class: None,
                 records: Vec::new(),
                 proxy_degraded: false,
                 attempts: 1,
@@ -782,15 +809,17 @@ impl Runner {
         // tell "the crate returned a typed failure" from "the run never
         // happened", so a real crate defect would be reported as a SKIP — green
         // by omission with extra steps.
-        let (report, error) = match magi.analyze(&Mode::Design, &spec.payload.text).await {
-            Ok(r) => (Some(r), None),
-            Err(e) => (None, Some(render_error(&e))),
-        };
+        let (report, error, error_class) =
+            match magi.analyze(&Mode::Design, &spec.payload.text).await {
+                Ok(r) => (Some(r), None, None),
+                Err(e) => (None, Some(render_error(&e)), Some(classify_error(&e))),
+            };
         RunResult {
             run: spec.id,
             outcome: RunOutcome::Complete,
             report,
             error,
+            error_class,
             records: proxy.records_since(mark),
             proxy_degraded: proxy.is_degraded(),
             attempts: 1,
@@ -891,6 +920,7 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
         budget_exceeded: Some(cap),
         report: None,
         error: None,
+        error_class: None,
         records: Vec::new(),
         proxy_degraded: false,
         attempts: 1,
@@ -918,9 +948,50 @@ fn render_error(e: &MagiError) -> String {
     e.to_string()
 }
 
+/// Which of the two things a typed failure means — see [`ErrorClass`].
+fn classify_error(_e: &MagiError) -> ErrorClass {
+    ErrorClass::CrateFailure
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_two_failures_the_crate_reports_CORRECTLY_are_not_crate_failures() {
+        // Both are the crate telling the truth about the world around it: no
+        // reachable endpoint, or too few seats left to reach consensus. Neither
+        // is `analyze()` breaking, and reading them as such sends whoever runs
+        // this into the crate over a backend that died.
+        assert_eq!(
+            classify_error(&MagiError::EndpointDown {
+                lineages: vec![Lineage::new("alibaba")],
+            }),
+            ErrorClass::Environment
+        );
+        assert_eq!(
+            classify_error(&MagiError::InsufficientAgents {
+                succeeded: 0,
+                required: 2,
+            }),
+            ErrorClass::Environment
+        );
+    }
+
+    #[test]
+    fn everything_else_is_the_crate_s_own_failure() {
+        // The other side of the same split, and the DEFAULT for a variant added
+        // later: `MagiError` is `#[non_exhaustive]`, so an unrecognised failure
+        // must land where somebody looks at it.
+        assert_eq!(
+            classify_error(&MagiError::Validation("bad input".to_string())),
+            ErrorClass::CrateFailure
+        );
+        assert_eq!(
+            classify_error(&MagiError::Deserialization("not json".to_string())),
+            ErrorClass::CrateFailure
+        );
+    }
 
     #[test]
     fn the_transparency_probe_is_out_of_scope_when_no_run_uses_the_backend() {

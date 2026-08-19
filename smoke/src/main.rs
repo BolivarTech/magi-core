@@ -586,6 +586,7 @@ fn evaluate(
                         ctx.run = r.run;
                         ctx.report = r.report.as_ref();
                         ctx.error = r.error.as_deref();
+                        ctx.error_class = r.error_class;
                         ctx.records = &r.records;
                         ctx.proxy_degraded = r.proxy_degraded;
                         ctx.budget_exceeded = r.budget_exceeded;
@@ -661,6 +662,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         run,
         report: None,
         error: None,
+        error_class: None,
         records: &[],
         proxy_degraded: false,
         budget_exceeded: None,
@@ -699,6 +701,10 @@ fn evaluate_preflight_only(
         if scenario.source == runner::Source::Preflight {
             let mut ctx = absent_context(config::RunId::NoBackend);
             ctx.error = Some(&rendered);
+            // The preflight failing is the environment, never `analyze()`
+            // breaking. No scenario on this path reads the class; it is set so
+            // the "`Some` exactly when `error` is" invariant holds here too.
+            ctx.error_class = Some(runner::ErrorClass::Environment);
             rows.extend(report::AssertionRow::of(
                 scenario.id,
                 None,
@@ -1458,6 +1464,7 @@ mod tests {
             outcome: outcome::RunOutcome::Complete,
             report: None,
             error: None,
+            error_class: None,
             records: (0..n)
                 .map(|_| proxy::RequestRecord {
                     path: runner::COMPLETIONS_PATH.to_string(),

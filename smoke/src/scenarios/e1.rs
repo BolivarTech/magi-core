@@ -62,7 +62,7 @@ use crate::alias::magi_core::rotation::RotationKind;
 use crate::config::RunId;
 use crate::proxy::{sha256_hex, RequestRecord};
 use crate::runner::{
-    assert_that, Assertion, BackendNeed, BuildOutcome, RunContext, Scenario, Source,
+    assert_that, Assertion, BackendNeed, BuildOutcome, ErrorClass, RunContext, Scenario, Source,
     COMPLETIONS_PATH, INJECTED_FAILURE_STATUS,
 };
 
@@ -1496,6 +1496,7 @@ mod tests {
             run,
             report: None,
             error: None,
+            error_class: None,
             records: &[],
             proxy_degraded: false,
             budget_exceeded: None,
@@ -1610,6 +1611,57 @@ mod tests {
         let a = s1_external_provider_fails_typed(&ctx);
         assert_eq!(a.len(), 1);
         assert!(matches!(a[0].state, ScenarioState::Skip(_)));
+    }
+
+    // -- analyze_produced_a_report: the split, BOTH directions --
+
+    #[test]
+    fn a_typed_crate_failure_is_a_verdict_about_the_crate() {
+        // The direction the previous round closed, and it must stay closed: a
+        // report absent because the crate's own logic returned `Err` is exit 1,
+        // not a skip nobody investigates.
+        let err = "validation error: prompt contract violated".to_string();
+        let ctx = RunContext {
+            error: Some(&err),
+            error_class: Some(ErrorClass::CrateFailure),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        assert_eq!(analyze_produced_a_report(&ctx).state, ScenarioState::Fail);
+    }
+
+    #[test]
+    fn the_crate_correctly_reporting_a_dead_backend_is_not_a_verdict() {
+        // The direction that closing the first one broke. A backend that dies
+        // AFTER the preflight is a limitation this harness declares, so the
+        // crate saying so is the crate working — sending a reader into the
+        // crate for it costs an investigation that finds nothing.
+        let err = "endpoint down: no lineage reachable (alibaba, moonshot)".to_string();
+        let ctx = RunContext {
+            error: Some(&err),
+            error_class: Some(ErrorClass::Environment),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        match analyze_produced_a_report(&ctx).state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("endpoint down"),
+                "the skip must carry the error, or the operator has nothing to act on: {reason}"
+            ),
+            other => panic!("an environment failure must not be a verdict: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unclassified_failure_is_read_as_the_crate_s() {
+        // `MagiError` is `#[non_exhaustive]`. A variant nobody has classified
+        // yet must land on the side that gets LOOKED AT, because the other side
+        // is the one that hides a defect.
+        let err = "some variant added after this was written".to_string();
+        let ctx = RunContext {
+            error: Some(&err),
+            error_class: None,
+            ..blank_ctx(RunId::HappySmall)
+        };
+        assert_eq!(analyze_produced_a_report(&ctx).state, ScenarioState::Fail);
     }
 
     #[test]
