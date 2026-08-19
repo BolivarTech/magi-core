@@ -259,11 +259,15 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     let mut out = String::new();
     let _ = writeln!(out, "# Smoke Certificate");
     let _ = writeln!(out);
-    let _ = writeln!(out, "- version: {}", facts.version);
-    let _ = writeln!(out, "- commit: {}", facts.commit);
+    // `unresolved` is unreachable through `Report::render_certificate`, which
+    // refuses first; it exists because this free function is also called
+    // directly, and a renderer that panicked on `None` would be a worse answer
+    // than one that says the field was never resolved.
+    let _ = writeln!(out, "- version: {}", unresolved(facts.version.as_deref()));
+    let _ = writeln!(out, "- commit: {}", unresolved(facts.commit.as_deref()));
     let _ = writeln!(out, "- date: {} (UTC)", facts.date);
     let _ = writeln!(out, "- dependency mode: {}", facts.mode);
-    let _ = writeln!(out, "- real cost: {}", facts.cost);
+    let _ = writeln!(out, "- real cost: {}", unresolved(facts.cost.as_deref()));
     let _ = writeln!(out, "- rounds needed: {}", facts.round);
     let _ = writeln!(out, "- {}", facts.fixtures.report_line());
     // R23: advisory, never blocking, and placed ABOVE the table so it is read
@@ -279,6 +283,16 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     out
 }
 
+/// What a fact that could not be resolved renders as, for the direct callers of
+/// [`render_certificate`] that bypass [`Report::certificate_refusal`].
+///
+/// # Parameters
+///
+/// * `value` — the fact, or `None` when nothing resolved it.
+fn unresolved(value: Option<&str>) -> &str {
+    value.unwrap_or("UNRESOLVED")
+}
+
 /// The facts a certificate declares about itself, beside the scenario table.
 ///
 /// R37 names six, and four of them were absent: the document carried a version
@@ -289,11 +303,18 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
 /// nothing in the diff to compare but a version string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CertificateFacts {
-    /// The `magi-core` version this certificate is issued against.
-    pub version: String,
+    /// The `magi-core` version this certificate is issued against, or `None`
+    /// when it could not be resolved.
+    ///
+    /// **`Option`, never the word "unknown".** A certificate that cannot name
+    /// its subject is not a certificate, and the two claims are not the same:
+    /// a version string reads as a fact somebody established. See
+    /// [`Report::certificate_refusal`], which turns `None` into a refusal
+    /// rather than into a document that names nothing.
+    pub version: Option<String>,
     /// The commit it is issued against, so `git show <tag>:<path>` recovers the
-    /// right one.
-    pub commit: String,
+    /// right one — or `None` when `git` could not answer.
+    pub commit: Option<String>,
     /// The day it was issued, `YYYY-MM-DD` in UTC. See [`iso_date_utc`].
     pub date: String,
     /// Which dependency mode was built: `tree` or `published`.
@@ -302,8 +323,15 @@ pub struct CertificateFacts {
     /// a different crate from the working tree, so the same table of rows means
     /// two different claims depending on this word.
     pub mode: &'static str,
-    /// What the run ACTUALLY cost, measured after it (R31's second half).
-    pub cost: String,
+    /// What the run ACTUALLY cost, measured after it (R31's second half), or
+    /// `None` when the ledger REFUSED to produce a receipt.
+    ///
+    /// The ledger refuses precisely when the interval it holds does not
+    /// describe the runs — nothing announced, nothing measured, or a count that
+    /// does not match. Carrying its refusal text here as though it were a cost
+    /// would put that sentence in the "real cost" line of a document whose
+    /// whole payoff is a comparable historical series.
+    pub cost: Option<String>,
     /// How many rounds this release needed. **Comes from `--round`, never
     /// inferred**: R37 wants it because "a release that needed three is
     /// information about that release", and a guessed number would make the
@@ -783,11 +811,11 @@ mod tests {
     /// never depends on the day it runs or the mode it was built in.
     fn sample_facts() -> CertificateFacts {
         CertificateFacts {
-            version: "4.0.0".to_string(),
-            commit: "abc1234".to_string(),
+            version: Some("4.0.0".to_string()),
+            commit: Some("abc1234".to_string()),
             date: "2026-08-18".to_string(),
             mode: "tree",
-            cost: "3 backend run(s) in 41.5s".to_string(),
+            cost: Some("3 backend run(s) in 41.5s".to_string()),
             round: 3,
             fixtures: crate::fixtures::FixtureSummary::default(),
         }
@@ -1057,6 +1085,63 @@ mod tests {
             failing.render_certificate(&sample_facts()).is_none(),
             "a red run gets no certificate to cite"
         );
+    }
+
+    #[test]
+    fn a_certificate_that_cannot_name_its_subject_or_its_cost_is_refused() {
+        // It was written anyway, with the word "unknown" where the version or
+        // the commit belonged and the ledger's own refusal sentence where the
+        // cost belonged. Both sit in the artifact that SURVIVES the run, and
+        // this project has already paid for a released document it could not
+        // correct in place: crates.io versions are immutable, so a defect in
+        // published prose is only fixable by publishing again.
+        //
+        // A certificate that cannot name what it certifies is not a weaker
+        // certificate, it is not one — and one that exists gets cited.
+        let clean = clean_repo();
+        for (missing, facts) in [
+            (
+                "version",
+                CertificateFacts {
+                    version: None,
+                    ..sample_facts()
+                },
+            ),
+            (
+                "commit",
+                CertificateFacts {
+                    commit: None,
+                    ..sample_facts()
+                },
+            ),
+            (
+                "cost",
+                CertificateFacts {
+                    cost: None,
+                    ..sample_facts()
+                },
+            ),
+        ] {
+            let mut report = Report {
+                rows: sample_results(),
+                run: CycleRun::Second,
+            };
+            assert!(
+                report.render_certificate(&facts).is_none(),
+                "with no {missing} there is nothing to certify"
+            );
+            report.write_certificate_in(&clean, &facts);
+            assert!(
+                !clean.join(CERT_PATH).exists(),
+                "no {missing} must leave NO file, not a caveated one"
+            );
+            assert_eq!(
+                report.exit_code(),
+                2,
+                "failing to certify is a fault of OURS, so it lands on 2 through the same \
+                 precedence as every other row"
+            );
+        }
     }
 
     #[test]

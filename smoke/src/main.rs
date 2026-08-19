@@ -277,8 +277,14 @@ async fn main() -> std::process::ExitCode {
     // a property of the code rather than of where two prints happen to sit.
     // A refusal is printed as itself — a receipt nobody can produce is more
     // informative than a plausible-looking number.
-    let real_cost = ready.ledger.record().unwrap_or_else(|refusal| refusal);
-    eprintln!("magi-smoke — real cost: {real_cost}");
+    // The refusal is PRINTED but never certified: a receipt nobody can produce
+    // is more informative than a plausible-looking number on stderr, and it is
+    // not a cost at all in the document that carries the historical series.
+    let real_cost = ready.ledger.record();
+    match &real_cost {
+        Ok(cost) => eprintln!("magi-smoke — real cost: {cost}"),
+        Err(refusal) => eprintln!("magi-smoke — real cost: {refusal}"),
+    }
     // R23's end-of-run count. It is printed even when nothing is unverified,
     // because a corpus reported as clean is information and a silence is not.
     eprintln!("magi-smoke — {}", ready.fixtures.report_line());
@@ -311,7 +317,7 @@ async fn main() -> std::process::ExitCode {
             commit: git_commit(),
             date: report::iso_date_utc(std::time::SystemTime::now()),
             mode: alias::MODE,
-            cost: real_cost,
+            cost: real_cost.ok(),
             round: cli.round,
             fixtures: ready.fixtures,
         },
@@ -732,8 +738,7 @@ const NEITHER_MODE_MARKER: &str = "must be enabled";
 /// here is the JSON `cargo metadata` writes to STDOUT, and cargo colours
 /// diagnostics on stderr — never the machine-readable document it was asked
 /// for. The same holds for the `cargo metadata` call inside `preflight`.
-fn crate_version() -> String {
-    const UNKNOWN: &str = "unknown";
+fn crate_version() -> Option<String> {
     std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
         .current_dir(paths::smoke_dir())
@@ -741,7 +746,6 @@ fn crate_version() -> String {
         .ok()
         .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
         .and_then(|v| version_of_crate_under_test(&v, alias::MODE))
-        .unwrap_or_else(|| UNKNOWN.to_string())
 }
 
 /// The name both dependency modes resolve to. `smoke/Cargo.toml` renames them
@@ -828,8 +832,11 @@ fn repo_status_of(dir: &std::path::Path) -> Option<String> {
 }
 
 /// The commit the harness is running on. Travels INSIDE the certificate.
-fn git_commit() -> String {
-    const UNKNOWN: &str = "unknown";
+///
+/// `None` rather than the word "unknown" when `git` could not answer: a
+/// certificate that cannot say which commit it describes must be REFUSED, and a
+/// placeholder string reads like a fact somebody established.
+fn git_commit() -> Option<String> {
     std::process::Command::new("git")
         .args(["rev-parse", "--short", "HEAD"])
         .current_dir(paths::repo_root())
@@ -837,7 +844,6 @@ fn git_commit() -> String {
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| UNKNOWN.to_string())
 }
 
 #[cfg(test)]
