@@ -778,18 +778,18 @@ impl Config {
     /// of claim this project keeps paying for: a mechanism documented as a
     /// guard that guards nothing.
     ///
-/// # And that IS in tension with "green from day one" — declared, not papered over
-///
-/// These three are `:cloud` tags: they need `ollama signin` and a `pull` per
-/// tag. On a machine without them the backend step above REFUSES — every
-/// declared model is absent from the listing, so `cargo run` stops at exit 2
-/// and **no scenario runs at all**. This paragraph used to say that eight of
-/// the twelve scenarios SKIP, which contradicted the paragraph directly above
-/// it: a proven absence is a refusal to test, and the preflight cuts before
-/// any run. **"E1 green" therefore means "green on a machine with the trio
-/// available"**, and the README says it in those words — the alternative was a
-/// local default that would be a guess about someone else's hardware, which
-/// this project refuses elsewhere for the same reason.
+    /// # And that IS in tension with "green from day one" — declared, not papered over
+    ///
+    /// These three are `:cloud` tags: they need `ollama signin` and a `pull` per
+    /// tag. On a machine without them the backend step above REFUSES — every
+    /// declared model is absent from the listing, so `cargo run` stops at exit 2
+    /// and **no scenario runs at all**. This paragraph used to say that eight of
+    /// the twelve scenarios SKIP, which contradicted the paragraph directly above
+    /// it: a proven absence is a refusal to test, and the preflight cuts before
+    /// any run. **"E1 green" therefore means "green on a machine with the trio
+    /// available"**, and the README says it in those words — the alternative was a
+    /// local default that would be a guess about someone else's hardware, which
+    /// this project refuses elsewhere for the same reason.
     fn default_config() -> Config {
         Config {
             endpoint: default_endpoint(),
