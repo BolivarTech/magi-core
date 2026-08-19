@@ -1219,22 +1219,41 @@ fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> 
     let Some(m) = ctx.build_matrix else {
         return vec![Assertion::out_of_scope(NAME)];
     };
-    // A combination `cargo` could not even be RUN for is not a combination that
-    // refused to compile. Reading the two the same way would report a missing
-    // toolchain as the very regression this scenario exists to catch.
-    let unrunnable: Vec<&str> = S21_ASSERTED
-        .into_iter()
-        .filter(|name| {
-            m.iter()
-                .any(|(c, o)| c == name && *o == BuildOutcome::CouldNotRun)
-        })
-        .collect();
+    // Three ways this scenario can learn nothing, and only the last is a
+    // verdict. A combination `cargo` could not even be RUN for is not one that
+    // refused to compile, and a combination the matrix produced NO ROW for is
+    // not one either — reading any of them the same way reports a missing
+    // toolchain, or a harness edit, as the very regression this scenario exists
+    // to catch.
+    let mut absent = Vec::new();
+    let mut unrunnable = Vec::new();
+    for name in S21_ASSERTED {
+        match m.iter().find(|(c, _)| c == name).map(|(_, o)| *o) {
+            None => absent.push(name),
+            Some(BuildOutcome::CouldNotRun) => unrunnable.push(name),
+            Some(_) => {}
+        }
+    }
+    // Two messages, because they send the reader to different places: one to
+    // the toolchain, the other to whoever changed what the matrix builds.
+    if !absent.is_empty() {
+        return vec![Assertion::skip(
+            NAME,
+            format!(
+                "the build matrix reported nothing for {}, so nothing was learned about \
+                 those combinations — an absent row is not a refusal to compile, and this \
+                 scenario judges only what the matrix actually built",
+                render_combinations(&absent)
+            ),
+        )];
+    }
     if !unrunnable.is_empty() {
         return vec![Assertion::skip(
             NAME,
             format!(
-                "cargo could not be run for {unrunnable:?}, so nothing was learned about \
-                 those combinations either way"
+                "cargo could not be run for {}, so nothing was learned about those \
+                 combinations either way",
+                render_combinations(&unrunnable)
             ),
         )];
     }
@@ -1245,6 +1264,26 @@ fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> 
             && outcome("tree,published", BuildOutcome::DidNotBuild)
             && outcome("", BuildOutcome::DidNotBuild),
     )]
+}
+
+/// Renders combination names for a skip reason, spelling the empty one as
+/// `none` — a message that names it as `""` reads like a rendering bug rather
+/// than like the "no features at all" build it is.
+///
+/// # Parameters
+///
+/// * `names` — the combinations to name, as they appear in
+///   [`crate::FEATURE_MATRIX`].
+///
+/// # Complexity
+///
+/// `O(n)` in `names.len()`.
+fn render_combinations(names: &[&str]) -> String {
+    names
+        .iter()
+        .map(|n| if n.is_empty() { "none" } else { n })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 // ---------------------------------------------------------------------------
