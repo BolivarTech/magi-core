@@ -70,10 +70,20 @@ Every request the crate makes goes through a local spy proxy, which records it a
 The proxy can also **inject** a failure for one named model, which is how the rotation and
 degradation runs are driven without waiting for a real backend to misbehave.
 
-**A proxy fault is ours, never a verdict.** If it cannot start, the preflight stops with exit
-`2` and every scenario reports that it could not be tested — none of them fails. If the proxy
-degrades mid-run (a poisoned lock, an accept error) it says so, and any assertion that reads the
-recorded traffic skips rather than failing over a registry it knows is partial.
+**A proxy that could not do its job is ours, never a verdict.** If it cannot start, the
+preflight stops with exit `2` and every scenario reports that it could not be tested — none of
+them fails. If the proxy degrades mid-run (a poisoned lock, an accept error) it says so, and any
+assertion that reads the recorded traffic skips rather than failing over a registry it knows is
+partial.
+
+**One proxy fault IS a verdict, deliberately: a proxy that ran fine and relayed something other
+than what it received.** `S2b` compares the request body, the response body and the status
+against what the harness sent and got directly, and goes **red** when they differ. That is not
+an exception grudgingly admitted — it is the invariant everything else here rests on. Every
+other scenario reads the wire through this proxy, so a proxy that quietly rewrites traffic makes
+every green row above it meaningless, and skipping on it would hide exactly the fault that
+invalidates the run. The line between the two cases is whether the proxy KNOWS it failed: one it
+reports, and we skip; the other it cannot see, and only a comparison catches.
 
 ## 4. The contention probe, and its declared scope
 
