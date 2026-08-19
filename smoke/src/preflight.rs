@@ -490,19 +490,31 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
 /// detect. Generation is the thing that queues, so generation is what is asked
 /// for — bounded to [`PROBE_MAX_TOKENS`] so asking costs almost nothing.
 ///
-/// # A non-2xx answer is still an ANSWER
+/// # A non-2xx answer is still an ANSWER — with ONE exception, and it is `404`
 ///
-/// A model the backend does not hold replies `404`, and quickly. That says the
-/// endpoint is responsive, which is this step's entire question — treating it
-/// as a probe failure would report "saturated" for a config naming a model
-/// nobody pulled. Only a request that does not COMPLETE in `window` counts
-/// against the probe.
+/// A backend that is busy answers slowly whatever the status it ends up
+/// returning, so a `429`, a `500` or a `503` all arrive having gone through the
+/// queue: they say the endpoint is responsive, which is this step's entire
+/// question, and treating them as probe failures would report "saturated" for a
+/// backend that merely refused.
+///
+/// `404` is not one of those. A model the backend does not hold is rejected on
+/// INSPECTION — nothing is loaded, nothing is generated, and the request never
+/// enters the inference queue at all — so a saturated backend answers it as
+/// fast as an idle one. That is the same blind spot that made `GET /api/tags`
+/// unusable here, re-entering through MODEL selection instead of path
+/// selection, and it matters because [`Config::probe_model`] deliberately names
+/// the LAST declared fallback: the model least likely to be resident.
+///
+/// So a `404` is neither "clear" nor "saturated" but [`Probe::Inconclusive`] —
+/// the probe could not ask its question. See [`probe`] for what the preflight
+/// does with that.
 ///
 /// # Parameters
 ///
 /// * `cfg` — the configuration, for the endpoint and the model to name.
 /// * `window` — how long the whole request may take.
-async fn try_once(cfg: &Config, window: Duration) -> Result<(), String> {
+async fn try_once(cfg: &Config, window: Duration) -> Result<Probe, String> {
     let client = reqwest::Client::builder()
         .timeout(window)
         .build()
@@ -512,29 +524,96 @@ async fn try_once(cfg: &Config, window: Duration) -> Result<(), String> {
         "max_tokens": PROBE_MAX_TOKENS,
         "messages": [{ "role": "user", "content": PROBE_PROMPT }],
     });
-    client
+    let resp = client
         .post(format!("{}{COMPLETIONS_PATH}", cfg.endpoint))
         .json(&body)
         .send()
         .await
-        .map(|_| ())
-        .map_err(|e| format!("probe: {e}"))
+        .map_err(|e| format!("probe: {e}"))?;
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Probe::Inconclusive);
+    }
+    Ok(Probe::Served)
+}
+
+/// What one probe attempt established about the backend's queue.
+///
+/// Three outcomes and not two, because "the request completed" and "the request
+/// was SERVED" are different claims and only the second answers R27. The third
+/// state — the attempt did not complete in time — is the `Err` of
+/// [`try_once`], since it is the one this step was built to detect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Probe {
+    /// The backend took the request through its inference queue and answered.
+    Served,
+    /// The backend answered without generating anything, so the queue was
+    /// never exercised and NOTHING was learned about contention. Never
+    /// reported as clear: see [`probe`].
+    Inconclusive,
 }
 
 /// One trivial completion, retried ONCE with a widened window. The retry is
 /// what makes "clone and run" work without pre-warming anything: a cold model
 /// loads ONCE, so the second attempt passes.
+///
+/// # An INCONCLUSIVE attempt is refused, and it is refused IMMEDIATELY
+///
+/// The three outcomes reach the preflight as two, because only one of them lets
+/// the run proceed:
+///
+/// * served — the queue was exercised and answered in time: proceed;
+/// * did not complete — contention or a cold model, retried once and then
+///   [`probe_failure_message`];
+/// * [`Probe::Inconclusive`] — the backend answered without generating, so the
+///   probe never asked its question. Refused, and refused with a DIFFERENT
+///   message: reporting the contention one would name two causes that are both
+///   false, and reporting success would certify a backend nothing measured.
+///
+/// The retry is deliberately skipped for the inconclusive case. Widening the
+/// window changes how long the harness waits, and a model the backend does not
+/// hold is not going to appear because it was waited for — the second attempt
+/// would return the same `404` after spending the operator's time.
+///
+/// # Errors
+///
+/// When the probe could not be served: a request that did not complete inside
+/// the (retried) window, or an answer that arrived without generating.
 pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
-    if try_once(cfg, window).await.is_ok() {
-        return Ok(());
+    match try_once(cfg, window).await {
+        Ok(Probe::Served) => return Ok(()),
+        Ok(Probe::Inconclusive) => return Err(probe_inconclusive_message(cfg)),
+        Err(_) => {}
     }
     // `Duration * u32`, NOT the other way round: `Mul<u32> for Duration`
     // exists, `Mul<Duration> for u32` does not. A type error, not a style
     // choice.
-    if try_once(cfg, window * PROBE_RETRY_FACTOR).await.is_ok() {
-        return Ok(());
+    match try_once(cfg, window * PROBE_RETRY_FACTOR).await {
+        Ok(Probe::Served) => Ok(()),
+        Ok(Probe::Inconclusive) => Err(probe_inconclusive_message(cfg)),
+        Err(_) => Err(probe_failure_message()),
     }
-    Err(probe_failure_message())
+}
+
+/// The refusal for a probe that was answered without being served.
+///
+/// It names the model, because that is the field the operator has to act on —
+/// either pull it or stop declaring it — and it says what was NOT established
+/// rather than guessing at a cause. Exit 2, "cannot test": no scenario ran, so
+/// nothing here is a verdict about the crate.
+///
+/// # Parameters
+///
+/// * `cfg` — the configuration, for the model and endpoint to name.
+fn probe_inconclusive_message(cfg: &Config) -> String {
+    format!(
+        "cannot test: the endpoint at {} answered the contention probe with 404 for model {:?}. \
+         A model the backend does not hold is rejected without generating, so the request never \
+         entered the inference queue and NOTHING was established about contention — a saturated \
+         backend answers it just as fast as an idle one. Pull that model, or name one this \
+         backend holds.",
+        cfg.endpoint,
+        cfg.probe_model()
+    )
 }
 
 /// One trivial request. If it does not answer in time, the run reports
