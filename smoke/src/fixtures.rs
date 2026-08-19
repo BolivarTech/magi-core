@@ -816,6 +816,41 @@ mod tests {
     }
 
     #[test]
+    fn a_manifest_path_that_escapes_the_corpus_is_refused() {
+        // Flatness was enforced on the DISK side only, which is half a check.
+        // A `[[fixture]]` path carrying a separator is joined onto the corpus
+        // directory and READ from wherever it lands — `../` walks straight out
+        // of the corpus — and the disk walk never crosses it, because that walk
+        // reads one level and the file is not in it. So the entry is hashed
+        // against a file outside the scope the audit reports on, and the audit
+        // comes back clean.
+        //
+        // The escaping entry is the interesting half, but a plain subdirectory
+        // reference is refused for the same reason: neither is a member of the
+        // one directory level this audit can speak for.
+        let outside = tempdir_with(&[("secret.json", "{}")]);
+        let dir = tempdir_with(&[("sub", "not a directory, just a file")]);
+        for escaping in ["../secret.json", "sub/nested.json", "a\\b.json"] {
+            let m = Manifest::from_str(&format!(
+                r#"
+                [[fixture]]
+                scenario = "S9"
+                path     = "{escaping}"
+                sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+                currency = "unverified: cold-start"
+                "#
+            ))
+            .expect("the manifest itself is well-formed; the PATH is what must be refused");
+            let audit = m.verify(dir.path(), &["S9"]).unwrap();
+            assert!(
+                audit.corrupt.iter().any(|s| s.contains(escaping)),
+                "{escaping:?} must be refused before the read, as corrupt: {audit:?}"
+            );
+        }
+        drop(outside);
+    }
+
+    #[test]
     fn a_missing_fixtures_directory_is_reported_not_silently_clean() {
         // Fix round 1, Finding 1 (Critical): the disk->manifest scan used to
         // swallow the `Err` from `std::fs::read_dir`, so with an empty
