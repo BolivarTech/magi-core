@@ -767,6 +767,16 @@ impl CostLedger {
     /// still gets a wrong receipt — a conspicuous `0.0s` for N runs, rather
     /// than a plausible number, which is the direction that fails usefully.
     ///
+    /// The opposite direction fails quietly, and it is the one that has
+    /// actually shipped twice. Moving `run_feature_matrix` or
+    /// `prime_transparency_probe` INSIDE the argument bills them to the
+    /// certificate, and both were demonstrated doing exactly that with every
+    /// test green — because what a test can reach is this function, while what
+    /// decides the receipt is which work the call site hands it. Nothing here
+    /// covers that composition, and no assertion elsewhere does either: the
+    /// defence is that the call site names what it is passing, which is a
+    /// convention and not a guard.
+    ///
     /// What that excludes, said as what it is: the git baseline, the spec
     /// build, the fixture audit, the feature matrix's four `cargo check` runs
     /// under `--build-matrix`, and the transparency probe. The last one is a
