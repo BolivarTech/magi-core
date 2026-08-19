@@ -584,6 +584,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn a_panic_in_a_library_the_CRATE_also_links_is_the_crates() {
         // These four used to be listed as harness-only, which they are not: the
         // crate under test is built with `features = ["ollama"]`, so it links
