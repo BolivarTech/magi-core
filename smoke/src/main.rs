@@ -86,6 +86,47 @@ impl Default for Cli {
 }
 
 impl Cli {
+    /// The flags this invocation was given, re-rendered in a fixed order.
+    ///
+    /// Re-rendered from the PARSED flags rather than echoed from `args()`, so
+    /// the line names what the harness actually did: an argument the parser
+    /// normalised, or an absolute config path somebody passed relatively,
+    /// would otherwise put a command in the certificate that does not describe
+    /// the run it certifies.
+    ///
+    /// The order is fixed rather than the order they were typed, so two
+    /// certificates for the same invocation compare equal in `git log -p` —
+    /// which is the historical series the fixed filename exists to give.
+    ///
+    /// # Complexity
+    ///
+    /// `O(1)` — a fixed number of flags.
+    pub fn rendered_flags(&self) -> String {
+        let mut parts: Vec<String> = Vec::new();
+        if self.smoke_2 {
+            parts.push("--smoke-2".to_string());
+        }
+        if self.no_backend {
+            parts.push("--no-backend".to_string());
+        }
+        if self.json {
+            parts.push("--json".to_string());
+        }
+        if self.break_proxy {
+            parts.push("--break-proxy".to_string());
+        }
+        if self.build_matrix {
+            parts.push("--build-matrix".to_string());
+        }
+        if let Some(path) = &self.config {
+            parts.push(format!("--config {}", path.display()));
+        }
+        if self.round != DEFAULT_ROUND {
+            parts.push(format!("--round {}", self.round));
+        }
+        parts.join(" ")
+    }
+
     /// An unknown flag is an ERROR, never ignored: a typo'd `--no-backends` that
     /// silently ran the full suite would spend a backend nobody asked for.
     pub fn parse_from<I, S>(argv: I) -> Result<Cli, String>
@@ -321,7 +362,7 @@ async fn main() -> std::process::ExitCode {
             mode: alias::MODE,
             cost: real_cost.ok(),
             round: cli.round,
-            invocation: String::new(),
+            invocation: cli.rendered_flags(),
             fixtures: ready.fixtures,
         },
     );
@@ -950,6 +991,50 @@ fn git_commit() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_rendered_invocation_names_every_flag_that_was_given() {
+        // What lands in the certificate has to be what somebody would type to
+        // reproduce the run. A renderer that drops a flag would put a DIFFERENT
+        // command in a document whose whole job is to say what it covers.
+        let cli = Cli {
+            smoke_2: true,
+            no_backend: true,
+            json: true,
+            break_proxy: true,
+            build_matrix: true,
+            config: Some(std::path::PathBuf::from("custom.toml")),
+            round: 3,
+            print_payload_size: false,
+        };
+        let rendered = cli.rendered_flags();
+        for expected in [
+            "--smoke-2",
+            "--no-backend",
+            "--json",
+            "--break-proxy",
+            "--build-matrix",
+            "--config custom.toml",
+            "--round 3",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "{expected} is missing from {rendered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bare_invocation_renders_as_one_rather_than_as_a_blank() {
+        // The default round is NOT printed: it is what a run that needed one
+        // round is, so naming it would make every certificate carry a flag
+        // nobody passed.
+        assert_eq!(Cli::default().rendered_flags(), "");
+        assert!(
+            !Cli::default().rendered_flags().contains("--round"),
+            "the default round is not a flag anybody gave"
+        );
+    }
 
     #[test]
     fn print_payload_size_answers_about_the_config_it_was_given() {

@@ -317,7 +317,14 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     let _ = writeln!(out, "- dependency mode: {}", facts.mode);
     let _ = writeln!(out, "- real cost: {}", unresolved(facts.cost.as_deref()));
     let _ = writeln!(out, "- rounds needed: {}", facts.round);
+    let _ = writeln!(
+        out,
+        "- invocation: {}",
+        invocation_or_bare(&facts.invocation)
+    );
     let _ = writeln!(out, "- {}", facts.fixtures.report_line());
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{UNION_NOTE}");
     // R23: advisory, never blocking, and placed ABOVE the table so it is read
     // before the rows it qualifies rather than after them.
     if let Some(warning) = facts.fixtures.unverified_warning() {
@@ -341,7 +348,12 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
 }
 
 /// What the certificate says about its own scope.
-const UNION_NOTE: &str = "placeholder";
+///
+/// Placed with the invocation line rather than at the foot of the document: it
+/// qualifies the table, and a qualification read after the rows has already let
+/// them be read as more than they are.
+const UNION_NOTE: &str =
+    "> NOTE: this certificate covers the ONE invocation named above. A green release is the      union of several — the preflight stops at its first failure, so the scenarios that need      it to stop at different steps cannot share a command line.";
 
 /// What the certificate says when no row came from the large-payload run.
 ///
@@ -352,6 +364,22 @@ const UNION_NOTE: &str = "placeholder";
 const LARGE_PAYLOAD_NOT_EXERCISED: &str =
     "> NOTE: the large payload class was **not exercised** by this run. No assertion below \
      speaks to it.";
+
+/// How an invocation with no flags is rendered.
+///
+/// Named rather than left blank: an empty value after a colon reads as a field
+/// nobody filled in, and "no flags" is a fact about the run, not a gap.
+///
+/// # Parameters
+///
+/// * `flags` — the rendered flags, possibly empty.
+fn invocation_or_bare(flags: &str) -> &str {
+    if flags.trim().is_empty() {
+        "cargo run (no flags)"
+    } else {
+        flags
+    }
+}
 
 /// What a fact that could not be resolved renders as, for the direct callers of
 /// [`render_certificate`] that bypass [`Report::certificate_refusal`].
@@ -408,7 +436,21 @@ pub struct CertificateFacts {
     /// certificate a guess too — the same reason `--smoke-2` is not detected
     /// either.
     pub round: u32,
-    /// The command line that produced this certificate, rendered.
+    /// The invocation that produced this certificate, rendered as the flags it
+    /// was given.
+    ///
+    /// **The certificate covers ONE invocation, and "green" is the union of
+    /// several.** Four scenarios need the preflight to stop at a DIFFERENT
+    /// step, and it stops at the first failure, so they cannot share a command
+    /// line — the document's table therefore shows one command's rows. Without
+    /// this line a reader takes it for the whole union, which is a claim nobody
+    /// made. The same reasoning already forces `version`, `commit` and `mode`
+    /// to be present: a certificate that cannot name what it covers is weaker
+    /// than one that says so.
+    ///
+    /// A `String` and not the `Cli` type: what belongs in the document is what
+    /// somebody would have to type to reproduce it, and a `Debug` of the parsed
+    /// flags is not that.
     pub invocation: String,
     /// What the fixture audit counted, for R23's 30 % warning.
     ///
