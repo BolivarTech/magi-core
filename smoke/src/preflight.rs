@@ -29,6 +29,7 @@
 //!    listing capitalised it ("COLD"), which would not satisfy its own test
 //!    (`msg.contains("cold")` is case-sensitive).
 
+use crate::alias::magi_core::provider::CompletionConfig;
 use crate::config::{Config, RunId, PROBE_RETRY_FACTOR};
 use crate::fixtures;
 use crate::paths::{fixture_dir, repo_root, smoke_dir};
@@ -850,16 +851,36 @@ const TOKEN_ESTIMATE_DIVISOR: usize = 4;
 /// runner's own list is checked against, so an announcement that stops matching
 /// the runs is a red test rather than a wrong number nobody re-reads.
 ///
-/// # Both figures are stated as what they are
+/// # The arithmetic is R31's worked example, not a figure of its own
 ///
-/// Tokens are `bytes / 4`, the same coarse bound the crate itself uses, said to
-/// be a coarse bound and not a measurement. Time is the SUM of the budgets of
-/// the backend runs about to launch — a cap on what each may spend, never a
-/// prediction of what it will.
+/// R31 works it out: `63 924 × 3 ≈ 192k` input **plus** up to `16 384 × 3 ≈
+/// 49k` output, `~240k` per large-payload run. Both multiplications were
+/// missing here.
+///
+/// * **× the seats.** A MAGI run is a trio and every mage analyses the WHOLE
+///   payload, so one payload is paid for once per seat. Announcing the per-seat
+///   figure reported roughly a third of the input.
+/// * **The output side.** It was absent altogether, and it is the half most
+///   likely to surprise: the whole defect this milestone tests for is a model
+///   spending its entire output budget and returning nothing.
+///
+/// # Every figure is stated as what it is
+///
+/// Input tokens are `bytes / 4`, the same coarse bound the crate itself uses,
+/// said to be a coarse bound and not a measurement. Output tokens are the
+/// **cap**, not a prediction: a model that answers in fifty tokens spends
+/// fifty, and this figure is what it is ALLOWED to spend. Time is the SUM of
+/// the budgets of the backend runs about to launch — again a cap.
+///
+/// The output cap is read from the linked crate's own
+/// `CompletionConfig::default()` rather than restated here, so the two cannot
+/// drift and the `published` build announces the published crate's number
+/// rather than the tree's.
 ///
 /// # Parameters
 ///
-/// * `cfg` — the loaded configuration, for the payload size and the budgets.
+/// * `cfg` — the loaded configuration, for the payload size, the seats and the
+///   budgets.
 /// * `no_backend` — the partition flag. With it, no run reaches the backend at
 ///   all, and the sentence says so rather than announcing a cost of zero as if
 ///   zero were an estimate.
@@ -877,15 +898,20 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
                 spent on it"
             .to_string();
     }
-    let estimated_tokens = cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR;
+    let seats = cfg.seats.len();
+    let input_tokens = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+    let output_cap = CompletionConfig::default().max_tokens as usize;
+    let output_tokens = output_cap * seats;
     let expected_secs: u64 = backend_runs.iter().map(|r| cfg.budget(*r).as_secs()).sum();
     let names: Vec<&str> = backend_runs.iter().map(|r| r.as_str()).collect();
     format!(
-        "preflight: {} backend run(s) about to start ({}), each analysing ~{estimated_tokens} \
-         input tokens (bytes/4, a coarse bound, not a measurement); expected time budget \
-         ~{expected_secs}s in total",
+        "preflight: {} backend run(s) about to start ({}), each spending ~{input_tokens} input \
+         tokens ({seats} seats x bytes/4, a coarse bound, not a measurement) and up to \
+         ~{output_tokens} output tokens ({seats} x the {output_cap}-token cap), ~{} tokens in \
+         all; expected time budget ~{expected_secs}s in total",
         backend_runs.len(),
-        names.join(", ")
+        names.join(", "),
+        input_tokens + output_tokens
     )
 }
 
@@ -1267,13 +1293,25 @@ mod tests {
             !announced.contains(RunId::Large62k.as_str()),
             "and it must not be named as a run about to start: {announced}"
         );
+        // The payload the LAUNCHED runs analyse, not the one that sizes the
+        // absent large-payload run — the two are two orders of magnitude apart
+        // with the shipped defaults. Multiplied by the seats, since that is
+        // what the run really spends; the arithmetic itself is pinned by
+        // `the_announced_cost_counts_every_seat_and_both_sides_of_the_wire`.
         assert!(
             announced.contains(&format!(
                 "~{} input tokens",
-                cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR
+                (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * cfg.seats.len()
             )),
             "the tokens must come from the payload the launched runs analyse, not from the \
              one that sizes the absent run: {announced}"
+        );
+        assert!(
+            !announced.contains(&format!(
+                "~{} input tokens",
+                cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR
+            )),
+            "and never from the absent run's own payload: {announced}"
         );
     }
 
