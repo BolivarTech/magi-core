@@ -255,11 +255,21 @@ const REQUEST_UNREADABLE_BODY: &[u8] = b"spy proxy: could not read the request b
 
 /// How long the accept loop waits after a failed `accept()` before trying
 /// again.
-const ACCEPT_ERROR_BACKOFF: Duration = Duration::ZERO;
+///
+/// Short enough that a transient `ECONNABORTED` costs a scenario nothing it
+/// would notice, long enough that a listener failing on every call yields the
+/// core instead of monopolising it. The loop used to `continue` immediately,
+/// which is fine for a transient failure and a hot spin for a persistent one.
+const ACCEPT_ERROR_BACKOFF: Duration = Duration::from_millis(50);
 
 /// How many `accept()` failures in a row the accept loop tolerates before it
 /// stops.
-const MAX_CONSECUTIVE_ACCEPT_FAILURES: u32 = u32::MAX / 2;
+///
+/// **Small enough to actually be reached.** With [`ACCEPT_ERROR_BACKOFF`] this
+/// is about ten seconds of a listener that answers `Err` to every call, which no
+/// transient condition survives — and a threshold that needed millions of
+/// failures would be the unbounded retry with a constant in front of it.
+const MAX_CONSECUTIVE_ACCEPT_FAILURES: u32 = 200;
 
 /// What the accept loop does after a failed `accept()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,10 +282,23 @@ enum AcceptFailureAction {
 
 /// The accept loop's policy, given how many failures have happened in a row.
 ///
+/// # Why a function rather than three lines inline
+///
+/// Inducing the condition it decides — descriptor exhaustion — is not something
+/// a test can do without wrecking the process it runs in, so an inline policy is
+/// one nothing ever checks. Pure and total, it is checkable at every count
+/// including the extremes.
+///
 /// # Parameters
 ///
 /// * `consecutive` — failures since the last successful `accept()`, counting
 ///   the one just observed, so the first failure arrives as `1`.
+///
+/// # Returns
+///
+/// [`AcceptFailureAction::BackOff`] below the threshold,
+/// [`AcceptFailureAction::GiveUp`] at or above it. Never panics and has no
+/// unhandled input.
 ///
 /// # Complexity
 ///
@@ -651,6 +674,15 @@ impl SpyProxy {
     /// there is no `Drop` impl, no abort handle, and no cancellation. The
     /// accept loop and every per-connection task it spawns keep running
     /// until the process itself exits.
+    ///
+    /// **One exception, and it announces itself**: after
+    /// [`MAX_CONSECUTIVE_ACCEPT_FAILURES`] failed `accept()` calls in a row the
+    /// loop stops, having latched `degraded` on every one of them and printed a
+    /// line naming the count. A failure that persists is descriptor exhaustion
+    /// or a dead listener, not a moment of turbulence, and retrying it instantly
+    /// forever pegs a core — which the wall-clock budgets and the cost ledger
+    /// would then bill to the run. Stopping SILENTLY would be the worse half of
+    /// that trade, so it does not.
     ///
     /// **That is deliberate, not an omission.** `magi-smoke` starts exactly
     /// ONE `SpyProxy` per invocation (`raise_proxy` in the preflight,
