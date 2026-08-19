@@ -361,9 +361,16 @@ pub fn generate(repo_root: &Path, target_bytes: usize) -> Result<Payload, Payloa
     // and symbols: cutting at `target_bytes` outright is a panic waiting for
     // the wrong file. It is the same defect `fit_content` cost in `3.0.1`, and
     // the crate already carries the fix.
-    // `floor_char_boundary` is stable since 1.73 and this project's MSRV is
-    // **1.91** (`Cargo.toml`), so it is available — `magi-core` itself has used
-    // it in `reporting.rs` since `1.0.1` replaced its workaround.
+    // `floor_char_boundary` is stable since **1.91**, which is exactly this
+    // project's MSRV (`Cargo.toml`) — the two are not a coincidence: the MSRV
+    // was raised to 1.91 so `magi-core` could drop its own workaround for it.
+    // The margin is therefore ZERO, not the eighteen releases an earlier
+    // version of this comment claimed by naming 1.73. That mattered in the
+    // direction that reads as safe: a reader checking whether the MSRV could be
+    // lowered would have concluded there was room for it, and the build would
+    // have broken on the first toolchain below 1.91.
+    //   `library/core/src/str/mod.rs`:
+    //   #[stable(feature = "round_char_boundary", since = "1.91.0")]
     acc.truncate(acc.floor_char_boundary(target_bytes));
     // The size check above ran BEFORE this cut, and the cut can move the end
     // BACKWARDS by up to `MAX_UTF8_CHAR_BYTES - 1`: a payload validated as
