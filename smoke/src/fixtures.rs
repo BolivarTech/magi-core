@@ -632,6 +632,32 @@ mod tests {
     }
 
     #[test]
+    fn a_nested_corpus_is_refused_because_the_walk_does_not_recurse() {
+        // The disk->manifest half reads ONE directory level, so anything under
+        // a subdirectory is never compared with the manifest at all. That gives
+        // a check which covers half its stated scope and says nothing about the
+        // other half — the corpus is reported on as though it had been fully
+        // seen.
+        //
+        // Closed by declaring the corpus FLAT and enforcing that, rather than
+        // by recursing: no fixture nests today, and a recursive walk would have
+        // to build and normalise relative paths across two separator
+        // conventions to compare them with a manifest that has never carried
+        // one. Enforcing flatness closes exactly the gap, and a corpus that
+        // ever needs nesting gets a loud refusal instead of a silent omission.
+        let dir = tempdir_with(&[("sub/nested.json", "{}")]);
+        let audit = Manifest { fixtures: vec![] }
+            .verify(dir.path(), &["S9"])
+            .unwrap();
+        assert!(
+            audit.corrupt.iter().any(|s| s.contains("does not recurse")),
+            "a directory inside the corpus must be refused as unreadable scope, not reported \
+             as an orphan FILE nobody declared — the distinction is whether anything looked \
+             inside it: {audit:?}"
+        );
+    }
+
+    #[test]
     fn a_missing_fixtures_directory_is_reported_not_silently_clean() {
         // Fix round 1, Finding 1 (Critical): the disk->manifest scan used to
         // swallow the `Err` from `std::fs::read_dir`, so with an empty
