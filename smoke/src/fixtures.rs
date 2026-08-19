@@ -613,6 +613,41 @@ mod tests {
     }
 
     #[test]
+    fn a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone() {
+        // The rewrite truncated the tracked manifest to its header BEFORE the
+        // first copy, so any failure part-way through — a missing source file,
+        // an unreadable one — left every previously-synced fixture declared by
+        // nobody. The next audit calls the whole corpus orphaned, and the
+        // recovery is a second successful sync that the failure just proved
+        // impossible.
+        let root = sync_script_replica();
+        let fixtures = root.join("smoke").join("fixtures");
+        std::fs::create_dir_all(&fixtures).expect("replica fixture dir");
+        let manifest = fixtures.join("manifest.toml");
+        let before = "# a manifest that already declares a corpus\n";
+        std::fs::write(&manifest, before).expect("seed the tracked manifest");
+        // Names a file the origin does not have: the copy fails, and `set -e`
+        // stops the script right there.
+        std::fs::write(
+            fixtures.join("wanted.txt"),
+            "absent.json S9 unverified: cold-start\n",
+        )
+        .expect("seed the input list");
+
+        let out = run_sync_from(&root, &root);
+        assert!(
+            !out.status.success(),
+            "a copy that could not happen must not report success"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&manifest).expect("the manifest must still be there"),
+            before,
+            "the tracked manifest was rewritten by a sync that never finished"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit() {
         // `sync-fixtures.sh` keeps its input list INSIDE the directory the
         // audit walks, so the audit sees a file no `[[fixture]]` entry
