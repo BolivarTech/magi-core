@@ -148,6 +148,26 @@ impl std::error::Error for PreflightError {}
 /// test can pin the ORDER on its own instead of exercising the whole async
 /// pipeline (config, fixtures, a real workspace, a real git repo, a live
 /// backend) just to observe it.
+///
+/// # It is a HAND-MAINTAINED MIRROR of `run`, and nothing ties the two together
+///
+/// This list is a literal. [`run`] executes its steps in the same order today,
+/// and **no mechanism keeps that true**: reordering, adding or removing a step
+/// there leaves this unchanged, and every test that reads it would still pass.
+/// It is load-bearing beyond documentation, because [`PreflightError`]'s
+/// `Display` looks a stage up in this list and prints its POSITION — so a
+/// mirror that has drifted does not go quiet, it prints a confident wrong
+/// number ("step 5 of 8") to the reader who most needs it.
+///
+/// **Recorded as a known guard-completeness gap rather than closed**, and the
+/// reason is that the honest closure is not cheap. Tying the two would mean
+/// driving `run` to failure at each step in turn, which needs a broken fixture
+/// corpus, a non-isolated workspace, an untracked lock and an unreachable
+/// backend — and `run` resolves the repository and smoke directories from
+/// `paths.rs` at global scope rather than from arguments, so most of those
+/// cannot be staged without restructuring the function under test. Building
+/// that machinery to guard a list of eight strings is the trade the deferral
+/// declines; leaving the risk unwritten is not.
 pub fn preflight_step_order() -> [&'static str; 8] {
     [
         "config",
