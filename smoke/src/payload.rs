@@ -53,7 +53,14 @@ impl std::fmt::Display for PayloadError {
 /// expected input here — if that ever changes, this is the function to
 /// revisit.
 pub fn sort_deterministically(mut files: Vec<PathBuf>) -> Vec<PathBuf> {
-    files.sort_by_key(|p| p.to_string_lossy().replace('\\', "/").into_bytes());
+    // `sort_by_cached_key`, not `sort_by_key`: the key ALLOCATES — a `Cow`, a
+    // `String` and a `Vec` per call — and `sort_by_key` invokes it twice per
+    // comparison, so sorting `n` paths built and dropped on the order of
+    // `2 n log n` heap values to answer questions about `n` distinct keys. The
+    // cached form computes each key exactly once, for the same order and the
+    // same comparison, which makes the cost proportional to the number of paths
+    // rather than to the number of comparisons.
+    files.sort_by_cached_key(|p| p.to_string_lossy().replace('\\', "/").into_bytes());
     files
 }
 
