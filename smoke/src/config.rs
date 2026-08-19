@@ -526,8 +526,25 @@ impl Config {
         Ok(())
     }
 
-    /// Applies ONE environment override on top of `base` and re-validates the
-    /// whole config.
+    /// Applies ONE environment override on top of `base`, **parsing but not
+    /// range-validating** the result.
+    ///
+    /// # Why validation does NOT happen here
+    ///
+    /// It used to, and that made the outcome depend on `ENV_OVERRIDES`' order.
+    /// Range checks relate fields to each other — the probe window is validated
+    /// against the shortest backend budget — so checking after each single
+    /// override judges the new value against the ones that have not been applied
+    /// yet. An operator widening the probe window together with all three
+    /// budgets was refused because `probe_timeout_secs` happens to precede them
+    /// in the array, with a message naming a relation the FINAL configuration
+    /// satisfies, and no ordering they control could fix it. R30 calls the
+    /// environment the highest-precedence path; that made part of it
+    /// unexpressible.
+    ///
+    /// Parse errors stay here, because parsing one value needs nothing but that
+    /// value. [`Config::load_or_fail`] applies every override and then validates
+    /// **once**, over the set.
     ///
     /// # Parameters
     ///
@@ -543,19 +560,15 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// [`ConfigError`] if the value does not parse, if the resulting config
-    /// fails [`Config::validate`], or if `key` is in the `MAGI_SMOKE_`
-    /// namespace but has no arm here — a typo'd override that was silently
-    /// ignored would look exactly like one that was applied, and the operator
-    /// would debug a value they believe they changed.
+    /// [`ConfigError`] if the value does not parse, or if `key` is in the
+    /// `MAGI_SMOKE_` namespace but has no arm here — a typo'd override that was
+    /// silently ignored would look exactly like one that was applied, and the
+    /// operator would debug a value they believe they changed.
     pub fn apply_env_override(
         key: &str,
         raw: &str,
         mut base: Config,
     ) -> Result<Config, ConfigError> {
-        // Declared precedence is env > file > built-in, so the range check must
-        // cover the HIGHEST-precedence path too.
-        //
         // EVERY key in ENV_OVERRIDES is handled, and an UNKNOWN `MAGI_SMOKE_*`
         // key is an ERROR, not a shrug: a typo'd override that is silently
         // ignored looks exactly like one that was applied, and the operator
@@ -605,9 +618,11 @@ impl Config {
             }
             _ => {}
         }
-        // Validation runs AFTER, so an env value goes through the same ranges as
-        // a file value — which is the whole point of R30.
-        base.validate()?;
+        // NO `validate()` here, on purpose: see this function's docstring. The
+        // ranges are still enforced on the env path — `load_or_fail` validates
+        // once after applying every override, which is what R30 asks for — but
+        // over the config the operator actually assembled, not over an
+        // intermediate state that only the array's order produced.
         Ok(base)
     }
 
@@ -662,6 +677,14 @@ impl Config {
         // highest-precedence path unreachable — and its range validation with
         // it, which is exactly the bypass R30 names
         // (`MAGI_SMOKE_PROBE_TIMEOUT_SECS=0` walking straight in).
+        //
+        // EVERY override is applied FIRST and the whole set is validated ONCE
+        // below. Validating after each one made the outcome depend on this
+        // array's order: a range check relates fields to each other, so it
+        // judged a new value against the values that had not been applied yet
+        // and refused legal configurations naming a relation the final one
+        // satisfies. The operator could not reorder their way out — the order
+        // is `ENV_OVERRIDES`', not theirs.
         let (mut cfg, origin) = base;
         for (key, _) in ENV_OVERRIDES {
             if let Ok(raw) = std::env::var(key) {
@@ -1024,10 +1047,35 @@ mod tests {
         }
         // And through the environment, which is the HIGHEST-precedence path
         // (R30): a check that only sees the file leaves the override unguarded.
-        let via_env =
-            Config::apply_env_override("MAGI_SMOKE_ENDPOINT", "localhost:11434", Config::default())
-                .expect_err("the env path goes through the same validation as the file path");
-        assert!(format!("{via_env}").contains("endpoint"));
+        //
+        // Asserted through `load_or_fail`, the real call site, because that is
+        // where the set is validated — `apply_env_override` deliberately only
+        // parses now, so asking IT for the range error would be asking the wrong
+        // function and would pass on a harness that validated nowhere at all.
+        let via_env = env_scoped(&[("MAGI_SMOKE_ENDPOINT", "localhost:11434")], || {
+            Config::load_or_fail(None)
+                .expect_err("the env path goes through the same validation as the file path")
+                .to_string()
+        });
+        assert!(via_env.contains("endpoint"), "{via_env}");
+    }
+
+    /// Sets `vars` for the duration of `body`, under [`ENV_LOCK`], and unsets
+    /// them again — the `Drop` of each [`EnvVarGuard`] runs even if `body`
+    /// panics.
+    ///
+    /// It exists because the range checks moved from `apply_env_override` to
+    /// `load_or_fail` (they have to see the whole set, not one variable at a
+    /// time), so the tests that pin "an env value goes through the same ranges
+    /// as a file value" must now drive the REAL call site, which reads the
+    /// ambient environment.
+    fn env_scoped<T>(vars: &[(&'static str, &str)], body: impl FnOnce() -> T) -> T {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guards: Vec<EnvVarGuard> = vars
+            .iter()
+            .map(|(k, v)| EnvVarGuard::set(k, v))
+            .collect::<Vec<_>>();
+        body()
     }
 
     #[test]
@@ -1044,10 +1092,14 @@ mod tests {
     fn env_values_go_through_the_same_range_validation_as_file_values() {
         // The declared precedence is env > file > built-in, so a range check that
         // only looks at the file leaves the HIGHEST-precedence path unguarded.
-        let err =
-            Config::apply_env_override("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "0", Config::default())
-                .unwrap_err();
-        assert!(format!("{err}").contains("probe_timeout_secs"));
+        // Driven through `load_or_fail`, which is where the assembled set is
+        // validated (see `apply_env_override`'s docstring for why not there).
+        let err = env_scoped(&[("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "0")], || {
+            Config::load_or_fail(None)
+                .expect_err("a zero probe window must be refused however it arrives")
+                .to_string()
+        });
+        assert!(err.contains("probe_timeout_secs"), "{err}");
     }
 
     /// A raw value for `key` that is VALID and DIFFERENT from the built-in
@@ -1142,11 +1194,14 @@ mod tests {
             "the minimum itself must be accepted, or the bound is off by one"
         );
         // And the same range applies through the environment, which is the
-        // HIGHEST-precedence path (R30).
-        let via_env =
-            Config::apply_env_override("MAGI_SMOKE_RUN_PAYLOAD_BYTES", "0", Config::default())
-                .expect_err("the env path goes through the same ranges as the file path");
-        assert!(format!("{via_env}").contains("run_payload_bytes"));
+        // HIGHEST-precedence path (R30) — via `load_or_fail`, where the
+        // assembled set is validated.
+        let via_env = env_scoped(&[("MAGI_SMOKE_RUN_PAYLOAD_BYTES", "0")], || {
+            Config::load_or_fail(None)
+                .expect_err("the env path goes through the same ranges as the file path")
+                .to_string()
+        });
+        assert!(via_env.contains("run_payload_bytes"), "{via_env}");
     }
 
     #[test]
