@@ -1090,6 +1090,16 @@ mod tests {
         // the runtime has nothing else to run here, and using one mechanism on
         // both sides keeps the comparison between them free of any question
         // about timer resolution.
+        //
+        // The COUNT is pinned here too, in the test that already holds the
+        // receipt, because it is the other half of the same claim: the interval
+        // is a cost OF a number of runs, and a series whose denominator drifts
+        // is as incomparable across releases as one whose numerator does. Only
+        // the duration had ever been asserted, so adding seven to the count
+        // reported a receipt for ten runs that never happened with all 214
+        // tests green. The estimate is the reference because it counts the same
+        // runs from the same config by its own route, so the two agreeing is a
+        // statement about the runs rather than about one expression.
         const MEASURED_MS: u64 = 500;
         const AFTER_MS: u64 = 500;
         const FLOOR_SECS: f64 = 0.4;
@@ -1097,7 +1107,7 @@ mod tests {
 
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
-        ledger.announce(&cfg, false);
+        let announced = ledger.announce(&cfg, false);
         ledger
             .measure(async {
                 std::thread::sleep(std::time::Duration::from_millis(MEASURED_MS));
@@ -1106,6 +1116,22 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(AFTER_MS));
 
         let recorded = ledger.record().expect("announced, and the runs measured");
+        let runs_in = |line: &str| -> usize {
+            line.split(" backend run(s) ")
+                .next()
+                .and_then(|head| head.split_whitespace().last())
+                .and_then(|n| n.parse::<usize>().ok())
+                .unwrap_or_else(|| {
+                    panic!("the line must report a count it can be read from: {line}")
+                })
+        };
+        assert_eq!(
+            runs_in(&recorded),
+            runs_in(&announced),
+            "the receipt must bill the runs the estimate announced for this config. A count \
+             that drifts from it is a receipt for work that never happened, and it breaks the \
+             series exactly as a wrong duration does: {recorded} / {announced}"
+        );
         let seconds = recorded
             .split(" in ")
             .nth(1)
