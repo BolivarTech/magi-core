@@ -263,14 +263,7 @@ async fn main() -> std::process::ExitCode {
     // The offline run is executed here too but NOT measured: the receipt counts
     // BACKEND runs, so billing a run outside that count would put work inside
     // an interval that reports a different set.
-    let mut results = Vec::with_capacity(specs.len());
-    for spec in &specs {
-        if spec.id.uses_backend() {
-            results.push(ready.ledger.measure(run.execute_one(spec)).await);
-        } else {
-            results.push(run.execute_one(spec).await);
-        }
-    }
+    let results = dispatch_measured(&mut ready.ledger, &specs, &mut run).await;
 
     // R31's second half, and the reason it is read HERE: after the spend. The
     // ledger refuses to answer if nothing was announced first, so the order is
@@ -326,6 +319,79 @@ async fn main() -> std::process::ExitCode {
         println!("{}", report.render_json());
     }
     report.emit()
+}
+
+/// What the dispatch loop needs from a runner, so the loop can be exercised
+/// without a backend.
+///
+/// **It exists because the loop above had no witness.** `CostLedger` is
+/// thoroughly tested on its own, but every one of those tests calls `announce`,
+/// `measure` and `record` itself — they prove the ledger refuses a wrong
+/// sequence, not that THIS call site produces a right one. Four successive
+/// fixes to the measured interval landed with the whole suite green, because
+/// which work sat inside it was decided here and checked nowhere.
+///
+/// One method, taken by `&mut self` exactly as [`runner::Runner::execute_one`]
+/// is, so the production impl below is a forwarding call and cannot diverge
+/// from what it stands in for.
+#[async_trait::async_trait]
+trait ExecutesRuns {
+    /// Runs one spec to completion.
+    ///
+    /// # Parameters
+    ///
+    /// * `spec` — the run to execute.
+    async fn execute(&mut self, spec: &runner::RunSpec) -> runner::RunResult;
+}
+
+#[async_trait::async_trait]
+impl ExecutesRuns for runner::Runner {
+    async fn execute(&mut self, spec: &runner::RunSpec) -> runner::RunResult {
+        self.execute_one(spec).await
+    }
+}
+
+/// Executes every spec, timing ONE interval per BACKEND run and none for any
+/// other.
+///
+/// # Why this is a function and not eight lines in `run`
+///
+/// It cost two rounds to get the ENDS of the interval right — a start mark that
+/// drifted up into the preflight, then a stop computed inside `record` that
+/// swallowed whatever was moved in between — and both times the bill was the
+/// feature matrix's four `cargo check` runs, billed with every test green.
+/// There is no batch-wide interval left to move a line into, and adding a
+/// `measure` call to bill something else is a refusal rather than a plausible
+/// number. What was missing was somewhere to observe that from:
+/// `the_dispatch_loop_bills_one_interval_per_backend_run` now reads this.
+///
+/// The offline run is executed but NOT measured: the receipt counts BACKEND
+/// runs, so billing a run outside that count would put work inside an interval
+/// that reports a different set.
+///
+/// # Parameters
+///
+/// * `ledger` — the ledger the preflight already announced against.
+/// * `specs` — every run of the stage, in order.
+/// * `run` — the executor.
+///
+/// # Complexity
+///
+/// `O(n)` in `specs.len()`, plus whatever the runs themselves cost.
+async fn dispatch_measured(
+    ledger: &mut preflight::CostLedger,
+    specs: &[runner::RunSpec],
+    run: &mut impl ExecutesRuns,
+) -> Vec<runner::RunResult> {
+    let mut results = Vec::with_capacity(specs.len());
+    for spec in specs {
+        if spec.id.uses_backend() {
+            results.push(ledger.measure(run.execute(spec)).await);
+        } else {
+            results.push(run.execute(spec).await);
+        }
+    }
+    results
 }
 
 /// Which of the two cycle runs this invocation is.
@@ -1076,6 +1142,96 @@ mod tests {
             Some(expected),
             "alias::MODE is {:?}, which must select the source this binary links",
             alias::MODE
+        );
+    }
+
+    /// Executes nothing and records which specs it was handed, so the dispatch
+    /// loop's billing can be read without a backend.
+    #[derive(Default)]
+    struct RecordingRunner {
+        executed: Vec<config::RunId>,
+    }
+
+    #[async_trait::async_trait]
+    impl ExecutesRuns for RecordingRunner {
+        async fn execute(&mut self, spec: &runner::RunSpec) -> runner::RunResult {
+            self.executed.push(spec.id);
+            runner::RunResult::cannot_test(spec.id, "not executed by this double".to_string())
+        }
+    }
+
+    /// The stage's real specs, so the guard below reads the same run list
+    /// production does rather than a hand-written one that can drift from it.
+    ///
+    /// # Panics
+    ///
+    /// On payload-generation failure, which is fixture setup rather than the
+    /// property under test.
+    fn stage_specs() -> Vec<runner::RunSpec> {
+        let cfg = config::Config::default();
+        runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), false)
+            .expect("the stage's payload must be generatable from the real tree")
+    }
+
+    #[tokio::test]
+    async fn the_dispatch_loop_bills_one_interval_per_backend_run() {
+        // THE GUARD THAT DID NOT EXIST. `CostLedger` is thoroughly tested on
+        // its own, but every one of those tests calls announce/measure/record
+        // itself: they prove the ledger refuses a wrong sequence, never that
+        // this call site produces a right one. Four successive fixes to the
+        // measured interval shipped with the whole suite green, precisely
+        // because which work sat inside it was decided at the call site and
+        // checked nowhere — a defence that was a convention with no witness.
+        let cfg = config::Config::default();
+        let specs = stage_specs();
+        let backend_runs = specs.iter().filter(|s| s.id.uses_backend()).count();
+        assert!(
+            backend_runs > 0 && backend_runs < specs.len(),
+            "the guard is only meaningful while the stage mixes backend runs with an offline \
+             one: {backend_runs} of {}",
+            specs.len()
+        );
+
+        let mut ledger = preflight::CostLedger::new();
+        ledger.announce(&cfg, false);
+        let mut double = RecordingRunner::default();
+        let results = dispatch_measured(&mut ledger, &specs, &mut double).await;
+
+        assert_eq!(
+            double.executed.len(),
+            specs.len(),
+            "every spec must be executed, including the one that is not billed"
+        );
+        assert_eq!(results.len(), specs.len());
+        let receipt = ledger.record().unwrap_or_else(|refusal| {
+            panic!(
+                "the ledger refused a receipt for the loop production actually runs, which \
+                 means the loop billed a set the announcement did not describe: {refusal}"
+            )
+        });
+        assert!(
+            receipt.contains(&format!("{backend_runs} backend run(s)")),
+            "the receipt must bill exactly the backend runs, one interval each: {receipt}"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatching_alone_cannot_produce_a_receipt_the_estimate_never_preceded() {
+        // R31's other half, at the call site: the estimate comes FIRST, because
+        // after the spend the same number is a receipt and before it, it is a
+        // decision the operator can still make. Running the loop against a
+        // ledger nobody announced must leave nothing to report — otherwise the
+        // order would be a convention about where two lines sit.
+        let specs = stage_specs();
+        let mut ledger = preflight::CostLedger::new();
+        let mut double = RecordingRunner::default();
+        dispatch_measured(&mut ledger, &specs, &mut double).await;
+        let refusal = ledger
+            .record()
+            .expect_err("a receipt for a spend nobody announced is not a receipt");
+        assert!(
+            refusal.contains("before the estimate was announced"),
+            "the refusal must name WHICH half of the order is missing: {refusal}"
         );
     }
 
