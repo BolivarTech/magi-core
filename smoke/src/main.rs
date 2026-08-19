@@ -1580,6 +1580,46 @@ mod tests {
     }
 
     #[test]
+    fn a_build_expected_to_succeed_gets_the_same_guard_as_the_others() {
+        // The guard was applied to one half of the set. A combination that must
+        // NOT compile has its refusal checked against a marker, so a network
+        // failure reads as CouldNotRun; a combination that must BUILD had no
+        // marker at all, so ANY failure read as DidNotBuild — and the scenario
+        // turns that into a verdict about the crate. An unreachable registry
+        // then exits 1 and sends someone into the crate.
+        //
+        // A real `ExitStatus` from a real failure, with the stderr replaced by
+        // the one that matters: `ExitStatus` cannot be constructed portably,
+        // and a stand-in would be testing the stand-in.
+        let real_failure = |stderr: &str| {
+            let mut out = std::process::Command::new("cargo")
+                .args(["--magi-smoke-no-such-flag"])
+                .output()
+                .expect("cargo must be present: this harness is built by it");
+            out.stderr = stderr.as_bytes().to_vec();
+            Ok(out)
+        };
+        assert_eq!(
+            build_outcome(
+                real_failure("error: failed to get `serde` as a dependency\n\nCaused by:\n  failed to fetch\n"),
+                None
+            ),
+            runner::BuildOutcome::CouldNotRun,
+            "a registry the build could not reach says nothing about whether the code compiles"
+        );
+        assert_eq!(
+            build_outcome(
+                real_failure(
+                    "error[E0433]: failed to resolve\nerror: could not compile `magi-smoke`\n"
+                ),
+                None
+            ),
+            runner::BuildOutcome::DidNotBuild,
+            "the compiler rejecting the code IS the data this combination is built for"
+        );
+    }
+
+    #[test]
     fn a_refusal_for_another_reason_is_not_the_refusal_under_test() {
         // The hole this closes: the two combinations that must not compile are
         // also the ones that need the registry, so an unreachable crates.io made
