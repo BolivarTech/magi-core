@@ -865,6 +865,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_hookless_unwind_cannot_inherit_an_earlier_panics_attribution() {
+        // THE inversion this module exists to prevent, reached through the one
+        // piece of state that outlives an attempt: `LAST_PANIC_LOCATION`.
+        //
+        // The hook is what fills that slot, and NOT every unwind runs the hook —
+        // `std::panic::resume_unwind` is documented as bypassing it, which is
+        // what a crate does when it catches a panic and re-raises it. Read
+        // WITHOUT clearing, the slot still holds the PREVIOUS panic's location,
+        // so a crate unwind inherits a harness attribution: `Skip`, exit 2, "we
+        // could not test" — over a crate defect. That is the direction
+        // `classify_panic` calls the expensive one, produced here by the state
+        // the classifier trusts rather than by the classifier itself.
+        install_panic_hook();
+        let first = run_catching::<RunOutcome, _>(async {
+            panic!("a harness panic, which fills the location slot with THIS file");
+        })
+        .await
+        .expect_err("a panicking future must not report a value");
+        assert_eq!(first, RunOutcome::PanickedInHarness);
+
+        // No hook runs for this one, so nothing writes the slot. The only
+        // evidence available is whatever the previous attempt left behind.
+        let second = run_catching::<RunOutcome, _>(async {
+            std::panic::resume_unwind(Box::new("an unwind that never reaches the hook"));
+        })
+        .await
+        .expect_err("an unwinding future must not report a value");
+        assert_eq!(
+            second,
+            RunOutcome::PanickedInCrate,
+            "an unwind carrying no evidence of its own must not inherit the previous \
+             attempt's harness attribution"
+        );
+    }
+
+    #[tokio::test]
     async fn a_run_that_finishes_is_returned_untouched() {
         // The companion to the test above: without it, a `run_catching` that
         // always reported a panic would still pass.
