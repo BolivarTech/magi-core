@@ -1542,6 +1542,28 @@ mod tests {
     }
 
     #[test]
+    fn two_seats_sharing_one_lineage_are_rejected() {
+        // The symmetric case of the fallback check above, and the one that
+        // costs a verdict. With two seats on one lineage, an injected failure
+        // is classified `Http` -> `Transport` in `3.2.0` and condemns that
+        // lineage RUN-WIDE: both seats lose it, one agent answers, and the
+        // degradation scenario — which asserts exactly two of three answered —
+        // reports a red row about the crate for a mistake in this file.
+        let mut cfg = Config::default();
+        let taken = cfg.seats[0].lineage.clone();
+        cfg.seats[1].lineage = taken.clone();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding lineage: {err}"
+        );
+        assert!(
+            err.contains(&cfg.seats[1].agent),
+            "and the seat that carries it, the way the neighbouring checks name their field: {err}"
+        );
+    }
+
+    #[test]
     fn the_probe_window_is_configurable_and_defaults_to_ten_seconds() {
         // An idle endpoint answers one token in well under a second even
         // against cloud, so 10 s is an order of magnitude of slack — long
