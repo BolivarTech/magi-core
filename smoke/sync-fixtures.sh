@@ -139,6 +139,21 @@ HEADER
 # `|| true` would make "wanted.txt is not there yet" and "wanted.txt exists
 # and lists zero fixtures" print the exact same "synced 0 fixtures" line —
 # the one distinction this script exists to preserve.
+# DEFERRED, and it must be closed by MS1's fixture task — the one that first
+# writes a real `wanted.txt`:
+#
+#   `read` returns non-zero at end of input, so a final line with NO trailing
+#   newline never enters the loop body. That fixture is silently not copied and
+#   silently absent from the manifest, and the "synced N fixtures" line below
+#   reports the smaller N as a success. Today `wanted.txt` does not exist, so
+#   nothing is dropped and the defect is unreachable; the first hand-edited file
+#   whose editor does not add a trailing newline makes it reachable.
+#
+#   The usual close is `while read -r ... || [ -n "$f" ]`, which runs the body
+#   once more for the unterminated remainder. Whoever populates the corpus must
+#   do it there and pin it with a `wanted.txt` deliberately written without a
+#   trailing newline — a fixture list that quietly loses its last entry is the
+#   "green by omission" this harness exists to forbid.
 if [ -f "$WANTED" ]; then
   while read -r f scenario currency; do
     [ -n "$f" ] || continue
