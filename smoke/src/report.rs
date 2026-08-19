@@ -340,6 +340,9 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     out
 }
 
+/// What the certificate says about its own scope.
+const UNION_NOTE: &str = "placeholder";
+
 /// What the certificate says when no row came from the large-payload run.
 ///
 /// Its wording is load-bearing in two directions: it names the class so a
@@ -405,6 +408,8 @@ pub struct CertificateFacts {
     /// certificate a guess too — the same reason `--smoke-2` is not detected
     /// either.
     pub round: u32,
+    /// The command line that produced this certificate, rendered.
+    pub invocation: String,
     /// What the fixture audit counted, for R23's 30 % warning.
     ///
     /// It rides in the certificate rather than in stdout because R23 says so
@@ -917,11 +922,41 @@ mod tests {
             mode: "tree",
             cost: Some("3 backend run(s) in 41.5s".to_string()),
             round: 3,
+            invocation: "(sample)".to_string(),
             fixtures: crate::fixtures::FixtureSummary::default(),
         }
     }
 
     // --- Step-1 tests from task-12a-brief.md, reproduced verbatim in intent ---
+
+    #[test]
+    fn the_certificate_says_which_invocation_it_covers() {
+        // "Green" is the union of six commands: four scenarios need the
+        // preflight to stop at a DIFFERENT step, and the preflight stops at the
+        // first failure, so they cannot share an invocation. The certificate is
+        // written by ONE of those six and its table shows only that one's rows —
+        // with no line saying so, a reader takes the document for the whole
+        // union, which is a claim nobody made.
+        //
+        // The asymmetry is the project's own: it already refuses to certify
+        // without a version, a commit or a mode, because a certificate that
+        // cannot name what it certifies is not one. What it covers is the same
+        // kind of fact.
+        let facts = CertificateFacts {
+            invocation: "--smoke-2 --round 3".to_string(),
+            ..sample_facts()
+        };
+        let cert = render_certificate(&sample_results(), &facts);
+        assert!(
+            cert.contains("--smoke-2 --round 3"),
+            "the certificate must name the invocation that produced it: {cert}"
+        );
+        assert!(
+            cert.contains(UNION_NOTE),
+            "and say that green is the union of several, so its table is not read as all of \
+             them: {cert}"
+        );
+    }
 
     #[test]
     fn the_certificate_declares_the_version_inside_not_in_the_filename() {

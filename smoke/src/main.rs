@@ -321,6 +321,7 @@ async fn main() -> std::process::ExitCode {
             mode: alias::MODE,
             cost: real_cost.ok(),
             round: cli.round,
+            invocation: String::new(),
             fixtures: ready.fixtures,
         },
     );
