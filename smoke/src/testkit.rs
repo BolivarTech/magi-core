@@ -725,6 +725,75 @@ pub async fn stub_that_is_always_slow() -> AlwaysSlowStub {
     AlwaysSlowStub { addr }
 }
 
+/// An HTTP stub that answers `GET /api/tags` with a model listing and `{}` to
+/// everything else, immediately.
+pub struct ListingStub {
+    addr: std::net::SocketAddr,
+}
+
+impl ListingStub {
+    /// The base URL a client (or the preflight) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// Binds on an ephemeral port and answers the reachability path with the
+/// Ollama-shaped listing `{"models":[{"name": ..}, ..]}` naming exactly
+/// `models`, and `{}` to every other path.
+///
+/// It exists because an echo or `{}` stub establishes NOTHING about which
+/// models a backend holds, so a preflight check over that listing cannot be
+/// observed against one: the test would pass whether or not the check ran.
+///
+/// # Parameters
+///
+/// * `models` — the model names the backend is to claim it holds.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_lists_models(models: &[&str]) -> ListingStub {
+    let listing = serde_json::json!({
+        "models": models.iter().map(|m| serde_json::json!({ "name": m })).collect::<Vec<_>>(),
+    })
+    .to_string();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind listing stub");
+    let addr = listener.local_addr().expect("listing stub local address");
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let listing = listing.clone();
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let listing = listing.clone();
+                        async move {
+                            let tags = req.uri().path() == "/api/tags";
+                            let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                            let body = if tags { listing } else { "{}".to_string() };
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                http_body_util::Full::new(hyper::body::Bytes::from(body)),
+                            ))
+                        }
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    ListingStub { addr }
+}
+
 /// An HTTP stub that answers everything with `404 Not Found`, immediately.
 pub struct NotFoundStub {
     addr: std::net::SocketAddr,

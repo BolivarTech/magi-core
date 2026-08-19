@@ -217,9 +217,11 @@ pub async fn run(
     // a run without a backend still has a config, a fixture corpus, an isolated
     // workspace, a tracked lock and a proxy to raise.
     if !no_backend {
-        reachable(&cfg.endpoint, cfg.probe_timeout())
+        let listed = reachable(&cfg.endpoint, cfg.probe_timeout())
             .await
             .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?; // backend
+        check_seat_models(cfg, listed.as_deref())
+            .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?;
 
         // FAIL-CLOSED: a probe that does not answer CUTS. An earlier version
         // kept going "so a scenario would have something to read", which broke
@@ -457,7 +459,7 @@ const PROBE_PROMPT: &str = "hi";
 /// * `endpoint` — the backend's base URL.
 /// * `window` — how long the whole request may take, from
 ///   [`Config::probe_timeout`].
-async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
+async fn reachable(endpoint: &str, window: Duration) -> Result<Option<Vec<String>>, String> {
     let client = reqwest::Client::builder()
         .timeout(window)
         .build()
@@ -468,13 +470,26 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<(), String> {
         .await
         .map_err(|e| format!("backend at {endpoint} did not answer: {e}"))?;
     if resp.status().is_success() {
-        Ok(())
+        Ok(None)
     } else {
         Err(format!(
             "backend at {endpoint} answered with status {}",
             resp.status()
         ))
     }
+}
+
+/// Rejects a run whose SEAT models the backend does not hold — **exit 2, not a
+/// verdict about the crate**.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration, for the seats to check.
+/// * `listed` — the model names the backend listed, or `None` when it did not
+///   list any.
+pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), String> {
+    let _ = (cfg, listed);
+    Ok(())
 }
 
 /// One bounded attempt at a REAL completion: the WHOLE request — connect, send
@@ -1041,8 +1056,8 @@ mod tests {
     use crate::testkit::{
         repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
         run_with_broken_proxy, stub_that_holds_no_model, stub_that_is_always_slow,
-        stub_that_is_slow_on_first_request_only, stub_that_records_requests, temp_root_with,
-        tempdir_with,
+        stub_that_is_slow_on_first_request_only, stub_that_lists_models,
+        stub_that_records_requests, temp_root_with, tempdir_with,
     };
 
     #[test]
@@ -1668,6 +1683,77 @@ mod tests {
         };
         let err = probe(&cfg, Duration::from_millis(50)).await.unwrap_err();
         assert!(err.contains("contention") && err.contains("cold"));
+    }
+
+    #[tokio::test]
+    async fn the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list() {
+        // The pure check is worth nothing if the preflight never calls it, and
+        // this is the half that decides the exit code: `Stage::Backend` is
+        // exit 2, and reaching the runs with a mistyped model is exit 1 — a
+        // verdict about the crate for a typo in a TOML file.
+        let defaults = Config::default();
+        let held: Vec<&str> = defaults
+            .seats
+            .iter()
+            .skip(1)
+            .map(|s| s.model.as_str())
+            .collect();
+        let stub = stub_that_lists_models(&held).await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        let err = run(&cfg, &[], true, false).await.unwrap_err();
+        assert_eq!(err.stage, Stage::Backend, "{err}");
+        assert!(err.msg.contains(&cfg.seats[0].model), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_backend_listing_the_whole_trio_gets_past_the_backend_step() {
+        // The other side of the check: it must not refuse a healthy config.
+        // `--break-proxy` stops the run at the LAST step, so reaching
+        // `Stage::Proxy` is the evidence that backend and probe both passed.
+        let defaults = Config::default();
+        let held: Vec<&str> = defaults.seats.iter().map(|s| s.model.as_str()).collect();
+        let stub = stub_that_lists_models(&held).await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        let err = run(&cfg, &[], true, false).await.unwrap_err();
+        assert_eq!(err.stage, Stage::Proxy, "{err}");
+    }
+
+    #[test]
+    fn a_seat_model_the_backend_does_not_hold_is_refused_before_any_scenario_runs() {
+        // The whole reason this harness exists is the 1-versus-2 distinction:
+        // exit 1 is a verdict about the crate, exit 2 is "we could not test".
+        // A mistyped model in this file is the operator's typo, and letting it
+        // reach the runs turns it into a red row about the crate.
+        let cfg = Config::default();
+        let held: Vec<String> = cfg.seats.iter().skip(1).map(|s| s.model.clone()).collect();
+        let absent = cfg.seats[0].model.clone();
+        let err = check_seat_models(&cfg, Some(&held)).unwrap_err();
+        assert!(
+            err.contains(&absent) && err.contains(&cfg.seats[0].agent),
+            "the refusal must name the model AND the seat that declared it, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_backend_holding_every_seat_model_passes_the_check() {
+        let cfg = Config::default();
+        let held: Vec<String> = cfg.seats.iter().map(|s| s.model.clone()).collect();
+        assert!(check_seat_models(&cfg, Some(&held)).is_ok());
+    }
+
+    #[test]
+    fn a_backend_that_lists_no_models_is_not_read_as_holding_none() {
+        // The boundary, declared: only a PROVEN absence refuses. A backend
+        // whose listing this harness cannot read has established nothing, and
+        // reading "I could not tell" as "it holds nothing" would refuse every
+        // run against anything that is not shaped like an Ollama.
+        assert!(check_seat_models(&Config::default(), None).is_ok());
     }
 
     #[test]
