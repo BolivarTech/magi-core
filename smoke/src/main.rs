@@ -254,7 +254,10 @@ async fn main() -> std::process::ExitCode {
     // The one deliberate exception to "every request goes through the proxy",
     // run once, before the first run. Its failure leaves the fields empty, which
     // makes the scenario reading them SKIP — never FAIL.
-    run.prime_transparency_probe(&cfg.endpoint).await;
+    {
+        let ids: Vec<config::RunId> = specs.iter().map(|s| s.id).collect();
+        run.prime_transparency_probe(&cfg.endpoint, &ids).await;
+    }
     // ONE measured interval PER BACKEND RUN, and the ledger refuses to produce
     // a receipt unless their number matches the count it announced. That is the
     // point of the loop: it cost two rounds to get the ENDS of the interval

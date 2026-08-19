@@ -651,13 +651,21 @@ impl Runner {
     /// # Parameters
     ///
     /// * `backend` — the real endpoint, bypassed straight for the direct half.
-    pub async fn prime_transparency_probe(&mut self, backend: &str) {
+    /// * `runs` — the runs this invocation will execute. When none of them uses
+    ///   the backend, nothing is sent at all: `--no-backend` promises the
+    ///   harness reaches no network, and priming unconditionally broke that
+    ///   promise with the one request that does not even go through the proxy.
+    pub async fn prime_transparency_probe(&mut self, backend: &str, runs: &[RunId]) {
+        if !probe_is_in_scope(runs) {
+            return;
+        }
+        let window = probe_window(&self.config);
         let body = format!("{{\"model\":\"{}\"}}", PROBE_MODEL);
         let mark = self.proxy.mark();
         // Through the proxy first, so its record exists before the direct half
         // can influence anything.
-        let through = show_request(&self.proxy.base_url(), &body, Duration::MAX).await;
-        let direct = show_request(backend, &body, Duration::MAX).await;
+        let through = show_request(&self.proxy.base_url(), &body, window).await;
+        let direct = show_request(backend, &body, window).await;
         let (Ok(_), Ok((direct_status, direct_body))) = (through, direct) else {
             // Deliberately leaves every field None. Half a probe is worse than
             // none: a scenario comparing against a missing term would report a
@@ -807,17 +815,48 @@ const PROBE_MODEL: &str = "smoke-transparency-probe";
 ///
 /// Any transport failure. The caller turns it into "the probe did not run",
 /// which is a SKIP rather than a failure.
-fn probe_is_in_scope(_runs: &[RunId]) -> bool {
-    true
+/// Whether the transparency probe has anything to say about this invocation.
+///
+/// Derived from the runs that are about to execute, never from the flag that
+/// selected them. `RunSpec::for_stage_e1` already returns only the offline run
+/// under `--no-backend`, so reading the specs cannot disagree with what is
+/// executed, while a second reading of the flag can — and this decides whether
+/// the harness's one deliberate bypass of the proxy is used at all.
+///
+/// # Parameters
+///
+/// * `runs` — the ids of the runs this invocation will execute.
+///
+/// # Complexity
+///
+/// `O(n)` in `runs.len()`.
+fn probe_is_in_scope(runs: &[RunId]) -> bool {
+    runs.iter().any(|r| r.uses_backend())
+}
+
+/// The window a single probe half is given before it is abandoned.
+///
+/// `Config::probe_timeout` rather than a constant of its own: it is the value
+/// an operator already sets for *how long a trivial request may take before the
+/// harness stops waiting on this endpoint*, and the transparency probe asks
+/// exactly that question of the same endpoint. A second knob would let the two
+/// drift apart with nothing to say which one an operator meant.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration.
+fn probe_window(cfg: &Config) -> Duration {
+    cfg.probe_timeout()
 }
 
 async fn show_request(
     base: &str,
     body: &str,
-    _within: Duration,
+    within: Duration,
 ) -> Result<(u16, Vec<u8>), reqwest::Error> {
     let response = reqwest::Client::builder()
         .referer(false)
+        .timeout(within)
         .build()?
         .post(format!("{base}/api/show"))
         .header("content-type", "application/json")
