@@ -731,17 +731,7 @@ impl Runner {
             },
             // It ran out of time. A TIME failure is NOT a verdict about the
             // crate: it says the deployment is slower than the cap someone chose.
-            Err(_) => RunResult {
-                run: spec.id,
-                outcome: RunOutcome::TimedOut,
-                over_budget: Some(started.elapsed()),
-                report: None,
-                error: None,
-                records: Vec::new(),
-                proxy_degraded: false,
-                attempts: 1,
-                injected_agent: injected_agent(spec),
-            },
+            Err(_) => timed_out(spec.id, started.elapsed(), injected_agent(spec)),
         }
     }
 
@@ -868,6 +858,27 @@ async fn show_request(
     response.bytes().await.map(|b| (status, b.to_vec()))
 }
 
+/// The result of a run that reached its time cap.
+///
+/// # Parameters
+///
+/// * `run` — which run ran out of time.
+/// * `cap` — the budget it was given.
+/// * `injected_agent` — the seat this run injected into, if any.
+fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> RunResult {
+    RunResult {
+        run,
+        outcome: RunOutcome::TimedOut,
+        over_budget: Some(cap),
+        report: None,
+        error: None,
+        records: Vec::new(),
+        proxy_degraded: false,
+        attempts: 1,
+        injected_agent,
+    }
+}
+
 /// Which seat a run injected into, resolved from the injection's model.
 ///
 /// Returns `None` when the run injected nothing, and also when the injected
@@ -937,6 +948,30 @@ mod tests {
             started.elapsed() < Duration::from_millis(400),
             "the probe waited {:?}, so its own bound is not what stopped it",
             started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_timed_out_run_reports_its_cap_verbatim() {
+        // `tokio::time::timeout` fires AT the cap, so an elapsed-time reading
+        // taken when it fires IS the budget, give or take scheduling noise —
+        // and rendered as an overrun it read as a run that took twice its
+        // budget. Nobody measured that: the run was cut before it finished, so
+        // how far past its cap it would have gone is unknowable. The cap is what
+        // is known, so the cap is what travels.
+        //
+        // **What this pins and what it does not.** It pins that the value is
+        // carried through untransformed. That the CALL SITE hands it the cap and
+        // not a clock reading is structural rather than asserted here: `attempt`
+        // no longer takes an `Instant`, so `cap` is the only `Duration` in scope
+        // to pass. Observing the call site would mean driving a real run against
+        // a stub past its budget, which costs more than the property is worth.
+        let cap = Duration::from_secs(300);
+        let result = timed_out(RunId::Large62k, cap, None);
+        assert_eq!(
+            result.over_budget,
+            Some(cap),
+            "the cap must arrive unchanged, not scaled or re-derived"
         );
     }
 

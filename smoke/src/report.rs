@@ -1293,6 +1293,43 @@ mod tests {
     }
 
     #[test]
+    fn both_renderers_name_the_cap_that_was_exceeded_rather_than_an_overrun() {
+        // The quantity was rendered as an OVERRUN — "over budget by 300.0s" —
+        // while the value is the cap. Nobody measured an overrun: the run was
+        // cut before it finished, so how far past its budget it would have gone
+        // is unknowable. Naming the cap says exactly what happened, and it is
+        // also the number the operator can act on: it is the one they set.
+        let cap = Duration::from_secs(300);
+        let row = AssertionRow {
+            scenario_id: "S-test",
+            scenario: "s",
+            run_id: RunId::Large62k,
+            state: ScenarioState::Timeout,
+            over_budget: Some(cap),
+        };
+        let human = format_row(&row);
+        assert!(
+            human.contains("exceeded its 300.0s budget"),
+            "the human table must name the cap: {human}"
+        );
+        assert!(
+            !human.contains("over budget by"),
+            "an overrun is a quantity nobody measured: {human}"
+        );
+        let json = row_to_json(&row);
+        assert_eq!(
+            json.get("budget_secs").and_then(|v| v.as_f64()),
+            Some(300.0),
+            "the JSON form must name the same fact under a key that says which one it is: \
+             {json}"
+        );
+        assert!(
+            json.get("over_budget_secs").is_none(),
+            "the key that claimed an overrun must be gone, not merely re-valued: {json}"
+        );
+    }
+
+    #[test]
     fn a_time_failure_renders_visibly_different_from_an_assertion_failure() {
         // The mutation this test exists to catch: collapsing TIMEOUT into the
         // same marker as FAIL would report "the crate is wrong" when the
