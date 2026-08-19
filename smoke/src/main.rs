@@ -249,12 +249,15 @@ async fn main() -> std::process::ExitCode {
     // run once, before the first run. Its failure leaves the fields empty, which
     // makes the scenario reading them SKIP — never FAIL.
     run.prime_transparency_probe(&cfg.endpoint).await;
-    // The measured interval IS this call. It used to be a mark placed on the
-    // line above, which is what let it drift up into the preflight and quietly
-    // bill the certificate for the feature matrix's four `cargo check` runs
-    // whenever `--build-matrix` was passed — a cost series that includes four
-    // builds on some releases and not on others cannot be compared across them,
-    // which is the whole payoff of writing the certificate to one fixed path.
+    // The measured interval IS this call, at BOTH ends: the ledger stores the
+    // duration this line took, so nothing above it and nothing below it can be
+    // billed to the certificate. It cost two rounds to get there — first a
+    // start mark on the line above, which drifted up into the preflight; then a
+    // stop computed inside `record`, which swallowed whatever was moved in
+    // between. Either way the bill was the feature matrix's four `cargo check`
+    // runs under `--build-matrix`, and a cost series that includes four builds
+    // on some releases and not on others cannot be compared across them — the
+    // whole payoff of writing the certificate to one fixed path.
     let results = ready.ledger.measure(run.execute(&specs)).await;
 
     // R31's second half, and the reason it is read HERE: after the spend. The

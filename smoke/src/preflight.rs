@@ -51,7 +51,7 @@ pub struct Announcement {
     /// announcement is made here, and the ledger is what remembers that it was:
     /// [`CostLedger::record`] refuses without it, which makes "announced before,
     /// recorded after" structural instead of a convention about where two prints
-    /// sit. The clock it measures does NOT start here — see
+    /// sit. The interval it reports is NOT opened here — see
     /// [`CostLedger::measure`].
     pub ledger: CostLedger,
     /// What the fixture audit counted (R23), on its way to the end-of-run
@@ -639,11 +639,12 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
 ///
 /// A ledger makes that order checkable instead of hoping two `eprintln!`s stay
 /// where somebody put them: [`CostLedger::record`] REFUSES unless the estimate
-/// was announced AND the runs were marked as started, so a reordering that puts
-/// the receipt first fails rather than printing something reasonable-looking in
+/// was announced AND the runs were measured, so a reordering that puts the
+/// receipt first fails rather than printing something reasonable-looking in
 /// the wrong place.
 ///
-/// # Why the announcement alone was not enough, and why the clock is separate
+/// # Why the announcement alone was not enough, and why the runs are timed
+/// separately from it
 ///
 /// Hanging the refusal on the announcement made the guarantee UNREACHABLE:
 /// [`announce`](CostLedger::announce) runs inside [`run`], so every ledger a
@@ -651,9 +652,9 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
 /// the preflight answered with a plausible receipt for runs that had not
 /// happened yet.
 ///
-/// Marking the START of the runs separately also fixes what is measured.
-/// Announcing and starting are NOT the same instant: between them sits the
-/// feature matrix, whose four `cargo check` runs landed inside the recorded
+/// Timing the runs separately from the announcement also fixes what is
+/// measured. Announcing and running are NOT the same instant: between them sits
+/// the feature matrix, whose four `cargo check` runs landed inside the recorded
 /// interval whenever `--build-matrix` was passed. A cost series that includes
 /// four builds on some releases and not on others is not comparable across
 /// them, which is the entire point of writing the certificate to one fixed
@@ -688,7 +689,7 @@ impl CostLedger {
 
     /// The sentence printed BEFORE the first run.
     ///
-    /// It does **not** start the clock; see [`measure`](CostLedger::measure).
+    /// It measures nothing; see [`measure`](CostLedger::measure).
     ///
     /// # Parameters
     ///
@@ -743,13 +744,24 @@ impl CostLedger {
         ))
     }
 
-    /// Measures `work` as the runs, and stamps the clock
-    /// [`record`](CostLedger::record) reports from.
+    /// Times `work` as the runs, and stores the elapsed duration
+    /// [`record`](CostLedger::record) reports.
     ///
-    /// The interval is the call rather than a mark placed beside it, because
-    /// the defect this closes was one of ORDERING: a separate mark drifted
-    /// upwards into the preflight and the receipt silently grew by everything
-    /// above it. Passing the runs in leaves no ordering to get wrong.
+    /// The interval is captured around the work itself: the clock starts here
+    /// and stops when the awaited work returns, so **neither end depends on
+    /// where a call sits**. That is what the defect cost twice. A separate
+    /// start mark drifted upwards into the preflight and the receipt silently
+    /// grew by everything above it; then, with the start made structural, the
+    /// end was still computed inside `record`, so moving the feature matrix
+    /// down to sit between the runs and the receipt billed the certificate for
+    /// four `cargo check` runs with every test green.
+    ///
+    /// What it does NOT guarantee, since an earlier version of this paragraph
+    /// claimed there was no ordering left to get wrong: work handed in as part
+    /// of `work` is measured, because that is what measuring the argument
+    /// means. A caller who passes `async {}` and runs the real work outside
+    /// still gets a wrong receipt — a conspicuous `0.0s` for N runs, rather
+    /// than a plausible number, which is the direction that fails usefully.
     ///
     /// What that excludes, said as what it is: the git baseline, the spec
     /// build, the fixture audit, the feature matrix's four `cargo check` runs
@@ -984,8 +996,8 @@ mod tests {
         // after the preflight — the literal reordering the rustdoc claimed
         // would fail — returned a plausible receipt in the wrong place.
         //
-        // The runs must therefore be marked as STARTED for a receipt to exist,
-        // and that mark is what a reordering loses.
+        // The runs must therefore have been MEASURED for a receipt to exist,
+        // and that measurement is what a reordering loses.
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
         ledger.announce(&cfg, false);
