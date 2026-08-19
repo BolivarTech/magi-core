@@ -2037,6 +2037,35 @@ mod tests {
     }
 
     #[test]
+    fn s14_does_not_blame_the_crate_for_a_config_fault_of_another_shape() {
+        // The gap its own rustdoc admitted and nothing closed: the stage guard
+        // separates `Config:` from the other three stages, and then every
+        // Config-stage failure that is not an unknown field falls through to
+        // the assertion and comes out `Fail` — exit 1, a verdict about the
+        // crate, for an input the OPERATOR chose. A syntax-broken toml, a
+        // missing file and a bad value are all illegible configs this scenario
+        // was not asked about.
+        for err in [
+            "Config: config: TOML parse error at line 3, column 1: expected `=`",
+            "Config: config: no such file or directory",
+            "Config: config: invalid type: string, expected u32",
+        ] {
+            let err = err.to_string();
+            let ctx = RunContext {
+                error: Some(&err),
+                ..blank_ctx(RunId::HappySmall)
+            };
+            let a = s14_illegible_toml_is_fatal(&ctx);
+            assert_eq!(
+                a[0].state,
+                ScenarioState::OutOfScope,
+                "the Config stage failed in a shape this scenario does not assert about, so \
+                 this invocation never asked its question: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn s20_passes_on_the_real_break_proxy_message() {
         let err = "Proxy: proxy: refused to start (--break-proxy). This is a HARNESS fault, \
                     never a verdict about the crate: no scenario is reported as passed."
