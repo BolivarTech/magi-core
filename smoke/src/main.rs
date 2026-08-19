@@ -495,7 +495,7 @@ fn evaluate(
         if no_backend && scenario.backend_tag == runner::BackendNeed::Required {
             rows.push(report::AssertionRow {
                 scenario_id: scenario.id,
-                run_id: config::RunId::NoBackend,
+                run_id: None,
                 scenario: "not part of the --no-backend partition",
                 state: outcome::ScenarioState::OutOfScope,
                 budget_exceeded: None,
@@ -503,11 +503,13 @@ fn evaluate(
             continue;
         }
         let mut ctx = absent_context(config::RunId::NoBackend);
-        let mut run_id = config::RunId::NoBackend;
+        // `None` until a run claims this scenario: a row that no run produced
+        // must not name one (see `report::AssertionRow::run_id`).
+        let mut run_id = None;
         let mut budget_exceeded = None;
         match scenario.source {
             runner::Source::Run(id) => {
-                run_id = id;
+                run_id = Some(id);
                 // A run that ran out of time is reported as a TIME failure, not
                 // handed to the assertion. Its data is absent for a reason that
                 // says nothing about the crate — "the deployment is slower than
@@ -527,7 +529,7 @@ fn evaluate(
                     let _ = r;
                     rows.push(report::AssertionRow {
                         scenario_id: scenario.id,
-                        run_id: id,
+                        run_id: Some(id),
                         scenario: "the crate panicked during this run",
                         state: outcome::ScenarioState::Fail,
                         budget_exceeded: None,
@@ -555,7 +557,7 @@ fn evaluate(
                 {
                     rows.push(report::AssertionRow {
                         scenario_id: scenario.id,
-                        run_id: id,
+                        run_id: Some(id),
                         scenario: "the run could not be started",
                         state: outcome::ScenarioState::Skip(
                             r.error
@@ -572,7 +574,7 @@ fn evaluate(
                 {
                     rows.push(report::AssertionRow {
                         scenario_id: scenario.id,
-                        run_id: id,
+                        run_id: Some(id),
                         scenario: "the run exceeded its time budget before it could be read",
                         state: outcome::ScenarioState::Timeout,
                         budget_exceeded: r.budget_exceeded,
@@ -704,14 +706,14 @@ fn evaluate_preflight_only(
             ctx.error = Some(&rendered);
             rows.extend(report::AssertionRow::of(
                 scenario.id,
-                config::RunId::NoBackend,
+                None,
                 (scenario.assert_fn)(&ctx),
                 None,
             ));
         } else {
             rows.push(report::AssertionRow {
                 scenario_id: scenario.id,
-                run_id: config::RunId::NoBackend,
+                run_id: None,
                 scenario: "not evaluated: the preflight stopped before any run",
                 state: outcome::ScenarioState::Skip(rendered.clone()),
                 budget_exceeded: None,

@@ -87,9 +87,16 @@ pub struct AssertionRow {
     /// The property this row is about, written as a sentence a reader can
     /// check against the code (mirrors [`crate::runner::Assertion::name`]).
     pub scenario: &'static str,
-    /// Which shared run produced this assertion. Carried on every row on
-    /// purpose — see the module doc.
-    pub run_id: RunId,
+    /// Which shared run produced this assertion, or `None` for a row no run
+    /// produced.
+    ///
+    /// **An `Option`, because the alternative was a real run.** The stand-in
+    /// used to be [`RunId::NoBackend`], so a preflight failure and a
+    /// certificate that could not be written both rendered `run=no_backend` —
+    /// pointing an operator at a run that produced neither, and making a
+    /// genuine offline row indistinguishable from a harness fault. Absence is
+    /// recorded AS absence, the same way a measurement nobody took is.
+    pub run_id: Option<RunId>,
     /// What the assertion found.
     pub state: ScenarioState,
     /// `Some` only when `state` is [`ScenarioState::Timeout`]: the time cap
@@ -337,7 +344,7 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
     // count the table to find. It goes ABOVE the table, in the position the
     // large-payload rows would have occupied, for the same reason they are
     // promoted there.
-    if !rows.iter().any(|r| r.run_id == RunId::Large62k) {
+    if !rows.iter().any(|r| r.run_id == Some(RunId::Large62k)) {
         let _ = writeln!(out, "{LARGE_PAYLOAD_NOT_EXERCISED}");
     }
     let _ = writeln!(out);
@@ -546,8 +553,8 @@ pub fn iso_date_utc(at: std::time::SystemTime) -> String {
 /// returns a scalar, so nothing is allocated here at all. `sort_by_cached_key`
 /// would ADD an allocation (a `Vec` of keys) to avoid a comparison cheaper than
 /// the indirection that replaces it, over a handful of rows. It stays.
-fn large_payload_priority(run: RunId) -> u8 {
-    if run == RunId::Large62k {
+fn large_payload_priority(run: Option<RunId>) -> u8 {
+    if run == Some(RunId::Large62k) {
         0
     } else {
         1
@@ -695,7 +702,7 @@ fn format_row(row: &AssertionRow) -> String {
     let mut line = format!(
         "[{marker}] {} run={} — {}",
         row.scenario_id,
-        row.run_id.as_str(),
+        run_label(row.run_id),
         row.scenario
     );
     if let ScenarioState::Skip(reason) = &row.state {
@@ -734,7 +741,7 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
     serde_json::json!({
         "scenario_id": row.scenario_id,
         "scenario": row.scenario,
-        "run_id": row.run_id.as_str(),
+        "run_id": run_label(row.run_id),
         "state": state,
         "detail": detail,
         "budget_secs": row.budget_exceeded.map(|d| d.as_secs_f64()),
@@ -755,7 +762,7 @@ impl AssertionRow {
     /// `O(n)` in the number of assertions.
     pub fn of(
         scenario_id: &'static str,
-        run_id: RunId,
+        run_id: Option<RunId>,
         assertions: Vec<crate::runner::Assertion>,
         budget_exceeded: Option<Duration>,
     ) -> Vec<AssertionRow> {
@@ -783,7 +790,7 @@ impl Report {
     /// # Parameters
     ///
     /// * `reason` — what stopped the run, in terms an operator can act on.
-    pub fn cannot_test(reason: &str, _run: CycleRun) -> Report {
+    pub fn cannot_test(reason: &str, run: CycleRun) -> Report {
         Report {
             rows: vec![AssertionRow {
                 scenario_id: "preflight",
@@ -792,7 +799,7 @@ impl Report {
                 state: ScenarioState::Skip(reason.to_string()),
                 budget_exceeded: None,
             }],
-            run: CycleRun::First,
+            run,
         }
     }
 
@@ -832,9 +839,28 @@ impl Report {
     }
 }
 
-/// The run id a row carries when the harness itself could not test anything, so
-/// there is no shared run to attribute it to.
-const NO_RUN: RunId = RunId::NoBackend;
+/// The attribution a row carries when no shared run produced it.
+///
+/// `None`, and never a real run id: the previous stand-in was
+/// [`RunId::NoBackend`], which sent readers looking for a run that had produced
+/// nothing of the sort.
+const NO_RUN: Option<RunId> = None;
+
+/// How a row's attribution is printed, including when it has none.
+///
+/// The word is deliberately not a run id — nothing can be mistaken for a run
+/// that exists — and it is a `&'static str` rather than an empty field, because
+/// a bare `run=` reads as a value somebody failed to fill in.
+///
+/// # Parameters
+///
+/// * `run` — the row's attribution, if it has one.
+fn run_label(run: Option<RunId>) -> &'static str {
+    match run {
+        Some(id) => id.as_str(),
+        None => "(no run)",
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -846,16 +872,13 @@ mod tests {
         // this test pins the mapping end to end.
         let row = |state| AssertionRow {
             scenario_id: "S-test",
-            run_id: RunId::HappySmall,
+            run_id: Some(RunId::HappySmall),
             scenario: "a property",
             state,
             budget_exceeded: None,
         };
         assert_eq!(Report::with(&[row(ScenarioState::Fail)]).exit_code(), 1);
-        assert_eq!(
-            Report::cannot_test("proxy", CycleRun::First).exit_code(),
-            2
-        );
+        assert_eq!(Report::cannot_test("proxy", CycleRun::First).exit_code(), 2);
         assert_eq!(Report::with(&[row(ScenarioState::Pass)]).exit_code(), 0);
         assert_eq!(
             Report::with(&[row(ScenarioState::Pass), row(ScenarioState::OutOfScope)]).exit_code(),
@@ -887,21 +910,21 @@ mod tests {
             AssertionRow {
                 scenario_id: "S-test",
                 scenario: "the happy path run produces a valid verdict from all three seats",
-                run_id: RunId::HappySmall,
+                run_id: Some(RunId::HappySmall),
                 state: ScenarioState::Pass,
                 budget_exceeded: None,
             },
             AssertionRow {
                 scenario_id: "S-test",
                 scenario: "the large payload run converges within its budget",
-                run_id: RunId::Large62k,
+                run_id: Some(RunId::Large62k),
                 state: ScenarioState::Skip("no backend available for this cycle".into()),
                 budget_exceeded: None,
             },
             AssertionRow {
                 scenario_id: "S-test",
                 scenario: "rotation recovers from an injected failure",
-                run_id: RunId::Rotation,
+                run_id: Some(RunId::Rotation),
                 state: ScenarioState::Pass,
                 budget_exceeded: None,
             },
@@ -981,8 +1004,8 @@ mod tests {
         // therefore rendered `run=no_backend`, so an operator reading the table
         // would look for a run that never produced them, and a genuine
         // no-backend row and a harness fault became indistinguishable.
-        let human = Report::cannot_test("the proxy would not start", CycleRun::First)
-            .render_human();
+        let human =
+            Report::cannot_test("the proxy would not start", CycleRun::First).render_human();
         assert!(
             !human.contains("run=no_backend"),
             "a row with no run behind it must not name one: {human}"
@@ -994,8 +1017,8 @@ mod tests {
         // It hardcoded `First`, so a `--smoke-2` invocation that could not test
         // said "cycle run: first" — the wrong half of the cycle, in the report
         // whose whole job is saying what happened.
-        let human = Report::cannot_test("the proxy would not start", CycleRun::Second)
-            .render_human();
+        let human =
+            Report::cannot_test("the proxy would not start", CycleRun::Second).render_human();
         assert!(
             human.contains("cycle run: second"),
             "the run that could not test is still the run it was: {human}"
@@ -1205,7 +1228,7 @@ mod tests {
         // this document for a release has to be told, not left to count rows.
         let without: Vec<AssertionRow> = sample_results()
             .into_iter()
-            .filter(|r| r.run_id != RunId::Large62k)
+            .filter(|r| r.run_id != Some(RunId::Large62k))
             .collect();
         let cert = render_certificate(&without, &sample_facts());
         assert!(
@@ -1305,7 +1328,7 @@ mod tests {
             rows: vec![AssertionRow {
                 scenario_id: "S-test",
                 scenario: "a property the crate broke",
-                run_id: RunId::HappySmall,
+                run_id: Some(RunId::HappySmall),
                 state: ScenarioState::Fail,
                 budget_exceeded: None,
             }],
@@ -1337,7 +1360,7 @@ mod tests {
         rows.push(AssertionRow {
             scenario_id: "S-test",
             scenario: "a property the crate broke",
-            run_id: RunId::HappySmall,
+            run_id: Some(RunId::HappySmall),
             state: ScenarioState::Fail,
             budget_exceeded: None,
         });
@@ -1462,7 +1485,7 @@ mod tests {
         let row = AssertionRow {
             scenario_id: "S-test",
             scenario: "s",
-            run_id: RunId::Large62k,
+            run_id: Some(RunId::Large62k),
             state: ScenarioState::Timeout,
             budget_exceeded: Some(cap),
         };
@@ -1496,14 +1519,14 @@ mod tests {
         let timeout_row = AssertionRow {
             scenario_id: "S-test",
             scenario: "s",
-            run_id: RunId::HappySmall,
+            run_id: Some(RunId::HappySmall),
             state: ScenarioState::Timeout,
             budget_exceeded: Some(Duration::from_secs(5)),
         };
         let fail_row = AssertionRow {
             scenario_id: "S-test",
             scenario: "s",
-            run_id: RunId::HappySmall,
+            run_id: Some(RunId::HappySmall),
             state: ScenarioState::Fail,
             budget_exceeded: None,
         };
@@ -1544,10 +1567,10 @@ mod tests {
         let human = report.render_human();
         for row in &rows {
             assert!(
-                human.contains(row.run_id.as_str()),
+                human.contains(run_label(row.run_id)),
                 "row for {:?} lost its run-id ({:?}) in the table:\n{human}",
                 row.scenario,
-                row.run_id.as_str()
+                run_label(row.run_id)
             );
         }
     }
@@ -1562,7 +1585,7 @@ mod tests {
         let rows = vec![AssertionRow {
             scenario_id: "S21",
             scenario: "the two dependency modes cannot be confused",
-            run_id: RunId::HappySmall,
+            run_id: Some(RunId::HappySmall),
             state: ScenarioState::Pass,
             budget_exceeded: None,
         }];
