@@ -190,6 +190,23 @@ pub fn install_panic_hook() {
 ///
 /// * `fut` — the run to poll to completion.
 ///
+/// # Why the location is TAKEN, not read
+///
+/// [`LAST_PANIC_LOCATION`] is the only state that outlives an attempt, and the
+/// hook is the only thing that writes it — but **not every unwind runs the
+/// hook**. `std::panic::resume_unwind` bypasses it by documented design, which
+/// is exactly what a crate does when it catches a panic and re-raises it.
+/// Reading the slot without emptying it hands such an unwind the PREVIOUS
+/// attempt's location; if that one was ours, a crate defect is attributed to
+/// the harness and leaves as [`ScenarioState::Skip`] — exit 2, "we could not
+/// test", the code nobody investigates.
+///
+/// Taking it makes the slot evidence produced BY this unwind or nothing at all,
+/// and nothing falls to the crate's side by [`classify_panic`]'s own rule —
+/// costing one investigation that finds nothing instead of burying a defect.
+/// `a_hookless_unwind_cannot_inherit_an_earlier_panics_attribution` goes red if
+/// the `take` becomes a read.
+///
 /// # Declared limitation
 ///
 /// It does NOT catch a panic in a thread the crate spawned, nor one crossing
@@ -204,7 +221,9 @@ where
     match std::panic::AssertUnwindSafe(fut).catch_unwind().await {
         Ok(value) => Ok(value),
         Err(_) => {
-            let loc = LAST_PANIC_LOCATION.with(|c| c.borrow().clone());
+            // `take`, NOT `clone`: the slot must be spent by the attempt that
+            // reads it. See this function's "Why the location is TAKEN".
+            let loc = LAST_PANIC_LOCATION.with(|c| c.borrow_mut().take());
             Err(match classify_panic(loc.as_deref()) {
                 ScenarioState::Skip(_) => RunOutcome::PanickedInHarness,
                 _ => RunOutcome::PanickedInCrate,
