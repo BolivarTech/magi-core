@@ -460,6 +460,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(non_snake_case)]
     fn every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph() {
         // The list's own stated criterion — crates the crate under test does
         // NOT depend on — was never checked against the crate under test. Four
