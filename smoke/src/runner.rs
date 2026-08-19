@@ -656,8 +656,8 @@ impl Runner {
         let mark = self.proxy.mark();
         // Through the proxy first, so its record exists before the direct half
         // can influence anything.
-        let through = show_request(&self.proxy.base_url(), &body).await;
-        let direct = show_request(backend, &body).await;
+        let through = show_request(&self.proxy.base_url(), &body, Duration::MAX).await;
+        let direct = show_request(backend, &body, Duration::MAX).await;
         let (Ok(_), Ok((direct_status, direct_body))) = (through, direct) else {
             // Deliberately leaves every field None. Half a probe is worse than
             // none: a scenario comparing against a missing term would report a
@@ -807,7 +807,15 @@ const PROBE_MODEL: &str = "smoke-transparency-probe";
 ///
 /// Any transport failure. The caller turns it into "the probe did not run",
 /// which is a SKIP rather than a failure.
-async fn show_request(base: &str, body: &str) -> Result<(u16, Vec<u8>), reqwest::Error> {
+fn probe_is_in_scope(_runs: &[RunId]) -> bool {
+    true
+}
+
+async fn show_request(
+    base: &str,
+    body: &str,
+    _within: Duration,
+) -> Result<(u16, Vec<u8>), reqwest::Error> {
     let response = reqwest::Client::builder()
         .referer(false)
         .build()?
@@ -844,6 +852,54 @@ fn render_error(e: &MagiError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_transparency_probe_is_out_of_scope_when_no_run_uses_the_backend() {
+        // `--no-backend` promises the harness reaches no network. The probe was
+        // primed unconditionally, so that invocation sent two requests — one
+        // through the proxy, one STRAIGHT at the endpoint, which is the one
+        // deliberate bypass in the whole harness — at exactly the moment the
+        // operator asked for none.
+        //
+        // Derived from the SPECS rather than from the flag: `for_stage_e1`
+        // already returns only the offline run under `--no-backend`, so reading
+        // the specs cannot disagree with what is about to be executed, while a
+        // second reading of the flag can.
+        let offline_only = [RunId::NoBackend];
+        let with_backend = [RunId::NoBackend, RunId::HappySmall];
+        assert!(
+            !probe_is_in_scope(&offline_only),
+            "no run touches the backend, so there is nothing for a transparency probe to \
+             compare and no reason to send its two requests"
+        );
+        assert!(
+            probe_is_in_scope(&with_backend),
+            "a run that uses the backend needs the probe, or the scenario reading it can only \
+             report that it could not be tested"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_transparency_probe_gives_up_instead_of_waiting_forever() {
+        // `reqwest` applies NO timeout unless one is set, so the probe's two
+        // requests had no bound of their own. A backend that accepts the
+        // connection and never answers would hang them, and this runs BEFORE
+        // the first run — so it is outside every per-run budget, which is the
+        // only other thing that would have cut it.
+        let stub = crate::testkit::stub_that_is_always_slow().await;
+        let started = std::time::Instant::now();
+        let answered = show_request(&stub.url(), "{}", Duration::from_millis(50)).await;
+        assert!(
+            answered.is_err(),
+            "a backend slower than the window must leave the probe with nothing, which makes \
+             the scenario reading it SKIP"
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(400),
+            "the probe waited {:?}, so its own bound is not what stopped it",
+            started.elapsed()
+        );
+    }
 
     #[test]
     fn an_inconclusive_run_is_retried_exactly_once() {
