@@ -1013,6 +1013,32 @@ mod tests {
     /// [`SpyProxy::start`].
     const TEST_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
 
+    #[test]
+    fn an_absurd_payload_target_does_not_overflow_the_recorded_body_cap() {
+        // `max_recorded_body` computes `payload_target_bytes * 2`, and that field
+        // has only a MINIMUM bound in `Config`, so a huge-but-legal value
+        // overflows here: a panic in debug builds, and in release a silent wrap
+        // to a cap SMALLER than the payload it exists to hold — which truncates
+        // the very record the large-payload scenario reads.
+        //
+        // The sibling of the same defect in `config::validate_probe_window` was
+        // the one reported. Fixing the reported instance and leaving this one is
+        // how the class has survived every previous round.
+        for absurd in [usize::MAX, usize::MAX / 2 + 1] {
+            let cap = max_recorded_body(absurd);
+            assert!(
+                cap >= MIN_RECORDED_BODY_CAP,
+                "a cap that wrapped is below even the absolute floor: {cap}"
+            );
+        }
+        // The other side, so the fix cannot be "always answer the floor": a
+        // target the arithmetic can hold must still set the cap.
+        assert_eq!(
+            max_recorded_body(MIN_RECORDED_BODY_CAP),
+            2 * MIN_RECORDED_BODY_CAP
+        );
+    }
+
     #[tokio::test]
     async fn records_the_full_request_body_by_hash_not_just_the_path() {
         // The record identifies the WHOLE body, not merely the envelope: the

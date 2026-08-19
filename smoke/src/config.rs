@@ -1237,6 +1237,37 @@ mod tests {
     }
 
     #[test]
+    fn an_absurd_probe_timeout_is_a_named_config_error_not_an_overflow() {
+        // `validate_probe_window` was the FIRST step of `validate`, and it
+        // multiplies `probe_timeout_secs` by `1 + PROBE_RETRY_FACTOR` — while the
+        // `MAX_PROBE_TIMEOUT_SECS` bound that would have rejected the value was
+        // checked afterwards. So a value above `u64::MAX / 4` overflowed BEFORE
+        // anything looked at its range: a panic in debug builds (which is how
+        // `cargo test` and a plain `cargo run` are built), and in release a
+        // silent wrap to a small `worst` that passes a check it should fail.
+        //
+        // The panic is the worse half. It happens inside config parsing, which
+        // is not covered by the harness's panic hook, so the process exits 101
+        // instead of the exit 2 every other configuration fault produces — a
+        // fault in the OPERATOR's input reported as a verdict about the crate,
+        // which is the inversion this harness exists to eliminate.
+        for absurd in [u64::MAX, u64::MAX / 2, u64::MAX / 4 + 1] {
+            let cfg = Config {
+                probe_timeout_secs: absurd,
+                ..Config::default()
+            };
+            let err = cfg
+                .validate()
+                .expect_err("a probe window this large must be refused")
+                .to_string();
+            assert!(
+                err.contains("probe_timeout_secs"),
+                "the message must NAME the field rather than the arithmetic: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn the_whole_set_of_overrides_is_judged_together_not_one_at_a_time() {
         // The operator's scenario, and it is a legal configuration: a slow local
         // backend needs a wider probe window, so the probe AND all three
