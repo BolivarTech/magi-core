@@ -409,7 +409,7 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
     for seat in &cfg.seats {
         if let Some(first) = models.insert(seat.model.as_str(), seat.agent.as_str()) {
             return Err(format!(
-                "seats {:?} and {:?} both declare model {:?}: an injected failure is matched by                  MODEL, so one injection takes down both of them and the degradation scenario                  sees one agent where it asserts two — a red row about the crate for a mistake                  in this file. {SEAT_FIX}",
+                "seats {:?} and {:?} both declare model {:?}: an injected failure is matched by \n                 MODEL, so one injection takes down both of them and the degradation scenario \n                 sees one agent where it asserts two — a red row about the crate for a mistake \n                 in this file. {SEAT_FIX}",
                 first, seat.agent, seat.model
             ));
         }
@@ -421,7 +421,7 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
     for candidate in &cfg.fallbacks {
         if let Some(seat) = cfg.seats.iter().find(|s| s.model == candidate.model) {
             return Err(format!(
-                "fallback {:?} declares model {:?}, which seat {:?} already uses: an injected                  failure is matched by MODEL, so rotating there is served the same refusal the                  run was rotating away from and the scenario reports a red row about the crate                  for a candidate that could never have worked. {SEAT_FIX}",
+                "fallback {:?} declares model {:?}, which seat {:?} already uses: an injected \n                 failure is matched by MODEL, so rotating there is served the same refusal the \n                 run was rotating away from and the scenario reports a red row about the crate \n                 for a candidate that could never have worked. {SEAT_FIX}",
                 candidate.model, candidate.model, seat.agent
             ));
         }
