@@ -754,6 +754,17 @@ impl SpyProxy {
         // panic inside a dependency.
         let client = reqwest::Client::builder()
             .timeout(upstream_timeout)
+            // A redirect FOLLOWED is a response the backend never gave the
+            // client: `reqwest` defaults to following up to ten hops, so a
+            // `302` arrived here and left as the status of some other resource,
+            // with the extra request charged to the far end and invisible in the
+            // registry. That is not a verbatim forward, and the transparency
+            // scenario stayed green over it only because the endpoint it
+            // happens to probe does not redirect — a property of that backend
+            // asserted as if it were a property of this proxy. Relaying the
+            // `302` untouched leaves the decision where it belongs: with the
+            // crate under test.
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(std::io::Error::other)?;
         let this = Self {
