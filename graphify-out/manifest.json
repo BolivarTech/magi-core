@@ -735,13 +735,13 @@
     "semantic_hash": ""
   },
   "smoke/src/fixtures.rs": {
-    "mtime": 1787165214.8391483,
-    "ast_hash": "de0f7571769a0c91a725eb746f5d30e2",
+    "mtime": 1787170792.6232438,
+    "ast_hash": "71c5db519cfacec6d69952e28f082ccd",
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787165610.4478493,
-    "ast_hash": "8786560eed3b8882eeb95340abb5c3f7",
+    "mtime": 1787170542.835984,
+    "ast_hash": "bc125b3c78a75323e877081dd3f90eb7",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
@@ -760,8 +760,8 @@
     "semantic_hash": ""
   },
   "smoke/src/preflight.rs": {
-    "mtime": 1787169329.1517594,
-    "ast_hash": "e0c31f65e6d7371cbf2915d27b7d6771",
+    "mtime": 1787170637.033873,
+    "ast_hash": "7ff728b391165b050ca550e6fbf28803",
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
@@ -775,8 +775,8 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787165214.8494818,
-    "ast_hash": "88a2364aa35497bd91713a0ecfc4c7bc",
+    "mtime": 1787170792.8533733,
+    "ast_hash": "ff694452e4156a5c8ce2464d8d1e35fd",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
@@ -795,22 +795,22 @@
     "semantic_hash": ""
   },
   "smoke/sync-fixtures.sh": {
-    "mtime": 1787165214.8554866,
-    "ast_hash": "5f479649f213aa1925660b89e4cac109",
+    "mtime": 1787170542.842522,
+    "ast_hash": "38e82128f6ff8f171da46191212f734d",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787165214.8534825,
-    "ast_hash": "f847a48a9b677cddd58cbcffe0631031",
+    "mtime": 1787170792.8553748,
+    "ast_hash": "531c9e7cb4672bcb296ae4c7dbdf4bca",
     "semantic_hash": ""
   },
   "smoke/README.md": {
-    "mtime": 1787168552.527632,
-    "ast_hash": "f06c7de910c89e63cea64666c482c490",
+    "mtime": 1787170542.832458,
+    "ast_hash": "e650a9daf9b34bd155fad533f958c4f9",
     "semantic_hash": ""
   },
   "smoke/src/git.rs": {
-    "mtime": 1787084651.7080402,
+    "mtime": 1787170877.5922952,
     "ast_hash": "1f21f45ece93628a22addac005cf66eb",
     "semantic_hash": ""
   }
