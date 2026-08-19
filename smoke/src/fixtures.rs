@@ -516,6 +516,79 @@ mod tests {
     }
 
     #[test]
+    fn a_verified_by_naming_no_live_scenario_is_rejected() {
+        // The `verified-by:` branch was accepted on the strength of its prefix
+        // alone, so any text behind it passed — including an id that names
+        // nothing. A fixture declaring `verified-by: S9b` keeps asserting that
+        // a live scenario re-checks its currency after S9b is renamed or
+        // deleted, and the preflight goes on reporting the corpus clean.
+        //
+        // The machinery to close it already existed: `verify` crosses the
+        // `scenario` field against `live_scenarios` for exactly this reason.
+        // `check_currency` simply was not given the list.
+        let m = Manifest::from_str(
+            r#"
+            [[fixture]]
+            scenario = "S9"
+            path     = "native-N1.json"
+            sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+            currency = "verified-by: S9b"
+        "#,
+        )
+        .unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        assert!(
+            audit.corrupt.iter().any(|s| s.contains("S9b")),
+            "an id naming no live scenario must be a finding, not a prefix that passed: {:?}",
+            audit.corrupt
+        );
+    }
+
+    #[test]
+    fn a_verified_by_with_an_empty_id_is_rejected() {
+        // The degenerate end of the same hole: `verified-by: ` carries the
+        // prefix and nothing else, so it claimed a re-check by nobody.
+        let m = Manifest::from_str(
+            r#"
+            [[fixture]]
+            scenario = "S9"
+            path     = "native-N1.json"
+            sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+            currency = "verified-by:   "
+        "#,
+        )
+        .unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        assert!(
+            audit.corrupt.iter().any(|s| s.contains("names nobody")),
+            "an empty id claims a re-check by nobody and must say so: {:?}",
+            audit.corrupt
+        );
+    }
+
+    #[test]
+    fn a_verified_by_naming_a_live_scenario_is_accepted() {
+        // The other direction, without which the two above are satisfied by a
+        // check that rejects every `verified-by:` line there is.
+        let m = Manifest::from_str(
+            r#"
+            [[fixture]]
+            scenario = "S9"
+            path     = "native-N1.json"
+            sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
+            currency = "verified-by: S9b"
+        "#,
+        )
+        .unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9", "S9b"]).unwrap();
+        assert!(
+            !audit.corrupt.iter().any(|s| s.contains("currency")),
+            "an id that DOES name a live scenario is a valid currency claim: {:?}",
+            audit.corrupt
+        );
+    }
+
+    #[test]
     fn a_missing_fixtures_directory_is_reported_not_silently_clean() {
         // Fix round 1, Finding 1 (Critical): the disk->manifest scan used to
         // swallow the `Err` from `std::fs::read_dir`, so with an empty
