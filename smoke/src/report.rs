@@ -595,7 +595,12 @@ fn state_marker(state: &ScenarioState) -> &'static str {
 /// * `row` — the assertion to render.
 fn format_row(row: &AssertionRow) -> String {
     let marker = state_marker(&row.state);
-    let mut line = format!("[{marker}] run={} — {}", row.run_id.as_str(), row.scenario);
+    let mut line = format!(
+        "[{marker}] {} run={} — {}",
+        row.scenario_id,
+        row.run_id.as_str(),
+        row.scenario
+    );
     if let ScenarioState::Skip(reason) = &row.state {
         let _ = write!(line, " (skipped: {reason})");
     }
@@ -630,6 +635,7 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
         ScenarioState::OutOfScope => ("out_of_scope", None),
     };
     serde_json::json!({
+        "scenario_id": row.scenario_id,
         "scenario": row.scenario,
         "run_id": row.run_id.as_str(),
         "state": state,
