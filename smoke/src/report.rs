@@ -1178,6 +1178,39 @@ mod tests {
     }
 
     #[test]
+    fn a_fixture_repository_is_removed_when_its_guard_drops() {
+        // These fixtures are named `magi-smoke-<something>-test-...`, and the
+        // segment after `magi-smoke-` does not parse as a PID, so
+        // `sweep_stale_temps` deliberately leaves them alone — "not ours to
+        // judge". Nothing else removes them either, so every `cargo test` run
+        // left another set of git repositories under the OS temp root, without
+        // bound. This milestone already paid for it once: a flaky test
+        // diagnosed at 577 stale directories, 262 of them holding a
+        // certificate, which is a test asserting about somebody else's file.
+        //
+        // Removing them was answered then by deleting the path BEFORE building
+        // it, which fixes the collision and not the leak. A fixture that owns
+        // its directory fixes both.
+        //
+        // The path is fixed and unique to this test, so the assertion is about
+        // one directory rather than a count of a shared parent that other
+        // tests are concurrently adding to.
+        let path = std::env::temp_dir().join("magi-smoke-report-test-guard-drop");
+        {
+            let _repo = fixture_repo_at(path.clone());
+            assert!(
+                path.exists(),
+                "the fixture must exist while its guard is alive"
+            );
+        }
+        assert!(
+            !path.exists(),
+            "the fixture directory outlived its test at {}: nothing else will ever remove it",
+            path.display()
+        );
+    }
+
+    #[test]
     fn a_dirty_tree_gets_no_certificate_not_a_caveated_one() {
         // R37. One marked "issued over a dirty tree" still exists, and what
         // exists gets cited as a certificate. One that was never written
