@@ -229,12 +229,30 @@ fn s1_external_provider_fails_typed(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// promising a distinction the wire cannot make. It used to read "the proxy
 /// injected nothing", which is true by construction here and so was not a claim
 /// about anything.
+///
+/// # And the name was still ahead of the body, a second time
+///
+/// It then read *"every completion was ANSWERED, and none carried the failure
+/// status this harness injects"*, while the body checked only the second half:
+/// that no recorded status equals the injected one. The first half was not
+/// merely unchecked, it is **unverifiable from what this scenario reads** — a
+/// record is pushed once, after forwarding, so a completion nobody answered
+/// leaves nothing behind to count, and one whose upstream was unreachable is
+/// pushed as a `502` rather than as an absence.
+///
+/// Adding `response_status != 0` was considered and rejected for that reason:
+/// `RequestRecord::record_of`'s own note says a record pushed without a status
+/// "would claim a 0-status answer that never happened", so the check could not
+/// fail — an assertion that cannot go red is the defect this milestone keeps
+/// closing, and dressing the name up with one would have been worse than the
+/// name. So the name is narrowed to what the body actually checks.
 fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_VERDICTS: &str = "all three mages returned a verdict";
     const NAME_DEGRADED: &str = "the run is not degraded";
     const NAME_JSON: &str = "the report serializes to JSON";
     const NAME_NO_INJECTION: &str =
-        "every completion was answered, and none carried the failure status this harness injects";
+        "at least one completion reached the proxy, and none carried the failure status this \
+         harness injects";
 
     let Some(report) = ctx.report else {
         let reason = ctx
