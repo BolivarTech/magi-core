@@ -1107,8 +1107,8 @@ mod tests {
 
         let recorded = ledger.record().expect("announced, and the runs measured");
         let seconds = recorded
-            .rsplit(" in ")
-            .next()
+            .split(" in ")
+            .nth(1)
             .and_then(|tail| tail.strip_suffix('s'))
             .and_then(|secs| secs.parse::<f64>().ok())
             .unwrap_or_else(|| {
