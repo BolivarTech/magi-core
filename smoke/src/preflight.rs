@@ -2047,6 +2047,147 @@ mod tests {
         assert!(err.contains("smoke/Cargo.lock"));
     }
 
+    /// The directory every packaged harness path would begin with.
+    const HARNESS_PACKAGE_DIR: &str = "smoke";
+
+    /// What ONE reading of `cargo package --list` established.
+    ///
+    /// Three states, not two, and the third is the point: "the listing holds no
+    /// harness file" and "there was no listing to read" are different facts,
+    /// and a guard that returns the same answer for both is the shape this
+    /// milestone kept finding — a check reporting success while guarding
+    /// nothing.
+    #[derive(Debug)]
+    enum PackageAudit {
+        /// A real listing was read and holds nothing under `smoke/`.
+        Clean,
+        /// No listing could be produced. Carries what `cargo` said.
+        Unverified(String),
+        /// A real listing was read and holds harness files. Carries them.
+        Contaminated(Vec<String>),
+    }
+
+    /// Every path in a `cargo package --list` listing that lies under the
+    /// harness directory.
+    ///
+    /// Split out as a pure function so the MATCHER is tested against a listing
+    /// whose answer is known, instead of only against the real one — which is
+    /// currently empty and would let a matcher that finds nothing at all pass
+    /// for a matcher that works.
+    ///
+    /// **Both separators are accepted, and that was MEASURED rather than
+    /// assumed.** This repository's ordinary listing is `/`-separated
+    /// (`tests/support/mock_server.rs`), but a listing produced with a
+    /// `package.include` present comes back `\`-separated (`src\agent.rs`) —
+    /// read out of `cargo package --list` here, on Windows, both ways. A
+    /// matcher written for one of them would go quietly blind the day the
+    /// manifest gained an `include`.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the number of listed paths.
+    fn harness_files_in_listing(listing: &str) -> Vec<String> {
+        listing
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                l.strip_prefix(HARNESS_PACKAGE_DIR)
+                    .is_some_and(|rest| rest.starts_with(['/', '\\']))
+            })
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Asks `cargo` which files a `cargo publish` of the crate under test would
+    /// carry, and reports what that answered about the harness.
+    ///
+    /// `--allow-dirty` and `--offline` are both deliberate: a dirty tree and an
+    /// absent network are ordinary states of a developer's machine, and neither
+    /// says anything about what the package contains. With both, the only ways
+    /// left to reach [`PackageAudit::Unverified`] are a cargo that cannot run
+    /// or a manifest it refuses — states worth a red row rather than a shrug.
+    ///
+    /// `--list` does not build, so no target directory is redirected here.
+    fn audit_published_package(repo: &Path) -> PackageAudit {
+        let out = std::process::Command::new("cargo")
+            .args(["package", "--list", "--allow-dirty", "--offline"])
+            .current_dir(repo)
+            .output();
+        let out = match out {
+            Ok(out) => out,
+            Err(e) => return PackageAudit::Unverified(format!("cargo package could not run: {e}")),
+        };
+        if !out.status.success() {
+            return PackageAudit::Unverified(format!(
+                "cargo package --list failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        let found = harness_files_in_listing(&String::from_utf8_lossy(&out.stdout));
+        if found.is_empty() {
+            PackageAudit::Clean
+        } else {
+            PackageAudit::Contaminated(found)
+        }
+    }
+
+    #[test]
+    fn the_package_matcher_finds_a_harness_path_and_leaves_the_crates_alone() {
+        // Non-vacuity for the check below. The real listing holds no harness
+        // file — which is the point of the check and also what would let a
+        // matcher that never matches anything pass unnoticed. This one is asked
+        // a listing whose answer is known.
+        let listing = "Cargo.toml\nsrc/lib.rs\nsmoke/src/main.rs\nsmoke/Cargo.toml\n\
+                       tests/support/mod.rs\n";
+        assert_eq!(
+            harness_files_in_listing(listing),
+            vec![
+                "smoke/src/main.rs".to_string(),
+                "smoke/Cargo.toml".to_string()
+            ]
+        );
+        // A path that merely BEGINS with the four letters is not the harness:
+        // `smoke_tests/` would otherwise be reported, and a guard that cries
+        // wolf is a guard that gets deleted.
+        assert!(harness_files_in_listing("smoketest/a.rs\nsmoke_tests/b.rs\n").is_empty());
+    }
+
+    #[test]
+    fn nothing_under_the_harness_reaches_the_published_crate() {
+        // Rule 3 of this harness: it must not become part of what is published.
+        //
+        // WHAT actually holds it, measured rather than assumed: cargo omits any
+        // subdirectory that is its own package, so the load-bearing fact is that
+        // `smoke/Cargo.toml` IS a manifest — not the `[workspace]` line, and not
+        // the parent's `exclude`. Verified by taking each away in turn against
+        // the real listing: commenting out `[workspace]` changes nothing, and
+        // even a `package.include` naming `smoke/src/**` adds nothing. Renaming
+        // `smoke/Cargo.toml` puts 24 `smoke/...` paths into the package,
+        // `smoke/src/` among them. That is the reachable defect, and it arrives
+        // through a rename nobody would read as a publishing change.
+        //
+        // Non-vacuity of the audit itself was proven by mutation: pointing
+        // HARNESS_PACKAGE_DIR at `src`, which the real listing does hold, made
+        // this row fail naming 27 files. So the listing is genuinely read and
+        // the Contaminated arm genuinely fires.
+        //
+        // `Unverified` is RED, not green. Green here means "we looked and found
+        // nothing"; a guard that also reports green when it could not look is
+        // the exact defect this milestone kept finding, and the two states are
+        // separate variants so the row says which one happened.
+        match audit_published_package(&crate::paths::repo_root()) {
+            PackageAudit::Clean => {}
+            PackageAudit::Contaminated(files) => panic!(
+                "the published crate would carry {} harness file(s): {files:#?}. `smoke/` must \
+                 stay out of `cargo publish`.",
+                files.len()
+            ),
+            PackageAudit::Unverified(why) => {
+                panic!("the package listing could not be read, so nothing was verified: {why}")
+            }
+        }
+    }
+
     #[tokio::test]
     async fn the_contention_probe_sends_a_real_completion_not_a_manifest_listing() {
         // R27/SD-3: the probe exists to detect that a MAGI instance is holding
