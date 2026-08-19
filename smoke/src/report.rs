@@ -991,6 +991,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_certificate_with_no_large_payload_row_says_so_instead_of_omitting_it() {
+        // The large payload is the reason this harness exists, and stage E1
+        // deliberately does not launch it (`the_large_payload_run_is_not_part_
+        // _of_this_stage` in `runner`). The certificate answered that by
+        // rendering no row for it — leaving the one class that matters most to
+        // be inferred from an absence.
+        //
+        // An absence that must be NOTICED is not a statement. A reader citing
+        // this document for a release has to be told, not left to count rows.
+        let without: Vec<AssertionRow> = sample_results()
+            .into_iter()
+            .filter(|r| r.run_id != RunId::Large62k)
+            .collect();
+        let cert = render_certificate(&without, &sample_facts());
+        assert!(
+            cert.contains("large payload") && cert.contains("not exercised"),
+            "the certificate must DECLARE that the large-payload class went untested:\n{cert}"
+        );
+
+        // And it must not say it when the class WAS exercised, or the sentence
+        // stops meaning anything — the same both-directions rule the fixture
+        // warning follows.
+        let with = render_certificate(&sample_results(), &sample_facts());
+        assert!(
+            !with.contains("not exercised"),
+            "a run that did exercise the large payload must not claim otherwise:\n{with}"
+        );
+    }
+
     // --- Coverage beyond the brief's five: the properties the brief calls
     // out in prose but does not pin with its own test (the CycleRun gate,
     // and the two load-bearing distinctions the mutation proof exercises). ---
