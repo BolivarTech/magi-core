@@ -13,11 +13,14 @@
 //! if the data it reads were simply missing? If yes, the branch is wrong.
 //! Concretely:
 //!
-//! - Missing report / missing error / missing wire traffic → [`Assertion::skip`]
-//!   with a reason an operator can act on — never `Pass`. One exception, and it
-//!   is about WHOSE fault the absence is: an error belonging to a preflight stage
-//!   this invocation never asked to break is [`Assertion::out_of_scope`], not a
-//!   `Skip`. [`preflight_error_for_stage`] draws that line and says why.
+//! - Missing report / missing wire traffic → [`Assertion::skip`] with a reason
+//!   an operator can act on — never `Pass`. One exception, and it is about
+//!   WHOSE fault the absence is: for the four scenarios that read a preflight
+//!   error, an ABSENT error — or one belonging to a stage this invocation never
+//!   asked to break — is [`Assertion::out_of_scope`], not a `Skip`. Both are
+//!   absences this run did not ask about, and the difference is not cosmetic:
+//!   `Skip` is exit 2 and `OutOfScope` is exit 0.
+//!   [`preflight_error_for_stage`] draws that line and says why.
 //! - A shape the assertion CAN read, but that contradicts the property → `Fail`
 //!   — never a silent `Skip` that degrades a real defect into "untested".
 //! - An `.all()`/`.any()` over a collection that could legitimately be EMPTY is

@@ -354,9 +354,14 @@ pub fn iso_date_utc(at: std::time::SystemTime) -> String {
         .as_secs();
     let mut days = secs / 86_400;
 
-    // The full Gregorian rule, not the "divisible by 4" shortcut: 1900 was not
-    // a leap year and 2000 was, and a conversion that gets that wrong is off by
-    // a day for every date after the century it mishandles.
+    // The full Gregorian rule, not the "divisible by 4" shortcut: 2100 is a
+    // multiple of 4 and is NOT a leap year, and a conversion that gets that
+    // wrong is off by a day for every date after it.
+    //
+    // 2100 is the year to cite because it is the first REACHABLE one where the
+    // shortcut disagrees: the pre-epoch instants are floored to 1970 above, so
+    // 1900 never arrives here, and 2000 is a century the shortcut happens to
+    // get right. A comment naming those two describes a rule nothing exercises.
     let is_leap = |y: u32| (y.is_multiple_of(4) && !y.is_multiple_of(100)) || y.is_multiple_of(400);
 
     let mut year = EPOCH_YEAR;

@@ -90,11 +90,11 @@ pub fn feature_matrix_target_dir(tag: &str) -> PathBuf {
 /// platforms, so the isolation check gets one of its own rather than contending
 /// with the build that is about to start.
 ///
-/// It lives here rather than inline in the preflight for one reason:
-/// the test-time `writable_locations` has to be able to enumerate it. A write site the
-/// enumeration cannot see is a write site the no-trace guard does not cover,
-/// which is the difference between a guard and a list of the paths somebody
-/// remembered.
+/// It lives here rather than inline in the preflight for one reason: the
+/// test-time `writable_locations` has to be able to enumerate it. A write site
+/// the enumeration cannot see is a write site the no-trace guard does not
+/// cover, which is the difference between a guard and a list of the paths
+/// somebody remembered.
 pub fn metadata_target_dir() -> PathBuf {
     std::env::temp_dir().join("magi-smoke-metadata")
 }
