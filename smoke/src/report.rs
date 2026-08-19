@@ -37,6 +37,21 @@
 //! `run_harness_full` stub here, without the real preflight/dispatch loop
 //! behind it, would prove nothing and is exactly the kind of caller this
 //! project's standards forbid inventing just to make a test compile.
+//!
+//! **Where those two actually went, because this note sent readers to the wrong
+//! module for both of them.** `nothing_the_harness_generates_lands_in_the_repo`
+//! lives in `paths.rs`, asserted over `writable_locations` rather than over
+//! `git status` — a stronger question, since a gitignored path is invisible to
+//! status. `the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER` lives in
+//! `preflight.rs`, where it drives `CostLedger` directly.
+//!
+//! Neither landed in `main.rs`, and for the second one that mattered: driving
+//! the ledger yourself proves the LEDGER refuses a wrong sequence, not that the
+//! dispatch loop produces a right one — which is a different claim, and the one
+//! four successive fixes to the measured interval kept getting wrong with the
+//! suite green. `main.rs`'s `the_dispatch_loop_bills_one_interval_per_backend_run`
+//! is that missing half. A note saying a guard belongs elsewhere is how a guard
+//! ends up nowhere, so this one now says where each went.
 
 use std::fmt::Write as _;
 use std::path::Path;
