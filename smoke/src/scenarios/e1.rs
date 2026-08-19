@@ -204,7 +204,7 @@ const NAME_ANALYZE_PRODUCED_A_REPORT: &str =
 /// carrying it, and this row supplies the verdict — `Fail` takes precedence in
 /// [`crate::outcome::exit_code`], so the process still exits 1.
 ///
-/// # Why an error reaching here really is the crate's
+/// # Why an error reaching here really came from `analyze()`
 ///
 /// Every other reason a report can be absent is intercepted before a scenario
 /// sees it: `main::evaluate` turns `CannotTest` into a skip naming our own
@@ -212,17 +212,36 @@ const NAME_ANALYZE_PRODUCED_A_REPORT: &str =
 /// own failure — and both panic outcomes are built with `error: None`. What is
 /// left is `analyze()` returning `Err`.
 ///
+/// # But `analyze()` returning `Err` is not by itself the crate breaking
+///
+/// The first version of this row treated every typed failure as a verdict, and
+/// that over-corrected: `MagiError::EndpointDown` and
+/// `MagiError::InsufficientAgents` are the crate REPORTING that the world
+/// around it failed. A backend dying after the preflight is a limitation this
+/// harness declares in its own README, so exiting 1 on it sends a reader into
+/// the crate to find nothing wrong. [`crate::runner::ErrorClass`] carries the
+/// distinction, decided where the typed error still exists rather than
+/// re-derived from its rendered text here.
+///
 /// # Parameters
 ///
 /// * `ctx` — the run context, read for `error` only.
 fn analyze_produced_a_report(ctx: &RunContext<'_>) -> Assertion {
-    match ctx.error {
+    match (ctx.error, ctx.error_class) {
         // The run never happened at all: nothing to say about the crate.
-        None => Assertion::skip(
+        (None, _) => Assertion::skip(
             NAME_ANALYZE_PRODUCED_A_REPORT,
             "the run produced neither a report nor an error, so it never happened",
         ),
-        Some(_) => assert_that(NAME_ANALYZE_PRODUCED_A_REPORT, false),
+        // The crate reported the environment failing, which is the crate
+        // working. Skipping carries the text an operator can act on; a `Fail`
+        // would carry nothing and point at the wrong place.
+        (Some(e), Some(ErrorClass::Environment)) => Assertion::skip(
+            NAME_ANALYZE_PRODUCED_A_REPORT,
+            format!("the crate reported an environment failure, correctly: {e}"),
+        ),
+        // Everything else, INCLUDING a failure nothing has classified yet.
+        (Some(_), _) => assert_that(NAME_ANALYZE_PRODUCED_A_REPORT, false),
     }
 }
 

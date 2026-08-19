@@ -140,9 +140,11 @@ pub enum ErrorClass {
 pub struct RunContext<'a> {
     /// Which shared run fed this assertion.
     pub run: RunId,
-    /// `None` when the run produced no report. Read it TOGETHER with `error`:
-    /// `None` + `Some(error)` is a typed crate failure (FAIL); `None` + `None`
-    /// is a run that never happened (SKIP).
+    /// `None` when the run produced no report. Read it TOGETHER with `error`
+    /// and `error_class`: `None` + `Some(error)` is a typed failure, whose
+    /// CLASS decides whether it is a verdict about the crate (FAIL) or the
+    /// crate correctly reporting its environment (SKIP); `None` + `None` is a
+    /// run that never happened (SKIP).
     ///
     /// **The split is implemented, not merely described.** It states the exit
     /// code a scenario must produce, and three scenarios skipped both cases —
@@ -949,8 +951,34 @@ fn render_error(e: &MagiError) -> String {
 }
 
 /// Which of the two things a typed failure means — see [`ErrorClass`].
-fn classify_error(_e: &MagiError) -> ErrorClass {
-    ErrorClass::CrateFailure
+///
+/// # The two that are NOT the crate's, and nothing else
+///
+/// `EndpointDown` and `InsufficientAgents` are the crate reporting, correctly,
+/// that the world around it failed: no lineage was reachable, or too few seats
+/// survived to reach consensus. A backend that dies AFTER the preflight is a
+/// limitation this harness declares in its own README, so reading either as a
+/// verdict sends whoever ran it into the crate to find nothing.
+///
+/// # Why the catch-all is `CrateFailure` and not the other way round
+///
+/// `MagiError` is `#[non_exhaustive]`, so this match needs a default, and the
+/// two defaults are not symmetric. Defaulting to `Environment` would let a
+/// variant added later — one that really is the crate breaking — leave as a
+/// skip nobody investigates, which is the failure this split was written to
+/// close. Defaulting here costs at worst one investigation that finds the
+/// classification, not the crate, to be out of date.
+///
+/// # Parameters
+///
+/// * `e` — the failure `analyze()` returned.
+fn classify_error(e: &MagiError) -> ErrorClass {
+    match e {
+        MagiError::EndpointDown { .. } | MagiError::InsufficientAgents { .. } => {
+            ErrorClass::Environment
+        }
+        _ => ErrorClass::CrateFailure,
+    }
 }
 
 #[cfg(test)]
@@ -958,7 +986,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_two_failures_the_crate_reports_CORRECTLY_are_not_crate_failures() {
+    fn the_two_failures_the_crate_reports_correctly_are_not_crate_failures() {
         // Both are the crate telling the truth about the world around it: no
         // reachable endpoint, or too few seats left to reach consensus. Neither
         // is `analyze()` breaking, and reading them as such sends whoever runs
