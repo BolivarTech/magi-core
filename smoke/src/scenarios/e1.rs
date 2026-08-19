@@ -1203,6 +1203,17 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 /// for is already `OutOfScope`, and a `cargo` that could not be run is already a
 /// `Skip`. The section above is where those two are told apart, and neither is a
 /// `Fail`, which is all this audit needs.
+/// The three combinations `S21` judges, drawn from the four
+/// [`crate::FEATURE_MATRIX`] builds. `published` alone is deliberately absent —
+/// see the section above.
+///
+/// A named constant rather than a literal inside the function so the
+/// cross-file contract with the matrix has something to be checked against:
+/// `the_combinations_s21_asserts_on_are_the_ones_the_matrix_actually_builds`
+/// reads this list, and a key renamed on either side stops compiling a match
+/// that used to hold.
+const S21_ASSERTED: [&str; 3] = ["tree", "tree,published", ""];
+
 fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the two dependency modes cannot be confused";
     let Some(m) = ctx.build_matrix else {
@@ -1211,8 +1222,7 @@ fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> 
     // A combination `cargo` could not even be RUN for is not a combination that
     // refused to compile. Reading the two the same way would report a missing
     // toolchain as the very regression this scenario exists to catch.
-    let asserted = ["tree", "tree,published", ""];
-    let unrunnable: Vec<&str> = asserted
+    let unrunnable: Vec<&str> = S21_ASSERTED
         .into_iter()
         .filter(|name| {
             m.iter()
@@ -2403,6 +2413,56 @@ mod tests {
             matches!(a[0].state, ScenarioState::Skip(_)),
             "a matrix that was requested and could not be built is unanswered: {a:?}"
         );
+    }
+
+    #[test]
+    fn s21_does_not_read_an_absent_combination_as_a_failed_build() {
+        // `any(|(c, o)| c == name && *o == want)` is false for a combination
+        // that is not in the matrix at all, and the `&&` chain turns that into
+        // `Fail` — exit 1, a verdict about the crate, for a harness edit that
+        // stopped producing a row. Absent is not failed: nothing was learned
+        // about that combination, which is a Skip.
+        for missing in S21_ASSERTED {
+            let matrix: Vec<(String, BuildOutcome)> = [
+                ("tree", BuildOutcome::Built),
+                ("tree,published", BuildOutcome::DidNotBuild),
+                ("", BuildOutcome::DidNotBuild),
+            ]
+            .into_iter()
+            .filter(|(c, _)| *c != missing)
+            .map(|(c, o)| (c.to_string(), o))
+            .collect();
+            let ctx = RunContext {
+                build_matrix: Some(&matrix),
+                ..blank_ctx(RunId::HappySmall)
+            };
+            let a = s21_the_two_modes_cannot_be_confused(&ctx);
+            match &a[0].state {
+                ScenarioState::Skip(reason) => assert!(
+                    reason.contains(missing) || reason.contains("none"),
+                    "the skip must name the combination that went missing: {reason:?}"
+                ),
+                other => panic!(
+                    "a combination absent from the matrix taught us nothing about it, so it \
+                     must not read as a refusal to compile — {missing:?} gave {other:?}"
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn the_combinations_s21_asserts_on_are_the_ones_the_matrix_actually_builds() {
+        // A cross-file contract that nothing checked: S21 names three
+        // combinations as bare strings and `run_feature_matrix` keys its rows
+        // by its own list. Renaming a key on one side leaves the other looking
+        // for a row that will never arrive — which, before the fix above, was
+        // a red row about the crate.
+        for name in S21_ASSERTED {
+            assert!(
+                crate::FEATURE_MATRIX.iter().any(|(c, _)| *c == name),
+                "S21 asserts on {name:?}, which the feature matrix does not build"
+            );
+        }
     }
 
     #[test]

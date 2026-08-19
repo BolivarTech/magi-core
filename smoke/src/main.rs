@@ -645,16 +645,8 @@ fn build_outcome(
 /// Four `cargo check` invocations, serially. Slow by construction, which is why
 /// it sits behind a flag.
 fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
-    /// `(features, the text its refusal must contain)`. `None` marks a
-    /// combination expected to build, where any refusal is already data.
-    const COMBINATIONS: [(&str, Option<&str>); 4] = [
-        ("tree", None),
-        ("published", None),
-        ("tree,published", Some(BOTH_MODES_MARKER)),
-        ("", Some(NEITHER_MODE_MARKER)),
-    ];
     const NO_FEATURES_TAG: &str = "none";
-    COMBINATIONS
+    FEATURE_MATRIX
         .iter()
         .map(|(combo, expected)| {
             let mut args = vec!["check", "--no-default-features", "--quiet"];
@@ -690,6 +682,22 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
         })
         .collect()
 }
+
+/// Every feature combination the matrix builds: `(features, the text its
+/// refusal must contain)`. `None` marks a combination expected to build, where
+/// any refusal is already data.
+///
+/// At the crate root rather than inside [`run_feature_matrix`] because the
+/// combination NAMES are a contract with `S21`, which looks its verdicts up by
+/// them. While the list was a local, the two sides agreed only by coincidence
+/// and a rename on either would have left the scenario waiting for a row that
+/// never arrives; `scenarios::e1` now pins the agreement against this list.
+pub(crate) const FEATURE_MATRIX: [(&str, Option<&str>); 4] = [
+    ("tree", None),
+    ("published", None),
+    ("tree,published", Some(BOTH_MODES_MARKER)),
+    ("", Some(NEITHER_MODE_MARKER)),
+];
 
 /// The environment variable that decides whether `cargo` colours its output.
 ///
