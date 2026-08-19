@@ -1412,6 +1412,30 @@ probe_timeout_secs = 0
     }
 
     #[test]
+    fn the_window_bound_counts_the_reachability_request_too() {
+        // The bound exists so the preflight cannot outlast the run it
+        // protects, and it summed the probe's two attempts only. The
+        // reachability step was moved onto the SAME knob in the diff that
+        // introduced this check, so it spends a third window of its own and
+        // the sum stopped describing what the preflight actually spends.
+        //
+        // 25s per request: the probe alone is 25 + 75 = 100, which fits a 100s
+        // budget exactly; with reachability it is 125, which does not.
+        let mut cfg = Config {
+            probe_timeout_secs: 25,
+            ..Config::default()
+        };
+        cfg.budgets.happy_secs = 100;
+        cfg.budgets.large_payload_secs = 100;
+        cfg.budgets.injected_secs = 100;
+        let err = cfg
+            .validate()
+            .expect_err("125s of preflight against a 100s run must be refused")
+            .to_string();
+        assert!(err.contains("probe_timeout_secs"), "{err}");
+    }
+
+    #[test]
     fn the_whole_set_of_overrides_is_judged_together_not_one_at_a_time() {
         // The operator's scenario, and it is a legal configuration: a slow local
         // backend needs a wider probe window, so the probe AND all three
