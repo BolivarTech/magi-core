@@ -1804,6 +1804,47 @@ mod tests {
         );
     }
 
+    /// The retired empty-check's own wording — the one string that can tell
+    /// "the count comparison answered" from "a second, weaker implementation
+    /// of it did".
+    const RETIRED_EMPTY_WORDING: &str = "there is no interval to report";
+
+    #[tokio::test]
+    async fn the_count_check_is_the_only_implementation_of_the_interval_invariant() {
+        // `record` used to refuse an unmeasured ledger TWICE: an
+        // `is_empty() && backend_runs > 0` branch with a message of its own, and
+        // then the count comparison. The first is the second with one argument
+        // fixed at zero — `0 != n` for every `n > 0` — so it added no coverage
+        // and only decided which of two messages a reader saw. One invariant
+        // with two implementations is how this project already lost a guard
+        // once; the neighbouring `validate_probe_window` retired its duplicate
+        // for the same reason, and this is what says the survivor loses nothing.
+        let cfg = Config::default();
+        let mut unmeasured = CostLedger::new();
+        unmeasured.announce(&cfg, false);
+        let refusal = unmeasured
+            .record()
+            .expect_err("a receipt for runs nothing timed must still be refused");
+        assert!(
+            refusal.contains("0 interval(s) for 3 announced backend run(s)"),
+            "and the surviving check is what answers, reporting both numbers: {refusal}"
+        );
+        assert!(
+            !refusal.contains(RETIRED_EMPTY_WORDING),
+            "the retired duplicate's wording must not be what answers: {refusal}"
+        );
+
+        // The other side, so the fix cannot be "refuse whenever nothing was
+        // measured": a partition that announces NO backend run has nothing to
+        // time, and its receipt is legitimate.
+        let mut offline = CostLedger::new();
+        offline.announce(&cfg, true);
+        assert!(
+            offline.record().is_ok(),
+            "zero intervals for zero announced runs is the no-backend partition, not a fault"
+        );
+    }
+
     #[tokio::test]
     async fn a_run_that_ends_badly_is_still_measured_so_the_receipt_is_not_withheld() {
         // The count check that closed the composition lever cuts both ways: it
