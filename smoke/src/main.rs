@@ -1596,13 +1596,16 @@ mod tests {
         // turns every failing combination into CouldNotRun and the scenario skips
         // forever — silently, which is the direction that costs the most.
         const ALIAS_SRC: &str = include_str!("alias.rs");
+        // EMITS, not merely mentions: `str::contains` stays green when the
+        // `compile_error!` is commented out, because the text is still written
+        // in the file. That is the tripwire guarding nothing.
         assert!(
-            ALIAS_SRC.contains(BOTH_MODES_MARKER),
-            "alias.rs no longer prints {BOTH_MODES_MARKER:?}"
+            testkit::source_emits(ALIAS_SRC, BOTH_MODES_MARKER),
+            "alias.rs no longer emits {BOTH_MODES_MARKER:?} from live code"
         );
         assert!(
-            ALIAS_SRC.contains(NEITHER_MODE_MARKER),
-            "alias.rs no longer prints {NEITHER_MODE_MARKER:?}"
+            testkit::source_emits(ALIAS_SRC, NEITHER_MODE_MARKER),
+            "alias.rs no longer emits {NEITHER_MODE_MARKER:?} from live code"
         );
     }
 }

@@ -561,92 +561,11 @@ mod tests {
     /// so the tripwire and the guard cannot drift apart silently.
     const E2_TOKEN_GUARD_FN: &str = "the_large_payload_still_produces_a_large_prompt";
 
-    /// Returns the block-comment nesting depth at the END of `line`, given the
-    /// depth it started at. Rust block comments nest, so this counts rather
-    /// than latches.
-    ///
-    /// A `//` encountered at depth `0` ends the scan of that line: everything
-    /// after it is a line comment, so a `/*` written there opens nothing.
-    ///
-    /// # Known limitation
-    ///
-    /// It does not lex string literals, so a `/*` or `*/` inside one is
-    /// counted. That is the CHEAP direction of error: a stray `/*` in a
-    /// literal raises the depth and makes the tripwire report the guard
-    /// missing — red, loudly, on a file someone just edited — whereas the
-    /// direction that matters is a tripwire staying GREEN over a guard that is
-    /// gone. Written by hand rather than with a lexer for the same reason:
-    /// this is a tripwire over one known file, not a parser.
-    ///
-    /// # Complexity
-    ///
-    /// `O(n)` in the line's length.
-    fn block_comment_depth_after(line: &str, mut depth: usize) -> usize {
-        let b = line.as_bytes();
-        let mut i = 0;
-        while i + 1 < b.len() {
-            if depth == 0 && b[i] == b'/' && b[i + 1] == b'/' {
-                break;
-            }
-            if b[i] == b'/' && b[i + 1] == b'*' {
-                depth += 1;
-                i += 2;
-            } else if depth > 0 && b[i] == b'*' && b[i + 1] == b'/' {
-                depth -= 1;
-                i += 2;
-            } else {
-                i += 1;
-            }
-        }
-        depth
-    }
-
-    /// Whether `src` DECLARES a function named `name`, as opposed to merely
-    /// MENTIONING it.
-    ///
-    /// "Declares" means a line whose trimmed text begins with `fn <name>` and
-    /// which is not commented out. The two comment forms are excluded by
-    /// different halves of the check: a `//` in front of the declaration stops
-    /// the trimmed line beginning with `fn`, and a surrounding `/* … */` is
-    /// caught by the depth carried in from earlier lines
-    /// ([`block_comment_depth_after`]).
-    ///
-    /// # Why a substring search is not enough
-    ///
-    /// The tripwire below exists so a later stage cannot enable `e2` over a
-    /// guard someone removed. `str::contains` answers "is the name written
-    /// anywhere in this file", and commenting the guard out leaves the name
-    /// written — so the tripwire stayed green while the guard was gone: a
-    /// mechanism reporting success while guarding nothing, which is the exact
-    /// class of defect this milestone keeps producing. Requiring the name at
-    /// the start of an uncommented line means a mention (in prose, in a string
-    /// literal, in this very docstring) can never satisfy it.
-    ///
-    /// # Parameters
-    ///
-    /// * `src` — the source text to inspect.
-    /// * `name` — the function's bare name, without the `fn ` keyword.
-    ///
-    /// # Complexity
-    ///
-    /// `O(n)` in the source length.
-    fn source_declares_fn(src: &str, name: &str) -> bool {
-        let needle = format!("fn {name}");
-        let mut depth = 0usize;
-        for line in src.lines() {
-            if depth == 0 && line.trim_start().starts_with(&needle) {
-                return true;
-            }
-            depth = block_comment_depth_after(line, depth);
-        }
-        false
-    }
-
     #[test]
     fn the_e2_token_guard_is_still_present_in_the_source() {
         // Compiled out today, so nothing else would notice its deletion.
         assert!(
-            source_declares_fn(include_str!("payload.rs"), E2_TOKEN_GUARD_FN),
+            crate::testkit::source_declares_fn(include_str!("payload.rs"), E2_TOKEN_GUARD_FN),
             "the R17 stub was removed or commented out; MS1 would enable `e2` over a guard that \
              no longer runs"
         );
@@ -668,7 +587,7 @@ mod tests {
         ];
         for src in mentions {
             assert!(
-                !source_declares_fn(&src, E2_TOKEN_GUARD_FN),
+                !crate::testkit::source_declares_fn(&src, E2_TOKEN_GUARD_FN),
                 "a mention must not satisfy the tripwire: {src:?}"
             );
         }
@@ -692,7 +611,7 @@ mod tests {
         ];
         for src in declarations {
             assert!(
-                source_declares_fn(&src, E2_TOKEN_GUARD_FN),
+                crate::testkit::source_declares_fn(&src, E2_TOKEN_GUARD_FN),
                 "a real declaration must satisfy the tripwire: {src:?}"
             );
         }
