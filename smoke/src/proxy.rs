@@ -798,7 +798,7 @@ impl SpyProxy {
         //     is recorded; `response_recorded` stays false so nobody reads
         //     the empty body as "the response was empty".
         if RECORDED_RESPONSE_PATHS.contains(&path.as_str()) {
-            let (status, out) = self
+            let (status, up_headers, out) = self
                 .forward_buffered(&method, &path, parts.headers, bytes, &upstream)
                 .await;
             // `None` means the body read failed. Two independent things follow
@@ -828,8 +828,23 @@ impl SpyProxy {
                 return Ok(build_failed(RELAY_BUILD_FAILED_STATUS));
             };
             self.push(rec.with_recorded_response(status, &body, self.record_cap));
-            return Ok(hyper::Response::builder()
-                .status(status)
+            let mut out = hyper::Response::builder().status(status);
+            // The forward claims to be VERBATIM, headers included, and this
+            // branch used to rebuild the response without a single one of them —
+            // so `content-type` and everything else end-to-end disappeared on
+            // exactly the two paths `S2b` compares.
+            //
+            // `up_headers` came off the response `forward` built, which has
+            // ALREADY dropped the hop-by-hop set, so relaying it wholesale is
+            // both correct and the reason no second copy of that filter exists
+            // here to drift from the first. `content-length` is among them and is
+            // right: `body` is exactly the bytes the upstream sent (this package
+            // enables none of `reqwest`'s decompression features, so nothing
+            // re-sized them on the way in).
+            for (n, v) in up_headers.iter() {
+                out = out.header(n.as_str(), v.as_bytes());
+            }
+            return Ok(out
                 .body(fixed(&body))
                 // RELAY: this response is the upstream's, buffered on the way
                 // through, so failing to build it is a failure to relay.
@@ -850,13 +865,27 @@ impl SpyProxy {
     /// small, but "small" is an expectation and this is the one place the
     /// harness could be made to hold an arbitrary body.
     ///
-    /// Returns `(status, None)` when the body could not be read back in
-    /// full — the status IS real (headers already arrived), but there is no
-    /// genuine body to hand the caller. `None`, not `Some(Vec::new())`: an
-    /// empty `Vec` would be indistinguishable from a backend that truly
-    /// answered with an empty body, and the caller must be able to tell
-    /// "nothing was recorded" from "an empty response was recorded" — see
-    /// the fix note on [`RequestRecord::response_recorded`].
+    /// # Returns
+    ///
+    /// `(status, headers, body)`.
+    ///
+    /// The **headers** are the ones [`SpyProxy::forward`] already put on its own
+    /// response, so they arrive with the hop-by-hop filter ALREADY applied —
+    /// which is why the caller relays them straight through and no second copy of
+    /// that filter exists to drift from the first. They were not returned at all
+    /// before, and the caller therefore rebuilt the response without them:
+    /// `content-type` and every other end-to-end header the upstream set vanished
+    /// on exactly the two paths `S2b` compares, against a `forward` whose own
+    /// rustdoc promises "same headers". Nothing failed only because `hyper`
+    /// regenerates `content-length` from `Full`'s exact size hint — luck, not
+    /// design.
+    ///
+    /// The **body** is `None` when it could not be read back in full — the status
+    /// IS real (headers already arrived), but there is no genuine body. `None`,
+    /// not `Some(Vec::new())`: an empty `Vec` would be indistinguishable from a
+    /// backend that truly answered with an empty body, and the caller must be
+    /// able to tell "nothing was recorded" from "an empty response was recorded"
+    /// — see the fix note on [`RequestRecord::response_recorded`].
     async fn forward_buffered(
         &self,
         method: &str,
@@ -864,16 +893,17 @@ impl SpyProxy {
         headers: hyper::HeaderMap,
         body: Bytes,
         upstream: &str,
-    ) -> (u16, Option<Vec<u8>>) {
+    ) -> (u16, hyper::HeaderMap, Option<Vec<u8>>) {
         let resp = self.forward(method, path, headers, body, upstream).await;
         let status = resp.status().as_u16();
+        let out_headers = resp.headers().clone();
         match resp.into_body().collect().await {
-            Ok(c) => (status, Some(c.to_bytes().to_vec())),
+            Ok(c) => (status, out_headers, Some(c.to_bytes().to_vec())),
             // Could not read it back: report the status and NOTHING else.
             // The CALLER must route this to `with_status_only`, never to
             // `with_recorded_response` with an empty body — that would
             // record a genuine-looking empty answer for a read that failed.
-            Err(_) => (status, None),
+            Err(_) => (status, out_headers, None),
         }
     }
 
