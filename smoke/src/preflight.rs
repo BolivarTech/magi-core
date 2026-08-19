@@ -536,44 +536,61 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<Option<Vec<String
 /// own digest verification: only a proven mismatch rejects, and an
 /// unresolvable one trusts what was declared.
 ///
-/// # Seats only, and the fallbacks are covered elsewhere
+/// # The rotation candidates are checked here too, and the probe does not
+/// cover them
 ///
-/// Rotation candidates are not checked here. The contention probe deliberately
-/// names the LAST declared fallback and already refuses when the backend
-/// answers `404` for it (see [`probe_inconclusive_message`]), so extending
-/// this to the pool would be a second implementation of a check that exists —
-/// which is how this project has already lost a guard once.
+/// This used to check the seats only, on the argument that the contention
+/// probe already refuses a candidate the backend answers `404` for. That
+/// argument covered exactly ONE candidate — [`Config::probe_model`] names the
+/// LAST declared fallback and nothing else — while rotation reaches the FIRST
+/// of another lineage that fits, out of a pool as long as the operator makes
+/// it. Every entry between the two was unchecked, so a typo there survived the
+/// preflight and produced a red row about the crate from the rotation run:
+/// exit 1 for a mistake in a TOML file, which is the inversion this harness
+/// exists to remove.
+///
+/// It is one `chain` over the listing already in hand, not a second
+/// implementation: the probe answers a different question (*can the backend
+/// get to work?*), and it answers it about one model at a time.
 ///
 /// # Parameters
 ///
-/// * `cfg` — the loaded configuration, for the seats to check.
+/// * `cfg` — the loaded configuration, for the seats and rotation candidates
+///   to check.
 /// * `listed` — the model names the backend listed, or `None` when it did not
 ///   list any.
 ///
 /// # Errors
 ///
-/// Names every seat whose model is absent, with the seat that declared it and
-/// what the backend does hold — all of them, because discovering one typo per
-/// round is what makes a wrong config expensive.
+/// Names every declared model that is absent, with what declared it and what
+/// the backend does hold — all of them, because discovering one typo per round
+/// is what makes a wrong config expensive.
 ///
 /// # Complexity
 ///
-/// `O(s * m)` over the three seats and the models listed.
+/// `O((s + f) * m)` over the three seats, the `f` rotation candidates and the
+/// models listed.
 pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), String> {
     let Some(listed) = listed else {
         return Ok(());
     };
-    let absent: Vec<String> = cfg
+    let declared = cfg
         .seats
         .iter()
-        .filter(|s| !listed.iter().any(|held| held == &s.model))
-        .map(|s| format!("{} declares {:?}", s.agent, s.model))
+        .map(|s| (s.agent.as_str(), s.model.as_str()))
+        .chain(cfg.fallbacks.iter().map(|f| ("rotation", f.model.as_str())));
+    let absent: Vec<String> = declared
+        .filter(|(_, model)| !listed.iter().any(|held| held == model))
+        .map(|(who, model)| format!("{who} declares {model:?}"))
         .collect();
     if absent.is_empty() {
         return Ok(());
     }
     Err(format!(
-        "the backend does not hold {} of the configured seat models ({}). It lists {:?}.          A model it cannot serve makes that mage fail to answer, which the runs report as a          red row about the crate for a mistake in this file. Pull the model, or correct the          seat. {SEAT_FIX}",
+        "the backend does not hold {} of the configured models ({}). It lists {:?}. A model it \
+         cannot serve makes that mage fail to answer — or leaves rotation with nowhere to go — \
+         which the runs report as a red row about the crate for a mistake in this file. Pull the \
+         model, or correct the entry. {SEAT_FIX}",
         absent.len(),
         absent.join("; "),
         listed
@@ -1901,8 +1918,16 @@ mod tests {
         // The other side of the check: it must not refuse a healthy config.
         // `--break-proxy` stops the run at the LAST step, so reaching
         // `Stage::Proxy` is the evidence that backend and probe both passed.
+        //
+        // A healthy backend holds the rotation candidates as well: the check
+        // covers the whole declared pool, not the seats alone.
         let defaults = Config::default();
-        let held: Vec<&str> = defaults.seats.iter().map(|s| s.model.as_str()).collect();
+        let held: Vec<&str> = defaults
+            .seats
+            .iter()
+            .map(|s| s.model.as_str())
+            .chain(defaults.fallbacks.iter().map(|f| f.model.as_str()))
+            .collect();
         let stub = stub_that_lists_models(&held).await;
         let cfg = Config {
             endpoint: stub.url(),
