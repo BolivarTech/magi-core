@@ -50,6 +50,8 @@
 //! [`RequestRecord::response_recorded`]'s fix note and the test
 //! `a_broken_response_read_is_not_recorded_as_an_empty_answer`.
 //!
+//! **That fixed the RECORD and left the ANSWER** — see round 4 below.
+//!
 //! # Fixes from review round 2 (the same defect, on the REQUEST side)
 //!
 //! The response half of that fix landed while the request half kept the bug: a
@@ -73,6 +75,25 @@
 //! and the other four become reachable the moment someone edits a status. They
 //! all route through [`build_failed`] now; see
 //! `a_response_the_proxy_cannot_build_is_an_error_not_a_fabricated_success`.
+//!
+//! # Fixes from review round 4 (the same defect a fourth time, in the ANSWER)
+//!
+//! Rounds 1-3 fixed the record, the request and the fallbacks; what the CLIENT
+//! observed on the buffered path was still fabricated. With the response body
+//! unreadable, [`SpyProxy::handle`] answered `.status(status).body(fixed(&[]))`
+//! — the real upstream status, a `200` on these paths — over an EMPTY body. Both
+//! [`RECORDED_RESPONSE_PATHS`] are ones the crate parses as JSON, so the crate's
+//! probe then failed to parse a body the backend had sent, and the only thing
+//! between that and a verdict was the `degraded` latch: a second mechanism every
+//! scenario must remember to consult. It answers
+//! [`RELAY_BUILD_FAILED_STATUS`] now — the proxy did talk to the backend and
+//! then failed to relay what came of it — with the latch kept as the second line
+//! of defence. See `a_broken_response_read_is_not_answered_as_an_empty_success`.
+//!
+//! Round 4 also closed the buffered path's missing header copy (every
+//! end-to-end header the upstream set was dropped, which the streaming path does
+//! not do), the accept loop's unbounded spin on a persistent `accept` error, and
+//! a `Method` fabricated by `unwrap_or(POST)`.
 
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
@@ -780,28 +801,33 @@ impl SpyProxy {
             let (status, out) = self
                 .forward_buffered(&method, &path, parts.headers, bytes, &upstream)
                 .await;
-            // `None` means the body read failed: record NOTHING was
-            // recorded (`with_status_only`), never an invented empty
-            // response (`with_recorded_response(status, &[], ..)` would
-            // look exactly like a backend that genuinely answered empty).
-            let (rec, body) = match out {
-                Some(body) => (
-                    rec.with_recorded_response(status, &body, self.record_cap),
-                    body,
-                ),
-                // The status is real; the BODY could not be read. Recording the
-                // status alone already stops it being reported as a genuine
-                // empty answer — but a scenario comparing response bytes would
-                // still see nothing and blame the crate. Marking the proxy
-                // degraded is what lets that scenario SKIP instead, and the
-                // request-body path two matches above already does exactly this.
-                None => {
-                    self.degraded
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    (rec.with_status_only(status), Vec::new())
-                }
+            // `None` means the body read failed. Two independent things follow
+            // from it, and only the first of them used to.
+            //
+            // 1. THE RECORD says nothing was recorded (`with_status_only`),
+            //    never an invented empty response — `with_recorded_response(status,
+            //    &[], ..)` would look exactly like a backend that genuinely
+            //    answered empty. That half landed in review round 1.
+            // 2. THE ANSWER the client receives is a `502`, not the upstream's
+            //    status over an empty body. This half did NOT land: the proxy
+            //    replied `.status(status).body(fixed(&[]))`, i.e. the real status
+            //    — a 200 on these paths — with nothing in it. Both recorded paths
+            //    are ones the crate parses as JSON, so the crate's probe then
+            //    failed to parse a body the backend HAD sent, and the only thing
+            //    between that and a verdict was the `degraded` latch: a second
+            //    mechanism every scenario must remember to consult. The proxy did
+            //    talk to the backend and then failed to relay what came of it,
+            //    which is what `RELAY_BUILD_FAILED_STATUS` exists to say.
+            //
+            // The latch is still set, and is now the SECOND line of defence
+            // rather than the only one.
+            let Some(body) = out else {
+                self.degraded
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                self.push(rec.with_status_only(status));
+                return Ok(build_failed(RELAY_BUILD_FAILED_STATUS));
             };
-            self.push(rec);
+            self.push(rec.with_recorded_response(status, &body, self.record_cap));
             return Ok(hyper::Response::builder()
                 .status(status)
                 .body(fixed(&body))
