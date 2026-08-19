@@ -869,21 +869,33 @@ pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
 
 /// The refusal for a probe that was answered without being served.
 ///
-/// It names the model, because that is the field the operator has to act on —
-/// either pull it or stop declaring it — and it says what was NOT established
-/// rather than guessing at a cause. Exit 2, "cannot test": no scenario ran, so
-/// nothing here is a verdict about the crate.
+/// It says what was NOT established rather than guessing at a cause, and it
+/// names **both** fields the operator may have to act on. Exit 2, "cannot
+/// test": no scenario ran, so nothing here is a verdict about the crate.
+///
+/// # Why two causes and not one
+///
+/// It used to say "a model the backend does not hold", which a `404` does not
+/// establish. The same status comes back when the completions PATH is absent —
+/// a base URL pointing at something that is not an OpenAI-compatible server, or
+/// at one mounted elsewhere — and from here the two are indistinguishable. That
+/// is the discipline [`probe_failure_message`] already keeps for contention
+/// versus a cold model: name both, say the harness cannot tell them apart, and
+/// leave the operator to look at the half they recognise. Guessing costs them
+/// the round on the wrong field.
 ///
 /// # Parameters
 ///
 /// * `cfg` — the configuration, for the model and endpoint to name.
 fn probe_inconclusive_message(cfg: &Config) -> String {
     format!(
-        "cannot test: the endpoint at {} answered the contention probe with 404 for model {:?}. \
-         A model the backend does not hold is rejected without generating, so the request never \
-         entered the inference queue and NOTHING was established about contention — a saturated \
-         backend answers it just as fast as an idle one. Pull that model, or name one this \
-         backend holds.",
+        "cannot test: the endpoint at {} answered the contention probe with 404 at \
+         {COMPLETIONS_PATH} for model {:?}. Two causes are possible and the harness cannot \
+         tell them apart: the backend does not hold that model, or it does not serve that \
+         path. Either way the request was rejected without generating, so it never entered \
+         the inference queue and NOTHING was established about contention — a saturated \
+         backend answers it just as fast as an idle one. Pull the model, or point the \
+         endpoint at a backend that serves this path.",
         cfg.endpoint,
         cfg.probe_model()
     )
