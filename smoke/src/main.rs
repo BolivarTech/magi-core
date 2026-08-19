@@ -289,7 +289,7 @@ async fn main() -> std::process::ExitCode {
     // 4. The shared runs.
     let specs = match runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), cli.no_backend) {
         Ok(s) => s,
-        Err(e) => return report::Report::cannot_test(&e.to_string()).emit(),
+        Err(e) => return report::Report::cannot_test(&e.to_string(), cycle_run(&cli)).emit(),
     };
     let mut run = runner::Runner::new(cfg.clone(), ready.proxy);
     // The one deliberate exception to "every request goes through the proxy",

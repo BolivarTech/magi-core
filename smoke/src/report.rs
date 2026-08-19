@@ -783,7 +783,7 @@ impl Report {
     /// # Parameters
     ///
     /// * `reason` — what stopped the run, in terms an operator can act on.
-    pub fn cannot_test(reason: &str) -> Report {
+    pub fn cannot_test(reason: &str, _run: CycleRun) -> Report {
         Report {
             rows: vec![AssertionRow {
                 scenario_id: "preflight",
@@ -852,7 +852,10 @@ mod tests {
             budget_exceeded: None,
         };
         assert_eq!(Report::with(&[row(ScenarioState::Fail)]).exit_code(), 1);
-        assert_eq!(Report::cannot_test("proxy").exit_code(), 2);
+        assert_eq!(
+            Report::cannot_test("proxy", CycleRun::First).exit_code(),
+            2
+        );
         assert_eq!(Report::with(&[row(ScenarioState::Pass)]).exit_code(), 0);
         assert_eq!(
             Report::with(&[row(ScenarioState::Pass), row(ScenarioState::OutOfScope)]).exit_code(),
@@ -970,6 +973,34 @@ mod tests {
     }
 
     // --- Step-1 tests from task-12a-brief.md, reproduced verbatim in intent ---
+
+    #[test]
+    fn a_row_that_belongs_to_no_run_is_not_attributed_to_one() {
+        // `NO_RUN` was `RunId::NoBackend`, which is a REAL run — the offline
+        // one. A preflight failure and a certificate that could not be written
+        // therefore rendered `run=no_backend`, so an operator reading the table
+        // would look for a run that never produced them, and a genuine
+        // no-backend row and a harness fault became indistinguishable.
+        let human = Report::cannot_test("the proxy would not start", CycleRun::First)
+            .render_human();
+        assert!(
+            !human.contains("run=no_backend"),
+            "a row with no run behind it must not name one: {human}"
+        );
+    }
+
+    #[test]
+    fn a_harness_fault_reports_the_cycle_run_it_actually_was() {
+        // It hardcoded `First`, so a `--smoke-2` invocation that could not test
+        // said "cycle run: first" — the wrong half of the cycle, in the report
+        // whose whole job is saying what happened.
+        let human = Report::cannot_test("the proxy would not start", CycleRun::Second)
+            .render_human();
+        assert!(
+            human.contains("cycle run: second"),
+            "the run that could not test is still the run it was: {human}"
+        );
+    }
 
     #[test]
     fn the_certificate_says_which_invocation_it_covers() {
