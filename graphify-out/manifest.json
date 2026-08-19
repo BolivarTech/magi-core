@@ -25,7 +25,7 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1785399079.5528586,
+    "mtime": 1787051809.2497067,
     "ast_hash": "2286269ff2a7b216d22c4fa7fca93e06",
     "semantic_hash": ""
   },
@@ -725,8 +725,8 @@
     "semantic_hash": ""
   },
   "smoke/src/config.rs": {
-    "mtime": 1787043411.2387328,
-    "ast_hash": "5cf4f1eb072fcf0e9dd87905823f202e",
+    "mtime": 1787094727.4187024,
+    "ast_hash": "00b690da12e19ea23365c1ac8da2ec62",
     "semantic_hash": ""
   },
   "smoke/src/external.rs": {
@@ -735,48 +735,48 @@
     "semantic_hash": ""
   },
   "smoke/src/fixtures.rs": {
-    "mtime": 1787032235.6341913,
-    "ast_hash": "475a600a0b5ffdec60d6b0b40065f66b",
+    "mtime": 1787096633.262489,
+    "ast_hash": "137f447ca8d2c88b60cb0fc4465b6982",
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787040923.4461133,
-    "ast_hash": "6114af726df67bb2487ed95742d82ccc",
+    "mtime": 1787097100.8098123,
+    "ast_hash": "0aeacc2339b810b8431dff82f1c7b6ca",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
-    "mtime": 1787035921.7258148,
-    "ast_hash": "a8420aef6aaf96f6ab943ff8b8fe9009",
+    "mtime": 1787085571.5750885,
+    "ast_hash": "c81703928b4db75d9cda1e54ed6a9198",
     "semantic_hash": ""
   },
   "smoke/src/paths.rs": {
-    "mtime": 1787021653.843944,
-    "ast_hash": "2b2e830131f90f45f7b818b285d85715",
+    "mtime": 1787097253.6389914,
+    "ast_hash": "3860bb7cff3eb00c98fba64516850b8d",
     "semantic_hash": ""
   },
   "smoke/src/payload.rs": {
-    "mtime": 1787026011.5996215,
-    "ast_hash": "92a34c4b92e408722f1ee3b3626af081",
+    "mtime": 1787080244.9127884,
+    "ast_hash": "76311f65163dbf871d1359acb6fd3a5b",
     "semantic_hash": ""
   },
   "smoke/src/preflight.rs": {
-    "mtime": 1787035921.7389271,
-    "ast_hash": "b132345915d747be26cd445aa037a078",
+    "mtime": 1787097100.8088133,
+    "ast_hash": "6c5dc62bc6ea5abd0e205daf5eee5a4d",
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787036029.2431507,
-    "ast_hash": "57dd80477367495b66b08a266188ba3b",
+    "mtime": 1787080147.642104,
+    "ast_hash": "e49b4cfa6c17000a114ea00cd09e5dc6",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
-    "mtime": 1787036029.5808284,
-    "ast_hash": "826a0518842c6c5ee6664aa43c0347c3",
+    "mtime": 1787096559.167079,
+    "ast_hash": "e431e67be424d66981a7853c7a1c200a",
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787043411.2926066,
-    "ast_hash": "3c72b4a2bf8a141cd8e640022d8a68a2",
+    "mtime": 1787095027.3317304,
+    "ast_hash": "f56232fbecf3ecf268d9fac20c23fdf4",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
@@ -785,28 +785,33 @@
     "semantic_hash": ""
   },
   "smoke/src/testkit.rs": {
-    "mtime": 1787032398.8285496,
-    "ast_hash": "b3edc283c65afac2141a29daa6cb5680",
+    "mtime": 1787094304.2670398,
+    "ast_hash": "80023df054df2c049f3351b63600863e",
     "semantic_hash": ""
   },
   "smoke/src/weakened.rs": {
-    "mtime": 1787031539.6731174,
-    "ast_hash": "dc28669b4fbe789b4a8a3a8956022aa3",
+    "mtime": 1787079349.1566868,
+    "ast_hash": "dbb267d7e59bf7531c1d43d50606ccff",
     "semantic_hash": ""
   },
   "smoke/sync-fixtures.sh": {
-    "mtime": 1787032235.636761,
-    "ast_hash": "0602635e492e77de2150a56e88ac50f7",
+    "mtime": 1787078929.0065813,
+    "ast_hash": "92708ac77688db3a52153665dd1801e5",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787041015.5460854,
-    "ast_hash": "a3111fb6587ba38b965eab58d56d5097",
+    "mtime": 1787100256.940709,
+    "ast_hash": "7edf3e61ab10100ab950637d8ce38cb8",
     "semantic_hash": ""
   },
   "smoke/README.md": {
-    "mtime": 1787043966.8930278,
-    "ast_hash": "b2a23f96a9d9aa7e7fcacccd46196308",
+    "mtime": 1787100285.5740712,
+    "ast_hash": "c316b7e53b192505083181b0221829d5",
+    "semantic_hash": ""
+  },
+  "smoke/src/git.rs": {
+    "mtime": 1787084651.7080402,
+    "ast_hash": "1f21f45ece93628a22addac005cf66eb",
     "semantic_hash": ""
   }
 }
