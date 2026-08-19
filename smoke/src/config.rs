@@ -330,6 +330,14 @@ const ENDPOINT_SCHEMES: [&str; 2] = ["http://", "https://"];
 /// which the text is a path, a query or a fragment rather than `host[:port]`.
 const AUTHORITY_TERMINATORS: [char; 3] = ['/', '?', '#'];
 
+/// Separates userinfo from the host inside a URL's authority — the component
+/// that carries `user:password`.
+const USERINFO_SEPARATOR: char = '@';
+
+/// Starts a URL's query component, whose VALUES are how a query-authenticated
+/// backend takes a credential.
+const QUERY_SEPARATOR: char = '?';
+
 impl Config {
     /// Parses a config file. **Shape only — no range validation happens here.**
     ///
@@ -890,6 +898,27 @@ impl Config {
     /// a transport error's clothes. A configuration mistake should be reported
     /// as a configuration mistake, at the moment the configuration is read.
     ///
+    /// # A credential is REFUSED here, not redacted at the print sites
+    ///
+    /// An endpoint may carry a credential two ways: `user:password@` in the
+    /// authority, and a query value — the shape a query-authenticated backend
+    /// uses. Either one reaches harness output, because the endpoint is named
+    /// in four preflight messages and, worse, is embedded by the transport
+    /// library in error text this harness does not author and cannot redact.
+    /// From there it lands in the run's report: the most-shared, least-inspected
+    /// channel there is.
+    ///
+    /// Redacting at each print site is a list somebody has to remember, and it
+    /// cannot cover the text we do not write. Refusing at load is the one point
+    /// that covers both: a value never accepted cannot be printed by a site
+    /// added later. It costs nothing, because neither component can appear in a
+    /// working endpoint for this harness anyway — every request appends its own
+    /// path, which a query would land after.
+    ///
+    /// The refusal deliberately does NOT quote the endpoint, unlike the checks
+    /// around it: a message that prints the value to explain that it holds a
+    /// secret has published the secret.
+    ///
     /// # Scheme and host, and deliberately nothing more
     ///
     /// This is not a URL parser and must not become one — no dependency, and no
@@ -935,6 +964,26 @@ impl Config {
                 "endpoint host contains whitespace: {:?}",
                 self.endpoint
             )));
+        }
+        // Neither refusal quotes the value: see this function's rustdoc.
+        if host.contains(USERINFO_SEPARATOR) {
+            return Err(ConfigError(
+                "endpoint carries userinfo (a `user:password@` component). It is refused rather \
+                 than redacted, because the endpoint is printed by the preflight and embedded by \
+                 the transport library in error text this harness does not author — and from \
+                 there it reaches the run's report. Put the credential where the backend takes \
+                 it out of band, and give `endpoint` a bare host."
+                    .to_string(),
+            ));
+        }
+        if self.endpoint.contains(QUERY_SEPARATOR) {
+            return Err(ConfigError(
+                "endpoint carries a query string, which is how a query-authenticated backend \
+                 takes a credential — and the query is the component the crate under test \
+                 MEASURED reaching error text. It is also unusable here: every request appends \
+                 its own path, which would land after the query. Give `endpoint` a bare base URL."
+                    .to_string(),
+            ));
         }
         Ok(())
     }
