@@ -2553,6 +2553,42 @@ mod tests {
     }
 
     #[test]
+    fn s15_reports_a_typed_crate_failure_even_when_the_injection_never_fired() {
+        // The guard's own inversion, and the exact one this harness exists to
+        // remove. `s15_fails_when_analyze_returned_a_typed_failure` covers the
+        // case where the injection DID fire, so the guard lets the run through
+        // and the verdict row is reached. Take the injection away and the guard
+        // returns first — four skips about an injection that did not fire — and
+        // the typed failure is gone: no verdict, exit 2, and the error text an
+        // operator would act on is dropped on the floor.
+        //
+        // The crate failing in a typed way is what this harness came to find,
+        // so it must produce a Fail, AND the text must survive: a Fail whose
+        // error nobody can read is half the defect.
+        let records = vec![record(COMPLETIONS_PATH, 200)];
+        let ctx = RunContext {
+            error: Some("orchestrator: no completion path produced a verdict"),
+            error_class: Some(ErrorClass::CrateFailure),
+            records: &records,
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Degradation)
+        };
+        let a = s15_degradation_is_honest(&ctx);
+        assert!(
+            a.iter().any(|x| x.state == ScenarioState::Fail),
+            "a typed crate failure is a verdict, whatever the injection did: {a:?}"
+        );
+        assert!(
+            a.iter().any(|x| match &x.state {
+                ScenarioState::Skip(reason) =>
+                    reason.contains("orchestrator: no completion path produced a verdict"),
+                _ => false,
+            }),
+            "the error text is the only thing an operator can act on and must survive: {a:?}"
+        );
+    }
+
+    #[test]
     fn s15_still_fails_when_the_injection_fired_and_the_report_is_healthy() {
         // DIRECTION 3 of the guard's mutation proof, and the one that matters
         // most: the injection fired, the crate had every chance to degrade
