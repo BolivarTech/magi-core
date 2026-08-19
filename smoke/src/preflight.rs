@@ -303,8 +303,9 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 ///
 /// A config with no seats, with a number of seats other than [`REQUIRED_SEATS`],
 /// with a seat naming something that is not a mage, with two seats naming the
-/// SAME mage, or with two entries — two seats, two rotation candidates, or one
-/// of each — declaring the same LINEAGE.
+/// SAME mage, with two entries — two seats, two rotation candidates, or one of
+/// each — declaring the same LINEAGE, or with two seats or a seat and a
+/// rotation candidate naming the same MODEL.
 ///
 /// **Only the zero case used to be rejected**, and one or two seats walked
 /// straight past — which is not a harmless permissiveness: the degradation
@@ -313,7 +314,13 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 /// file. Two seats naming the same mage does the same thing by another route,
 /// since the builder registers per agent and the second silently replaces the
 /// first. Two seats on one LINEAGE is the third route to the same red row: a
-/// run-wide lineage condemnation takes both of them down together.
+/// run-wide lineage condemnation takes both of them down together. Two entries
+/// on one MODEL is the fourth route, and it does not go through the crate at
+/// all: [`Injection::FailModel`] matches the request body's `model` field, so a
+/// failure injected for one seat is served to every entry naming that model —
+/// distinct lineages do not save it, because the proxy never sees a lineage.
+///
+/// [`Injection::FailModel`]: crate::proxy::Injection::FailModel
 pub fn check_seats(cfg: &Config) -> Result<(), String> {
     if cfg.seats.is_empty() {
         return Err(format!(
@@ -383,6 +390,34 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
             return Err(format!(
                 "seats {:?} and {:?} both declare lineage {:?}: a run-wide lineage condemnation takes down BOTH of them at once, so the degradation scenario sees one agent where it asserts two and reports a red row about the crate for a mistake in this file. {SEAT_FIX}",
                 first, seat.agent, seat.lineage
+            ));
+        }
+    }
+    // The MODEL, which no check above covers and which is the field the
+    // injection primitive actually matches on: `Injection::FailModel` compares
+    // the request body's `model`, so two seats naming one model receive one
+    // injected failure BOTH times. Two mages fall where the degradation
+    // scenario asserts one does, and the harness exits 1 for a duplicated field
+    // in this file. Distinct lineages are no defence — the proxy never sees a
+    // lineage.
+    let mut models: std::collections::BTreeMap<&str, &str> = std::collections::BTreeMap::new();
+    for seat in &cfg.seats {
+        if let Some(first) = models.insert(seat.model.as_str(), seat.agent.as_str()) {
+            return Err(format!(
+                "seats {:?} and {:?} both declare model {:?}: an injected failure is matched by                  MODEL, so one injection takes down both of them and the degradation scenario                  sees one agent where it asserts two — a red row about the crate for a mistake                  in this file. {SEAT_FIX}",
+                first, seat.agent, seat.model
+            ));
+        }
+    }
+    // The same collision arriving through the pool. Rotating to a candidate
+    // that names a seat's model lands on the model the injection is keyed to,
+    // so the new provider is served the same refusal and the rotation the
+    // scenario waits for can never succeed.
+    for candidate in &cfg.fallbacks {
+        if let Some(seat) = cfg.seats.iter().find(|s| s.model == candidate.model) {
+            return Err(format!(
+                "fallback {:?} declares model {:?}, which seat {:?} already uses: an injected                  failure is matched by MODEL, so rotating there is served the same refusal the                  run was rotating away from and the scenario reports a red row about the crate                  for a candidate that could never have worked. {SEAT_FIX}",
+                candidate.model, candidate.model, seat.agent
             ));
         }
     }
