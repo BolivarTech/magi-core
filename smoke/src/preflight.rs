@@ -285,7 +285,8 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 ///
 /// A config with no seats, with a number of seats other than [`REQUIRED_SEATS`],
 /// with a seat naming something that is not a mage, with two seats naming the
-/// SAME mage, or with two seats declaring the same LINEAGE.
+/// SAME mage, or with two entries — two seats, two rotation candidates, or one
+/// of each — declaring the same LINEAGE.
 ///
 /// **Only the zero case used to be rejected**, and one or two seats walked
 /// straight past — which is not a harmless permissiveness: the degradation
@@ -329,6 +330,24 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
             return Err(format!(
                 "fallback {:?} declares lineage {:?}, which a seat already uses: rotating to it reaches the same lineage the run was trying to leave, so the scenario would pass over a rotation that proved nothing. {SEAT_FIX}",
                 candidate.model, candidate.lineage
+            ));
+        }
+    }
+    // The third combination, and the last one left. Two candidates on ONE
+    // lineage are not two chances: a run-wide condemnation takes both down
+    // together, so the pool is one deep while looking two. Same failure as the
+    // seats below, arriving through the pool instead of the trio.
+    let mut candidate_lineages: std::collections::BTreeMap<&str, &str> =
+        std::collections::BTreeMap::new();
+    for candidate in &cfg.fallbacks {
+        if let Some(first) =
+            candidate_lineages.insert(candidate.lineage.as_str(), candidate.model.as_str())
+        {
+            return Err(format!(
+                "fallbacks {:?} and {:?} both declare lineage {:?}: a run-wide condemnation \
+                 takes every candidate on one lineage down together, so the second is not a \
+                 second chance and the pool is one deep while looking two. {SEAT_FIX}",
+                first, candidate.model, candidate.lineage
             ));
         }
     }
