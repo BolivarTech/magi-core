@@ -1107,6 +1107,41 @@ mod tests {
     }
 
     #[test]
+    fn an_endpoint_carrying_a_credential_is_refused_and_the_refusal_does_not_echo_it() {
+        // A credential in the endpoint reaches harness output through several
+        // print sites and through transport-error text this harness does not
+        // author, so it is refused at LOAD: what is never accepted cannot be
+        // printed by a site somebody adds later.
+        //
+        // Both shapes, because both are how a backend takes a credential in a
+        // URL, and the crate under test measured that the SECOND is the one
+        // that really reaches error text.
+        for (bad, secret) in [
+            ("http://user:hunter2@localhost:11434", "hunter2"),
+            ("https://example.invalid?api_key=hunter2", "hunter2"),
+            ("https://example.invalid/v1?key=hunter2", "hunter2"),
+        ] {
+            let cfg = Config {
+                endpoint: bad.to_string(),
+                ..Config::default()
+            };
+            let Err(err) = cfg.validate() else {
+                panic!("{bad:?} carries a credential and must be refused at load");
+            };
+            let err = err.to_string();
+            assert!(
+                err.contains("endpoint"),
+                "the message must NAME the field: {err}"
+            );
+            assert!(
+                !err.contains(secret),
+                "a refusal that quotes the credential leaks it into the very output the \
+                 refusal exists to keep it out of: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn an_endpoint_that_is_not_a_url_is_rejected_and_the_field_is_named() {
         // Every other field had a range check that NAMES it; this one had
         // none, so a typo reached the preflight and failed there — one layer
