@@ -1277,6 +1277,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_announced_cost_counts_every_seat_and_both_sides_of_the_wire() {
+        // R31's worked example is arithmetic, and the announcement did not do
+        // it: `63 924 x 3 ~ 192k` input PLUS up to `16 384 x 3 ~ 49k` output,
+        // "~240k per large-payload run". Every mage analyses the payload, so
+        // one payload costs it three times over; and the output side is what
+        // the whole 4.0.0 milestone is about, so announcing none of it
+        // understates the half most likely to surprise.
+        let cfg = Config::default();
+        let announced = announce_cost(&cfg, false);
+
+        let seats = cfg.seats.len();
+        let per_seat_in = cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR;
+        let input = per_seat_in * seats;
+        let cap =
+            crate::alias::magi_core::provider::CompletionConfig::default().max_tokens as usize;
+        let output = cap * seats;
+
+        assert!(
+            announced.contains(&format!("~{input} input tokens")),
+            "the input estimate must count all {seats} seats, not one: {announced}"
+        );
+        assert!(
+            announced.contains(&format!("~{output} output tokens")),
+            "the output side is the half this milestone is about, and it was missing \
+             entirely: {announced}"
+        );
+        assert!(
+            announced.contains(&format!("~{} tokens in all", input + output)),
+            "R31's example states a total, and a reader should not have to add: {announced}"
+        );
+    }
+
     #[allow(non_snake_case)]
     #[tokio::test]
     async fn the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER() {
