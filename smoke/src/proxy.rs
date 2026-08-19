@@ -410,6 +410,13 @@ pub struct RequestRecord {
     pub body_sha256: String,
     /// The status the proxy relayed back. **Always recorded** — it costs
     /// nothing and it is what tells a 502 from a 200.
+    ///
+    /// **The one the CLIENT received, in every case.** Where the proxy answers
+    /// a failure of its own — a response it could not relay — that failure
+    /// status is what lands here, not the upstream's. The two diverge on
+    /// exactly one path, and recording the upstream's there put the one status
+    /// the client provably did not receive into the row a reader consults about
+    /// the request that failed.
     pub response_status: u16,
     /// **The response BODY is recorded ONLY for the probe paths** (`/api/show`,
     /// `/api/tags`), and `response_recorded` says which case this is.
@@ -483,7 +490,8 @@ impl RequestRecord {
     /// status WITHOUT a body and leaving `response_recorded` false.
     ///
     /// **`response_recorded` means "the response BODY was buffered", not "a
-    /// response arrived".** The status recorded here is the real one. Only the
+    /// response arrived".** The status recorded here is the one the client was
+    /// given — see [`response_status`](RequestRecord::response_status). Only the
     /// two probe paths buffer a body; everything else streams, so a completion's
     /// record legitimately carries a true status and `response_recorded: false`.
     /// Reading the field the other way — requiring it before trusting the
@@ -935,7 +943,16 @@ impl SpyProxy {
             let Some(body) = out else {
                 self.degraded
                     .store(true, std::sync::atomic::Ordering::SeqCst);
-                self.push(rec.with_status_only(status));
+                // The RELAYED status, not `status`. `response_status` is "the
+                // status the proxy relayed back", and recording the upstream's
+                // here made it hold the one thing the client provably did NOT
+                // receive: a reader diagnosing this request saw a clean `200`
+                // against the very exchange that failed. The upstream's status
+                // is not information lost — nothing relayed it, and `degraded`
+                // is latched — while a second field to keep it would be surface
+                // with no consumer, which is why `method` and `body` are not on
+                // this record either.
+                self.push(rec.with_status_only(RELAY_BUILD_FAILED_STATUS.as_u16()));
                 return Ok(build_failed(RELAY_BUILD_FAILED_STATUS));
             };
             self.push(rec.with_recorded_response(status, &body, self.record_cap));
