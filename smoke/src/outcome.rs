@@ -213,6 +213,22 @@ where
     }
 }
 
+/// ONLY crates the crate under test does NOT depend on. `reqwest` and `sha2`
+/// are used by BOTH, so a panic there may well be the crate misusing them —
+/// calling that a harness problem would bury exactly what we came to find.
+///
+/// At module scope rather than inside [`classify_panic`] so that
+/// `every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph` can
+/// check the list against the graph it claims to be disjoint from. A criterion
+/// nothing compares against the thing it is about is a comment, not a rule.
+const HARNESS_ONLY_DEPS: [&str; 5] = [
+    "hyper-util",
+    "http-body-util",
+    "futures-util",
+    "hyper",
+    "toml",
+];
+
 /// Attributes a panic to the harness (`Skip`) or to the crate (`Fail`).
 ///
 /// Three-way, not two. The harness's own dependencies are OURS — we chose them;
@@ -257,16 +273,6 @@ where
 /// `O(d · m)` for `d` harness-only dependency names against a location of length
 /// `m` — one split of the path per name, five names.
 pub fn classify_panic(location: Option<&str>) -> ScenarioState {
-    // ONLY crates the crate under test does NOT depend on. `reqwest` and `sha2`
-    // are used by BOTH, so a panic there may well be the crate misusing them —
-    // calling that a harness problem would bury exactly what we came to find.
-    const HARNESS_ONLY_DEPS: [&str; 5] = [
-        "hyper-util",
-        "http-body-util",
-        "futures-util",
-        "hyper",
-        "toml",
-    ];
     match location {
         Some(loc) if is_harness_source(loc) => ScenarioState::Skip(format!(
             "panic inside the harness at {loc}: ours, not the crate's"
@@ -445,12 +451,64 @@ mod tests {
 
     #[test]
     fn a_panic_from_a_harness_dependency_is_ours_not_the_crates() {
-        // The two-way model sent a `hyper` panic to FAIL, accusing the crate of
+        // The two-way model sent a `toml` panic to FAIL, accusing the crate of
         // a fault in a library the HARNESS chose.
         assert!(matches!(
-            classify_panic(Some("/deps/hyper-1.0.0/src/server.rs")),
+            classify_panic(Some("/deps/toml-0.8.0/src/de.rs")),
             ScenarioState::Skip(_)
         ));
+    }
+
+    #[test]
+    fn every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph() {
+        // The list's own stated criterion — crates the crate under test does
+        // NOT depend on — was never checked against the crate under test. Four
+        // of its five names failed it: `smoke/Cargo.toml` builds `magi-core`
+        // with `features = ["ollama"]`, so the crate links `reqwest`, which is
+        // built on `hyper` and pulls `hyper-util`, `http-body-util` and
+        // `futures-util`. A panic raised inside hyper from the crate's OWN
+        // request path was therefore attributed to the harness, returned as
+        // Skip and mapped to exit 2 — the direction this function's doc names
+        // as the one that hides a defect and reports green.
+        //
+        // Asked of the real dependency graph rather than of a list written
+        // here, because a second hand-maintained list is the same defect one
+        // step removed: this reads what the SUT actually resolves, so a name
+        // that reappears in it fails here instead of being discovered by a
+        // buried panic.
+        let out = std::process::Command::new("cargo")
+            .args([
+                "tree",
+                "-p",
+                "magi-core",
+                "--features",
+                "ollama",
+                "--prefix",
+                "none",
+                "--no-dedupe",
+            ])
+            .current_dir(crate::paths::repo_root())
+            .output()
+            .expect("cargo tree over the crate under test");
+        assert!(
+            out.status.success(),
+            "cargo tree failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let tree = String::from_utf8_lossy(&out.stdout);
+        let resolved: std::collections::BTreeSet<&str> = tree
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+
+        for dep in HARNESS_ONLY_DEPS {
+            assert!(
+                !resolved.contains(dep),
+                "{dep:?} is in the crate under test's own dependency graph, so a panic inside \
+                 it may be the CRATE misusing it. Calling that a harness fault returns Skip, \
+                 which is exit 2, and buries exactly what this harness came to find."
+            );
+        }
     }
 
     #[test]
