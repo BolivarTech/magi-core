@@ -17,8 +17,32 @@
 # items must not read as the same thing.
 set -eu
 
-SRC="${1:-../sbtdd/ec-evidence}"
-DST="smoke/fixtures"
+# ONE base for both paths: the directory this script lives in.
+#
+# They used to be resolved against different bases — the source against the
+# caller's working directory, the destination against the repository root — so
+# the script had no single working-directory contract and answered differently
+# depending on where it was invoked from. From the repository root the source
+# pointed OUTSIDE the repository; from `smoke/` the destination landed on
+# `smoke/smoke/fixtures`, a directory inside the checkout that nothing is
+# supposed to create and that no guard over the binary's write sites can see.
+#
+# `cd` into the directory and read it back with `pwd`, rather than string-joining
+# `dirname "$0"`: that resolves `.`, `..` and a relative invocation in one step,
+# with the shell doing the work. A `$0` with no `/` in it (`sh sync-fixtures.sh`
+# from this directory) has `dirname` return `.`, which is exactly the case the
+# `cd` handles.
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)
+
+# An explicit argument still wins, and is taken AS GIVEN — the caller who passes
+# one is naming a directory they know, and re-anchoring it here would make an
+# absolute path unusable.
+SRC="${1:-$REPO_ROOT/sbtdd/ec-evidence}"
+# The ONLY directory this script writes into. Everything below writes under it,
+# so "creates nothing else" is a property of this one line rather than of every
+# `cp` and `>` agreeing.
+DST="$SCRIPT_DIR/fixtures"
 WANTED="${DST}/wanted.txt"
 
 test -d "$SRC" || {
