@@ -216,6 +216,14 @@ number because *a release that needed three rounds is information about that rel
 nothing in a single invocation could tell which round it belongs to. A guessed number would make
 the certificate a guess.
 
+**The shipped trio is `:cloud`-tagged, so a fresh clone does not run green by itself.** On a
+machine that has not run `ollama signin` and pulled those three tags, a plain `cargo run` runs
+**no scenario at all**: the preflight's backend step names every configured model the endpoint
+does not hold and stops with exit `2`. That is the refusal doing its job — nothing is reported
+as a verdict about the crate — but it means **"green" is green on a machine with the trio
+available**. Pull the three tags, or point `seats` at models this machine holds. `--no-backend`
+still runs the scenarios that need none.
+
 Configuration: copy `magi-smoke.toml.example` to `magi-smoke.toml` and edit. Every value in the
 example is also the built-in default, and a test compares the two — so copying it unchanged
 changes nothing. Credentials never live in it; they travel by environment variable.
