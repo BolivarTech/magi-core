@@ -471,6 +471,14 @@ const PROBE_MAX_TOKENS: u32 = 1;
 /// whether the backend can get to the work at all, never how well it does it.
 const PROBE_PROMPT: &str = "hi";
 
+/// Cap on the reachability listing the harness will HOLD.
+///
+/// One MiB, the same floor the crate under test gives its own response bound,
+/// and it is generous by two orders of magnitude: the largest real `/api/tags`
+/// answer is a few kilobytes. It is not sized to a listing but to the point
+/// past which a body has stopped being one.
+const MAX_LISTING_BODY_BYTES: usize = 1024 * 1024;
+
 /// Is anybody there at all, **and what does it hold**? One request, bounded by
 /// `window`, with no retry: a completely unreachable endpoint is a different
 /// failure than a reachable one that is merely slow (see [`probe`] for that
@@ -504,6 +512,19 @@ const PROBE_PROMPT: &str = "hi";
 /// listing answers that without loading anything; the probe asks *can the
 /// backend get to work?*, which only a completion can put to it.
 ///
+/// # The body is read UNDER A CAP, and an oversized one establishes nothing
+///
+/// This was the last body the harness took off the wire unbounded: it called
+/// `bytes()`, which holds whatever arrives, so a backend answering this path
+/// with an arbitrary body could make the harness allocate it — a harness fault
+/// wearing a backend's clothes. Everything else here is bounded already, from
+/// the proxy's recorded response to the crate's own completion.
+///
+/// Past [`MAX_LISTING_BODY_BYTES`] the answer is `Ok(None)`, not an error: an
+/// oversized body is a listing this harness could not read, which is the same
+/// claim as a body it could not parse. Refusing the run instead would refuse it
+/// on the strength of something never established.
+///
 /// # Parameters
 ///
 /// * `endpoint` — the backend's base URL.
@@ -530,9 +551,21 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<Option<Vec<String
     // that cannot be read at all is reported as an unreadable listing rather
     // than as no models — see `check_seat_models` for what the difference
     // decides.
-    let body = resp.bytes().await.map_err(|e| {
-        format!("backend at {endpoint} answered but its listing could not be read: {e}")
-    })?;
+    //
+    // Chunk by chunk rather than `bytes()`, so the cap bounds what is HELD and
+    // not merely what is inspected afterwards.
+    let mut resp = resp;
+    let mut body: Vec<u8> = Vec::new();
+    loop {
+        let chunk = resp.chunk().await.map_err(|e| {
+            format!("backend at {endpoint} answered but its listing could not be read: {e}")
+        })?;
+        let Some(chunk) = chunk else { break };
+        if body.len().saturating_add(chunk.len()) > MAX_LISTING_BODY_BYTES {
+            return Ok(None);
+        }
+        body.extend_from_slice(&chunk);
+    }
     Ok(listed_models(&body))
 }
 
