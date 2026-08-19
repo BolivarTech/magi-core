@@ -644,6 +644,20 @@ mod tests {
             before,
             "the tracked manifest was rewritten by a sync that never finished"
         );
+        // The other half of the same fix. Building the manifest aside solves
+        // nothing if the aside file survives inside the audited directory: the
+        // orphan check would find it and refuse to start, which is the failure
+        // that was being moved rather than removed.
+        let leftovers: Vec<String> = std::fs::read_dir(&fixtures)
+            .expect("the replica fixture dir must be readable")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .filter(|n| !NON_FIXTURE_FILES.contains(&n.as_str()))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "an aborted sync left {leftovers:?} in the fixture directory, and the orphan audit \
+             will report every one of them"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
