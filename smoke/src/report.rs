@@ -875,19 +875,32 @@ mod tests {
     #[test]
     fn the_date_is_a_real_calendar_date_and_not_an_epoch_count() {
         // Rendered from the standard library, because a dependency for one line
-        // of output is not a trade this harness makes. Two fixed instants, both
-        // checked: a leap day, and the day after a century that is NOT a leap
-        // year — the two dates a hand-rolled civil conversion gets wrong.
+        // of output is not a trade this harness makes. Four fixed instants, and
+        // the LAST one is the only one that earns its place: the naive
+        // "divisible by 4" shortcut agrees with the full Gregorian rule on every
+        // date this function can reach before 2100, so a suite that stops at
+        // 2000 cannot tell the two apart. 1900 is not a case here — it is BEFORE
+        // the epoch, so no argument to this function renders it.
         assert_eq!(iso_date_utc(UNIX_EPOCH), "1970-01-01");
-        // 2024-02-29T00:00:00Z
+        // 2024-02-29T00:00:00Z — a leap day under every rule, naive included.
         assert_eq!(
             iso_date_utc(UNIX_EPOCH + Duration::from_secs(1_709_164_800)),
             "2024-02-29"
         );
-        // 1900 was not a leap year; 2000 was. 2000-03-01T00:00:00Z
+        // 2000-03-01T00:00:00Z — 2000 IS a leap year, by the `% 400` clause.
+        // The naive shortcut agrees, so this pins the month walk, not the rule.
         assert_eq!(
             iso_date_utc(UNIX_EPOCH + Duration::from_secs(951_868_800)),
             "2000-03-01"
+        );
+        // 2100-03-01T00:00:00Z — 2100 is NOT a leap year, by the `% 100` clause,
+        // and this is the ONLY assertion that exercises it. Mutation-verified:
+        // with the predicate replaced by the naive `y % 4 == 0` the year gains a
+        // 29 February and this renders "2100-02-29", while the three assertions
+        // above stay green — which is exactly why they were not enough.
+        assert_eq!(
+            iso_date_utc(UNIX_EPOCH + Duration::from_secs(4_107_542_400)),
+            "2100-03-01"
         );
     }
 
