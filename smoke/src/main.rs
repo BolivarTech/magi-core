@@ -745,11 +745,31 @@ fn evaluate_preflight_only(
 /// network. Such a failure is `CouldNotRun`, whose documented meaning is exactly
 /// "nothing was learned either way", and the scenario skips on it.
 ///
+/// # And that guard covers the OTHER half of the matrix too
+///
+/// It used to cover only the two combinations that must not compile: a
+/// combination expected to BUILD carried no text, so any failure at all read as
+/// `DidNotBuild` — and `S21` turns that into `Fail`, exit 1, a verdict about
+/// the crate. The unreachable registry that the section above treats as
+/// "nothing was learned" for one half was, for the other half, proof the crate
+/// is broken. Same fault, same run, two answers.
+///
+/// So both halves ask the same question — *does this failure carry the text it
+/// would carry if it were the failure under test?* — and only the text differs.
+/// For a combination that must build, that text is [`COMPILE_REFUSAL_MARKER`]:
+/// `cargo` prints it whenever `rustc` rejected the code, and does not print it
+/// when `cargo` itself could not do its job.
+///
+/// **Written as a positive signature rather than a list of environment
+/// failures.** An enumeration of what can go wrong outside the compiler ages,
+/// and the first thing it misses is the one that lands.
+///
 /// # Parameters
 ///
 /// * `out` — what `Command::output()` returned.
 /// * `expected` — the text this combination's refusal must contain, or `None`
-///   for a combination that is expected to build (where any refusal is data).
+///   for a combination expected to build, which uses
+///   [`COMPILE_REFUSAL_MARKER`].
 fn build_outcome(
     out: std::io::Result<std::process::Output>,
     expected: Option<&str>,
@@ -760,9 +780,7 @@ fn build_outcome(
     if out.status.success() {
         return runner::BuildOutcome::Built;
     }
-    let Some(expected) = expected else {
-        return runner::BuildOutcome::DidNotBuild;
-    };
+    let expected = expected.unwrap_or(COMPILE_REFUSAL_MARKER);
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains(expected) {
         runner::BuildOutcome::DidNotBuild
@@ -858,6 +876,16 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
 /// them. While the list was a local, the two sides agreed only by coincidence
 /// and a rename on either would have left the scenario waiting for a row that
 /// never arrives; `scenarios::e1` now pins the agreement against this list.
+/// What `cargo` prints when `rustc` rejected the code, and what it does NOT
+/// print when `cargo` itself could not do its job — an unreachable registry, a
+/// lock it could not take, a disk with no room left.
+///
+/// It is the signature [`build_outcome`] requires of a combination expected to
+/// BUILD before calling its failure a refusal to compile. `cargo` emits this
+/// line for every crate the compiler rejects, which is why it can stand in for
+/// the per-combination markers on the other half of the matrix.
+const COMPILE_REFUSAL_MARKER: &str = "could not compile";
+
 pub(crate) const FEATURE_MATRIX: [(&str, Option<&str>); 4] = [
     ("tree", None),
     ("published", None),
@@ -1565,8 +1593,10 @@ mod tests {
         );
         assert_eq!(
             build_outcome(quiet(&["--magi-smoke-no-such-flag"]), None),
-            runner::BuildOutcome::DidNotBuild,
-            "cargo ran and refused: that IS data the scenario needs"
+            runner::BuildOutcome::CouldNotRun,
+            "cargo ran and refused, but not because the compiler rejected anything: this \
+             assertion used to read DidNotBuild, which is how an environment fault became a \
+             verdict about the crate"
         );
         assert_eq!(
             build_outcome(
