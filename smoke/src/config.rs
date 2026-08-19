@@ -1619,7 +1619,7 @@ probe_timeout_secs = 0
         let (cfg, origin) = Config::load_or_fail(Some(&dir.path().join("magi-smoke.toml")))
             .unwrap_or_else(|e| {
                 panic!(
-                    "a file value the environment rescues must load: validating the file on                      its own re-opens the bug the whole-set fix closed, in the branch that                      fix's test does not cover: {e}"
+                    "a file value the environment rescues must load: validating the file on its own \n                     re-opens the bug the whole-set fix closed, in the branch that fix's test \n                     does not cover: {e}"
                 )
             });
         assert_eq!(cfg.probe_timeout_secs, 60);

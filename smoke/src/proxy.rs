@@ -1498,7 +1498,7 @@ mod tests {
         );
         assert!(
             !proxy.records()[0].response_recorded,
-            "nothing was recorded, and an empty recording would look like a genuine              empty answer"
+            "nothing was recorded, and an empty recording would look like a genuine empty \n             answer"
         );
     }
 

@@ -2008,7 +2008,7 @@ mod tests {
         assert_eq!(
             stub.seen().len() + RETRY_ENTRIES,
             crate::config::PREFLIGHT_BACKEND_WINDOWS.len(),
-            "the window bound must carry one entry per bounded backend request the              preflight makes; it saw {:?}",
+            "the window bound must carry one entry per bounded backend request the preflight \n             makes; it saw {:?}",
             stub.seen()
         );
     }
