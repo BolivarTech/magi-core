@@ -740,8 +740,8 @@
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787108898.869821,
-    "ast_hash": "acb54aa1d8e2298bce3f9b302828d095",
+    "mtime": 1787111884.1751306,
+    "ast_hash": "b56a8c11fc8d85a0d880b7ea423685b5",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
@@ -760,8 +760,8 @@
     "semantic_hash": ""
   },
   "smoke/src/preflight.rs": {
-    "mtime": 1787108898.825298,
-    "ast_hash": "ffe40073d9d7e1939e6a5228823ff8ee",
+    "mtime": 1787116772.5671263,
+    "ast_hash": "ecf8a2f99bd679486788df93e5e8eecd",
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
