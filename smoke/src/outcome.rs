@@ -474,21 +474,50 @@ mod tests {
         ));
     }
 
-    /// The package names the crate under test resolves, as ONE source both
-    /// guards read.
+    /// Where the `cargo tree` above is allowed to put its metadata.
+    ///
+    /// Under the system temp directory and named so the stale-temp sweep cannot
+    /// claim it: the sweep parses the segment after `magi-smoke-` as a PID, and
+    /// `graph` does not parse — the same reason the feature-matrix cache is
+    /// spelled that way.
+    fn graph_query_target_dir() -> std::path::PathBuf {
+        std::env::temp_dir().join("magi-smoke-graph-query")
+    }
+
+    /// The package names the crate under test resolves **as this harness links
+    /// it**, as ONE source both guards read.
+    ///
+    /// # Three details, and each closes a way the guard could lie or stall
+    ///
+    /// * **Run from `smoke/`, not from the repository root.** The root is its
+    ///   own workspace with its own lockfile; this package is deliberately
+    ///   another one, and the two resolve the crate under test differently.
+    ///   Asking the root answers about a binary nobody builds here.
+    /// * **No `--features ollama`.** From here `magi-core` is a path dependency
+    ///   outside the workspace, so cargo REFUSES the flag — and it is not
+    ///   needed: `Cargo.toml` already declares the feature, so the resolution
+    ///   read here is the one the binary links, feature selection included.
+    /// * **`--locked --offline`, and a target directory of its own.** Locked
+    ///   and offline so a unit test cannot go red because an index was
+    ///   unreachable — the answer is in the tracked lockfile, and a guard that
+    ///   fails for want of a network teaches nothing. A separate
+    ///   `CARGO_TARGET_DIR` because this runs INSIDE `cargo test`, which holds
+    ///   the lock on `smoke/target`: sharing it would have the test wait on the
+    ///   process running it.
     fn crate_under_test_packages() -> std::collections::BTreeSet<String> {
         let out = std::process::Command::new("cargo")
             .args([
                 "tree",
                 "-p",
                 "magi-core",
-                "--features",
-                "ollama",
                 "--prefix",
                 "none",
                 "--no-dedupe",
+                "--locked",
+                "--offline",
             ])
-            .current_dir(crate::paths::repo_root())
+            .current_dir(crate::paths::smoke_dir())
+            .env("CARGO_TARGET_DIR", graph_query_target_dir())
             .output()
             .expect("cargo tree over the crate under test");
         assert!(
