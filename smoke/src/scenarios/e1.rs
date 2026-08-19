@@ -1594,7 +1594,17 @@ mod tests {
     }
 
     #[test]
-    fn s2_fails_the_injection_check_when_a_completion_got_the_injected_status() {
+    fn s2_does_not_blame_the_crate_for_a_backend_failure_it_recovered_from() {
+        // This run configures NO injection, so a failure status on the wire can
+        // only be the backend's own — and the report in hand is healthy, which
+        // means the crate saw that failure and recovered. Calling that a Fail
+        // makes the harness exit 1, "the crate is wrong", over a backend fault
+        // the crate handled correctly. That is the inversion this whole harness
+        // exists to eliminate, in the direction that costs a false accusation.
+        //
+        // A Skip, not a Pass: the property genuinely could not be checked. The
+        // wire cannot distinguish an injected failure from a real one, and with
+        // one present there is nothing here to certify either way.
         let report = report_from(HEALTHY_REPORT_JSON);
         let records = vec![
             record(COMPLETIONS_PATH, 200),
@@ -1606,7 +1616,68 @@ mod tests {
             ..blank_ctx(RunId::HappySmall)
         };
         let a = s2_happy_path_against_real_backend(&ctx);
-        assert_eq!(a[3].state, ScenarioState::Fail);
+        assert!(
+            matches!(a[3].state, ScenarioState::Skip(_)),
+            "a backend failure the crate recovered from is not a verdict about the crate: {:?}",
+            a[3].state
+        );
+    }
+
+    #[test]
+    fn s2_fails_when_analyze_returned_a_typed_failure() {
+        // `RunContext::report`'s own contract: `None` + `Some(error)` is a
+        // typed crate failure and must FAIL. All four assertions used to Skip,
+        // so a real crate defect left with exit 2 — a fault of ours, the code
+        // nobody investigates. `main::evaluate` already intercepts every other
+        // reason a report can be absent (CannotTest, TimedOut, both panics), so
+        // an error reaching a scenario alongside no report is exactly the case
+        // the contract describes.
+        let ctx = RunContext {
+            error: Some("insufficient agents: 1 of 3 responded"),
+            ..blank_ctx(RunId::HappySmall)
+        };
+        let a = s2_happy_path_against_real_backend(&ctx);
+        assert!(
+            a.iter().any(|x| x.state == ScenarioState::Fail),
+            "a typed failure from analyze() is a verdict about the crate: {a:?}"
+        );
+        assert!(
+            a.iter().any(|x| matches!(&x.state, ScenarioState::Skip(r)
+                if r.contains("insufficient agents"))),
+            "the error text must still reach the operator, since a Fail carries no reason: {a:?}"
+        );
+    }
+
+    #[test]
+    fn s4_fails_when_analyze_returned_a_typed_failure() {
+        let records = vec![record(COMPLETIONS_PATH, INJECTED_FAILURE_STATUS)];
+        let ctx = RunContext {
+            error: Some("insufficient agents: 1 of 3 responded"),
+            records: &records,
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Rotation)
+        };
+        let a = s4_rotation_and_its_cause(&ctx);
+        assert!(
+            a.iter().any(|x| x.state == ScenarioState::Fail),
+            "a typed failure from analyze() is a verdict about the crate: {a:?}"
+        );
+    }
+
+    #[test]
+    fn s15_fails_when_analyze_returned_a_typed_failure() {
+        let records = vec![record(COMPLETIONS_PATH, INJECTED_FAILURE_STATUS)];
+        let ctx = RunContext {
+            error: Some("insufficient agents: 1 of 3 responded"),
+            records: &records,
+            injected_agent: Some(AgentName::Caspar),
+            ..blank_ctx(RunId::Degradation)
+        };
+        let a = s15_degradation_is_honest(&ctx);
+        assert!(
+            a.iter().any(|x| x.state == ScenarioState::Fail),
+            "a typed failure from analyze() is a verdict about the crate: {a:?}"
+        );
     }
 
     #[test]
