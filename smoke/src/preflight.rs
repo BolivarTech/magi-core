@@ -2803,6 +2803,28 @@ mod tests {
     }
 
     #[test]
+    fn two_fallbacks_sharing_one_model_are_rejected() {
+        // The third cell of the MODEL matrix, and the one that was missing while
+        // the LINEAGE matrix above had all three. Two candidates naming one
+        // model are not two chances: `Injection::FailModel` keys on the request
+        // body's `model`, so the second is served the same refusal as the first
+        // and the pool is one deep while looking two. That is the same
+        // arithmetic the candidate-lineage check rejects, arriving through the
+        // field the injection actually discriminates on.
+        let mut cfg = Config::default();
+        cfg.fallbacks.push(crate::config::Fallback {
+            model: cfg.fallbacks[0].model.clone(),
+            lineage: "a-lineage-no-seat-uses".into(),
+        });
+        let taken = cfg.fallbacks[0].model.clone();
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(&taken),
+            "the message must name the colliding model: {err}"
+        );
+    }
+
+    #[test]
     fn the_probe_window_is_configurable_and_defaults_to_ten_seconds() {
         // An idle endpoint answers one token in well under a second even
         // against cloud, so 10 s is an order of magnitude of slack — long
