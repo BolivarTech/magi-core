@@ -734,21 +734,39 @@ const NEITHER_MODE_MARKER: &str = "must be enabled";
 /// for. The same holds for the `cargo metadata` call inside `preflight`.
 fn crate_version() -> String {
     const UNKNOWN: &str = "unknown";
-    const CRATE_UNDER_TEST: &str = "magi-core";
     std::process::Command::new("cargo")
         .args(["metadata", "--format-version", "1"])
         .current_dir(paths::smoke_dir())
         .output()
         .ok()
         .and_then(|o| serde_json::from_slice::<serde_json::Value>(&o.stdout).ok())
-        .and_then(|v| {
-            v["packages"].as_array().and_then(|ps| {
-                ps.iter()
-                    .find(|p| p["name"] == CRATE_UNDER_TEST)
-                    .and_then(|p| p["version"].as_str().map(str::to_string))
-            })
-        })
+        .and_then(|v| version_of_crate_under_test(&v, alias::MODE))
         .unwrap_or_else(|| UNKNOWN.to_string())
+}
+
+/// The name both dependency modes resolve to. `smoke/Cargo.toml` renames them
+/// to `magi_core_tree` and `magi_core_pub`, but the PACKAGE is `magi-core` on
+/// both sides, which is why the metadata carries two of them.
+const CRATE_UNDER_TEST: &str = "magi-core";
+
+/// Picks the `magi-core` the binary actually links, out of a `cargo metadata`
+/// document that carries BOTH of them.
+///
+/// # Parameters
+///
+/// * `metadata` — a parsed `cargo metadata --format-version 1` document.
+/// * `mode` — which source this binary was built against; [`alias::MODE`].
+///
+/// # Complexity
+///
+/// `O(n)` in the number of packages.
+fn version_of_crate_under_test(metadata: &serde_json::Value, mode: &str) -> Option<String> {
+    let _ = mode;
+    metadata["packages"].as_array().and_then(|ps| {
+        ps.iter()
+            .find(|p| p["name"] == CRATE_UNDER_TEST)
+            .and_then(|p| p["version"].as_str().map(str::to_string))
+    })
 }
 
 /// `git status --porcelain --untracked-files=all` over the repository.
@@ -948,6 +966,88 @@ mod tests {
             "a matrix that was requested and could not be built is an unanswered question, \
              not an unasked one: {:?}",
             s21.state
+        );
+    }
+
+    /// A `cargo metadata` document carrying BOTH `magi-core` packages, which
+    /// is what the real one carries: `smoke/Cargo.toml` declares the path and
+    /// the registry dependency side by side, and cargo resolves an optional
+    /// dependency whether or not its feature is on.
+    ///
+    /// The two versions are deliberately far apart so a wrong pick cannot be
+    /// mistaken for a right one.
+    ///
+    /// # Parameters
+    ///
+    /// * `registry_first` — which of the two the array lists first, so the same
+    ///   assertions can be run against both orderings.
+    fn metadata_with_both_magi_cores(registry_first: bool) -> serde_json::Value {
+        let from_tree = serde_json::json!({
+            "name": CRATE_UNDER_TEST, "version": "9.9.9", "source": serde_json::Value::Null,
+        });
+        let from_registry = serde_json::json!({
+            "name": CRATE_UNDER_TEST, "version": "3.2.0",
+            "source": "registry+https://github.com/rust-lang/crates.io-index",
+        });
+        let pair = if registry_first {
+            [from_registry, from_tree]
+        } else {
+            [from_tree, from_registry]
+        };
+        serde_json::json!({
+            "packages": [
+                pair[0].clone(),
+                pair[1].clone(),
+                { "name": "magi-smoke", "version": "0.1.0", "source": serde_json::Value::Null },
+            ]
+        })
+    }
+
+    #[test]
+    fn the_certificate_names_the_magi_core_the_binary_actually_links() {
+        // The certificate's central fact, decided by an undocumented ordering:
+        // both dependencies are the PACKAGE `magi-core`, so the metadata holds
+        // two of them, and `find` took whichever cargo listed first. In
+        // `published` mode that could name the working tree's version — a
+        // version nobody tested — on a document the harness does not control
+        // the order of.
+        //
+        // Both orderings are asserted, because an answer that depends on the
+        // order is exactly what is being ruled out.
+        for registry_first in [false, true] {
+            let md = metadata_with_both_magi_cores(registry_first);
+            assert_eq!(
+                version_of_crate_under_test(&md, "tree").as_deref(),
+                Some("9.9.9"),
+                "the tree mode links the PATH dependency, whose source is null \
+                 (registry_first = {registry_first})"
+            );
+            assert_eq!(
+                version_of_crate_under_test(&md, "published").as_deref(),
+                Some("3.2.0"),
+                "the published mode links the REGISTRY dependency \
+                 (registry_first = {registry_first})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_version_lookup_is_driven_by_the_mode_this_binary_was_built_in() {
+        // The pure function above is only correct if the caller hands it the
+        // mode the binary was actually built with. `alias::MODE` is that fact,
+        // and this ties the two together instead of trusting two spellings to
+        // agree.
+        let md = metadata_with_both_magi_cores(false);
+        let expected = if cfg!(feature = "tree") {
+            "9.9.9"
+        } else {
+            "3.2.0"
+        };
+        assert_eq!(
+            version_of_crate_under_test(&md, alias::MODE).as_deref(),
+            Some(expected),
+            "alias::MODE is {:?}, which must select the source this binary links",
+            alias::MODE
         );
     }
 
