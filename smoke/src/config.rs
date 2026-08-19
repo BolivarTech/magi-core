@@ -838,11 +838,32 @@ fn default_seats() -> Vec<Seat> {
 /// `null` in the request body.
 const NO_MODEL_DECLARED: &str = "no-model-declared-in-config";
 
-/// The widened second window. **The config validates `window * (1 + FACTOR)`
-/// against the shortest run budget, not `window` alone** — validating the bare
-/// value would let a probe legally consume more than the run it is protecting,
-/// which is the range check agreeing with itself.
+/// The widened second window. **The config validates the SUM of every window
+/// the preflight can spend against the shortest run budget, not `window`
+/// alone** — validating the bare value would let a probe legally consume more
+/// than the run it is protecting, which is the range check agreeing with
+/// itself. See [`PREFLIGHT_BACKEND_WINDOWS`].
 pub const PROBE_RETRY_FACTOR: u32 = 3;
+
+/// One entry per bounded request the preflight makes against the backend, each
+/// the multiple of `probe_timeout_secs` that request may spend: the
+/// reachability listing, the contention probe's first attempt, and its widened
+/// retry.
+///
+/// **The bound is SUMMED from this list rather than restated beside it.** It
+/// used to be a hand-written `1 + PROBE_RETRY_FACTOR`, which covered the probe
+/// and silently dropped the reachability request — a request that spends this
+/// same knob, and that was put on it by the very diff introducing the check.
+/// A multiplier that has to track a call site in another module is the drift
+/// class this project keeps paying for.
+///
+/// It is still a MIRROR of `preflight::{reachable, probe}`, and nothing ties
+/// the two together at compile time: the windows are spent by two functions in
+/// another module, one of them internally, so no type here can count them.
+/// `the_window_bound_has_one_entry_per_request_the_preflight_makes` is the
+/// guard — it counts the requests an actually-executed preflight makes, and
+/// goes red when a call site is added without an entry here.
+pub const PREFLIGHT_BACKEND_WINDOWS: [u64; 3] = [1, 1, PROBE_RETRY_FACTOR as u64];
 
 impl Config {
     /// The check the constant above PROMISES. The previous validation compared
@@ -929,9 +950,9 @@ impl Config {
     /// value is larger than any budget, so it is refused rather than let
     /// through.
     fn validate_probe_window(&self) -> Result<(), ConfigError> {
-        let worst = self
-            .probe_timeout_secs
-            .saturating_mul(1 + PROBE_RETRY_FACTOR as u64);
+        let worst = PREFLIGHT_BACKEND_WINDOWS.iter().fold(0u64, |acc, m| {
+            acc.saturating_add(self.probe_timeout_secs.saturating_mul(*m))
+        });
         let shortest_backend_run = self
             .budgets
             .happy_secs
@@ -939,9 +960,13 @@ impl Config {
             .min(self.budgets.injected_secs);
         if worst > shortest_backend_run {
             return Err(ConfigError(format!(
-                "probe_timeout_secs={} can consume {}s with its retry, more than the shortest \
-                 backend run budget ({}s): the probe would outlast the run it protects",
-                self.probe_timeout_secs, worst, shortest_backend_run
+                "probe_timeout_secs={} lets the preflight run {} bounded backend request(s) \
+                 for a total of {}s, more than the shortest backend run budget ({}s): the \
+                 preflight would outlast the run it protects",
+                self.probe_timeout_secs,
+                PREFLIGHT_BACKEND_WINDOWS.len(),
+                worst,
+                shortest_backend_run
             )));
         }
         Ok(())
@@ -1372,10 +1397,17 @@ probe_timeout_secs = 0
                 "the retired duplicate's wording must not be what answers — the window \
                  check is the single implementation: {err}"
             );
+            // The total is derived from `PREFLIGHT_BACKEND_WINDOWS`, not from a
+            // literal: asserting the NUMBER the check reports is what pins that it
+            // still compares the summed worst case rather than the bare value, which
+            // is the whole reason it replaced the inline comparison. It used to assert
+            // the phrase "with its retry", which stopped being true when the
+            // reachability request joined the sum -- while the property it stood for
+            // did not change.
+            let total: u64 = PREFLIGHT_BACKEND_WINDOWS.iter().sum::<u64>() * probe;
             assert!(
-                err.contains("with its retry"),
-                "the surviving check reports the WIDENED window, which is the whole \
-                 reason it replaced the bare comparison: {err}"
+                err.contains(&format!("a total of {total}s")),
+                "the surviving check reports the SUMMED worst case, not the bare window: {err}"
             );
         }
     }

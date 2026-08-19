@@ -1755,6 +1755,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_window_bound_has_one_entry_per_request_the_preflight_makes() {
+        // `PREFLIGHT_BACKEND_WINDOWS` is a MIRROR of this module: the config
+        // sums it to bound how long the preflight may spend, and nothing ties
+        // the two together at compile time. It was wrong once already, in the
+        // direction that reports success -- it covered the probe and dropped
+        // the reachability request that spends the same knob -- so the mirror
+        // needs a guard that reads the requests instead of the source.
+        //
+        // A preflight whose every request is answered makes TWO of them: the
+        // reachability listing and one probe attempt. The third entry is the
+        // probe's widened retry, which only fires when the first attempt does
+        // not complete, and `a_cold_model_passes_on_the_second_probe_attempt`
+        // is what pins it at exactly one. Adding a bounded backend request to
+        // this module without an entry in that list turns this red.
+        let stub = stub_that_records_requests().await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        // `--break-proxy` stops the run at the LAST step, after both backend
+        // steps have run and before anything binds a port.
+        let err = run(&cfg, &[], true, false).await.unwrap_err();
+        assert_eq!(err.stage, Stage::Proxy, "{err}");
+        const RETRY_ENTRIES: usize = 1;
+        assert_eq!(
+            stub.seen().len() + RETRY_ENTRIES,
+            crate::config::PREFLIGHT_BACKEND_WINDOWS.len(),
+            "the window bound must carry one entry per bounded backend request the              preflight makes; it saw {:?}",
+            stub.seen()
+        );
+    }
+
+    #[tokio::test]
     async fn a_cold_model_passes_on_the_second_probe_attempt() {
         // R27's retry is what makes "clone and run" work without
         // pre-warming anything: a cold model loads ONCE, so the second
