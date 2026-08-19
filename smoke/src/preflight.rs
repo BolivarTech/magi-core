@@ -1088,7 +1088,9 @@ mod tests {
             announced.contains("about to start"),
             "the estimate speaks of runs that have not happened yet: {announced}"
         );
-        ledger.measure(async {}).await;
+        for _ in 0..backend_runs_of(&cfg) {
+            ledger.measure(async {}).await;
+        }
         let recorded = ledger
             .record()
             .expect("once announced and the runs measured, the real cost can be recorded");
@@ -1140,7 +1142,9 @@ mod tests {
         let mut ledger = CostLedger::new();
         ledger.announce(&cfg, false);
         std::thread::sleep(std::time::Duration::from_millis(250));
-        ledger.measure(async {}).await;
+        for _ in 0..backend_runs_of(&cfg) {
+            ledger.measure(async {}).await;
+        }
 
         let recorded = ledger.record().expect("announced, and the runs measured");
         assert!(
@@ -1208,7 +1212,16 @@ mod tests {
         // tests green. The estimate is the reference because it counts the same
         // runs from the same config by its own route, so the two agreeing is a
         // statement about the runs rather than about one expression.
+        //
+        // The interval is now one per RUN and the receipt sums them, so a THIRD
+        // exclusion joins the two above and is pinned by the same window: work
+        // done BETWEEN two runs. That gap did not exist while a single interval
+        // spanned the whole batch — everything between the runs was inside it by
+        // construction — and it is where a future `measure` that goes back to
+        // wrapping the batch would show up, since one interval covering all
+        // three sleeps reports ~1.5s.
         const MEASURED_MS: u64 = 500;
+        const BETWEEN_MS: u64 = 500;
         const AFTER_MS: u64 = 500;
         const FLOOR_SECS: f64 = 0.4;
         const CEILING_SECS: f64 = 0.9;
@@ -1216,11 +1229,18 @@ mod tests {
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
         let announced = ledger.announce(&cfg, false);
+        // The whole measured workload sits in the FIRST run, so the sum the
+        // receipt reports stays the same ~500ms the window was calibrated for
+        // while the number of intervals matches the announced count.
         ledger
             .measure(async {
                 std::thread::sleep(std::time::Duration::from_millis(MEASURED_MS));
             })
             .await;
+        std::thread::sleep(std::time::Duration::from_millis(BETWEEN_MS));
+        for _ in 1..backend_runs_of(&cfg) {
+            ledger.measure(async {}).await;
+        }
         std::thread::sleep(std::time::Duration::from_millis(AFTER_MS));
 
         let recorded = ledger.record().expect("announced, and the runs measured");
@@ -1250,11 +1270,70 @@ mod tests {
             });
         assert!(
             (FLOOR_SECS..CEILING_SECS).contains(&seconds),
-            "the interval must cover the runs and NOTHING else. Below {FLOOR_SECS}s the \
+            "the intervals must cover the runs and NOTHING else. Below {FLOOR_SECS}s the \
              {MEASURED_MS}ms of work handed to `measure` was never billed at all, so every \
-             release would record the same zero; at or above {CEILING_SECS}s the {AFTER_MS}ms \
-             done after the runs finished leaked in, because the end of the interval followed \
-             `record` instead of the runs: {recorded}"
+             release would record the same zero; at or above {CEILING_SECS}s something outside \
+             the runs leaked in — either the {BETWEEN_MS}ms between two of them, which one \
+             interval spanning the whole batch would swallow, or the {AFTER_MS}ms after the \
+             last, which an end that follows `record` would: {recorded}"
+        );
+    }
+
+    /// How many backend runs `cfg` announces, by the ledger's own route.
+    ///
+    /// The ledger requires one measured interval per announced backend run, so
+    /// a test that wants a valid receipt has to produce that many. Deriving the
+    /// number here rather than writing `3` keeps these tests from asserting a
+    /// count they fixed themselves.
+    fn backend_runs_of(cfg: &Config) -> usize {
+        let _ = cfg;
+        stage_e1_run_ids(false)
+            .into_iter()
+            .filter(|r| r.uses_backend())
+            .count()
+    }
+
+    #[allow(non_snake_case)]
+    #[tokio::test]
+    async fn a_receipt_is_refused_when_the_intervals_do_not_MATCH_the_announced_runs() {
+        // The composition lever, closed by arithmetic instead of by convention.
+        //
+        // While one interval spanned the whole batch, WHICH work sat inside it
+        // was a property of the call site and of nothing else: two shipped
+        // regressions moved neighbouring work in, and every test stayed green
+        // both times, because what a test can reach is `measure` while what
+        // decides the receipt is what the caller hands it.
+        //
+        // One interval per run makes the SHAPE of the call site checkable. A
+        // caller that wraps the batch again produces one interval for three
+        // announced runs; a caller that bills work by adding a measured call
+        // produces four. Both are now a refusal rather than a plausible number.
+        let cfg = Config::default();
+        let announced = backend_runs_of(&cfg);
+
+        let mut too_few = CostLedger::new();
+        too_few.announce(&cfg, false);
+        too_few.measure(async {}).await;
+        let refusal = too_few
+            .record()
+            .expect_err("one interval for three runs is the batch-wrapping shape");
+        assert!(
+            refusal.contains("1 interval(s) for 3 announced backend run(s)"),
+            "the refusal must report both numbers, since the reader has to see WHICH way the \
+             call site drifted: {refusal}"
+        );
+
+        let mut too_many = CostLedger::new();
+        too_many.announce(&cfg, false);
+        for _ in 0..announced + 1 {
+            too_many.measure(async {}).await;
+        }
+        let refusal = too_many
+            .record()
+            .expect_err("a fourth interval bills work the estimate never announced");
+        assert!(
+            refusal.contains("4 interval(s) for 3 announced backend run(s)"),
+            "and in the other direction too: {refusal}"
         );
     }
 
