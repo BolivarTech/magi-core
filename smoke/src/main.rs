@@ -45,7 +45,8 @@ mod weakened;
 ///   `S20` can be observed. Not configuration.
 /// - `--config <path>` — config file; absent = built-in defaults.
 /// - `--build-matrix` — run the four `cargo check` combinations so `S21` has
-///   something to read. SLOW; off by default.
+///   something to read. SLOW; off by default. **Its build directories are kept,
+///   not swept** — see [`run_feature_matrix`].
 /// - `--round <n>` — which round of this release cycle this is, for the
 ///   certificate. Defaults to `1`.
 #[derive(Debug, PartialEq)]
@@ -784,6 +785,21 @@ fn build_outcome(
 /// **Each failing combination carries the text its own `compile_error!` prints**,
 /// so a refusal for a different reason is not mistaken for the refusal under
 /// test — see [`build_outcome`].
+///
+/// # The build directories are KEPT, and nothing reclaims them
+///
+/// They accumulate under the system temp directory, one per combination, and
+/// the stale-temp sweep does not touch them: it reclaims directories whose name
+/// carries a dead process id, and these are named for the combination instead —
+/// deliberately, because they are a CACHE shared across runs and a per-process
+/// name would rebuild all four every time.
+///
+/// Recorded rather than swept, because sweeping them is not obviously right:
+/// deleting the cache each run turns the slowest flag the harness has into four
+/// full rebuilds. What it costs to keep them is disk; what it costs to delete
+/// them is only the next run's rebuild time, so an operator reclaiming space can
+/// remove the tree at any point. Saying so is the point — an unbounded directory
+/// nobody has mentioned is the one that gets discovered when a disk fills.
 ///
 /// # Complexity
 ///
