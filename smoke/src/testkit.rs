@@ -28,6 +28,41 @@ impl TempDir {
     pub fn path(&self) -> &Path {
         &self.0
     }
+
+    /// Takes ownership of a directory somebody else created, so it is removed
+    /// on drop like any other fixture.
+    ///
+    /// Exists because a fixture whose PATH the caller chooses cannot be built by
+    /// [`tempdir_with`] or [`fresh_temp_dir`], and one such fixture — the report
+    /// module's git repository, which is deliberately rebuilt at a known path —
+    /// was the leak this guard closes.
+    pub fn owning(dir: PathBuf) -> Self {
+        Self(dir)
+    }
+}
+
+/// Lets a `&TempDir` be used wherever a `&Path` is wanted, and `dir.join(..)`
+/// read as it did when these fixtures returned a bare `PathBuf`.
+///
+/// **This is the impl whose absence was the stated reason for the leak.** The
+/// preflight and report fixtures returned an unowned `PathBuf` precisely because
+/// the production code they feed takes `&Path` and there was nothing to coerce
+/// through — so supplying it is what lets them own their directories without
+/// rewriting every call site.
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+/// The companion to [`Deref`]: deref coercion does not reach a generic
+/// `AsRef<Path>` parameter, which is what `Command::current_dir` takes.
+impl AsRef<Path> for TempDir {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
 }
 
 impl Drop for TempDir {
@@ -408,29 +443,32 @@ pub async fn spawn_truncating_server() -> TruncatingServer {
 
 // --- Preflight helpers -----------------------------------------------------
 //
-// `fresh_temp_dir`, `temp_root_with` and `repo_where_the_negation_was_removed`
-// deliberately return a bare `PathBuf`, NOT a `TempDir`: the production code
-// they feed (`check_lock_is_tracked`, `sweep_stale_temps`) takes `&Path`
-// directly, and `TempDir` has no `Deref<Target = Path>` for that reference to
-// coerce through. The directories are never cleaned up — accepted the same
-// way `TempDir`'s own doc accepts it for the OS-level fallback: they are tiny
-// scaffolding under the OS temp root, and [`UNIQUE`] guarantees the next call
-// never collides with what this one leaves behind.
+// These used to return a bare `PathBuf` on the argument that the production
+// code they feed (`check_lock_is_tracked`, `sweep_stale_temps`) takes `&Path`
+// and `TempDir` has no `Deref<Target = Path>` to coerce through. True, and it
+// cost a leak that nothing bounded: their names put the prefix segment where
+// `sweep_stale_temps` looks for a PID, so it parses as nothing and the sweep
+// leaves them alone by contract — "not ours to judge" — and NOTHING else
+// removed them. Every `cargo test` run added another set. This milestone
+// already paid for that: a flaky test diagnosed at 577 stale directories, 262
+// holding a certificate, i.e. a test asserting about somebody else's file.
+//
+// They return the same owning [`TempDir`] as [`tempdir_with`], and the callers
+// spell `.path()` — three characters against an unbounded leak.
 
-/// A fresh, uniquely-named directory under the OS temp root, without
-/// automatic cleanup. See the module note above for why the callers below
-/// need a bare [`PathBuf`] instead of a self-cleaning [`TempDir`].
+/// A fresh, uniquely-named directory under the OS temp root, owned by the
+/// returned guard.
 ///
 /// # Panics
 ///
 /// Panics if the directory cannot be created. Acceptable here: this is
 /// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
 /// test immediately rather than run against a partial tree.
-fn fresh_temp_dir(prefix: &str) -> PathBuf {
+fn fresh_temp_dir(prefix: &str) -> TempDir {
     let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("{prefix}-{}-{unique}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create temp directory");
-    dir
+    TempDir(dir)
 }
 
 /// Builds a scratch parent directory containing one throwaway, EMPTY
@@ -444,10 +482,10 @@ fn fresh_temp_dir(prefix: &str) -> PathBuf {
 /// does not parse at all (as `SELF` deliberately does not — the sweep's own
 /// contract is to leave an unparseable name alone, "not ours to judge") is
 /// left standing.
-pub fn temp_root_with(entries: &[(&str, bool)]) -> PathBuf {
+pub fn temp_root_with(entries: &[(&str, bool)]) -> TempDir {
     let root = fresh_temp_dir("magi-smoke-sweep-test");
     for (name, _expected_to_survive) in entries {
-        std::fs::create_dir_all(root.join(name)).expect("create sweep-test entry");
+        std::fs::create_dir_all(root.path().join(name)).expect("create sweep-test entry");
     }
     root
 }
@@ -466,22 +504,22 @@ pub fn temp_root_with(entries: &[(&str, bool)]) -> PathBuf {
 /// Panics if the fixture files or `git init` fail. Acceptable here: this is
 /// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
 /// test immediately rather than run against a partial repo.
-pub fn repo_where_the_negation_was_removed() -> PathBuf {
+pub fn repo_where_the_negation_was_removed() -> TempDir {
     let dir = fresh_temp_dir("magi-smoke-lock-test");
     // The `.gitignore` content is narrative, not load-bearing: `git ls-files`
     // does not consult it at all. What actually reproduces R8's failure is
     // that `smoke/Cargo.lock` is written to disk but never `git add`ed.
-    std::fs::write(dir.join(".gitignore"), "target/\nCargo.lock\n")
+    std::fs::write(dir.path().join(".gitignore"), "target/\nCargo.lock\n")
         .expect("write fixture .gitignore");
-    std::fs::create_dir_all(dir.join("smoke")).expect("create fixture smoke/ dir");
+    std::fs::create_dir_all(dir.path().join("smoke")).expect("create fixture smoke/ dir");
     std::fs::write(
-        dir.join("smoke/Cargo.lock"),
+        dir.path().join("smoke/Cargo.lock"),
         "# never staged, so never tracked",
     )
     .expect("write fixture Cargo.lock");
     let out = std::process::Command::new("git")
         .arg("init")
-        .current_dir(&dir)
+        .current_dir(dir.path())
         .output()
         .expect("git init for the fixture repo");
     assert!(

@@ -925,7 +925,7 @@ mod tests {
     /// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
     /// test immediately rather than run against a partial repo (same
     /// rationale as `testkit::repo_where_the_negation_was_removed`).
-    fn repo_with_uncommitted_changes() -> PathBuf {
+    fn repo_with_uncommitted_changes() -> crate::testkit::TempDir {
         let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
         fixture_repo_at(std::env::temp_dir().join(format!(
             "magi-smoke-report-test-{}-{unique}",
@@ -939,7 +939,7 @@ mod tests {
     /// # Parameters
     ///
     /// * `dir` — where to build it.
-    fn fixture_repo_at(dir: PathBuf) -> PathBuf {
+    fn fixture_repo_at(dir: PathBuf) -> crate::testkit::TempDir {
         // REMOVED first, and this is the whole point of the helper. The name is
         // `{pid}-{counter}`, and both repeat across `cargo test` runs, so a
         // directory an earlier run left behind is a directory this one inherits
@@ -962,7 +962,7 @@ mod tests {
         );
         std::fs::write(dir.join("untracked.txt"), "dirty on purpose")
             .expect("write untracked fixture file");
-        dir
+        crate::testkit::TempDir::owning(dir)
     }
 
     /// The six facts R37 requires, with fixed values so a certificate test
@@ -1273,7 +1273,7 @@ mod tests {
     ///
     /// Panics on any fixture-setup failure, for the same reason
     /// [`repo_with_uncommitted_changes`] does.
-    fn clean_repo() -> PathBuf {
+    fn clean_repo() -> crate::testkit::TempDir {
         let dir = repo_with_uncommitted_changes();
         let add = std::process::Command::new("git")
             .args(["add", "-A"])
