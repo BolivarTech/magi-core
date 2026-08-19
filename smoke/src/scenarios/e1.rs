@@ -181,6 +181,51 @@ fn s1_external_provider_fails_typed(ctx: &RunContext<'_>) -> Vec<Assertion> {
     )]
 }
 
+/// The name of the assertion that implements [`RunContext::report`]'s contract.
+const NAME_ANALYZE_PRODUCED_A_REPORT: &str =
+    "analyze() produced a report rather than failing in a typed way";
+
+/// Implements [`RunContext::report`]'s documented split, for every scenario
+/// whose subject is a report the run did not produce.
+///
+/// # The split, and why the scenarios could not just skip
+///
+/// `report: None` alone is ambiguous, which is why the context carries `error`
+/// beside it: `None` + `Some(error)` is a **typed crate failure** and `None` +
+/// `None` is a run that never happened. Three scenarios skipped both, so a
+/// typed failure — the crate breaking, which is exactly what this harness came
+/// to find — left with exit 2, "a fault of ours". That is the dangerous
+/// direction of the 1-versus-2 inversion: the code nobody investigates.
+///
+/// # Why this is an extra row rather than turning the others red
+///
+/// [`ScenarioState::Fail`] carries no text, so failing the four property
+/// assertions would lose the error the operator needs. They stay `Skip`s
+/// carrying it, and this row supplies the verdict — `Fail` takes precedence in
+/// [`crate::outcome::exit_code`], so the process still exits 1.
+///
+/// # Why an error reaching here really is the crate's
+///
+/// Every other reason a report can be absent is intercepted before a scenario
+/// sees it: `main::evaluate` turns `CannotTest` into a skip naming our own
+/// configuration fault, `TimedOut` into a TIME row, and a crate panic into its
+/// own failure — and both panic outcomes are built with `error: None`. What is
+/// left is `analyze()` returning `Err`.
+///
+/// # Parameters
+///
+/// * `ctx` — the run context, read for `error` only.
+fn analyze_produced_a_report(ctx: &RunContext<'_>) -> Assertion {
+    match ctx.error {
+        // The run never happened at all: nothing to say about the crate.
+        None => Assertion::skip(
+            NAME_ANALYZE_PRODUCED_A_REPORT,
+            "the run produced neither a report nor an error, so it never happened",
+        ),
+        Some(_) => assert_that(NAME_ANALYZE_PRODUCED_A_REPORT, false),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // S2 — happy path against a real backend
 // ---------------------------------------------------------------------------
@@ -248,12 +293,14 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
             .error
             .map(str::to_string)
             .unwrap_or_else(|| "the run never happened".to_string());
-        return vec![
+        let mut rows = vec![
             Assertion::skip(NAME_VERDICTS, reason.clone()),
             Assertion::skip(NAME_DEGRADED, reason.clone()),
             Assertion::skip(NAME_JSON, reason.clone()),
             Assertion::skip(NAME_NO_INJECTION, reason),
         ];
+        rows.push(analyze_produced_a_report(ctx));
+        return rows;
     };
 
     let injection = if ctx.proxy_degraded {
@@ -280,13 +327,41 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
         // `response_recorded` is false for every real one while
         // `with_status_only` still records the true status. Adding the
         // requirement was tried and turned this scenario red on every live run.
-        assert_that(
-            NAME_NO_INJECTION,
-            !completions.is_empty()
-                && completions
-                    .iter()
-                    .all(|r| r.response_status != INJECTED_FAILURE_STATUS),
-        )
+        if completions.is_empty() {
+            // A report in hand with no completion the proxy saw: traffic that
+            // bypassed it. That IS a finding, and it must stay red — "every
+            // request goes through the proxy" is what makes everything else
+            // here observable.
+            assert_that(NAME_NO_INJECTION, false)
+        } else if completions
+            .iter()
+            .any(|r| r.response_status == INJECTED_FAILURE_STATUS)
+        {
+            // **This run injects nothing** (`RunSpec::for_stage_e1` gives
+            // `HappySmall` `injection: None`), so a failure status here can
+            // only be the BACKEND's own — and a report in hand means the crate
+            // saw it and recovered, which is the crate behaving correctly.
+            //
+            // It used to be a `Fail`: exit 1, "the crate is wrong", over a
+            // backend fault the crate handled. That is the inversion this
+            // harness exists to eliminate, in the direction that costs a false
+            // accusation against the thing under test.
+            //
+            // A `Skip` and not a `Pass`, because the property genuinely went
+            // unchecked: nothing on the wire distinguishes a real failure
+            // status from an injected one, so with one present this assertion
+            // has nothing left to certify either way.
+            Assertion::skip(
+                NAME_NO_INJECTION,
+                format!(
+                    "a completion came back {INJECTED_FAILURE_STATUS} on a run that injects \
+                     nothing, so the backend failed on its own; the crate recovered and \
+                     produced a report, and this assertion cannot tell the two sources apart"
+                ),
+            )
+        } else {
+            assert_that(NAME_NO_INJECTION, true)
+        }
     };
 
     vec![
@@ -607,6 +682,7 @@ fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
             wire,
             Assertion::skip(NAME_ROTATED, reason.clone()),
             Assertion::skip(NAME_CAUSE, reason),
+            analyze_produced_a_report(ctx),
         ];
     };
 
@@ -1075,11 +1151,17 @@ fn s15_degradation_is_honest(ctx: &RunContext<'_>) -> Vec<Assertion> {
         Some(report) => s15_four_assertions(report, ctx),
         // Reached only when the injection DID fire and `analyze()` still
         // produced no report: a typed crate failure, whose text is the reason.
-        None => s15_skips(
-            ctx.error
-                .map(str::to_string)
-                .unwrap_or_else(|| "the degradation run never happened".to_string()),
-        ),
+        // The four skips carry that text, because a `Fail` has nowhere to put
+        // it; the fifth row is the verdict — see `analyze_produced_a_report`.
+        None => {
+            let mut rows = s15_skips(
+                ctx.error
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "the degradation run never happened".to_string()),
+            );
+            rows.push(analyze_produced_a_report(ctx));
+            rows
+        }
     }
 }
 
@@ -1559,10 +1641,13 @@ mod tests {
     // -- S2 --
 
     #[test]
-    fn s2_skips_all_four_when_there_is_no_report() {
+    fn s2_skips_everything_when_the_run_never_happened() {
+        // No report AND no error: nothing was learned about the crate, so the
+        // fifth row — the one that turns a TYPED failure into a verdict — skips
+        // alongside the four properties rather than accusing anybody.
         let ctx = blank_ctx(RunId::HappySmall);
         let a = s2_happy_path_against_real_backend(&ctx);
-        assert_eq!(a.len(), 4);
+        assert_eq!(a.len(), 5);
         assert!(a.iter().all(|x| matches!(x.state, ScenarioState::Skip(_))));
     }
 

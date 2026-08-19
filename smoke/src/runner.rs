@@ -126,8 +126,25 @@ pub struct RunContext<'a> {
     /// `None` when the run produced no report. Read it TOGETHER with `error`:
     /// `None` + `Some(error)` is a typed crate failure (FAIL); `None` + `None`
     /// is a run that never happened (SKIP).
+    ///
+    /// **The split is implemented, not merely described.** It states the exit
+    /// code a scenario must produce, and three scenarios skipped both cases —
+    /// so the crate failing in a typed way, which is what this harness came to
+    /// find, left with exit 2, "a fault of ours". `scenarios::e1`'s
+    /// `analyze_produced_a_report` is the shared implementation, and it explains
+    /// why the verdict rides as its own row instead of turning the property
+    /// assertions red: [`ScenarioState::Fail`] carries no text, and the error is
+    /// the only thing an operator can act on.
     pub report: Option<&'a MagiReport>,
     /// A typed failure from `analyze()`, rendered.
+    ///
+    /// **Only ever the crate's**, by the time a scenario reads it.
+    /// `main::evaluate` intercepts every other reason a report can be absent
+    /// before the assertion runs — a run that could not START becomes a skip
+    /// naming our own configuration fault, a run out of time becomes a TIME
+    /// row, and either panic outcome carries no error at all. Without that
+    /// interception this field was ambiguous, and a configuration fault was
+    /// once read as though `analyze()` had returned it.
     pub error: Option<&'a str>,
     /// Everything the proxy saw on the wire during THIS run.
     pub records: &'a [RequestRecord],
