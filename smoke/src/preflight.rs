@@ -431,9 +431,19 @@ const PROBE_MAX_TOKENS: u32 = 1;
 /// whether the backend can get to the work at all, never how well it does it.
 const PROBE_PROMPT: &str = "hi";
 
-/// Is anybody there at all? One request, bounded by `window`, with no retry:
-/// a completely unreachable endpoint is a different failure than a reachable
-/// one that is merely slow (see [`probe`] for that case).
+/// Is anybody there at all, **and what does it hold**? One request, bounded by
+/// `window`, with no retry: a completely unreachable endpoint is a different
+/// failure than a reachable one that is merely slow (see [`probe`] for that
+/// case).
+///
+/// # It returns the listing instead of dropping it
+///
+/// The answer to "is anybody there?" is a listing of the models the backend
+/// holds, and this function used to read its STATUS and throw the body away —
+/// so the one place the harness could tell a mistyped seat model from a real
+/// one discarded the evidence for free. It is returned instead, for
+/// [`check_seat_models`]; `None` means the body was not a listing this harness
+/// can read, which is not the same claim as "it holds nothing".
 ///
 /// # `window` is the CONFIGURED probe timeout, not a constant of its own
 ///
@@ -469,27 +479,118 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<Option<Vec<String
         .send()
         .await
         .map_err(|e| format!("backend at {endpoint} did not answer: {e}"))?;
-    if resp.status().is_success() {
-        Ok(None)
-    } else {
-        Err(format!(
+    if !resp.status().is_success() {
+        return Err(format!(
             "backend at {endpoint} answered with status {}",
             resp.status()
-        ))
+        ));
     }
+    // The body is READ, not discarded: it is the model listing, and the step
+    // after this one is the only place the harness ever gets to see it. A body
+    // that cannot be read at all is reported as an unreadable listing rather
+    // than as no models — see `check_seat_models` for what the difference
+    // decides.
+    let body = resp.bytes().await.map_err(|e| {
+        format!("backend at {endpoint} answered but its listing could not be read: {e}")
+    })?;
+    Ok(listed_models(&body))
 }
 
-/// Rejects a run whose SEAT models the backend does not hold — **exit 2, not a
-/// verdict about the crate**.
+/// Rejects a run whose SEAT models the backend does not hold — **exit 2, and
+/// never a verdict about the crate**.
+///
+/// The listing this reads is the one [`reachable`] already fetched: the
+/// reachability step asks `/api/tags` and used to look only at its status,
+/// throwing away the body that answers this question. A mistyped model
+/// therefore reached the runs, where every mage that could not be built
+/// reported a red row — exit 1, a verdict about the crate, for a typo in a
+/// TOML file. That inversion is the one thing this harness exists to prevent.
+///
+/// # Only a PROVEN absence refuses, and that boundary is deliberate
+///
+/// `listed` is `None` when the backend answered the reachability path with
+/// something this harness cannot read as a model listing. Nothing was
+/// established then, and reading "I could not tell" as "it holds nothing"
+/// would refuse every run against a backend that is merely shaped
+/// differently. It is the same direction the crate under test chose for its
+/// own digest verification: only a proven mismatch rejects, and an
+/// unresolvable one trusts what was declared.
+///
+/// # Seats only, and the fallbacks are covered elsewhere
+///
+/// Rotation candidates are not checked here. The contention probe deliberately
+/// names the LAST declared fallback and already refuses when the backend
+/// answers `404` for it (see [`probe_inconclusive_message`]), so extending
+/// this to the pool would be a second implementation of a check that exists —
+/// which is how this project has already lost a guard once.
 ///
 /// # Parameters
 ///
 /// * `cfg` — the loaded configuration, for the seats to check.
 /// * `listed` — the model names the backend listed, or `None` when it did not
 ///   list any.
+///
+/// # Errors
+///
+/// Names every seat whose model is absent, with the seat that declared it and
+/// what the backend does hold — all of them, because discovering one typo per
+/// round is what makes a wrong config expensive.
+///
+/// # Complexity
+///
+/// `O(s * m)` over the three seats and the models listed.
 pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), String> {
-    let _ = (cfg, listed);
-    Ok(())
+    let Some(listed) = listed else {
+        return Ok(());
+    };
+    let absent: Vec<String> = cfg
+        .seats
+        .iter()
+        .filter(|s| !listed.iter().any(|held| held == &s.model))
+        .map(|s| format!("{} declares {:?}", s.agent, s.model))
+        .collect();
+    if absent.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the backend does not hold {} of the configured seat models ({}). It lists {:?}.          A model it cannot serve makes that mage fail to answer, which the runs report as a          red row about the crate for a mistake in this file. Pull the model, or correct the          seat. {SEAT_FIX}",
+        absent.len(),
+        absent.join("; "),
+        listed
+    ))
+}
+
+/// The model names an `/api/tags` body lists, or `None` when the body is not a
+/// listing this harness can read.
+///
+/// **`None` is not "no models"** — see [`check_seat_models`] for why the
+/// difference decides whether a run is refused.
+///
+/// Both `name` and `model` are collected: Ollama carries the tag in `name` and
+/// repeats it in `model`, and a backend that fills only one of them still
+/// answered the question.
+///
+/// # Parameters
+///
+/// * `body` — the reachability response body, as received.
+///
+/// # Complexity
+///
+/// `O(n)` in the body's length.
+fn listed_models(body: &[u8]) -> Option<Vec<String>> {
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let models = v.get("models")?.as_array()?;
+    Some(
+        models
+            .iter()
+            .filter_map(|m| {
+                m.get("name")
+                    .or_else(|| m.get("model"))
+                    .and_then(|n| n.as_str())
+                    .map(str::to_string)
+            })
+            .collect(),
+    )
 }
 
 /// One bounded attempt at a REAL completion: the WHOLE request — connect, send

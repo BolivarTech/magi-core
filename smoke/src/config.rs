@@ -731,8 +731,14 @@ impl Config {
     ///
     /// # A default is not a promise that the models are reachable
     ///
-    /// The preflight verifies availability. An unavailable model makes the
-    /// backend runs report **SKIP with its reason**, never PASS (R25).
+    /// The preflight's backend step checks them — but only as far as the
+    /// backend's own listing goes: a model the listing does not name is a
+    /// refusal to test (exit 2, `Stage::Backend`), and a backend that does not
+    /// answer with a listing this harness can read establishes nothing, so the
+    /// run proceeds. This paragraph used to say "the preflight verifies
+    /// availability" while nothing read the listing at all, which is the shape
+    /// of claim this project keeps paying for: a mechanism documented as a
+    /// guard that guards nothing.
     ///
     /// # And that IS in tension with "green from day one" — declared, not papered over
     ///
