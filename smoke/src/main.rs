@@ -86,7 +86,22 @@ impl Default for Cli {
 }
 
 impl Cli {
-    /// The flags this invocation was given, re-rendered in a fixed order.
+    /// The flags this invocation was given that a CERTIFICATE can carry,
+    /// re-rendered in a fixed order.
+    ///
+    /// # Two flags are absent, both on purpose
+    ///
+    /// A default `--round` is not printed: it is what a run that needed one
+    /// round is, so naming it would put a flag in every certificate that
+    /// nobody passed. And `--print-payload-size` returns from `main` before
+    /// anything writes a certificate, so rendering it would produce a line no
+    /// certificate can ever carry.
+    ///
+    /// The heading said "the flags this invocation was given", which the second
+    /// omission made false — and reading it that way invites somebody to add
+    /// the branch for completeness.
+    /// `the_one_flag_that_never_reaches_a_certificate_is_not_rendered` pins it
+    /// so the tidy-up trips instead of landing.
     ///
     /// Re-rendered from the PARSED flags rather than echoed from `args()`, so
     /// the line names what the harness actually did: an argument the parser
@@ -1079,6 +1094,27 @@ mod tests {
         assert!(
             !Cli::default().rendered_flags().contains("--round"),
             "the default round is not a flag anybody gave"
+        );
+    }
+
+    #[test]
+    fn the_one_flag_that_never_reaches_a_certificate_is_not_rendered() {
+        // `--print-payload-size` returns from `main` before anything writes a
+        // certificate, so a branch for it here would render a line no
+        // certificate can carry — output with no consumer.
+        //
+        // Pinned rather than left to the reader, because the omission looks
+        // exactly like the hole it is not: somebody tidying this function for
+        // completeness adds the branch, and the doc-comment above it stops
+        // being true in the other direction.
+        assert_eq!(
+            Cli {
+                print_payload_size: true,
+                ..Cli::default()
+            }
+            .rendered_flags(),
+            "",
+            "the flag that exits before the certificate must not appear in one"
         );
     }
 
