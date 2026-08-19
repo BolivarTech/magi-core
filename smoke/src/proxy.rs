@@ -1597,6 +1597,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_method_the_proxy_cannot_parse_is_not_forwarded_as_a_post() {
+        // `forward` promises a VERBATIM forward — "same method, same path, same
+        // headers, same body" — and then did
+        // `Method::from_bytes(..).unwrap_or(Method::POST)`, which substitutes a
+        // method the client never sent. It is the same shape as the five
+        // `unwrap_or_else(|_| Response::new(..))` fallbacks fixed in round 3:
+        // unreachable from the one production caller today (hyper hands over an
+        // already-parsed method), aimed the wrong way, and reachable the moment
+        // anything else calls it.
+        //
+        // The direction matters more than the reachability. A substituted POST
+        // sends the BACKEND a request the client never made, and everything
+        // downstream then describes the substitution — the transparency
+        // comparison would report a difference the crate never introduced.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        const UNPARSABLE_METHOD: &str = "BAD METHOD"; // a space is not a token character
+
+        let resp = proxy
+            .forward(
+                UNPARSABLE_METHOD,
+                "/api/chat",
+                hyper::HeaderMap::new(),
+                Bytes::from_static(b"{}"),
+                &upstream.url(),
+            )
+            .await;
+
+        assert_eq!(
+            upstream.received(),
+            0,
+            "nothing may be forwarded under a method the client did not send — the \
+             question has to be put to the far end, because the proxy's own record \
+             cannot tell a substituted request from a faithful one"
+        );
+        assert_eq!(
+            resp.status(),
+            LOCAL_BUILD_FAILED_STATUS,
+            "LOCAL: the parse fails before any forward is attempted, so a 502 would \
+             name a gateway leg that never existed"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "and it must SAY so, or a harness defect reaches the crate as a plain \
+             server error and a scenario goes red for something the proxy did"
+        );
+    }
+
+    #[tokio::test]
     async fn a_broken_response_read_is_not_answered_as_an_empty_success() {
         // The RECORD half of this was fixed in round 1 and the request half in
         // round 2; what the CLIENT observes was still a fabrication. When
