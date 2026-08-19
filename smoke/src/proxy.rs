@@ -276,8 +276,20 @@ fn is_hop_by_hop(name: &str) -> bool {
 ///
 /// Twice the target leaves room for the system prompt and the JSON envelope.
 /// **The FORWARDED body is never truncated** — only the copy we keep.
+///
+/// # Panics
+///
+/// Never. `payload_target_bytes` carries only a MINIMUM bound in `Config`, so a
+/// huge-but-legal value used to overflow the doubling here: a panic in debug
+/// builds, and in release a silent wrap to a cap SMALLER than the payload it
+/// exists to hold — which would truncate the very record the large-payload
+/// scenario reads, and blame the crate for a body the harness cut.
+/// `saturating_mul` cannot wrap, and saturating UPWARDS is the harmless
+/// direction: a cap larger than any body records everything.
 fn max_recorded_body(payload_target_bytes: usize) -> usize {
-    (payload_target_bytes * 2).max(MIN_RECORDED_BODY_CAP)
+    payload_target_bytes
+        .saturating_mul(2)
+        .max(MIN_RECORDED_BODY_CAP)
 }
 
 /// One request as the proxy saw it, and what came back.

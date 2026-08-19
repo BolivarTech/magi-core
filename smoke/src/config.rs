@@ -453,17 +453,25 @@ impl Config {
         // scope), so every check below sees the effective value regardless of
         // where it came from — file or env.
         //
-        // THE CALL, which was missing: `validate_probe_window` existed and
-        // nothing invoked it, i.e. it was documentation with Rust syntax. Three
-        // mages flagged it independently.
-        self.validate_probe_window()?;
-        self.validate_endpoint()?;
+        // ORDER IS LOAD-BEARING: the range check comes FIRST, because
+        // `validate_probe_window` multiplies this field and the bound is what
+        // keeps that multiplication inside `u64`. It used to run second, so a
+        // value above `u64::MAX / 4` overflowed before anything looked at its
+        // range — panicking in debug (inside config parsing, which the harness's
+        // panic hook does not cover, so exit 101 instead of the exit 2 every
+        // other configuration fault produces) and wrapping silently in release
+        // to a small product that passed a check it should have failed.
         if self.probe_timeout_secs == 0 || self.probe_timeout_secs > MAX_PROBE_TIMEOUT_SECS {
             return Err(ConfigError(format!(
                 "probe_timeout_secs must be in 1..={MAX_PROBE_TIMEOUT_SECS}; 0 disables the \
                  contention probe silently"
             )));
         }
+        // THE CALL, which was missing: `validate_probe_window` existed and
+        // nothing invoked it, i.e. it was documentation with Rust syntax. Three
+        // mages flagged it independently.
+        self.validate_probe_window()?;
+        self.validate_endpoint()?;
         if self.payload_target_bytes < MIN_PAYLOAD_TARGET_BYTES {
             return Err(ConfigError(format!(
                 "payload_target_bytes must be >= {MIN_PAYLOAD_TARGET_BYTES}: below that the \
@@ -875,8 +883,20 @@ impl Config {
         Ok(())
     }
 
+    /// # Panics
+    ///
+    /// Never. `saturating_mul` is not decoration: [`Config::validate`] now runs
+    /// the `MAX_PROBE_TIMEOUT_SECS` range check BEFORE calling this, so the
+    /// product cannot overflow on that path — but a helper that panics for an
+    /// out-of-range argument is a landmine for the next caller, and this one
+    /// already has a second caller in the tests. Saturating keeps it total on
+    /// its own, and saturating UPWARDS is the safe direction: the saturated
+    /// value is larger than any budget, so it is refused rather than let
+    /// through.
     fn validate_probe_window(&self) -> Result<(), ConfigError> {
-        let worst = self.probe_timeout_secs * (1 + PROBE_RETRY_FACTOR as u64);
+        let worst = self
+            .probe_timeout_secs
+            .saturating_mul(1 + PROBE_RETRY_FACTOR as u64);
         let shortest_backend_run = self
             .budgets
             .happy_secs
