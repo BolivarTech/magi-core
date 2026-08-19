@@ -1112,6 +1112,31 @@ fn status_shows_nothing_outside_the_certificate(porcelain: &str) -> bool {
 /// It reads neither `report` nor `records` — its subject is the repository, not
 /// the wire — and both of the questions it does presuppose are guarded: an
 /// absent baseline and a `git status` that could not be taken are `Skip`s.
+///
+/// # Declared limitation: a write into an ALREADY-MODIFIED file is invisible
+///
+/// The delta is computed over `git status --porcelain` LINES, and a line names
+/// a path and a state, never a content. A file that was already dirty before
+/// the run shows ` M path` in the baseline; if the harness then writes to that
+/// same file, the line after the run is still ` M path` — identical, therefore
+/// in the baseline set, therefore filtered out. **This guard cannot see that
+/// write.**
+///
+/// It is stated rather than closed because a guard that appears to cover more
+/// than it does is worse than none: someone reading "the harness added nothing
+/// to the tree" should know it means no new PATH appeared, not that no byte was
+/// written. Closing it would mean hashing the working tree before and after,
+/// which is a different and much more expensive mechanism than a status delta,
+/// and this stage does not build it.
+///
+/// **What still holds, and it is the case that matters.** The harness's own
+/// writes go outside the checkout by construction — `paths.rs` asserts that in
+/// `nothing_the_harness_generates_lands_in_the_repo`, over `writable_locations`
+/// rather than over `git status`, precisely because a gitignored path is
+/// invisible to status too. The declared exception, the certificate, lands on a
+/// path this scenario names. So the blind spot needs a harness that writes into
+/// a tracked file it was never meant to touch AND an operator who had already
+/// modified that same file, and the first half is what `paths.rs` rules out.
 fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the harness added nothing to the tree outside the certificate path";
     // The claim is a DELTA, not absolute cleanliness. Asserting the tree is

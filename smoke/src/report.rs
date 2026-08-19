@@ -468,6 +468,15 @@ pub fn iso_date_utc(at: std::time::SystemTime) -> String {
 /// A structural comparison against [`RunId`], never a text match on
 /// `scenario` — matching on the scenario's wording would tie the ordering to
 /// prose someone could reword without meaning to change behaviour.
+///
+/// # On `sort_by_key` versus `sort_by_cached_key`, since it gets raised
+///
+/// Review flagged the `sort_by_key` at the call site as re-deriving and
+/// RE-ALLOCATING its key on every comparison. The first half is true and costs
+/// one `u8` comparison; the second is not — [`RunId`] is `Copy` and this
+/// returns a scalar, so nothing is allocated here at all. `sort_by_cached_key`
+/// would ADD an allocation (a `Vec` of keys) to avoid a comparison cheaper than
+/// the indirection that replaces it, over a handful of rows. It stays.
 fn large_payload_priority(run: RunId) -> u8 {
     if run == RunId::Large62k {
         0
