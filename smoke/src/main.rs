@@ -578,6 +578,15 @@ fn evaluate(
     rows
 }
 
+/// Which payload target `--print-payload-size` answers about.
+///
+/// # Errors
+///
+/// Whatever the configuration layer refuses.
+fn payload_size_target(_config: Option<&std::path::Path>) -> Result<usize, String> {
+    Ok(config::Config::default().payload_target_bytes)
+}
+
 /// A context carrying nothing, for a scenario whose run never happened.
 ///
 /// `attempts: 0` rather than `1` on purpose: zero attempts is what actually
@@ -915,6 +924,36 @@ fn git_commit() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn print_payload_size_answers_about_the_config_it_was_given() {
+        // The flag exists to prove the target is REACHABLE without spending a
+        // backend, and it read the built-in defaults whatever `--config` said.
+        // An operator sizing a custom target got a number about a target they
+        // had not asked for, with nothing in the output to say so — the answer
+        // was to a different question, which is worse than no answer.
+        let dir = testkit::tempdir_with(&[(
+            "custom.toml",
+            "payload_target_bytes = 400000\nendpoint = \"http://127.0.0.1:11434\"\n",
+        )]);
+        let path = dir.path().join("custom.toml");
+        let chosen =
+            payload_size_target(Some(&path)).expect("a legal config file must be accepted");
+        assert_eq!(
+            chosen, 400_000,
+            "the size printed must be the one the given config asks for, not the built-in default"
+        );
+    }
+
+    #[test]
+    fn print_payload_size_refuses_a_config_it_cannot_read() {
+        // Falling back to the defaults here would print a plausible number for
+        // a file that was never loaded — the same failure one step earlier.
+        assert!(
+            payload_size_target(Some(std::path::Path::new("no-such-file.toml"))).is_err(),
+            "a config that was given and cannot be read must refuse, never default"
+        );
+    }
 
     #[test]
     fn a_git_status_that_could_not_run_is_not_reported_as_a_clean_tree() {
