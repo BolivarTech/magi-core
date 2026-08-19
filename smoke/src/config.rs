@@ -1256,6 +1256,61 @@ mod tests {
         );
     }
 
+    /// The distinct wording of the inline duplicate that used to sit at the end
+    /// of `validate`, kept here as the thing that must NEVER be what answers.
+    ///
+    /// It is quoted rather than referenced because the branch it belonged to is
+    /// gone: if someone reintroduces a bare `probe > shortest` comparison with
+    /// its own message, this constant is what fails.
+    const RETIRED_INLINE_WORDING: &str = "outlives the scenario it guards";
+
+    #[test]
+    fn the_window_check_is_the_only_implementation_of_the_probe_bound() {
+        // `validate` used to reject an over-long probe window TWICE: the window
+        // check (`probe * (1 + PROBE_RETRY_FACTOR)` against the shortest
+        // backend-using budget) and then, at the end, a weaker inline
+        // `probe > shortest` with its own message.
+        //
+        // The inline one was unreachable by arithmetic, not by luck: reaching it
+        // requires surviving the window check, i.e. `probe * 4 <= shortest`, and
+        // with `probe >= 1` already enforced that gives `probe <= shortest`. So
+        // its distinct message could never reach a reader. One invariant with two
+        // implementations is how this project already lost a guard once, so the
+        // duplicate is gone — and this test is what says the surviving one loses
+        // no coverage: every config the retired branch would have caught is still
+        // caught, and the message is the window one.
+        for (probe, shortest) in [(2_u64, 1_u64), (10, 9), (600, 1), (5, 4)] {
+            let cfg = Config {
+                probe_timeout_secs: probe,
+                budgets: Budgets {
+                    happy_secs: shortest,
+                    large_payload_secs: shortest,
+                    injected_secs: shortest,
+                    ..Budgets::default()
+                },
+                ..Config::default()
+            };
+            let err = cfg
+                .validate()
+                .expect_err("a probe longer than the run it guards must be refused")
+                .to_string();
+            assert!(
+                err.contains("probe_timeout_secs"),
+                "the message must NAME the field: {err}"
+            );
+            assert!(
+                !err.contains(RETIRED_INLINE_WORDING),
+                "the retired duplicate's wording must not be what answers — the window \
+                 check is the single implementation: {err}"
+            );
+            assert!(
+                err.contains("with its retry"),
+                "the surviving check reports the WIDENED window, which is the whole \
+                 reason it replaced the bare comparison: {err}"
+            );
+        }
+    }
+
     #[test]
     fn an_absurd_probe_timeout_is_a_named_config_error_not_an_overflow() {
         // `validate_probe_window` was the FIRST step of `validate`, and it
