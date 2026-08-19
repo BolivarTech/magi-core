@@ -116,9 +116,24 @@ fix made to satisfy a review can break what already worked.
 saw — so the fix goes in and the gate runs again. Only #2 writes a certificate, because a
 certificate emitted from #1 would certify an artifact the gate has not touched yet.
 
+**The certificate declares six things about itself**: the crate version and the commit it was
+issued against, the date, which dependency mode was built, what the run really cost, and how many
+rounds the release needed. The filename is fixed and the new one replaces the old, so `git log -p`
+over that single path *is* the historical series — how many scenarios, how much cost and how many
+rounds each release took. Four of the six missing would leave that diff showing a version string
+changing and nothing to compare against.
+
+It also carries the fixture count, and a visible warning when more than 30 % of the corpus is
+unverified. That warning blocks nothing — some fixtures cannot have their currency checked at
+all — but it appears where somebody decides a release, rather than in the output of a run nobody
+kept.
+
 ## 6. Cost per run
 
 The harness announces its estimate **before** it starts and records what it spent **after**.
+The order is enforced rather than conventional: the ledger refuses to produce a receipt if no
+estimate was announced first. Before the spend the number is a decision the operator can still
+make; after it, the same number is only a receipt.
 
 The default run analyses a small payload three times over — happy path, rotation, degradation —
 plus one run with no backend at all. Against a cloud backend that is on the order of a few
@@ -193,7 +208,13 @@ rebuild time.
 
 Other flags: `--smoke-2` (this is SMOKE #2, so the certificate IS written), `--no-backend` (only
 the scenarios that need none), `--json` (also emit the machine-readable report),
-`--print-payload-size` (generate the payload, print its size, exit).
+`--print-payload-size` (generate the payload, print its size, exit), `--round <n>` (which round
+of this release cycle this is; it goes into the certificate, defaults to `1`).
+
+`--round` is declared rather than detected, for the same reason `--smoke-2` is: R37 wants the
+number because *a release that needed three rounds is information about that release*, and
+nothing in a single invocation could tell which round it belongs to. A guessed number would make
+the certificate a guess.
 
 Configuration: copy `magi-smoke.toml.example` to `magi-smoke.toml` and edit. Every value in the
 example is also the built-in default, and a test compares the two — so copying it unchanged
