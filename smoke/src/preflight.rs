@@ -2108,6 +2108,32 @@ mod tests {
         assert!(check_seat_models(&cfg, None).is_ok());
     }
 
+    #[tokio::test]
+    async fn a_listing_larger_than_the_cap_is_not_held_in_memory() {
+        // The one unbounded read left in the harness. Every other body it takes
+        // from the wire is capped — the proxy's recorded response, the crate's
+        // own completion — and this one called `bytes()`, which holds whatever
+        // arrives. A backend answering the reachability path with an arbitrary
+        // body could therefore make the harness allocate it, which is a harness
+        // fault wearing a backend's clothes.
+        //
+        // The answer is the fail-open one, not a refusal: an oversized body is
+        // a listing this harness could not read, and nothing was established.
+        // Two MiB of perfectly valid listing: comfortably past any cap a model
+        // listing could justify, and the size is stated here rather than
+        // derived so the test still describes what it sends if the cap moves.
+        let name = "m".repeat(10_000);
+        let names: Vec<&str> = std::iter::repeat_n(name.as_str(), 210).collect();
+        let stub = stub_that_lists_models(&names).await;
+        let listed = reachable(&stub.url(), Duration::from_secs(10))
+            .await
+            .expect("the stub answers 200");
+        assert_eq!(
+            listed, None,
+            "an oversized listing establishes nothing; it must not be read as models held"
+        );
+    }
+
     #[test]
     fn a_listing_whose_entries_cannot_be_read_is_not_read_as_holding_none() {
         // The fail-open boundary held one level up and broke one level down.
