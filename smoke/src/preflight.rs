@@ -1888,6 +1888,34 @@ mod tests {
     }
 
     #[test]
+    fn an_absurd_run_payload_does_not_overflow_the_announced_estimate() {
+        // The third instance of the class the other two closed. `announce_cost`
+        // multiplies `run_payload_bytes / 4` by the seat count and then adds the
+        // output side, and `run_payload_bytes` carries only a MINIMUM bound in
+        // `Config` — so a huge-but-legal value overflows: a panic in debug
+        // builds, and in release a wrapped number announced as an estimate,
+        // which is worse than no announcement because it looks measured.
+        //
+        // `check_seats` pins the trio at three, and at three the division makes
+        // the product unreachable. That is the same "unreachable on the path
+        // that exists today" the sibling in `config` refused to rely on:
+        // `announce_cost` is `pub`, takes any `Config`, and calls no validator,
+        // so a helper that panics for an out-of-range argument is a landmine
+        // for the next caller. Saturating keeps it total on its own.
+        let mut cfg = Config {
+            run_payload_bytes: usize::MAX,
+            ..Config::default()
+        };
+        let fourth = cfg.seats[0].clone();
+        cfg.seats.push(fourth);
+        let announced = announce_cost(&cfg, false);
+        assert!(
+            announced.contains("input tokens"),
+            "the announcement must still be produced, not panicked out of: {announced}"
+        );
+    }
+
+    #[test]
     fn with_no_backend_the_announcement_says_nothing_will_be_spent() {
         // A partition where no run reaches the backend has no backend cost, and
         // saying "~0s across the backend runs" would read as an estimate of
