@@ -111,6 +111,19 @@ pub fn metadata_target_dir() -> PathBuf {
 /// wrong in a visible way (a location missing from a list someone must edit)
 /// instead of in an invisible one.
 ///
+/// # The temp ROOT is an entry, and it is what makes the list complete
+///
+/// The first two entries sit under the third. They are named anyway, because a
+/// reader has to be able to see WHICH directories the harness makes; the root
+/// is what keeps the guard from depending on that list being exhaustive.
+///
+/// One site relies on it today: the dependency guard in `outcome.rs` points
+/// `cargo tree` at a target directory of its own under the same root. It is
+/// defined inside that module's own test scope and cannot be named from here,
+/// and copying its path literal would put one invariant into two places —
+/// which is how this project loses guards. The root entry covers it: anything
+/// under a directory outside the repository is outside the repository too.
+///
 /// # What is deliberately NOT here
 ///
 /// The certificate (`docs/test/smoke-certificate.md`) is the one thing the
