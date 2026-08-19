@@ -1413,6 +1413,62 @@ mod tests {
     }
 
     #[test]
+    fn a_file_value_an_override_rescues_is_judged_on_the_final_set_not_the_file_alone() {
+        // The same defect the test above closed, in the branch it could not
+        // see. That one drives `load_or_fail(None)`, so it only ever exercised
+        // the built-in base; a file base is parsed by `Config::from_str`, which
+        // validated it BEFORE a single override was applied. A file that is
+        // illegal ALONE but legal once the environment has spoken was refused
+        // naming a relation the final configuration satisfies -- and R30 calls
+        // the environment the HIGHEST-precedence path, which it cannot be if
+        // the file gets to veto it first.
+        //
+        // 60 * (1 + 3) = 240s against the default injected budget of 120s: the
+        // file alone does not validate. The overrides raise all three backend
+        // budgets to 600, and 240 <= 600 holds for the set that will actually
+        // be used.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = crate::testkit::tempdir_with(&[(
+            "magi-smoke.toml",
+            "probe_timeout_secs = 60
+",
+        )]);
+        let _happy = EnvVarGuard::set("MAGI_SMOKE_BUDGET_HAPPY_SECS", "600");
+        let _large = EnvVarGuard::set("MAGI_SMOKE_BUDGET_LARGE_SECS", "600");
+        let _injected = EnvVarGuard::set("MAGI_SMOKE_BUDGET_INJECTED_SECS", "600");
+
+        let (cfg, origin) = Config::load_or_fail(Some(&dir.path().join("magi-smoke.toml")))
+            .unwrap_or_else(|e| {
+                panic!(
+                    "a file value the environment rescues must load: validating the file on                      its own re-opens the bug the whole-set fix closed, in the branch that                      fix's test does not cover: {e}"
+                )
+            });
+        assert_eq!(cfg.probe_timeout_secs, 60);
+        assert_eq!(cfg.budgets.injected_secs, 600);
+        assert!(origin.contains("magi-smoke.toml"), "{origin}");
+    }
+
+    #[test]
+    fn a_file_that_is_still_illegal_once_every_override_is_applied_is_refused() {
+        // The other half, and the reason the fix above is not "stop validating
+        // files": deferring the file's validation to the end must not defer it
+        // to never. Nothing rescues this one, so it must still be refused with
+        // the field named.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = crate::testkit::tempdir_with(&[(
+            "magi-smoke.toml",
+            "probe_timeout_secs = 60
+[budgets]
+injected_secs = 120
+",
+        )]);
+        let err = Config::load_or_fail(Some(&dir.path().join("magi-smoke.toml")))
+            .expect_err("a set that is illegal at the END must still be refused")
+            .to_string();
+        assert!(err.contains("probe_timeout_secs"), "{err}");
+    }
+
+    #[test]
     fn a_set_of_overrides_that_is_still_illegal_at_the_end_is_refused() {
         // The other half, and it is what stops the fix above from becoming "stop
         // validating the environment": deferring validation to the end must not
