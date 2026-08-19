@@ -243,6 +243,27 @@ impl Manifest {
         for entry in &self.fixtures {
             declared.insert(entry.path.as_str());
 
+            // BEFORE the read, and that order is the point: a path carrying a
+            // separator is joined onto `dir` and read from wherever it lands,
+            // so `../` walks straight out of the corpus. Refusing afterwards
+            // would mean the escape had already happened.
+            //
+            // This is the manifest side of the flatness the disk walk enforces
+            // (see `cross_disk_against_manifest`), and half the check was worse
+            // than none: the disk walk reads ONE level, so a nested or escaping
+            // entry is hashed by direction (1) and then never crossed by
+            // direction (2) — the audit reports clean over a file that is not
+            // in the scope it speaks for.
+            if let Some(bad) = Self::offending_component(&entry.path) {
+                audit.corrupt.push(format!(
+                    "{}: the fixture corpus is FLAT, and this path is not a member of it \
+                     ({bad}). It would be read from outside the one directory level this \
+                     audit crosses, so the audit could not be clean.",
+                    entry.path
+                ));
+                continue;
+            }
+
             if !live_scenarios.contains(&entry.scenario.as_str()) {
                 // A fixture nobody replays was verified and copied for
                 // nothing — cheap to detect here, before spending a read and
@@ -288,6 +309,45 @@ impl Manifest {
 
         audit.total = self.fixtures.len();
         Ok(audit)
+    }
+
+    /// Why a declared path is not a plain filename, or `None` when it is.
+    ///
+    /// # Both separators, on every platform
+    ///
+    /// `/` and `\` are BOTH rejected everywhere, rather than deferring to
+    /// `std::path`'s per-platform rules. A manifest is copied between machines,
+    /// and a rule that accepts `a\b.json` on Linux — where it is one filename —
+    /// and splits it on Windows would make the same corpus audit two different
+    /// ways. The corpus is flat, so neither character has any business in an
+    /// entry regardless of who reads it.
+    ///
+    /// `..` is rejected as a WHOLE component and not as a substring: a fixture
+    /// legitimately named `native-E..malformed.json` is a filename, and refusing
+    /// it would be a guard inventing a finding. With separators already gone the
+    /// only way `..` can mean the parent directory is by being the entire path.
+    ///
+    /// An EMPTY path is refused too. It joins to `dir` itself, so the read would
+    /// succeed or fail on the directory rather than on a fixture.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` — the `path` field of a `[[fixture]]` entry.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the length of `path`.
+    fn offending_component(path: &str) -> Option<&'static str> {
+        if path.is_empty() {
+            return Some("it is empty");
+        }
+        if path.contains('/') || path.contains('\\') {
+            return Some("it contains a path separator");
+        }
+        if path == ".." || path == "." {
+            return Some("it names a directory rather than a file");
+        }
+        None
     }
 
     /// Direction (2) of the cross, over an ITERATOR of entries rather than
@@ -831,11 +891,16 @@ mod tests {
         let outside = tempdir_with(&[("secret.json", "{}")]);
         let dir = tempdir_with(&[("sub", "not a directory, just a file")]);
         for escaping in ["../secret.json", "sub/nested.json", "a\\b.json"] {
+            // A TOML LITERAL string (single quotes) for the path: a basic
+            // string processes escapes, so `a\b.json` arrives as `a<BS>.json`
+            // and the case under test never reaches the code. The first draft
+            // of this test did exactly that and passed its third case for a
+            // reason that had nothing to do with the guard.
             let m = Manifest::from_str(&format!(
                 r#"
                 [[fixture]]
                 scenario = "S9"
-                path     = "{escaping}"
+                path     = '{escaping}'
                 sha256   = "0000000000000000000000000000000000000000000000000000000000000000"
                 currency = "unverified: cold-start"
                 "#
