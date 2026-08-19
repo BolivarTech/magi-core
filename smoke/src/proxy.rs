@@ -1598,6 +1598,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_recorded_status_is_the_one_the_client_received_not_the_upstreams() {
+        // `response_status` is documented as "the status the proxy relayed
+        // back", and on the relay-failure path it held the UPSTREAM's instead:
+        // the client received a `502` and the registry said `200`. A field
+        // whose name promises one thing and holds another is the divergence
+        // this project has already paid for once — and here it is the more
+        // misleading direction, since a reader diagnosing a failed run sees a
+        // clean `200` recorded for the request that failed.
+        //
+        // The upstream status is not information lost: nothing on this path
+        // relayed it, `degraded` is latched, and every assertion that reads the
+        // registry reports SKIP. A second field to keep it would be surface
+        // with no consumer — the same reason `method` and `body` were removed
+        // from this record.
+        let upstream =
+            crate::testkit::stub_that_answers_with_bytes(MIN_RECORDED_BODY_CAP + 1).await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/show", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .expect("the proxy must still answer");
+
+        assert_eq!(
+            r.status().as_u16(),
+            RELAY_BUILD_FAILED_STATUS.as_u16(),
+            "the client is answered with the relay failure"
+        );
+        assert_eq!(
+            proxy.records()[0].response_status,
+            RELAY_BUILD_FAILED_STATUS.as_u16(),
+            "and the record must say the same thing the client was told, not the status of an              exchange that was never relayed"
+        );
+    }
+
+    #[tokio::test]
     async fn records_the_full_request_body_by_hash_not_just_the_path() {
         // The record identifies the WHOLE body, not merely the envelope: the
         // hash is taken over every byte that went on the wire, so a proxy that
