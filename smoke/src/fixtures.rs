@@ -567,6 +567,37 @@ mod tests {
     }
 
     #[test]
+    fn the_tracked_manifest_is_what_the_script_generates() {
+        // The manifest's own first line says it is generated and must not be
+        // hand-edited, and the tracked file did not match what the generator
+        // writes: its header had been written by hand. A file that claims to be
+        // generated while diverging from its generator is the same defect class
+        // this module exists to catch one level down — a check that reports on
+        // something other than what it looked at. The first regeneration would
+        // have silently rewritten prose nobody meant to lose.
+        let root = sync_script_replica();
+        let out = run_sync_from(&root, &root);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let generated = std::fs::read_to_string(root.join("smoke/fixtures/manifest.toml"))
+            .expect("the script must have written a manifest");
+        let tracked = std::fs::read_to_string(fixture_dir().join(MANIFEST_FILENAME))
+            .expect("the tracked manifest must be readable");
+        // Line-wise, so the comparison is not decided by the checkout's line
+        // endings: the script writes LF and git may hand back CRLF.
+        let generated: Vec<&str> = generated.lines().collect();
+        let tracked: Vec<&str> = tracked.lines().collect();
+        assert_eq!(
+            tracked, generated,
+            "the tracked manifest differs from what sync-fixtures.sh generates"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn a_fixture_whose_hash_changed_is_rejected() {
         // The real `fixture_dir()` must stay data-file-free in E1 (see the
         // module doc), so this constructs its own on-disk fixture rather
