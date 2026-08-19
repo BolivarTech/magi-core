@@ -588,7 +588,6 @@ fn evaluate(
                         ctx.error = r.error.as_deref();
                         ctx.records = &r.records;
                         ctx.proxy_degraded = r.proxy_degraded;
-                        ctx.attempts = r.attempts;
                         ctx.budget_exceeded = r.budget_exceeded;
                         ctx.direct_probe_body = probe.direct_response.as_deref();
                         ctx.direct_probe_status = probe.direct_status;
@@ -657,9 +656,6 @@ fn payload_size_target(config: Option<&std::path::Path>) -> Result<usize, String
 }
 
 /// A context carrying nothing, for a scenario whose run never happened.
-///
-/// `attempts: 0` rather than `1` on purpose: zero attempts is what actually
-/// happened, and claiming one would describe a run nobody made.
 fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
     runner::RunContext {
         run,
@@ -667,7 +663,6 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         error: None,
         records: &[],
         proxy_degraded: false,
-        attempts: 0,
         budget_exceeded: None,
         direct_probe_body: None,
         direct_probe_status: None,

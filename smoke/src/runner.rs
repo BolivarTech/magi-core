@@ -152,9 +152,6 @@ pub struct RunContext<'a> {
     /// because a partial registry could fail an assertion the crate satisfied
     /// perfectly.
     pub proxy_degraded: bool,
-    /// How many attempts this run took. `2` means the first was inconclusive and
-    /// the single retry was spent.
-    pub attempts: u32,
     /// `Some` only when the run hit its time cap: the cap itself, so a reader
     /// can tell a TIME failure from an assertion failure and knows which number
     /// to raise. Never an overrun — the run was cut, so no overrun was measured.

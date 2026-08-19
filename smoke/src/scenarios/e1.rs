@@ -1499,7 +1499,6 @@ mod tests {
             error: None,
             records: &[],
             proxy_degraded: false,
-            attempts: 1,
             budget_exceeded: None,
             direct_probe_body: None,
             direct_probe_status: None,
