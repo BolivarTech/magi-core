@@ -606,6 +606,35 @@ mod tests {
     }
 
     #[test]
+    fn the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit() {
+        // `sync-fixtures.sh` keeps its input list INSIDE the directory the
+        // audit walks, so the audit sees a file no `[[fixture]]` entry
+        // declares and reports an orphan — a permanent exit 2, arriving the
+        // first time somebody declares a fixture.
+        //
+        // Read out of the script rather than written twice: the two names have
+        // to agree, and the only way to be sure they do is to let one of them
+        // BE the other. A literal here would pass while the script wrote
+        // somewhere else, which is the shape of failure this pins.
+        let script = std::fs::read_to_string(crate::paths::smoke_dir().join("sync-fixtures.sh"))
+            .expect("sync-fixtures.sh must be readable");
+        let line = script
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("WANTED="))
+            .expect("sync-fixtures.sh must still name its input list");
+        let name = line
+            .trim_matches('"')
+            .rsplit(['/', '}'])
+            .next()
+            .expect("a non-empty path");
+        assert!(
+            NON_FIXTURE_FILES.contains(&name),
+            "{name} lives in the fixture directory and is declared by no [[fixture]] entry, so \
+             the audit will call it an orphan and refuse to start"
+        );
+    }
+
+    #[test]
     fn sync_fixtures_creates_nothing_beside_the_fixture_directory() {
         // The other half, and the one nothing else enforces: `writable_locations`
         // covers the BINARY's write sites, and this script is not the binary. A
