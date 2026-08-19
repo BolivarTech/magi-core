@@ -14,7 +14,10 @@
 //! Concretely:
 //!
 //! - Missing report / missing error / missing wire traffic → [`Assertion::skip`]
-//!   with a reason an operator can act on — never `Pass`.
+//!   with a reason an operator can act on — never `Pass`. One exception, and it
+//!   is about WHOSE fault the absence is: an error belonging to a preflight stage
+//!   this invocation never asked to break is [`Assertion::out_of_scope`], not a
+//!   `Skip`. [`preflight_error_for_stage`] draws that line and says why.
 //! - A shape the assertion CAN read, but that contradicts the property → `Fail`
 //!   — never a silent `Skip` that degrades a real defect into "untested".
 //! - An `.all()`/`.any()` over a collection that could legitimately be EMPTY is
@@ -101,7 +104,8 @@ const CERT_PATH_SUFFIX: &str = "docs/test/smoke-certificate.md";
 /// any of the four.** They read `error` and nothing else — no `report`, no
 /// `records` — and their subject is a preflight that stopped BEFORE any run, so
 /// there is no traffic for them to presuppose. This function is their guard: an
-/// absent error, and an error belonging to another stage, are both `Skip`s.
+/// absent error, and an error belonging to another stage, are both `OutOfScope`
+/// — see "Why NOT `Skip`" below, which is the ruling that made them so.
 ///
 /// # Parameters
 ///
@@ -1130,8 +1134,10 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 /// one combination.
 ///
 /// **Wire-precondition audit (module doc, "The companion rule"): not needed.**
-/// It reads the build matrix, never `report` or `records`; a matrix that was not
-/// built, and a `cargo` that could not be run, are both already `Skip`s.
+/// It reads the build matrix, never `report` or `records`; a matrix nobody asked
+/// for is already `OutOfScope`, and a `cargo` that could not be run is already a
+/// `Skip`. The section above is where those two are told apart, and neither is a
+/// `Fail`, which is all this audit needs.
 fn s21_the_two_modes_cannot_be_confused(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str = "the two dependency modes cannot be confused";
     let Some(m) = ctx.build_matrix else {
