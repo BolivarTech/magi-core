@@ -857,10 +857,14 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
 /// `Source::Preflight`: a config that fails to parse never reaches
 /// `preflight::run` at all — it is wrapped as the `Config` stage before the
 /// preflight starts, so no scenario runs against a default backend. Exercised
-/// by `cargo run -- --config <a broken toml>` (six-invocation table, README).
+/// by `cargo run -- --config <a toml carrying an UNKNOWN FIELD>` (six-invocation
+/// table, README). The input shape is named precisely because it matters: a
+/// SYNTAX-broken toml is also unreadable, produces a different message, and would
+/// fail this assertion — reporting a verdict about the crate for an input the
+/// operator chose. The name below is narrowed to what the body actually checks.
 fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str =
-        "an unreadable config names the offending field and cuts with exit 2 before any run";
+        "a config with an unknown field names it and cuts with exit 2 before any run";
     match preflight_error_for_stage(ctx, "Config: ") {
         Err(()) => vec![Assertion::out_of_scope(NAME)],
         Ok(err) => vec![assert_that(NAME, err.contains("unknown field"))],

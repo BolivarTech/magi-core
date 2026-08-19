@@ -197,7 +197,7 @@ invocation: putting two together leaves the second one unrun, which is green by 
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
 | `MAGI_SMOKE_ENDPOINT=<slow stub> MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint |
-| `cargo run -- --config <broken.toml>` | an unreadable configuration |
+| `cargo run -- --config <toml with an unknown field>` | a configuration the harness refuses, naming the field |
 | `cargo run -- --build-matrix` | the four feature combinations (slow: four `cargo check` runs) |
 
 `--build-matrix` builds each combination into its own directory under the system temp
