@@ -39,9 +39,9 @@ const KNOWN_REASONS: [&str; 3] = ["cold-start", "no-reproducible", "deprecated"]
 const UNVERIFIED_PREFIX: &str = "unverified: ";
 
 /// Prefix for a currency line whose backend answer WAS re-checked. The text
-/// after it identifies what did the checking (e.g. a scenario id); this
-/// implementation only requires the prefix itself to be present — the id is
-/// for a human reading the manifest, not something this module validates.
+/// after it identifies what did the checking: a scenario id, crossed
+/// against the LIVE scenario list by [`Manifest::check_currency`], so a claim
+/// cannot outlive the scenario that used to make it.
 const VERIFIED_BY_PREFIX: &str = "verified-by: ";
 
 /// The manifest's own filename inside the fixture directory. Exempted from
@@ -219,6 +219,12 @@ impl Manifest {
     /// match its recorded hash on disk, and every file physically present in
     /// `dir` must be declared by some entry.
     ///
+    /// `live_scenarios` is crossed TWICE per entry, against two different
+    /// fields: the `scenario` that replays the fixture, and the id a
+    /// `verified-by:` currency line names as having re-checked it. The second
+    /// cross used not to happen, so a currency claim survived the scenario that
+    /// made it (see [`check_currency`](Manifest::check_currency)).
+    ///
     /// Accumulates findings into the returned [`FixtureAudit`] instead of
     /// stopping at the first problem: with `?` on the first broken entry, a
     /// corpus with three problems would take three separate runs to see.
@@ -257,7 +263,7 @@ impl Manifest {
                 }
             }
 
-            Self::check_currency(entry, &mut audit);
+            Self::check_currency(entry, live_scenarios, &mut audit);
         }
 
         // (2) Disk -> manifest. The half a one-directional check would skip.
@@ -369,7 +375,28 @@ impl Manifest {
     /// must make the harness decline to run — silently accepting it would be
     /// exactly the "assume the corpus is current" failure that doc comment
     /// exists to name.
-    fn check_currency(entry: &FixtureEntry, audit: &mut FixtureAudit) {
+    ///
+    /// # BOTH branches are validated, and the second one used not to be
+    ///
+    /// `verified-by:` was accepted on the strength of its prefix alone, so any
+    /// text behind it passed: an empty id, or an id naming a scenario that does
+    /// not exist. That is not a cosmetic gap. The claim such a line makes is
+    /// that a LIVE scenario re-checks this fixture's answer against a backend,
+    /// and once the named scenario is renamed or removed the manifest goes on
+    /// making it forever while the preflight reports the corpus clean — an
+    /// audit certifying a currency nothing establishes.
+    ///
+    /// The id is therefore crossed against `live_scenarios`, exactly as
+    /// [`verify`](Manifest::verify) already crosses the `scenario` field, and
+    /// for the same reason: the machinery existed, this branch simply was not
+    /// given the list.
+    ///
+    /// # Parameters
+    ///
+    /// * `entry` — the manifest entry whose `currency` line is being read.
+    /// * `live_scenarios` — the scenarios this build actually implements.
+    /// * `audit` — accumulator; findings are appended, nothing is returned.
+    fn check_currency(entry: &FixtureEntry, live_scenarios: &[&str], audit: &mut FixtureAudit) {
         if let Some(reason) = entry.currency.strip_prefix(UNVERIFIED_PREFIX) {
             if !KNOWN_REASONS.contains(&reason.trim()) {
                 audit.corrupt.push(format!(
@@ -380,7 +407,23 @@ impl Manifest {
                 ));
             }
             audit.unverified += 1;
-        } else if entry.currency.strip_prefix(VERIFIED_BY_PREFIX).is_none() {
+        } else if let Some(id) = entry.currency.strip_prefix(VERIFIED_BY_PREFIX) {
+            let id = id.trim();
+            if id.is_empty() {
+                audit.corrupt.push(format!(
+                    "{}: currency claims 'verified-by' and names nobody. A re-check by an \
+                     unnamed party cannot be found, repeated or retired.",
+                    entry.path
+                ));
+            } else if !live_scenarios.contains(&id) {
+                audit.corrupt.push(format!(
+                    "{}: currency claims to be verified by '{id}', which no live scenario \
+                     implements. The claim outlived whatever used to make it, so this \
+                     fixture's answer is of unknown currency rather than current.",
+                    entry.path
+                ));
+            }
+        } else {
             audit.corrupt.push(format!(
                 "{}: unrecognized currency form '{}'. Expected 'verified-by: <id>' or \
                  'unverified: <reason>'.",
