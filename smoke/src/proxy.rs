@@ -16,85 +16,65 @@
 //! test". Confusing "the harness broke" with "the crate broke" is the failure
 //! mode this whole harness exists to eliminate.
 //!
-//! # Deviations from the Task 4 brief's draft, found while making it compile
+//! # Implementation notes that are not obvious from the code
 //!
 //! 1. `resp.bytes_stream()` needs `reqwest`'s optional `stream` feature, which
-//!    is not enabled in `Cargo.toml` and adding it is out of scope for this
-//!    task. [`response_chunk_stream`] gets the same streaming forward — never
-//!    buffering the response body — by hand-unfolding `Response::chunk()`,
-//!    which `reqwest` exposes unconditionally.
-//! 2. `Self::record_of(..)` inside `handle` would resolve to `SpyProxy`, which
-//!    has no such method; the constructor lives on `RequestRecord`.
-//! 3. `.map_err(|e: std::convert::Infallible| match e {})` left the closure's
-//!    return type unconstrained. rustc's never-type fallback picks `()` for
-//!    it, which then fails the `Box<dyn Error + Send + Sync>` bound one
-//!    function call later — confirmed with the Step 0 spike, where the exact
-//!    same shape failed until replaced with a named function carrying an
-//!    explicit return type ([`infallible_to_box`]).
-//! 4. `sha256_hex` is pulled out of the `impl SpyProxy` block into its own
-//!    module-level `pub fn`, per its own doc comment in the brief ("Free
-//!    function at MODULE level ... NOT inside `impl SpyProxy`"); the brief's
-//!    code listing had it mid-block, which does not parse.
+//!    is not enabled in `Cargo.toml`. [`response_chunk_stream`] gets the same
+//!    streaming forward — never buffering the response body — by hand-unfolding
+//!    `Response::chunk()`, which `reqwest` exposes unconditionally.
+//! 2. `.map_err(|e: std::convert::Infallible| match e {})` leaves the closure's
+//!    return type unconstrained. rustc's never-type fallback picks `()` for it,
+//!    which then fails the `Box<dyn Error + Send + Sync>` bound one function
+//!    call later, so a named function carrying an explicit return type is used
+//!    instead ([`infallible_to_box`]).
+//! 3. `sha256_hex` is a module-level `pub fn` rather than an associated one: it
+//!    is used from two places and neither of them needs a `SpyProxy`.
 //!
-//! # Fixes from review round 1 (Critical: `forward_buffered` fabricated a
-//! response)
+//! # The one invariant: this proxy never fabricates anything
 //!
-//! `forward_buffered` used to return `(u16, Vec<u8>)` and its `Err` arm
-//! returned an empty `Vec` on a failed body read. The caller then
-//! unconditionally called `with_recorded_response`, which unconditionally
-//! sets `response_recorded = true` — so a read failure was recorded as a
-//! genuine empty `200`, indistinguishable from a backend that truly answered
-//! nothing. It now returns `(u16, Option<Vec<u8>>)`; `None` routes the
-//! caller to `with_status_only` instead, so a failed read is recorded as
-//! "nothing recorded," never as "recorded, and it was empty." See
-//! [`RequestRecord::response_recorded`]'s fix note and the test
-//! `a_broken_response_read_is_not_recorded_as_an_empty_answer`.
+//! A harness that substitutes a value of its own for one it could not read
+//! blames the crate for something the harness did — the exact inversion this
+//! whole package exists to remove. It went wrong in four distinct places, all
+//! the same way, so each is named with the guarantee that replaced it.
 //!
-//! **That fixed the RECORD and left the ANSWER** — see round 4 below.
+//! * **The RECORD.** [`SpyProxy::forward_buffered`] returns
+//!   `(u16, hyper::HeaderMap, Option<Vec<u8>>)`; on a failed body read the
+//!   `None` routes the caller to
+//!   [`with_status_only`](RequestRecord::with_status_only), so the outcome is
+//!   recorded as "nothing recorded" and never as "recorded, and it was empty".
+//!   An empty `Vec` would be indistinguishable from a backend that genuinely
+//!   answered nothing. See `a_broken_response_read_is_not_recorded_as_an_empty_answer`.
+//! * **The REQUEST.** A failed `body.collect()` in [`SpyProxy::handle`] is not
+//!   forwarded as `Bytes::new()`: the backend would receive an empty request
+//!   the client never sent, and the transparency comparison would then report a
+//!   difference the crate never introduced. Nothing is forwarded; see
+//!   `an_unreadable_request_is_not_forwarded_as_an_empty_one`.
+//! * **The FALLBACKS.** Response builders do not end in
+//!   `unwrap_or_else(|_| hyper::Response::new(empty_body()))`, because
+//!   `hyper::Response::new` defaults to **`200`** — a builder failure would
+//!   answer the crate with SUCCESS over a failure. They route through
+//!   [`build_failed`]; see
+//!   `a_response_the_proxy_cannot_build_is_an_error_not_a_fabricated_success`.
+//!   Four of the five cannot fail today, and that is not a reason to leave them
+//!   aimed the wrong way: the fifth — the injected stand-in, whose status is a
+//!   `u16` the caller chooses — is reachable through
+//!   [`SpyProxy::set_injection`], and the others become reachable the moment
+//!   someone edits a status.
+//! * **The ANSWER.** With the response body unreadable, `handle` does not reply
+//!   with the real upstream status over an empty body. Both
+//!   [`RECORDED_RESPONSE_PATHS`] are ones the crate parses as JSON, so that
+//!   would make the crate fail to parse a body the backend had sent, with only
+//!   the `degraded` latch — a second mechanism every scenario must remember to
+//!   consult — between it and a verdict. It answers
+//!   [`RELAY_BUILD_FAILED_STATUS`] instead: the proxy did talk to the backend
+//!   and then failed to relay what came of it. The latch stays as the second
+//!   line of defence. See `a_broken_response_read_is_not_answered_as_an_empty_success`.
 //!
-//! # Fixes from review round 2 (the same defect, on the REQUEST side)
+//! Three neighbours of the same class: the buffered path copies the upstream's
+//! end-to-end headers (the streaming path always did), the accept loop does not
+//! spin unbounded on a persistent `accept` error, and a `Method` is never
+//! fabricated by `unwrap_or(POST)`.
 //!
-//! The response half of that fix landed while the request half kept the bug: a
-//! failed `body.collect()` in [`SpyProxy::handle`] became `Bytes::new()` and was
-//! FORWARDED, so the backend received an empty request the client never sent,
-//! and the transparency comparison could then blame the crate for a body the
-//! HARNESS substituted. Nothing is forwarded now; see the `Err` arm in `handle`
-//! and `an_unreadable_request_is_not_forwarded_as_an_empty_one`.
-//!
-//! # Fixes from review round 3 (the same defect once more, in the FALLBACKS)
-//!
-//! Five response builders ended in
-//! `unwrap_or_else(|_| hyper::Response::new(empty_body()))`, and
-//! `hyper::Response::new` defaults to **`200`** — so a builder failure answered
-//! the crate with SUCCESS over a failure, which is the harness fabricating the
-//! exact outcome it exists to catch. Four of the five cannot fail today (their
-//! statuses are compile-time constants or `StatusCode` values round-tripped
-//! from a real response), and that is not a reason to leave them aimed the
-//! wrong way: the fifth — the injected stand-in, whose status is a `u16` the
-//! caller chooses — is reachable right now through [`SpyProxy::set_injection`],
-//! and the other four become reachable the moment someone edits a status. They
-//! all route through [`build_failed`] now; see
-//! `a_response_the_proxy_cannot_build_is_an_error_not_a_fabricated_success`.
-//!
-//! # Fixes from review round 4 (the same defect a fourth time, in the ANSWER)
-//!
-//! Rounds 1-3 fixed the record, the request and the fallbacks; what the CLIENT
-//! observed on the buffered path was still fabricated. With the response body
-//! unreadable, [`SpyProxy::handle`] answered `.status(status).body(fixed(&[]))`
-//! — the real upstream status, a `200` on these paths — over an EMPTY body. Both
-//! [`RECORDED_RESPONSE_PATHS`] are ones the crate parses as JSON, so the crate's
-//! probe then failed to parse a body the backend had sent, and the only thing
-//! between that and a verdict was the `degraded` latch: a second mechanism every
-//! scenario must remember to consult. It answers
-//! [`RELAY_BUILD_FAILED_STATUS`] now — the proxy did talk to the backend and
-//! then failed to relay what came of it — with the latch kept as the second line
-//! of defence. See `a_broken_response_read_is_not_answered_as_an_empty_success`.
-//!
-//! Round 4 also closed the buffered path's missing header copy (every
-//! end-to-end header the upstream set was dropped, which the streaming path does
-//! not do), the accept loop's unbounded spin on a persistent `accept` error, and
-//! a `Method` fabricated by `unwrap_or(POST)`.
-
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -103,9 +83,7 @@ use futures_util::TryStreamExt;
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::Bytes;
 
-/// The whole injection surface. **Defined in Task 4 even though Task 5 is what
-/// fills it**: `SpyProxy` names it in a field, so a definition that arrived
-/// later would not compile.
+/// The whole injection surface.
 ///
 /// ONE variant, not a family. `FailModel` covers rotation and degradation,
 /// which is the only injection any scenario in this release asks for. There is
@@ -218,7 +196,8 @@ fn build_failed(status: hyper::StatusCode) -> hyper::Response<ProxyBody> {
 /// knows nothing about the proxy; `S2b` and the manifest import it as
 /// `proxy::sha256_hex`.
 ///
-/// Lives here because this is its first user (Task 4). Two hashing sites that
+/// Lives at module level because two call sites need it and neither needs a
+/// `SpyProxy`. Two hashing sites that
 /// drift is how a checksum comparison starts failing for a reason nobody can
 /// see.
 pub fn sha256_hex(bytes: &[u8]) -> String {
@@ -448,9 +427,9 @@ pub struct RequestRecord {
     /// were empty for the other paths without saying so would read as "the
     /// response was empty" — the same lie `Option<InputSize>` exists to avoid.
     ///
-    /// # Fix note (review round 1)
+    /// # The one lie this field exists to prevent
     ///
-    /// This field exists to prevent exactly one lie: a probe-path response
+    /// It is that a probe-path response
     /// whose body could not be fully read back must NEVER be recorded as
     /// `response_recorded: true` with an empty body — that would be
     /// indistinguishable from a backend that genuinely answered empty, which
@@ -507,9 +486,8 @@ impl RequestRecord {
     /// response arrived".** The status recorded here is the real one. Only the
     /// two probe paths buffer a body; everything else streams, so a completion's
     /// record legitimately carries a true status and `response_recorded: false`.
-    /// A review round read the field the other way and proposed requiring it
-    /// before trusting the status — which would have turned the happy-path
-    /// scenario red on every live run.
+    /// Reading the field the other way — requiring it before trusting the
+    /// status — would turn the happy-path scenario red on every live run.
     pub fn with_status_only(mut self, status: u16) -> RequestRecord {
         self.response_status = status;
         self
@@ -531,8 +509,7 @@ pub struct SpyProxy {
     /// plain `Option<Injection>`, a later `set_injection(..)` would mutate the
     /// caller's copy and **the serving task would never see it**.
     ///
-    /// `None` means «forward everything», so Task 4 is complete on its own and
-    /// Task 5 does not have to alter this struct.
+    /// `None` means «forward everything».
     injection: Arc<Mutex<Option<Injection>>>,
     /// Derived once from the configured payload target at `start()`.
     record_cap: usize,
@@ -930,7 +907,7 @@ impl SpyProxy {
             // 1. THE RECORD says nothing was recorded (`with_status_only`),
             //    never an invented empty response — `with_recorded_response(status,
             //    &[], ..)` would look exactly like a backend that genuinely
-            //    answered empty. That half landed in review round 1.
+            //    answered empty.
             // 2. THE ANSWER the client receives is a `502`, not the upstream's
             //    status over an empty body. This half did NOT land: the proxy
             //    replied `.status(status).body(fixed(&[]))`, i.e. the real status
@@ -1017,7 +994,7 @@ impl SpyProxy {
     /// not `Some(Vec::new())`: an empty `Vec` would be indistinguishable from a
     /// backend that truly answered with an empty body, and the caller must be
     /// able to tell "nothing was recorded" from "an empty response was recorded"
-    /// — see the fix note on [`RequestRecord::response_recorded`].
+    /// — see the lie [`RequestRecord::response_recorded`] exists to prevent.
     async fn forward_buffered(
         &self,
         method: &str,
@@ -1124,9 +1101,9 @@ impl SpyProxy {
         let url = format!("{}{}", upstream.trim_end_matches('/'), path);
         // A proxy that promises a VERBATIM forward must not substitute a method
         // it could not parse. This was `unwrap_or(Method::POST)`, which sends the
-        // BACKEND a request the client never made — the same fabrication as the
-        // empty request body of round 2 and the empty response of round 4, in the
-        // request line. Everything downstream would then describe the
+        // BACKEND a request the client never made — the same fabrication as an
+        // empty request body or an empty response, in the request line.
+        // Everything downstream would then describe the
         // substitution, and the transparency comparison would report a difference
         // the CRATE never introduced.
         //
@@ -1745,7 +1722,7 @@ mod tests {
         // headers, same body" — and then did
         // `Method::from_bytes(..).unwrap_or(Method::POST)`, which substitutes a
         // method the client never sent. It is the same shape as the five
-        // `unwrap_or_else(|_| Response::new(..))` fallbacks fixed in round 3:
+        // `unwrap_or_else(|_| Response::new(..))` build fallbacks:
         // unreachable from the one production caller today (hyper hands over an
         // already-parsed method), aimed the wrong way, and reachable the moment
         // anything else calls it.
@@ -1792,8 +1769,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_broken_response_read_is_not_answered_as_an_empty_success() {
-        // The RECORD half of this was fixed in round 1 and the request half in
-        // round 2; what the CLIENT observes was still a fabrication. When
+        // The record half and the request half are guarded elsewhere; this is
+        // what the CLIENT observes, which was a fabrication of its own. When
         // `forward_buffered` could not read the body back, the caller answered
         // `.status(status).body(fixed(&[]))` — the real upstream status, which on
         // these paths is a 200, with an EMPTY body. So on the two paths the crate

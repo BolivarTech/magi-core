@@ -249,7 +249,7 @@ pub const ENV_OVERRIDES: [(&str, &str); 8] = [
 ];
 
 /// The four shared runs plus the offline one. **Lives here, in `config.rs`**,
-/// because `Config::budget` consumes it: defining it in the runner (Task 9)
+/// because `Config::budget` consumes it: defining it in the runner
 /// would create an inverted dependency between modules. Closed on purpose — a
 /// run is a unit the harness EXECUTES, and adding one is a deliberate change,
 /// not a config value.
@@ -513,8 +513,7 @@ impl Config {
             }
         }
         // THE CALL, which was missing: `validate_probe_window` existed and
-        // nothing invoked it, i.e. it was documentation with Rust syntax. Three
-        // mages flagged it independently.
+        // nothing invoked it, i.e. it was documentation with Rust syntax.
         self.validate_probe_window()?;
         self.validate_endpoint()?;
         if self.payload_target_bytes < MIN_PAYLOAD_TARGET_BYTES {

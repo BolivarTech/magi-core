@@ -84,9 +84,9 @@ pub struct Announcement {
 }
 
 /// Hand-written rather than derived: [`SpyProxy`] itself does not implement
-/// `Debug` (Task 4's scope). `S20`'s test needs `Result::unwrap_err`, which
+/// `Debug`. `S20`'s test needs `Result::unwrap_err`, which
 /// requires the `Ok` side to be `Debug`, so this exists to satisfy that
-/// without reaching into Task 4's module to add a derive it never asked for.
+/// without reaching into the proxy's module to add a derive it never asked for.
 impl std::fmt::Debug for Announcement {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Announcement")

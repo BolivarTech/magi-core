@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn a_harness_panic_reported_with_an_absolute_path_is_still_ours() {
-        // Fix round 2, Finding 2: attribution matched `starts_with("src")`,
+        // Attribution used to match `starts_with("src")`,
         // which holds for THIS build invocation (measured: cargo passes
         // `'src\main.rs'` to rustc for the package being built) and not for
         // every one — the same measurement shows a package compiled as

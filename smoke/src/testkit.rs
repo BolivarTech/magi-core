@@ -188,7 +188,7 @@ pub fn make_dir_link(link: PathBuf, target: PathBuf) -> bool {
     }
 }
 
-/// A minimal HTTP/1.1 responder for proxy tests (Task 4 and later): reads the
+/// A minimal HTTP/1.1 responder for proxy tests: reads the
 /// full request body, discards it, and always answers `200 OK` with a fixed
 /// tiny body. It exists so `SpyProxy` tests have something real to forward to
 /// without depending on a live backend.
@@ -406,7 +406,7 @@ pub async fn spawn_truncating_server() -> TruncatingServer {
     TruncatingServer { addr }
 }
 
-// --- Task 8: preflight helpers ---------------------------------------------
+// --- Preflight helpers -----------------------------------------------------
 //
 // `fresh_temp_dir`, `temp_root_with` and `repo_where_the_negation_was_removed`
 // deliberately return a bare `PathBuf`, NOT a `TempDir`: the production code
