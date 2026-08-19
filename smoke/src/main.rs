@@ -256,7 +256,7 @@ async fn main() -> std::process::ExitCode {
     // some releases and not on others cannot be compared across them, which is
     // the whole payoff of writing the certificate to one fixed path.
     ready.ledger.mark_runs_started();
-    let results = run.execute(&specs).await;
+    let results = ready.ledger.measure(run.execute(&specs)).await;
 
     // R31's second half, and the reason it is read HERE: after the spend. The
     // ledger refuses to answer if nothing was announced first, so the order is

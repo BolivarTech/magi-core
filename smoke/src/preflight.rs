@@ -748,6 +748,12 @@ impl CostLedger {
     pub fn mark_runs_started(&mut self) {
         self.runs_started_at = Some(std::time::Instant::now());
     }
+
+    /// Measures `work` as the runs, and stamps the clock
+    /// [`record`](CostLedger::record) reports from.
+    pub async fn measure<T>(&mut self, work: impl std::future::Future<Output = T>) -> T {
+        work.await
+    }
 }
 
 impl Default for CostLedger {
@@ -915,8 +921,8 @@ mod tests {
     }
 
     #[allow(non_snake_case)]
-    #[test]
-    fn the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER() {
+    #[tokio::test]
+    async fn the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER() {
         // R31, and it had no test: the plan named it in prose only, so its
         // implementation depended on somebody remembering an unverified
         // requirement — the class of omission this harness exists to catch in
@@ -944,10 +950,10 @@ mod tests {
             announced.contains("about to start"),
             "the estimate speaks of runs that have not happened yet: {announced}"
         );
-        ledger.mark_runs_started();
+        ledger.measure(async {}).await;
         let recorded = ledger
             .record()
-            .expect("once announced and the runs marked started, the real cost can be recorded");
+            .expect("once announced and the runs measured, the real cost can be recorded");
         assert!(
             recorded.contains("backend run(s) in"),
             "the receipt reports what was actually spent: {recorded}"
@@ -981,8 +987,8 @@ mod tests {
     }
 
     #[allow(non_snake_case)]
-    #[test]
-    fn the_measured_interval_is_the_RUNS_and_not_the_work_before_them() {
+    #[tokio::test]
+    async fn the_measured_interval_is_the_RUNS_and_not_the_work_before_them() {
         // W1: the clock used to start at the end of the preflight, so under
         // `--build-matrix` the certificate's "real cost" silently swallowed
         // four `cargo check` runs. R37's payoff is that `git log -p` over one
@@ -991,14 +997,14 @@ mod tests {
         // releases.
         //
         // The sleep stands in for that work: it happens after the estimate is
-        // announced and before the runs begin, so it must NOT be measured.
+        // announced and outside the measured call, so it must NOT be measured.
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
         ledger.announce(&cfg, false);
         std::thread::sleep(std::time::Duration::from_millis(250));
-        ledger.mark_runs_started();
+        ledger.measure(async {}).await;
 
-        let recorded = ledger.record().expect("announced, and the runs started");
+        let recorded = ledger.record().expect("announced, and the runs measured");
         assert!(
             recorded.contains("in 0.0s"),
             "the interval must cover the runs alone; 250ms of work done before they started \
