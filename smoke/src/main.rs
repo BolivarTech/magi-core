@@ -1054,10 +1054,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_rendered_invocation_names_every_flag_that_was_given() {
+    fn the_rendered_invocation_names_every_flag_a_certificate_can_carry() {
         // What lands in the certificate has to be what somebody would type to
         // reproduce the run. A renderer that drops a flag would put a DIFFERENT
         // command in a document whose whole job is to say what it covers.
+        //
+        // The name used to say "every flag that was given" while the body set
+        // `print_payload_size: false` and never looked at it — the same
+        // over-promise as the rustdoc above `rendered_flags`, one level down.
+        // That flag's own case is
+        // `the_one_flag_that_never_reaches_a_certificate_is_not_rendered`.
         let cli = Cli {
             smoke_2: true,
             no_backend: true,
