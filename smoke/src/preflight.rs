@@ -1019,6 +1019,38 @@ mod tests {
         );
     }
 
+    #[allow(non_snake_case)]
+    #[tokio::test]
+    async fn the_measured_interval_ENDS_with_the_runs_and_not_where_record_sits() {
+        // The other end of the same defect. Making the START structural fixed
+        // half of it: the clock cannot begin before the work, because the work
+        // IS the argument. The END stayed a convention about where one call
+        // sits — the elapsed time was computed inside `record`, so the interval
+        // ran to wherever somebody had put it.
+        //
+        // That is the same failure the sibling test above pins, mirrored. Moving
+        // the feature matrix down so it sits between the runs and `record` — a
+        // plausible refactor that violates none of the ordering constraints the
+        // caller documents — put four `cargo check` runs back inside the
+        // recorded interval, and every test stayed green.
+        //
+        // The sleep stands in for that work: it happens AFTER the measured call,
+        // so it must NOT be measured either.
+        let cfg = Config::default();
+        let mut ledger = CostLedger::new();
+        ledger.announce(&cfg, false);
+        ledger.measure(async {}).await;
+        std::thread::sleep(std::time::Duration::from_millis(250));
+
+        let recorded = ledger.record().expect("announced, and the runs measured");
+        assert!(
+            recorded.contains("in 0.0s"),
+            "the interval must cover the runs alone; 250ms of work done after they finished \
+             leaked into the receipt because the end of the interval followed `record` instead \
+             of the runs: {recorded}"
+        );
+    }
+
     #[test]
     fn with_no_backend_the_announcement_says_nothing_will_be_spent() {
         // A partition where no run reaches the backend has no backend cost, and
