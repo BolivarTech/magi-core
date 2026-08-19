@@ -206,9 +206,35 @@ invocation: putting two together leaves the second one unrun, which is green by 
 | `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, and the no-trace check |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
-| `MAGI_SMOKE_ENDPOINT=<slow stub> MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint |
+| `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |
 | `cargo run -- --config <toml with an unknown field>` | a configuration the harness refuses, naming the field |
 | `cargo run -- --build-matrix` | the four feature combinations (slow: four `cargo check` runs) |
+
+### The slow stub the saturated-endpoint invocation needs
+
+That row used to say `<slow stub>` and stop there, which left the twelve-green claim
+unreproducible by anyone who was not its author. The stub is four lines and no dependency — run
+it in another terminal, leave it running, then issue the invocation above:
+
+```sh
+python -c "import socket
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 8099)); s.listen(16)
+held = []
+while True: held.append(s.accept()[0])"
+```
+
+It **accepts** every connection and answers none, which is the condition `S7` is about: a
+backend that is reachable and saturated, not one that is down. The accepted sockets are kept in
+`held` so nothing closes them — dropping one sends a reset, and a reset is the *unreachable*
+case the second row already covers. `Ctrl-C` when done; it leaves nothing behind.
+
+`MAGI_SMOKE_PROBE_TIMEOUT_SECS=1` is what keeps the invocation short: without it the probe waits
+its full default before reporting, and the scenario's answer is the same either way.
+
+Any listener that behaves the same way works — `nc -l 8099` will do on a system whose netcat
+holds the connection open. Python is spelled out because this repository already depends on it,
+and because a recipe that only runs on one platform is the problem this section exists to fix.
 
 `--build-matrix` builds each combination into its own directory under the system temp
 directory (`<temp>/magi-smoke-feature-matrix/<combination>`), never inside the checkout: one
