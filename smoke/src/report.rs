@@ -1278,6 +1278,37 @@ mod tests {
     }
 
     #[test]
+    fn both_renderers_carry_the_scenario_id_its_field_promises() {
+        // The field's own rustdoc says why it exists — "without the id, four
+        // reds from one scenario read as four unrelated defects" — and NEITHER
+        // renderer emitted it, so the reader it was added for never saw it. A
+        // documented purpose that no output serves is the same shape as the
+        // defects this milestone has been closing.
+        let rows = vec![AssertionRow {
+            scenario_id: "S21",
+            scenario: "the two dependency modes cannot be confused",
+            run_id: RunId::HappySmall,
+            state: ScenarioState::Pass,
+            over_budget: None,
+        }];
+        let report = Report {
+            rows,
+            run: CycleRun::Second,
+        };
+        let human = report.render_human();
+        assert!(
+            human.contains("S21"),
+            "the human table must say WHICH scenario a row belongs to:\n{human}"
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&report.render_json()).expect("valid JSON");
+        assert_eq!(
+            parsed["rows"][0]["scenario_id"], "S21",
+            "and so must the machine-readable form, or a tool cannot group them either"
+        );
+    }
+
+    #[test]
     fn render_json_is_parseable_and_carries_the_same_facts_as_the_human_table() {
         let report = Report {
             rows: sample_results(),
