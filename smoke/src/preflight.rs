@@ -696,6 +696,9 @@ impl CostLedger {
             started.elapsed().as_secs_f64()
         ))
     }
+
+    /// Marks the point where the runs actually START, and stamps the clock.
+    pub fn mark_runs_started(&mut self) {}
 }
 
 impl Default for CostLedger {
@@ -892,12 +895,65 @@ mod tests {
             announced.contains("about to start"),
             "the estimate speaks of runs that have not happened yet: {announced}"
         );
+        ledger.mark_runs_started();
         let recorded = ledger
             .record()
-            .expect("once announced, the real cost can be recorded");
+            .expect("once announced and the runs marked started, the real cost can be recorded");
         assert!(
             recorded.contains("backend run(s) in"),
             "the receipt reports what was actually spent: {recorded}"
+        );
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn a_receipt_BEFORE_the_runs_is_refused_even_though_the_estimate_was_announced() {
+        // The half the sibling test above never pinned, and the only half that
+        // is REACHABLE in production: `announce` runs inside `preflight::run`,
+        // so every ledger `main` can hold has already announced. That made the
+        // announced-nothing refusal unreachable, and moving `record` up to just
+        // after the preflight — the literal reordering the rustdoc claimed
+        // would fail — returned a plausible receipt in the wrong place.
+        //
+        // The runs must therefore be marked as STARTED for a receipt to exist,
+        // and that mark is what a reordering loses.
+        let cfg = Config::default();
+        let mut ledger = CostLedger::new();
+        ledger.announce(&cfg, false);
+
+        let refusal = ledger
+            .record()
+            .expect_err("a receipt for runs that never started is not a receipt");
+        assert!(
+            refusal.contains("before the runs started"),
+            "the refusal must name WHICH half is missing — the announcement was made, so a \
+             message about the announcement would send the reader to the wrong place: {refusal}"
+        );
+    }
+
+    #[allow(non_snake_case)]
+    #[test]
+    fn the_measured_interval_is_the_RUNS_and_not_the_work_before_them() {
+        // W1: the clock used to start at the end of the preflight, so under
+        // `--build-matrix` the certificate's "real cost" silently swallowed
+        // four `cargo check` runs. R37's payoff is that `git log -p` over one
+        // fixed path is the historical cost series, and a series that includes
+        // or excludes four builds depending on a flag is not comparable across
+        // releases.
+        //
+        // The sleep stands in for that work: it happens after the estimate is
+        // announced and before the runs begin, so it must NOT be measured.
+        let cfg = Config::default();
+        let mut ledger = CostLedger::new();
+        ledger.announce(&cfg, false);
+        std::thread::sleep(std::time::Duration::from_millis(250));
+        ledger.mark_runs_started();
+
+        let recorded = ledger.record().expect("announced, and the runs started");
+        assert!(
+            recorded.contains("in 0.0s"),
+            "the interval must cover the runs alone; 250ms of work done before they started \
+             leaked into the receipt: {recorded}"
         );
     }
 

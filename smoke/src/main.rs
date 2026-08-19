@@ -208,7 +208,7 @@ async fn main() -> std::process::ExitCode {
     //    zero scenarios as passed — but it still evaluates the scenarios whose
     //    whole property IS what the preflight did.
     let live: Vec<&str> = scenarios.iter().map(|s| s.id).collect();
-    let ready = match preflight::run(&cfg, &live, cli.break_proxy, cli.no_backend).await {
+    let mut ready = match preflight::run(&cfg, &live, cli.break_proxy, cli.no_backend).await {
         Ok(r) => r,
         Err(e) => {
             let rows = evaluate_preflight_only(&scenarios, &e);
@@ -249,6 +249,13 @@ async fn main() -> std::process::ExitCode {
     // run once, before the first run. Its failure leaves the fields empty, which
     // makes the scenario reading them SKIP — never FAIL.
     run.prime_transparency_probe(&cfg.endpoint).await;
+    // Where the measured interval BEGINS — not where the estimate was printed.
+    // The announcement happens inside the preflight, so a clock started there
+    // also measured the feature matrix's four `cargo check` runs whenever
+    // `--build-matrix` was passed: a cost series that includes four builds on
+    // some releases and not on others cannot be compared across them, which is
+    // the whole payoff of writing the certificate to one fixed path.
+    ready.ledger.mark_runs_started();
     let results = run.execute(&specs).await;
 
     // R31's second half, and the reason it is read HERE: after the spend. The
