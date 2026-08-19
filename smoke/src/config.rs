@@ -1696,6 +1696,42 @@ injected_secs = 120
     }
 
     #[test]
+    fn a_file_that_omits_seats_and_fallbacks_gets_the_built_in_ones() {
+        // Every seat-related refusal in the preflight ends with SEAT_FIX, which
+        // tells the reader to "drop the `seats` override to fall back to the
+        // built-in trio". That instruction could not work: `seats` and
+        // `fallbacks` were the only two fields in this file whose `serde`
+        // default was the type's own — an EMPTY vector — while every other
+        // field names a `default_*` function. So a file that took the advice
+        // came back with zero seats and was refused by the very message that
+        // gave it, which is worse than no advice at all.
+        //
+        // A FILE, through `load_or_fail`, not a `from_str` of the same text:
+        // what the message describes is a file with a section removed, and the
+        // env overrides sit between the two.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = crate::testkit::tempdir_with(&[(
+            "magi-smoke.toml",
+            "probe_timeout_secs = 10
+",
+        )]);
+        let (cfg, _origin) = Config::load_or_fail(Some(&dir.path().join("magi-smoke.toml")))
+            .expect("a file that omits both sections must load");
+        assert_eq!(
+            cfg.probe_timeout_secs, 10,
+            "the file's own value still wins"
+        );
+        assert_eq!(cfg.seats, default_seats());
+        assert_eq!(cfg.fallbacks, default_fallbacks());
+        // The half that makes it a fix rather than a value change: the advice
+        // SEAT_FIX gives now survives the check that gives it.
+        assert!(
+            crate::preflight::check_seats(&cfg).is_ok(),
+            "dropping both sections must reach a config the preflight accepts"
+        );
+    }
+
+    #[test]
     fn the_built_in_defaults_can_actually_run_a_backend_scenario() {
         // Criterion 1 of this milestone is `cargo run` with NO arguments. With
         // zero seats the harness builds, starts, and cannot execute a single
