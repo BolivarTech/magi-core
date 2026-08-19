@@ -752,19 +752,41 @@ const CRATE_UNDER_TEST: &str = "magi-core";
 /// Picks the `magi-core` the binary actually links, out of a `cargo metadata`
 /// document that carries BOTH of them.
 ///
+/// # Why there are two, and why picking either was wrong
+///
+/// `smoke/Cargo.toml` declares the path dependency and the registry one side by
+/// side, and cargo resolves an optional dependency whether or not its feature is
+/// enabled — so the document always lists two packages named `magi-core`. This
+/// used to take whichever came first, which in `published` mode could name the
+/// WORKING TREE's version: the certificate's central fact, describing a crate
+/// the run never linked. Nothing in the document promises an order, so nothing
+/// made the old answer reliably wrong either — it was simply undecided.
+///
+/// The discriminator is `source`, which cargo sets to `null` for a path
+/// dependency and to a `registry+…` string for one it downloaded. That is a
+/// fact about WHERE the package came from, which is exactly what the two modes
+/// differ in.
+///
 /// # Parameters
 ///
 /// * `metadata` — a parsed `cargo metadata --format-version 1` document.
 /// * `mode` — which source this binary was built against; [`alias::MODE`].
 ///
+/// # Returns
+///
+/// `None` when the document has no `magi-core` from the expected source, which
+/// leaves the caller reporting `unknown` rather than a version it guessed.
+///
 /// # Complexity
 ///
 /// `O(n)` in the number of packages.
 fn version_of_crate_under_test(metadata: &serde_json::Value, mode: &str) -> Option<String> {
-    let _ = mode;
+    /// The value [`alias::MODE`] carries for the path dependency.
+    const TREE: &str = "tree";
+    let wants_path_source = mode == TREE;
     metadata["packages"].as_array().and_then(|ps| {
         ps.iter()
-            .find(|p| p["name"] == CRATE_UNDER_TEST)
+            .find(|p| p["name"] == CRATE_UNDER_TEST && p["source"].is_null() == wants_path_source)
             .and_then(|p| p["version"].as_str().map(str::to_string))
     })
 }
