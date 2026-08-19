@@ -2005,6 +2005,33 @@ mod tests {
     }
 
     #[test]
+    fn a_listing_whose_entries_cannot_be_read_is_not_read_as_holding_none() {
+        // The fail-open boundary held one level up and broke one level down.
+        // `check_seat_models` treats `None` as "nothing established", but a
+        // listing whose entries carry neither `name` nor `model` produced an
+        // EMPTY vector instead — indistinguishable from "it holds nothing", so
+        // every declared model was reported absent and the run was refused on
+        // the strength of a body this harness simply could not read.
+        for body in [
+            br#"{"models":[{"tag":"a"},{"tag":"b"}]}"#.as_slice(),
+            br#"{"models":[{"name":42}]}"#.as_slice(),
+        ] {
+            assert_eq!(
+                listed_models(body),
+                None,
+                "a non-empty array with no readable entry establishes nothing"
+            );
+        }
+        // The genuinely empty listing is a different claim and keeps its own
+        // answer: the backend said, readably, that it holds nothing.
+        assert_eq!(
+            listed_models(br#"{"models":[]}"#),
+            Some(Vec::new()),
+            "an empty array IS a readable listing of no models"
+        );
+    }
+
+    #[test]
     fn a_backend_that_lists_no_models_is_not_read_as_holding_none() {
         // The boundary, declared: only a PROVEN absence refuses. A backend
         // whose listing this harness cannot read has established nothing, and
