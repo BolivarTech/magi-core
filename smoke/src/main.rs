@@ -411,6 +411,38 @@ fn evaluate(
                     });
                     continue;
                 }
+                // A run that never STARTED is a fault of OURS, and it is the
+                // only outcome that reaches an assertion carrying a MISLEADING
+                // error: `RunResult::cannot_test` puts our own reason in
+                // `error`, where an assertion reads it as if `analyze()` had
+                // returned it. S1 asks whether that text names "insufficient
+                // agents"; a configuration fault does not, so the row came out
+                // `Fail` — exit 1, a verdict about the crate, for a run the
+                // crate never entered.
+                //
+                // ONE arm, and the other two faults of ours need none: both
+                // panic outcomes are built with `error: None` and `report:
+                // None` (`Runner::execute_one`), so every assertion already
+                // skips on them for want of anything to read. `CannotTest` is
+                // the single case where absence was replaced by a string that
+                // reads like evidence.
+                if let Some(r) = results
+                    .iter()
+                    .find(|r| r.run == id && r.outcome == outcome::RunOutcome::CannotTest)
+                {
+                    rows.push(report::AssertionRow {
+                        scenario_id: scenario.id,
+                        run_id: id,
+                        scenario: "the run could not be started",
+                        state: outcome::ScenarioState::Skip(
+                            r.error
+                                .clone()
+                                .unwrap_or_else(|| "no reason was recorded".to_string()),
+                        ),
+                        over_budget: None,
+                    });
+                    continue;
+                }
                 if let Some(r) = results
                     .iter()
                     .find(|r| r.run == id && r.outcome == outcome::RunOutcome::TimedOut)
