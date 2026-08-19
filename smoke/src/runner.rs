@@ -934,6 +934,21 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
 ///
 /// Returns `None` when the run injected nothing, and also when the injected
 /// model matches no seat — which is a configuration mistake, not an agent.
+///
+/// # The match is EXACT on both sides, and it has to stay that way
+///
+/// This resolves the seat by `s.model == model`, and the proxy decides which
+/// requests to fail by comparing the same name against the `"model"` field it
+/// parses out of the body — also with `==`, never containment. Two configured
+/// models where one name is a PREFIX or SUBSTRING of the other are therefore
+/// still told apart, and the current trio would be fine even if they were not.
+///
+/// It is written down because the two comparisons live in different modules
+/// and neither mentions the other. If either ever loosened to `contains`, the
+/// injection would knock out more seats than the scenario asked for while this
+/// function kept attributing the failure to one of them — a degradation run
+/// that took out two seats, reported against one, and read as the crate
+/// degrading badly rather than as the harness over-injecting.
 fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
     let Injection::FailModel { model, .. } = spec.injection.as_ref()?;
     spec.seats
