@@ -1565,6 +1565,40 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_run_that_ends_badly_is_still_measured_so_the_receipt_is_not_withheld() {
+        // The count check that closed the composition lever cuts both ways: it
+        // refuses a receipt when the intervals do not match the announced runs,
+        // so a run that is ANNOUNCED and then never reaches `measure` costs the
+        // certificate its cost line — a silent withholding, and one that blames
+        // the call site for something the operator did not do.
+        //
+        // What makes that unreachable is that `measure` records the interval
+        // whatever the awaited work yields: it is generic over the output and
+        // never looks at it, so a run ending "cannot test" or "skip" is timed
+        // exactly like one that passed. This is what fails if a future version
+        // decides to record only the runs it considers successful.
+        let cfg = Config::default();
+        let announced = backend_runs_of(&cfg);
+        let mut ledger = CostLedger::new();
+        ledger.announce(&cfg, false);
+        // Values standing in for the outcomes a run can end with. `measure`
+        // returns them untouched, which is the other half of the contract: a
+        // ledger cannot be made to swallow a result.
+        let outcomes: Vec<Result<&str, &str>> = vec![Err("cannot test"), Err("skip"), Ok("pass")];
+        assert_eq!(outcomes.len(), announced, "one outcome per announced run");
+        for outcome in outcomes {
+            assert_eq!(ledger.measure(async { outcome }).await, outcome);
+        }
+        let receipt = ledger.record().unwrap_or_else(|refusal| {
+            panic!("every announced run was measured, so the receipt must exist: {refusal}")
+        });
+        assert!(
+            receipt.contains(&format!("{announced} backend run(s)")),
+            "{receipt}"
+        );
+    }
+
     #[test]
     fn with_no_backend_the_announcement_says_nothing_will_be_spent() {
         // A partition where no run reaches the backend has no backend cost, and
