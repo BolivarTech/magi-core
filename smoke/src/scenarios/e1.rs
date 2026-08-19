@@ -1069,6 +1069,50 @@ const S15_NAMES: [&str; 4] = [
     S15_NAME_LABEL,
 ];
 
+/// `S15`'s four assertions as `Skip`s, **plus the verdict row when there is no
+/// report to judge**.
+///
+/// # The guards could swallow the one thing this harness came to find
+///
+/// Every precondition in [`s15_degradation_is_honest`] answers "can these four
+/// assertions be evaluated", and none of them looks at whether `analyze()`
+/// failed in a TYPED way. So a run that reached the wire, never fired its
+/// injection, and then broke inside the crate returned four skips about the
+/// injection: exit 2 — *a fault of ours* — over a crate defect, with the error
+/// text dropped entirely. That is the same 1-versus-2 inversion the guards were
+/// written to close, arriving one level up from where they close it.
+///
+/// **Both halves matter.** The verdict row supplies the `Fail`, because
+/// `ScenarioState::Fail` carries no text; the reason the four skips carry is
+/// widened to name the failure, because the error is the only thing an operator
+/// can act on. A `Fail` whose error nobody can read is half the fix.
+///
+/// When a report DOES exist the guard's reason is the whole story and nothing
+/// is appended: `analyze()` produced a report, which is exactly what the extra
+/// row asserts.
+///
+/// # Parameters
+///
+/// * `ctx` — the run context, read for `report` and `error`.
+/// * `reason` — why the four assertions could not be evaluated.
+///
+/// # Complexity
+///
+/// `O(1)`: four rows, plus one.
+fn s15_inconclusive(ctx: &RunContext<'_>, reason: impl Into<String>) -> Vec<Assertion> {
+    let reason = reason.into();
+    match (ctx.report, ctx.error) {
+        (None, Some(e)) => {
+            let mut rows = s15_skips(format!(
+                "{reason}; and analyze() produced no report at all: {e}"
+            ));
+            rows.push(analyze_produced_a_report(ctx));
+            rows
+        }
+        _ => s15_skips(reason),
+    }
+}
+
 /// All four of `S15`'s assertions as `Skip`s carrying one shared reason.
 ///
 /// # Parameters
@@ -1155,15 +1199,23 @@ fn s15_four_assertions(report: &MagiReport, ctx: &RunContext<'_>) -> Vec<Asserti
 ///   That case is what the scenario exists for, and the guard must not be able
 ///   to swallow it — which is what
 ///   `s15_still_fails_when_the_injection_fired_and_the_report_is_healthy` pins.
+///
+/// **Every one of those skips goes through [`s15_inconclusive`], and that is
+/// load-bearing.** None of the preconditions above asks whether `analyze()`
+/// failed in a typed way, so each of them could return four skips over a crate
+/// defect — exit 2, error text discarded. The helper appends the verdict row
+/// whenever there is no report, so a guard can stop the four assertions without
+/// being able to stop the finding.
 fn s15_degradation_is_honest(ctx: &RunContext<'_>) -> Vec<Assertion> {
     if ctx.proxy_degraded {
-        return s15_skips(
+        return s15_inconclusive(
+            ctx,
             "the proxy registry degraded during this run, so whether the failure this report \
              shows is the one we forced cannot be established",
         );
     }
     if let Some(reason) = why_the_forced_failure_cannot_be_read(ctx) {
-        return s15_skips(reason);
+        return s15_inconclusive(ctx, reason);
     }
     match ctx.report {
         Some(report) => s15_four_assertions(report, ctx),
