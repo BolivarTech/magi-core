@@ -994,6 +994,19 @@ const TOKEN_ESTIMATE_DIVISOR: usize = 4;
 /// drift and the `published` build announces the published crate's number
 /// rather than the tree's.
 ///
+/// # Panics
+///
+/// Never. `run_payload_bytes` carries only a MINIMUM bound in `Config`, so a
+/// huge-but-legal value overflows the token arithmetic here: a panic in debug
+/// builds, and in release a wrapped total announced as an estimate — worse
+/// than no announcement, because it looks measured. The seat count is pinned
+/// at three by `check_seats`, which this function does not call and does not
+/// need to: it is `pub`, takes any `Config`, and a helper that panics for an
+/// out-of-range argument is a landmine for the next caller. Saturating keeps
+/// it total on its own, and saturating UPWARDS is the harmless direction here
+/// — the figure is already declared a coarse bound, and an overstated one is
+/// read rather than acted on.
+///
 /// # Parameters
 ///
 /// * `cfg` — the loaded configuration, for the payload size, the seats and the
@@ -1016,9 +1029,9 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
             .to_string();
     }
     let seats = cfg.seats.len();
-    let input_tokens = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+    let input_tokens = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR).saturating_mul(seats);
     let output_cap = CompletionConfig::default().max_tokens as usize;
-    let output_tokens = output_cap * seats;
+    let output_tokens = output_cap.saturating_mul(seats);
     let expected_secs: u64 = backend_runs.iter().map(|r| cfg.budget(*r).as_secs()).sum();
     let names: Vec<&str> = backend_runs.iter().map(|r| r.as_str()).collect();
     format!(
@@ -1028,7 +1041,7 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
          all; expected time budget ~{expected_secs}s in total",
         backend_runs.len(),
         names.join(", "),
-        input_tokens + output_tokens
+        input_tokens.saturating_add(output_tokens)
     )
 }
 
