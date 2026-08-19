@@ -242,7 +242,7 @@ impl Manifest {
     /// number of directory entries in `dir`: one pass builds the `declared`
     /// set and checks each manifest entry, a second pass checks the
     /// directory against that set.
-    pub fn verify(&self, dir: &Path, live_scenarios: &[&str]) -> Result<FixtureAudit, String> {
+    pub fn verify(&self, dir: &Path, live_scenarios: &[&str]) -> FixtureAudit {
         let mut audit = FixtureAudit::default();
         let mut declared: BTreeSet<&str> = BTreeSet::new();
 
@@ -315,7 +315,7 @@ impl Manifest {
         }
 
         audit.total = self.fixtures.len();
-        Ok(audit)
+        audit
     }
 
     /// Why a declared path is not a plain filename, or `None` when it is.
@@ -766,7 +766,7 @@ mod tests {
         // `verify` returns `Ok(audit)` with the findings INSIDE — it
         // accumulates instead of stopping at the first failure — so
         // `unwrap_err()` here would panic on an `Ok`.
-        let audit = m.verify(dir.path(), &["S9", "S9b"]).unwrap();
+        let audit = m.verify(dir.path(), &["S9", "S9b"]);
         assert!(!audit.is_clean());
         assert!(audit
             .corrupt
@@ -784,8 +784,8 @@ mod tests {
         // `is_ok()` is not enough: `verify` returns `Ok` even when it FOUND
         // problems. What must be asserted is that the audit is CLEAN — and a
         // directory with undeclared files would report them as orphans.
-        assert!(m.verify(&fixture_dir(), &["S1", "S2"]).unwrap().is_clean());
-        assert!(m.verify(&fixture_dir(), &[]).unwrap().is_clean());
+        assert!(m.verify(&fixture_dir(), &["S1", "S2"]).is_clean());
+        assert!(m.verify(&fixture_dir(), &[]).is_clean());
     }
 
     #[test]
@@ -802,7 +802,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]);
         assert!(
             audit.orphans.iter().any(|s| s.contains("S99")),
             "the manifest must be crossed in BOTH directions"
@@ -815,10 +815,7 @@ mod tests {
         // the manifest, so the disk->manifest direction — the one the
         // implementation was NOT exercising — stayed untested.
         let dir = tempdir_with(&[("undeclared.json", "{}")]);
-        let audit = Manifest::from_str("")
-            .unwrap()
-            .verify(dir.path(), &["S9"])
-            .unwrap();
+        let audit = Manifest::from_str("").unwrap().verify(dir.path(), &["S9"]);
         assert!(audit.orphans.iter().any(|s| s.contains("undeclared.json")));
     }
 
@@ -834,7 +831,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]);
         assert!(audit.corrupt.iter().any(|s| s.contains("just because")));
     }
 
@@ -856,7 +853,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]);
         assert!(audit
             .corrupt
             .iter()
@@ -884,7 +881,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]);
         assert!(
             audit.corrupt.iter().any(|s| s.contains("S9b")),
             "an id naming no live scenario must be a finding, not a prefix that passed: {:?}",
@@ -906,7 +903,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9"]);
         assert!(
             audit.corrupt.iter().any(|s| s.contains("names nobody")),
             "an empty id claims a re-check by nobody and must say so: {:?}",
@@ -928,7 +925,7 @@ mod tests {
         "#,
         )
         .unwrap();
-        let audit = m.verify(&fixture_dir(), &["S9", "S9b"]).unwrap();
+        let audit = m.verify(&fixture_dir(), &["S9", "S9b"]);
         assert!(
             !audit.corrupt.iter().any(|s| s.contains("currency")),
             "an id that DOES name a live scenario is a valid currency claim: {:?}",
@@ -951,9 +948,7 @@ mod tests {
         // one. Enforcing flatness closes exactly the gap, and a corpus that
         // ever needs nesting gets a loud refusal instead of a silent omission.
         let dir = tempdir_with(&[("sub/nested.json", "{}")]);
-        let audit = Manifest { fixtures: vec![] }
-            .verify(dir.path(), &["S9"])
-            .unwrap();
+        let audit = Manifest { fixtures: vec![] }.verify(dir.path(), &["S9"]);
         assert!(
             audit.corrupt.iter().any(|s| s.contains("does not recurse")),
             "a directory inside the corpus must be refused as unreadable scope, not reported \
@@ -993,7 +988,7 @@ mod tests {
                 "#
             ))
             .expect("the manifest itself is well-formed; the PATH is what must be refused");
-            let audit = m.verify(dir.path(), &["S9"]).unwrap();
+            let audit = m.verify(dir.path(), &["S9"]);
             assert!(
                 audit.corrupt.iter().any(|s| s.contains(escaping)),
                 "{escaping:?} must be refused before the read, as corrupt: {audit:?}"
@@ -1013,10 +1008,7 @@ mod tests {
         // that cannot be read must not.
         let dir = tempdir_with(&[]);
         let missing = dir.path().join("does-not-exist");
-        let audit = Manifest::from_str("")
-            .unwrap()
-            .verify(&missing, &[])
-            .unwrap();
+        let audit = Manifest::from_str("").unwrap().verify(&missing, &[]);
         assert!(!audit.is_clean());
         assert!(audit
             .corrupt
@@ -1077,10 +1069,7 @@ mod tests {
         // real directory, because `std::fs::DirEntry` has no public
         // constructor — the Ok arm can only be exercised for real.
         let dir = tempdir_with(&[("undeclared-after-the-fix.json", "{}")]);
-        let audit = Manifest::from_str("")
-            .unwrap()
-            .verify(dir.path(), &["S9"])
-            .unwrap();
+        let audit = Manifest::from_str("").unwrap().verify(dir.path(), &["S9"]);
         assert!(audit
             .orphans
             .iter()

@@ -230,7 +230,7 @@ pub async fn run(
     check_seats(cfg).map_err(|m| PreflightError::cannot_test(Stage::Config, m))?; // config
 
     let audit = fixtures::Manifest::load(&fixture_dir())
-        .and_then(|m| m.verify(&fixture_dir(), live))
+        .map(|m| m.verify(&fixture_dir(), live))
         .map_err(|m| PreflightError::cannot_test(Stage::Fixtures, m))?; // fixtures
     if !audit.is_clean() {
         // The audit ACCUMULATES, so the message names them all: discovering
