@@ -662,10 +662,15 @@ pub struct CostLedger {
     /// Whether [`CostLedger::announce`] ran. The estimate is a statement rather
     /// than a measurement, so what matters is that it was made, not when.
     announced: bool,
-    /// When the runs actually STARTED, per
-    /// [`measure`](CostLedger::measure). `None` until then,
-    /// and it is what the receipt measures from.
-    runs_started_at: Option<std::time::Instant>,
+    /// How long the runs took, captured by [`measure`](CostLedger::measure)
+    /// after the work it was handed finished. `None` until then, and it is what
+    /// the receipt reports.
+    ///
+    /// An elapsed DURATION rather than a start instant, so that neither end of
+    /// the interval depends on where a call sits: an instant left
+    /// [`record`](CostLedger::record) measuring to its own call site, so the
+    /// interval grew by whatever was moved in between.
+    measured: Option<std::time::Duration>,
     /// How many backend runs the announcement was about, so the receipt
     /// describes the same set.
     backend_runs: usize,
@@ -676,7 +681,7 @@ impl CostLedger {
     pub fn new() -> Self {
         CostLedger {
             announced: false,
-            runs_started_at: None,
+            measured: None,
             backend_runs: 0,
         }
     }
@@ -713,9 +718,9 @@ impl CostLedger {
     ///
     /// * nothing was announced — the estimate has to come first, since before
     ///   the spend the same number is a decision the operator can still make;
-    /// * the runs were never marked as started — there is no interval to report
-    ///   and nothing has been spent, so a number here would be a receipt for
-    ///   work that has not happened.
+    /// * the runs were never measured — there is no interval to report and
+    ///   nothing has been spent, so a number here would be a receipt for work
+    ///   that has not happened.
     pub fn record(&self) -> Result<String, String> {
         if !self.announced {
             return Err(
@@ -725,7 +730,7 @@ impl CostLedger {
                     .to_string(),
             );
         }
-        let started = self.runs_started_at.ok_or_else(|| {
+        let measured = self.measured.ok_or_else(|| {
             "the real cost cannot be recorded before the runs started: there is no interval to \
              report and nothing has been spent yet, so a number here would be a receipt for work \
              that has not happened"
@@ -734,7 +739,7 @@ impl CostLedger {
         Ok(format!(
             "{} backend run(s) in {:.1}s",
             self.backend_runs,
-            started.elapsed().as_secs_f64()
+            measured.as_secs_f64()
         ))
     }
 
@@ -758,8 +763,10 @@ impl CostLedger {
     ///
     /// * `work` — the runs, awaited here and returned untouched.
     pub async fn measure<T>(&mut self, work: impl std::future::Future<Output = T>) -> T {
-        self.runs_started_at = Some(std::time::Instant::now());
-        work.await
+        let started = std::time::Instant::now();
+        let out = work.await;
+        self.measured = Some(started.elapsed());
+        out
     }
 }
 
