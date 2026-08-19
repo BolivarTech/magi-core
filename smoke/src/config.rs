@@ -885,7 +885,7 @@ impl Config {
     ///
     /// **Not `no_backend_secs`.** That run never touches the endpoint, so the
     /// probe protects nothing there — and comparing against it made the crate's
-    /// own defaults FAIL their own validation (`10 * 4 = 40s` against a 30s
+    /// own defaults FAIL their own validation (`10 * 5 = 50s` against a 30s
     /// budget). A guard that fires on the shipped defaults is one that gets
     /// silenced on day one; this project already rejected that exact shape for
     /// the retry warning.
@@ -1563,7 +1563,7 @@ probe_timeout_secs = 0
     fn the_whole_set_of_overrides_is_judged_together_not_one_at_a_time() {
         // The operator's scenario, and it is a legal configuration: a slow local
         // backend needs a wider probe window, so the probe AND all three
-        // backend-run budgets are raised TOGETHER — `60 * (1 + 3) = 240 <= 600`.
+        // backend-run budgets are raised TOGETHER — `60 * 5 = 300 <= 600`.
         //
         // Validating after EACH override judged this against the budgets that
         // had not been applied yet, purely because `probe_timeout_secs` comes
@@ -1604,9 +1604,9 @@ probe_timeout_secs = 0
         // the environment the HIGHEST-precedence path, which it cannot be if
         // the file gets to veto it first.
         //
-        // 60 * (1 + 3) = 240s against the default injected budget of 120s: the
+        // 60 * 5 = 300s against the default injected budget of 180s: the
         // file alone does not validate. The overrides raise all three backend
-        // budgets to 600, and 240 <= 600 holds for the set that will actually
+        // budgets to 600, and 300 <= 600 holds for the set that will actually
         // be used.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let dir = crate::testkit::tempdir_with(&[(
@@ -1654,7 +1654,7 @@ injected_secs = 120
         // The other half, and it is what stops the fix above from becoming "stop
         // validating the environment": deferring validation to the end must not
         // defer it to never. This set is invalid as a WHOLE — the probe's
-        // widened window (240s) outlasts the injected budget it guards (120s) —
+        // widened window (300s) outlasts the injected budget it guards (120s) —
         // so it must still be refused, and the message must NAME the field.
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let _probe = EnvVarGuard::set("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "60");
@@ -1689,7 +1689,7 @@ injected_secs = 120
     // it. The emphasis lives here instead — this is the test that keeps the
     // shipped defaults from failing the very validation they ship with.
     fn the_shipped_defaults_pass_their_own_probe_window_validation() {
-        // 10 * (1+3) = 40 <= min(120, 300, 180) = 120. The test that keeps the
+        // 10 * 5 = 50 <= min(120, 300, 180) = 120. The test that keeps the
         // guard honest: without it, a poorly chosen range would make the built-in
         // config invalid and nobody would notice until the first `cargo run`.
         assert!(Config::default().validate_probe_window().is_ok());
