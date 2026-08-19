@@ -649,23 +649,6 @@ impl Runner {
         self.probe.direct_status = Some(direct_status);
     }
 
-    /// Executes every run in order.
-    ///
-    /// # Parameters
-    ///
-    /// * `specs` — the runs to execute, in order.
-    ///
-    /// # Complexity
-    ///
-    /// One backend run per spec, plus at most one retry each.
-    pub async fn execute(&mut self, specs: &[RunSpec]) -> Vec<RunResult> {
-        let mut out = Vec::with_capacity(specs.len());
-        for spec in specs {
-            out.push(self.execute_one(spec).await);
-        }
-        out
-    }
-
     /// Executes one run, with a single retry for an inconclusive first attempt.
     ///
     /// # Parameters

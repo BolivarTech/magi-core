@@ -760,15 +760,21 @@ pub struct CostLedger {
     /// Whether [`CostLedger::announce`] ran. The estimate is a statement rather
     /// than a measurement, so what matters is that it was made, not when.
     announced: bool,
-    /// How long the runs took, captured by [`measure`](CostLedger::measure)
-    /// after the work it was handed finished. `None` until then, and it is what
-    /// the receipt reports.
+    /// One elapsed duration per call to [`measure`](CostLedger::measure), in
+    /// the order they were made. The receipt reports their SUM, and their
+    /// COUNT is what [`record`](CostLedger::record) checks against
+    /// `backend_runs`.
     ///
-    /// An elapsed DURATION rather than a start instant, so that neither end of
-    /// the interval depends on where a call sits: an instant left
+    /// Elapsed DURATIONS rather than start instants, so that neither end of an
+    /// interval depends on where a call sits: an instant left
     /// [`record`](CostLedger::record) measuring to its own call site, so the
     /// interval grew by whatever was moved in between.
-    measured: Option<std::time::Duration>,
+    ///
+    /// A LIST rather than one total, because the count is the guard. A single
+    /// accumulator would sum to the same seconds while saying nothing about how
+    /// many calls produced them, and how many calls produced them is the only
+    /// thing here that describes the SHAPE of the call site.
+    measured: Vec<std::time::Duration>,
     /// How many backend runs the announcement was about, so the receipt
     /// describes the same set.
     backend_runs: usize,
@@ -779,7 +785,7 @@ impl CostLedger {
     pub fn new() -> Self {
         CostLedger {
             announced: false,
-            measured: None,
+            measured: Vec::new(),
             backend_runs: 0,
         }
     }
@@ -821,7 +827,30 @@ impl CostLedger {
     ///   MEASURED and not "the runs never started", because the two are not
     ///   the same claim and only one of them is always true: a [`measure`]
     ///   future dropped mid-await leaves runs that did start and still no
-    ///   interval, and the refusal has to be honest about that case too.
+    ///   interval, and the refusal has to be honest about that case too;
+    /// * the number of intervals does not equal the number of backend runs the
+    ///   announcement counted — see below. Its own message, because it sends
+    ///   the reader to a third place: not to a missing call but to the SHAPE of
+    ///   the call site.
+    ///
+    /// # Why the COUNT is checked, and what that does and does not close
+    ///
+    /// While one interval spanned the whole batch, which work sat inside it was
+    /// decided by the caller and by nothing else, and two shipped regressions
+    /// billed the certificate for neighbouring work with every test green. One
+    /// interval per run turns that into arithmetic: a caller that wraps the
+    /// batch again produces ONE interval for N runs, and a caller that adds a
+    /// measured call produces N+1. Both refuse instead of returning a plausible
+    /// number, and under-measurement — the direction that used to report a
+    /// quiet `0.0s` — refuses too.
+    ///
+    /// **It is a partial closure and the boundary is stated.** Work smuggled
+    /// INSIDE one of the N measured calls is still billed and still counted,
+    /// so the count comparison cannot see it. What changed is that doing so is
+    /// no longer a quiet reorder: the batch call that invited a neighbour to be
+    /// dropped in is gone, and the one-per-run calls sit inside a loop, so
+    /// billing a once-per-process step there also runs it N times — a
+    /// conspicuous change rather than a line that moved.
     ///
     /// [`measure`]: CostLedger::measure
     pub fn record(&self) -> Result<String, String> {
@@ -833,20 +862,41 @@ impl CostLedger {
                     .to_string(),
             );
         }
-        let measured = self.measured.ok_or_else(|| {
-            "the real cost cannot be recorded before the runs were measured: there is no \
-             interval to report, so a number here would be a receipt for work nothing timed"
-                .to_string()
-        })?;
+        if self.measured.is_empty() && self.backend_runs > 0 {
+            return Err(
+                "the real cost cannot be recorded before the runs were measured: there is no \
+                 interval to report, so a number here would be a receipt for work nothing timed"
+                    .to_string(),
+            );
+        }
+        if self.measured.len() != self.backend_runs {
+            return Err(format!(
+                "the real cost cannot be recorded from {} interval(s) for {} announced backend \
+                 run(s): the receipt bills one interval per run, so a different number means the \
+                 call site measured something other than the runs — one interval for all of them \
+                 sweeps in whatever sits between, and an extra one bills work the estimate never \
+                 announced",
+                self.measured.len(),
+                self.backend_runs
+            ));
+        }
         Ok(format!(
             "{} backend run(s) in {:.1}s",
             self.backend_runs,
-            measured.as_secs_f64()
+            self.measured
+                .iter()
+                .sum::<std::time::Duration>()
+                .as_secs_f64()
         ))
     }
 
-    /// Times `work` as the runs, and stores the elapsed duration
-    /// [`record`](CostLedger::record) reports.
+    /// Times ONE backend run, and appends its elapsed duration to the intervals
+    /// [`record`](CostLedger::record) sums and counts.
+    ///
+    /// **Called once per backend run, never once around the batch.** That is
+    /// the whole of the design, and `record` refuses when the number of
+    /// intervals does not match the announced count — so the rule is arithmetic
+    /// rather than a convention about which call the caller chose to wrap.
     ///
     /// The interval is captured around the work itself: the clock starts here
     /// and stops when the awaited work returns, so **neither end depends on
@@ -857,38 +907,40 @@ impl CostLedger {
     /// down to sit between the runs and the receipt billed the certificate for
     /// four `cargo check` runs with every test green.
     ///
-    /// What it does NOT guarantee, since an earlier version of this paragraph
-    /// claimed there was no ordering left to get wrong: work handed in as part
-    /// of `work` is measured, because that is what measuring the argument
-    /// means. A caller who passes `async {}` and runs the real work outside
-    /// still gets a wrong receipt — a conspicuous `0.0s` for N runs, rather
-    /// than a plausible number, which is the direction that fails usefully.
+    /// # What the count comparison closes, and what it does not
     ///
-    /// The opposite direction fails quietly, and it is the one that has
-    /// actually shipped twice. Moving `run_feature_matrix` or
-    /// `prime_transparency_probe` INSIDE the argument bills them to the
-    /// certificate, and both were demonstrated doing exactly that with every
-    /// test green — because what a test can reach is this function, while what
-    /// decides the receipt is which work the call site hands it. Nothing here
-    /// covers that composition, and no assertion elsewhere does either: the
-    /// defence is that the call site names what it is passing, which is a
-    /// convention and not a guard.
+    /// It closes the two SHAPES the call site can take wrongly. Going back to
+    /// one call around the batch gives one interval for N runs; adding a
+    /// measured call to bill something else gives N+1; running the work outside
+    /// and passing `async {}` gives intervals that do not correspond to runs at
+    /// all, and any of those refuses instead of returning a number.
+    ///
+    /// It does NOT close work smuggled inside one of the N calls: that work is
+    /// measured, because measuring the argument is what this function does, and
+    /// the count is unchanged. The residue is narrower than what it replaced,
+    /// though. Both regressions that actually shipped were a line MOVED across
+    /// a single batch-wide interval; there is no such interval left to move it
+    /// into, and the per-run calls sit in a loop, so billing a once-per-process
+    /// step from there also executes it N times — visible in the diff and in
+    /// the run, rather than quiet.
     ///
     /// What that excludes, said as what it is: the git baseline, the spec
     /// build, the fixture audit, the feature matrix's four `cargo check` runs
-    /// under `--build-matrix`, and the transparency probe. The last one is a
-    /// real round-trip to the backend, so it is excluded not for being local
-    /// but for not being one of the N runs the receipt counts — it spends no
-    /// tokens, and a series that swallows a probe on some releases and four
-    /// builds on others cannot be compared across them.
+    /// under `--build-matrix`, the transparency probe, the offline run — and
+    /// now also anything the caller does BETWEEN two runs, which a single
+    /// batch-wide interval swallowed by construction. The transparency probe is
+    /// a real round-trip to the backend, so it is excluded not for being local
+    /// but for not being one of the N runs the receipt counts; the offline run
+    /// is excluded because the receipt counts BACKEND runs and billing it would
+    /// put a run outside that count inside the interval that reports it.
     ///
     /// # Parameters
     ///
-    /// * `work` — the runs, awaited here and returned untouched.
+    /// * `work` — one backend run, awaited here and returned untouched.
     pub async fn measure<T>(&mut self, work: impl std::future::Future<Output = T>) -> T {
         let started = std::time::Instant::now();
         let out = work.await;
-        self.measured = Some(started.elapsed());
+        self.measured.push(started.elapsed());
         out
     }
 }

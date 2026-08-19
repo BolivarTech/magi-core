@@ -249,16 +249,28 @@ async fn main() -> std::process::ExitCode {
     // run once, before the first run. Its failure leaves the fields empty, which
     // makes the scenario reading them SKIP — never FAIL.
     run.prime_transparency_probe(&cfg.endpoint).await;
-    // The measured interval IS this call, at BOTH ends: the ledger stores the
-    // duration this line took, so nothing above it and nothing below it can be
-    // billed to the certificate. It cost two rounds to get there — first a
-    // start mark on the line above, which drifted up into the preflight; then a
-    // stop computed inside `record`, which swallowed whatever was moved in
-    // between. Either way the bill was the feature matrix's four `cargo check`
-    // runs under `--build-matrix`, and a cost series that includes four builds
-    // on some releases and not on others cannot be compared across them — the
-    // whole payoff of writing the certificate to one fixed path.
-    let results = ready.ledger.measure(run.execute(&specs)).await;
+    // ONE measured interval PER BACKEND RUN, and the ledger refuses to produce
+    // a receipt unless their number matches the count it announced. That is the
+    // point of the loop: it cost two rounds to get the ENDS of the interval
+    // right — a start mark that drifted up into the preflight, then a stop
+    // computed inside `record` that swallowed whatever was moved in between —
+    // and both times the bill was the feature matrix's four `cargo check` runs,
+    // billed with every test green, because which work sat inside a single
+    // batch-wide interval was decided here and checked nowhere. There is no
+    // batch-wide interval left to move a line into, and adding a `measure` call
+    // to bill something else is now a refusal instead of a plausible number.
+    //
+    // The offline run is executed here too but NOT measured: the receipt counts
+    // BACKEND runs, so billing a run outside that count would put work inside
+    // an interval that reports a different set.
+    let mut results = Vec::with_capacity(specs.len());
+    for spec in &specs {
+        if spec.id.uses_backend() {
+            results.push(ready.ledger.measure(run.execute_one(spec)).await);
+        } else {
+            results.push(run.execute_one(spec).await);
+        }
+    }
 
     // R31's second half, and the reason it is read HERE: after the spend. The
     // ledger refuses to answer if nothing was announced first, so the order is
