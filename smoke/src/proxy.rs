@@ -253,6 +253,41 @@ const REQUEST_UNREADABLE_STATUS: u16 = 500;
 /// line is legible in a captured trace without cross-referencing the status.
 const REQUEST_UNREADABLE_BODY: &[u8] = b"spy proxy: could not read the request body";
 
+/// How long the accept loop waits after a failed `accept()` before trying
+/// again.
+const ACCEPT_ERROR_BACKOFF: Duration = Duration::ZERO;
+
+/// How many `accept()` failures in a row the accept loop tolerates before it
+/// stops.
+const MAX_CONSECUTIVE_ACCEPT_FAILURES: u32 = u32::MAX / 2;
+
+/// What the accept loop does after a failed `accept()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptFailureAction {
+    /// Wait [`ACCEPT_ERROR_BACKOFF`] and accept again.
+    BackOff,
+    /// Stop accepting.
+    GiveUp,
+}
+
+/// The accept loop's policy, given how many failures have happened in a row.
+///
+/// # Parameters
+///
+/// * `consecutive` — failures since the last successful `accept()`, counting
+///   the one just observed, so the first failure arrives as `1`.
+///
+/// # Complexity
+///
+/// `O(1)`.
+fn accept_failure_action(consecutive: u32) -> AcceptFailureAction {
+    if consecutive >= MAX_CONSECUTIVE_ACCEPT_FAILURES {
+        AcceptFailureAction::GiveUp
+    } else {
+        AcceptFailureAction::BackOff
+    }
+}
+
 /// Headers that belong to ONE hop of a connection and must never be relayed to
 /// the next one, in the lowercase form `hyper` and `reqwest` both hand back.
 ///
@@ -683,6 +718,7 @@ impl SpyProxy {
         };
         let srv = this.clone();
         tokio::spawn(async move {
+            let mut consecutive_failures: u32 = 0;
             loop {
                 // A failed accept must NOT kill the proxy: a proxy problem
                 // never turns into a scenario red. It marks degraded and
@@ -690,8 +726,24 @@ impl SpyProxy {
                 let Ok((stream, _)) = listener.accept().await else {
                     srv.degraded
                         .store(true, std::sync::atomic::Ordering::SeqCst);
-                    continue;
+                    consecutive_failures = consecutive_failures.saturating_add(1);
+                    match accept_failure_action(consecutive_failures) {
+                        AcceptFailureAction::BackOff => {
+                            tokio::time::sleep(ACCEPT_ERROR_BACKOFF).await;
+                            continue;
+                        }
+                        AcceptFailureAction::GiveUp => {
+                            eprintln!(
+                                "magi-smoke: spy proxy stopped accepting after \
+                                 {consecutive_failures} consecutive accept failures — the \
+                                 run is degraded and every assertion that reads the \
+                                 registry will report SKIP"
+                            );
+                            return;
+                        }
+                    }
                 };
+                consecutive_failures = 0;
                 let conn = srv.clone();
                 let up = upstream.clone();
                 tokio::spawn(async move {
@@ -1187,6 +1239,67 @@ mod tests {
     /// derives its value from the configured budgets instead — see
     /// [`SpyProxy::start`].
     const TEST_UPSTREAM_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// The largest give-up threshold this test will call reachable.
+    ///
+    /// Not a bound on the production constant so much as on what counts as a
+    /// bound at all: with the backoff below it, this many failures is already
+    /// minutes of a listener returning `Err` on every call.
+    const REACHABLE_ACCEPT_FAILURE_LIMIT: u32 = 1_000;
+
+    #[test]
+    fn a_persistent_accept_failure_backs_off_and_then_gives_up() {
+        // A failed `accept()` used to latch `degraded` and `continue` IMMEDIATELY.
+        // For a transient error (ECONNABORTED) that is right. For a persistent
+        // one — EMFILE/ENFILE from descriptor exhaustion, plausible when
+        // rotation, retries and probes are all opening connections against a
+        // backend holding them — `accept` returns `Err` instantly every
+        // iteration and the loop becomes a hot spin on a core for the rest of the
+        // process.
+        //
+        // The verdict direction was safe (`degraded` routes assertions to SKIP)
+        // but the cost was not: the runs still in flight are WALL-CLOCK budgeted
+        // and `CostLedger` measures that wall clock, so the certificate would
+        // record a real cost inflated by the harness spinning.
+        //
+        // Asserted on the policy rather than by exhausting the process's file
+        // descriptors: the loop is three lines that consult this function, and a
+        // test that had to induce EMFILE would be untestable in practice — which
+        // is how a guard ends up with nothing behind it.
+        assert!(
+            ACCEPT_ERROR_BACKOFF > Duration::ZERO,
+            "a zero wait is the spin it is supposed to stop"
+        );
+        // The threshold must be a number a real run can REACH. A nominal
+        // "give up" that needs four billion failures is the unbounded retry
+        // with a constant in front of it — a mechanism that reports a guard
+        // and guards nothing, which is the shape this milestone keeps finding.
+        assert!(
+            (1..=REACHABLE_ACCEPT_FAILURE_LIMIT).contains(&MAX_CONSECUTIVE_ACCEPT_FAILURES),
+            "the give-up threshold must be reachable, not nominal: {MAX_CONSECUTIVE_ACCEPT_FAILURES}"
+        );
+        assert_eq!(
+            accept_failure_action(1),
+            AcceptFailureAction::BackOff,
+            "the first failure must yield the core and retry, not stop the proxy"
+        );
+        assert_eq!(
+            accept_failure_action(MAX_CONSECUTIVE_ACCEPT_FAILURES - 1),
+            AcceptFailureAction::BackOff,
+            "one short of the threshold is still a retry"
+        );
+        assert_eq!(
+            accept_failure_action(MAX_CONSECUTIVE_ACCEPT_FAILURES),
+            AcceptFailureAction::GiveUp,
+            "a listener failing this many times running is not having a transient \
+             moment, and retrying it forever is the spin under another name"
+        );
+        assert_eq!(
+            accept_failure_action(u32::MAX),
+            AcceptFailureAction::GiveUp,
+            "total for every input: no count may fall through to spinning"
+        );
+    }
 
     #[test]
     fn an_absurd_payload_target_does_not_overflow_the_recorded_body_cap() {
