@@ -808,6 +808,12 @@ fn listed_models(body: &[u8]) -> Option<Vec<String>> {
 /// the probe could not ask its question. See [`probe`] for what the preflight
 /// does with that.
 ///
+/// **On a local backend that same choice can make the probe cause the delay it
+/// reports** — evicting a resident model to cold-load one nothing was using.
+/// The cost and the operator's remedy are written out at
+/// [`Config::probe_model`]; this is where a reader arriving from a "saturated"
+/// message will be, so the pointer belongs here too.
+///
 /// # Parameters
 ///
 /// * `cfg` — the configuration, for the endpoint and the model to name.
@@ -937,7 +943,9 @@ pub fn probe_failure_message() -> String {
     "cannot test: the endpoint did not answer a trivial request in time. Two causes are \
      possible and the harness cannot tell them apart: contention (another client holding the \
      backend) or a cold model still loading. The probe already retried once with a widened \
-     window."
+     window. Note that the model it names is the LAST declared fallback, which on a local \
+     backend is the one least likely to be resident — so the cold start may be the probe's \
+     own: make it resident once, or raise probe_timeout_secs."
         .to_string()
 }
 

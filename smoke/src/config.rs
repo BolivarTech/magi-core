@@ -408,6 +408,36 @@ impl Config {
     /// slow-but-idle backend — an exit 2 that names contention as one of two
     /// possible causes, never a verdict about the crate.
     ///
+    /// # On a LOCAL backend the probe pays for a cold start it caused itself
+    ///
+    /// This is the same wrong-guess cost, at the size a local deployment gives
+    /// it, and it is written down because an operator reading "cannot test:
+    /// contention" has no other way to name it. The rule picks the model
+    /// **least likely to be resident** — a rotation candidate exists to be
+    /// reached when a seat fails, so on a healthy run it is exactly the model
+    /// nothing has loaded. Against a single-GPU Ollama that means the probe
+    /// makes the backend **evict a resident model and load this one from cold**,
+    /// and cold-loading a large model can take longer than the window and its
+    /// widened retry together. The probe then reports "saturated" — over a
+    /// backend that was idle, saturated by the probe's own request, and with a
+    /// seat model now evicted so the run's first real completion pays a second
+    /// cold start.
+    ///
+    /// **It is not closed here, and the reason is which error is cheap.** A
+    /// probe pointed at a model the run will certainly load — the first seat —
+    /// would be warm, but it would also be the model with the most parameters
+    /// in the file on a typical config, so the probe would stop being able to
+    /// distinguish "the queue is busy" from "this thing is simply big". The
+    /// state that follows from this choice is exit 2 with contention named as
+    /// one of two possible causes, which is a refusal to test; the state that
+    /// follows from the other is a probe that answers slowly for a reason it
+    /// does not report. This harness prefers the refusal, and the operator's
+    /// remedy is here rather than in a guess: **`ollama run <the last
+    /// fallback>` once to make it resident**, or raise
+    /// [`Config::probe_timeout_secs`], or declare a small last candidate.
+    /// Against cloud — what every measurement in this milestone used — none of
+    /// this applies: nothing is evicted and nothing is cold.
+    ///
     /// # Panics
     ///
     /// Never. `check_seats` has already rejected a config with no seats by the
