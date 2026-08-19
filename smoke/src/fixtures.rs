@@ -51,7 +51,14 @@ const MANIFEST_FILENAME: &str = "manifest.toml";
 
 /// Filenames the disk->manifest direction of [`Manifest::verify`] does not
 /// expect a `[[fixture]]` entry for, alongside [`MANIFEST_FILENAME`].
-const NON_FIXTURE_FILES: [&str; 2] = [MANIFEST_FILENAME, "README.md"];
+///
+/// `wanted.txt` is the sync script's INPUT — the tracked list of what the
+/// corpus should contain — and it lives beside the fixtures it describes. It is
+/// declared by no `[[fixture]]` entry and never will be, so without this entry
+/// the first legitimate sync turns the audit's orphan check into a permanent
+/// refusal to start. The pairing is pinned by a test that reads the name out of
+/// `sync-fixtures.sh` rather than repeating it.
+const NON_FIXTURE_FILES: [&str; 3] = [MANIFEST_FILENAME, "README.md", "wanted.txt"];
 
 /// The fixture corpus, declared. Parsed from `smoke/fixtures/manifest.toml`.
 #[derive(Debug, Deserialize)]
