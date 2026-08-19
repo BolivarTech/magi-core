@@ -1896,14 +1896,20 @@ mod tests {
         // what survives a run that had no exit. But a sweep that ignored the
         // PID would delete the temps of a CONCURRENT harness — turning a
         // cleanup into a race.
-        let dir = temp_root_with(&[
-            ("magi-smoke-999999-1-abc", false),
-            ("magi-smoke-SELF-2-def", true),
-        ]);
+        //
+        // The live entry is named after THIS process, and that is the whole
+        // test. It used to be the literal `magi-smoke-SELF-2-def`: `SELF` does
+        // not parse as a `u32`, so the sweep skipped that entry before ever
+        // reaching `pid_is_alive` — the directory survived because its name was
+        // unparsable, not because its owner was alive. The assertion passed
+        // with `pid_is_alive` stubbed to `false`, i.e. with the one mechanism
+        // it exists to check completely defeated.
+        let live = format!("magi-smoke-{}-2-def", std::process::id());
+        let dir = temp_root_with(&[("magi-smoke-999999-1-abc", false), (&live, true)]);
         sweep_stale_temps(&dir);
         assert!(!dir.join("magi-smoke-999999-1-abc").exists());
         assert!(
-            dir.join("magi-smoke-SELF-2-def").exists(),
+            dir.join(&live).exists(),
             "a live PID's temps are NOT ours to delete"
         );
     }
