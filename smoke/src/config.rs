@@ -1182,6 +1182,62 @@ mod tests {
     }
 
     #[test]
+    fn the_whole_set_of_overrides_is_judged_together_not_one_at_a_time() {
+        // The operator's scenario, and it is a legal configuration: a slow local
+        // backend needs a wider probe window, so the probe AND all three
+        // backend-run budgets are raised TOGETHER — `60 * (1 + 3) = 240 <= 600`.
+        //
+        // Validating after EACH override judged this against the budgets that
+        // had not been applied yet, purely because `probe_timeout_secs` comes
+        // earlier in `ENV_OVERRIDES` than the budgets do. The run was then
+        // refused with a message naming a relation the FINAL configuration
+        // satisfies — and the operator cannot fix it by reordering, because the
+        // order is the array's, not theirs. R30 calls the environment the
+        // HIGHEST-precedence path; this made part of it unexpressible.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        const WIDE_PROBE_SECS: &str = "60";
+        const WIDE_BUDGET_SECS: &str = "600";
+        let _probe = EnvVarGuard::set("MAGI_SMOKE_PROBE_TIMEOUT_SECS", WIDE_PROBE_SECS);
+        let _happy = EnvVarGuard::set("MAGI_SMOKE_BUDGET_HAPPY_SECS", WIDE_BUDGET_SECS);
+        let _large = EnvVarGuard::set("MAGI_SMOKE_BUDGET_LARGE_SECS", WIDE_BUDGET_SECS);
+        let _injected = EnvVarGuard::set("MAGI_SMOKE_BUDGET_INJECTED_SECS", WIDE_BUDGET_SECS);
+
+        let (cfg, _origin) = Config::load_or_fail(None).unwrap_or_else(|e| {
+            panic!(
+                "a configuration that satisfies every range once ALL overrides are applied \
+                 must load; refusing it makes the highest-precedence path unable to express \
+                 it in any order the operator controls: {e}"
+            )
+        });
+        assert_eq!(cfg.probe_timeout_secs, 60);
+        assert_eq!(cfg.budgets.happy_secs, 600);
+        assert_eq!(cfg.budgets.large_payload_secs, 600);
+        assert_eq!(cfg.budgets.injected_secs, 600);
+    }
+
+    #[test]
+    fn a_set_of_overrides_that_is_still_illegal_at_the_end_is_refused() {
+        // The other half, and it is what stops the fix above from becoming "stop
+        // validating the environment": deferring validation to the end must not
+        // defer it to never. This set is invalid as a WHOLE — the probe's
+        // widened window (240s) outlasts the injected budget it guards (120s) —
+        // so it must still be refused, and the message must NAME the field.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _probe = EnvVarGuard::set("MAGI_SMOKE_PROBE_TIMEOUT_SECS", "60");
+        let _happy = EnvVarGuard::set("MAGI_SMOKE_BUDGET_HAPPY_SECS", "600");
+        let _large = EnvVarGuard::set("MAGI_SMOKE_BUDGET_LARGE_SECS", "600");
+        let _injected = EnvVarGuard::set("MAGI_SMOKE_BUDGET_INJECTED_SECS", "120");
+
+        let err = Config::load_or_fail(None)
+            .expect_err("the final configuration is still illegal and must be refused")
+            .to_string();
+        assert!(
+            err.contains("probe_timeout_secs"),
+            "the message must NAME the field: {err}"
+        );
+    }
+
+    #[test]
     fn a_correctly_spelled_override_still_loads() {
         // Companion to the test above: proves `reject_unknown_smoke_vars`
         // rejects the TYPO specifically, not every `MAGI_SMOKE_*` variable —
