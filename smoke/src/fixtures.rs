@@ -313,6 +313,21 @@ impl Manifest {
     /// corpus it did not fully see, which is the same "reports success while
     /// guarding nothing" defect the directory-level fix closed one level up.
     ///
+    /// # The corpus is FLAT, and that is enforced rather than assumed
+    ///
+    /// This walk reads ONE directory level. A `[[fixture]]` path containing a
+    /// separator would therefore be hashed correctly by direction (1) and never
+    /// crossed by direction (2), and any undeclared file beside it would be
+    /// invisible — half the stated scope, reported on as though it were all of
+    /// it. A subdirectory is consequently a finding of its own, and NOT an
+    /// orphan: an orphan says a file was copied for nothing, while this says a
+    /// region of the corpus was not looked at, and the two send the reader to
+    /// different places.
+    ///
+    /// A file type that cannot be read takes the same branch as a directory,
+    /// deliberately: "it might be a directory" is not enough to claim the walk
+    /// saw everything, and the safe direction here is the one that refuses.
+    ///
     /// # Parameters
     ///
     /// * `entries` — the directory's entries, each possibly a read failure.
@@ -355,6 +370,28 @@ impl Manifest {
                 continue;
             };
             if NON_FIXTURE_FILES.contains(&name) {
+                continue;
+            }
+            // The corpus is FLAT, and this is where that is enforced. This walk
+            // reads one directory level, so anything below a subdirectory is
+            // never compared with the manifest at all — a check covering half
+            // its stated scope while reporting on the whole of it. Reporting
+            // the directory as an orphan FILE would be the wrong finding: it
+            // says something was copied for nothing, when what happened is that
+            // a region of the corpus was not looked at.
+            //
+            // Flatness rather than recursion because no fixture nests, and a
+            // recursive walk would have to build relative paths and reconcile
+            // two separator conventions to compare them with manifest entries
+            // that have never carried either. If a corpus ever needs nesting,
+            // this refusal is where it announces itself.
+            if dir_entry.file_type().map(|t| t.is_dir()).unwrap_or(true) {
+                audit.corrupt.push(format!(
+                    "{}: {name} is a directory, and this walk does not recurse — the fixture \
+                     corpus is FLAT. Nothing inside it was compared with the manifest, so \
+                     this audit cannot be clean.",
+                    dir.display()
+                ));
                 continue;
             }
             if !declared.contains(name) {
