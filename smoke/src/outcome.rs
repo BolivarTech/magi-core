@@ -474,24 +474,9 @@ mod tests {
         ));
     }
 
-    #[test]
-    #[allow(non_snake_case)]
-    fn every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph() {
-        // The list's own stated criterion — crates the crate under test does
-        // NOT depend on — was never checked against the crate under test. Four
-        // of its five names failed it: `smoke/Cargo.toml` builds `magi-core`
-        // with `features = ["ollama"]`, so the crate links `reqwest`, which is
-        // built on `hyper` and pulls `hyper-util`, `http-body-util` and
-        // `futures-util`. A panic raised inside hyper from the crate's OWN
-        // request path was therefore attributed to the harness, returned as
-        // Skip and mapped to exit 2 — the direction this function's doc names
-        // as the one that hides a defect and reports green.
-        //
-        // Asked of the real dependency graph rather than of a list written
-        // here, because a second hand-maintained list is the same defect one
-        // step removed: this reads what the SUT actually resolves, so a name
-        // that reappears in it fails here instead of being discovered by a
-        // buried panic.
+    /// The package names the crate under test resolves, as ONE source both
+    /// guards read.
+    fn crate_under_test_packages() -> std::collections::BTreeSet<String> {
         let out = std::process::Command::new("cargo")
             .args([
                 "tree",
@@ -511,11 +496,65 @@ mod tests {
             "cargo tree failed: {}",
             String::from_utf8_lossy(&out.stderr)
         );
-        let tree = String::from_utf8_lossy(&out.stdout);
-        let resolved: std::collections::BTreeSet<&str> = tree
+        String::from_utf8_lossy(&out.stdout)
             .lines()
             .filter_map(|l| l.split_whitespace().next())
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn the_graph_the_dependency_guard_reads_is_the_one_this_harness_LINKS() {
+        // The guard above asks a question about the binary this harness builds,
+        // and asked it of a DIFFERENT resolution: the repository root is its
+        // own workspace with its own lockfile, and `smoke/` is deliberately
+        // another one. The two resolve the same crate differently — measured,
+        // not assumed: the root's graph carries packages `smoke/Cargo.lock`
+        // does not contain at all.
+        //
+        // So the criterion is checkable against the file that DEFINES what this
+        // harness links: every package the guard sees must appear in this
+        // package's own lock. A guard reading someone else's graph can clear a
+        // name that is in ours, which is the direction that buries a crate
+        // defect behind a Skip.
+        let lock = std::fs::read_to_string(crate::paths::smoke_dir().join("Cargo.lock"))
+            .expect("this package's lockfile is tracked");
+        let locked: std::collections::BTreeSet<&str> = lock
+            .lines()
+            .filter_map(|l| l.strip_prefix("name = \""))
+            .filter_map(|l| l.strip_suffix('"'))
             .collect();
+        let strays: Vec<String> = crate_under_test_packages()
+            .into_iter()
+            .filter(|p| !locked.contains(p.as_str()))
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "the guard is reading a resolution this harness does not link: {strays:?} appear \
+             in the graph it queried but not in smoke/Cargo.lock"
+        );
+    }
+
+    #[test]
+    #[allow(non_snake_case)]
+    fn every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph() {
+        // The list's own stated criterion — crates the crate under test does
+        // NOT depend on — was never checked against the crate under test. Four
+        // of its five names failed it: `smoke/Cargo.toml` builds `magi-core`
+        // with `features = ["ollama"]`, so the crate links `reqwest`, which is
+        // built on `hyper` and pulls `hyper-util`, `http-body-util` and
+        // `futures-util`. A panic raised inside hyper from the crate's OWN
+        // request path was therefore attributed to the harness, returned as
+        // Skip and mapped to exit 2 — the direction this function's doc names
+        // as the one that hides a defect and reports green.
+        //
+        // Asked of the real dependency graph rather than of a list written
+        // here, because a second hand-maintained list is the same defect one
+        // step removed: this reads what the SUT actually resolves, so a name
+        // that reappears in it fails here instead of being discovered by a
+        // buried panic.
+        let resolved = crate_under_test_packages();
 
         for dep in HARNESS_ONLY_DEPS {
             assert!(
