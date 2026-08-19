@@ -972,6 +972,30 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_budget_names_the_budget_and_not_the_probe_timeout() {
+        // Ordering defect, the same class this function already fixed once for
+        // the probe range: `validate_probe_window` compares the widened probe
+        // window against the SHORTEST backend budget, so a zero budget makes
+        // any probe window at all look too long and the refusal blames
+        // `probe_timeout_secs` -- a field the operator did not touch. Its own
+        // message ("zero caps a run at nothing") is unreachable for exactly the
+        // three fields that comparison reads.
+        for field in ["happy_secs", "large_payload_secs", "injected_secs"] {
+            let mut cfg = Config::default();
+            match field {
+                "happy_secs" => cfg.budgets.happy_secs = 0,
+                "large_payload_secs" => cfg.budgets.large_payload_secs = 0,
+                _ => cfg.budgets.injected_secs = 0,
+            }
+            let err = cfg.validate().unwrap_err().to_string();
+            assert!(
+                err.contains(field) && !err.contains("probe_timeout_secs"),
+                "a zero budget must name {field}, not the probe timeout: {err}"
+            );
+        }
+    }
+
+    #[test]
     fn a_budget_beyond_the_ceiling_is_rejected_and_the_field_is_named() {
         // A cap that can never be reached in a session anybody watches is not a
         // cap. The ceiling is deliberately high — a local GPU serialises the
