@@ -302,12 +302,31 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
         let _ = writeln!(out);
         let _ = writeln!(out, "{warning}");
     }
+    // Said, never left to be noticed. The large payload is the class this
+    // harness exists for, and the stage that does not launch it produced a
+    // certificate with simply no row for it — an absence the reader had to
+    // count the table to find. It goes ABOVE the table, in the position the
+    // large-payload rows would have occupied, for the same reason they are
+    // promoted there.
+    if !rows.iter().any(|r| r.run_id == RunId::Large62k) {
+        let _ = writeln!(out, "{LARGE_PAYLOAD_NOT_EXERCISED}");
+    }
     let _ = writeln!(out);
     for row in ordered {
         let _ = writeln!(out, "{}", format_row(row));
     }
     out
 }
+
+/// What the certificate says when no row came from the large-payload run.
+///
+/// Its wording is load-bearing in two directions: it names the class so a
+/// reader knows WHICH one went untested, and it says "not exercised" rather
+/// than "passed" or "skipped" — the run was never launched, so neither of those
+/// would be true.
+const LARGE_PAYLOAD_NOT_EXERCISED: &str =
+    "> NOTE: the large payload class was **not exercised** by this run. No assertion below \
+     speaks to it.";
 
 /// What a fact that could not be resolved renders as, for the direct callers of
 /// [`render_certificate`] that bypass [`Report::certificate_refusal`].
