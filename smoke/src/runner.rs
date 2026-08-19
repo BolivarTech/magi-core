@@ -122,7 +122,7 @@ pub fn assert_that(name: &'static str, held: bool) -> Assertion {
 /// crate, while the crate reporting that its backend died is the crate working.
 /// Collapsing them costs an exit code in one direction or the other, and both
 /// directions have already been paid for once — see
-/// [`crate::scenarios::e1`]'s `analyze_produced_a_report`.
+/// `scenarios::e1`'s `analyze_produced_a_report`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorClass {
     /// The crate's own logic produced the failure. A verdict, exit 1.

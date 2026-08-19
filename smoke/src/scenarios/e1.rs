@@ -199,7 +199,7 @@ const NAME_ANALYZE_PRODUCED_A_REPORT: &str =
 ///
 /// # Why this is an extra row rather than turning the others red
 ///
-/// [`ScenarioState::Fail`] carries no text, so failing the four property
+/// `ScenarioState::Fail` carries no text, so failing the four property
 /// assertions would lose the error the operator needs. They stay `Skip`s
 /// carrying it, and this row supplies the verdict — `Fail` takes precedence in
 /// [`crate::outcome::exit_code`], so the process still exits 1.
