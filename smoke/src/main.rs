@@ -911,6 +911,50 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_run_that_could_not_start_is_never_a_verdict_about_the_crate() {
+        // `RunResult::cannot_test`'s own rustdoc says "assertions reading it
+        // SKIP", and they did not: `evaluate` gave `CannotTest` no arm, so the
+        // reason string reached the assertion as if it were a typed failure
+        // from `analyze()`. S1 asks whether that error names "insufficient
+        // agents"; a configuration fault does not, so the row came out `Fail`
+        // — exit 1, a verdict about the crate, for a run the crate never
+        // entered. That is the exit-code inversion this harness exists to
+        // eliminate, in the one direction nobody investigates.
+        let probe = runner::TransparencyProbe::default();
+        let could_not_start = [runner::RunResult::cannot_test(
+            config::RunId::NoBackend,
+            "the external provider would not build".to_string(),
+        )];
+        let rows = evaluate(
+            &scenarios::e1_scenarios(),
+            &could_not_start,
+            &probe,
+            None,
+            false,
+            Some(""),
+        );
+        let s1 = rows
+            .iter()
+            .find(|r| r.scenario_id == "S1")
+            .expect("S1 always produces a row");
+        match &s1.state {
+            outcome::ScenarioState::Skip(reason) => assert!(
+                reason.contains("would not build"),
+                "the skip must carry the reason the run could not start: {reason:?}"
+            ),
+            other => panic!(
+                "a run that never started is a fault of OURS and must skip, not fail: {other:?}"
+            ),
+        }
+        assert_eq!(
+            report::Report::with(std::slice::from_ref(s1)).exit_code(),
+            2,
+            "could not test is exit 2; reporting 1 here blames the crate for our own \
+             configuration"
+        );
+    }
+
     thread_local! {
         /// How many records the counting scenario below saw.
         ///
