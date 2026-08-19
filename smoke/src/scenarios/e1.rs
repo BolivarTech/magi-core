@@ -264,7 +264,7 @@ fn analyze_produced_a_report(ctx: &RunContext<'_>) -> Assertion {
 /// injected nothing", which is true by construction here and so was not a claim
 /// about anything.
 ///
-/// # And the name was still ahead of the body, a second time
+/// # And the name was still ahead of the body
 ///
 /// It then read *"every completion was ANSWERED, and none carried the failure
 /// status this harness injects"*, while the body checked only the second half:
@@ -318,8 +318,8 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
             .iter()
             .filter(|r| r.path == COMPLETIONS_PATH)
             .collect();
-        // Deliberately does NOT require `response_recorded`. A review round
-        // proposed that, reasoning that an unrecorded response leaves
+        // Deliberately does NOT require `response_recorded`. The tempting
+        // addition reasons that an unrecorded response leaves
         // `response_status` at 0 and lets "nothing was injected" pass over a
         // completion nobody saw the answer to. That reads the field as "a
         // response arrived", and it means "the response BODY was buffered" —
@@ -1064,12 +1064,11 @@ fn s15_skips(reason: impl Into<String>) -> Vec<Assertion> {
         .collect()
 }
 
-/// The four assertions, transcribed VERBATIM from the spec (task brief,
-/// Checkpoint 2 loop 1: the three field paths below were corrected against
-/// the tree — `report.agent_count`, `report.successful_agents()` and
-/// `report.consensus.label` do NOT exist in `magi-core` `3.2.0`; the correct
-/// paths are `report.consensus.agent_count`, `report.agents.len()` and
-/// `report.consensus.consensus`).
+/// The four assertions, transcribed VERBATIM from the spec — with its three
+/// field paths corrected against the tree, because `report.agent_count`,
+/// `report.successful_agents()` and `report.consensus.label` do NOT exist in
+/// `magi-core` `3.2.0`. The ones that do are `report.consensus.agent_count`,
+/// `report.agents.len()` and `report.consensus.consensus`.
 ///
 /// Kept as its own function, taking `report` directly, so the four
 /// assertions read as one block matching the spec verbatim;
@@ -1574,7 +1573,7 @@ mod tests {
         serde_json::from_str(json).expect("test fixture JSON must deserialize into MagiReport")
     }
 
-    // -- structural tests (Step 1 of the task brief) --
+    // -- structural tests --
 
     // `every_scenario_declares_whether_it_needs_a_backend` USED to live here.
     // It is gone because `Scenario::backend_tag` stopped being an `Option`: all

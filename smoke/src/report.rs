@@ -20,38 +20,23 @@
 //!   assertions sharing one crashed run read as five separate defects instead
 //!   of one failure with five symptoms.
 //!
-//! # Scope note (Task 12, reporting half only)
+//! # Where the guards over this module's neighbours live
 //!
-//! This module implements three of the five Step-1 tests from
-//! `task-12a-brief.md` — the ones whose contract is a pure function of
-//! [`AssertionRow`]/[`Report`]/[`CycleRun`]:
-//! `the_certificate_declares_the_version_inside_not_in_the_filename`,
-//! `a_dirty_tree_gets_NO_certificate_not_a_caveated_one`, and
-//! `the_large_payload_result_is_the_first_thing_in_the_certificate`.
+//! Two properties this module is a natural place to look for are asserted
+//! elsewhere, and naming them here is what stops a guard from ending up nowhere
+//! because every module assumed another one had it.
 //!
-//! The other two — `nothing_the_harness_generates_lands_in_the_repo` and
-//! `the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER` — exercise the
-//! FULL harness binary end to end (`run_harness_full`, `git_status_short`,
-//! a cost estimate this module has no field for) and belong to `main.rs`'s
-//! own orchestration (Step 3b), which another agent is wiring. Fabricating a
-//! `run_harness_full` stub here, without the real preflight/dispatch loop
-//! behind it, would prove nothing and is exactly the kind of caller this
-//! project's standards forbid inventing just to make a test compile.
+//! `nothing_the_harness_generates_lands_in_the_repo` lives in `paths.rs`, over
+//! `writable_locations` rather than over `git status` — a stronger question,
+//! since a gitignored path is invisible to status.
 //!
-//! **Where those two actually went, because this note sent readers to the wrong
-//! module for both of them.** `nothing_the_harness_generates_lands_in_the_repo`
-//! lives in `paths.rs`, asserted over `writable_locations` rather than over
-//! `git status` — a stronger question, since a gitignored path is invisible to
-//! status. `the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER` lives in
-//! `preflight.rs`, where it drives `CostLedger` directly.
-//!
-//! Neither landed in `main.rs`, and for the second one that mattered: driving
-//! the ledger yourself proves the LEDGER refuses a wrong sequence, not that the
-//! dispatch loop produces a right one — which is a different claim, and the one
-//! four successive fixes to the measured interval kept getting wrong with the
-//! suite green. `main.rs`'s `the_dispatch_loop_bills_one_interval_per_backend_run`
-//! is that missing half. A note saying a guard belongs elsewhere is how a guard
-//! ends up nowhere, so this one now says where each went.
+//! `the_cost_is_announced_BEFORE_the_runs_and_recorded_AFTER` lives in
+//! `preflight.rs`, driving `CostLedger` directly — but that proves the LEDGER
+//! refuses a wrong sequence, not that the dispatch loop produces a right one.
+//! Those are different claims, and the second is the one four successive fixes
+//! to the measured interval got wrong with the suite green.
+//! `main.rs`'s `the_dispatch_loop_bills_one_interval_per_backend_run` is that
+//! missing half.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -995,8 +980,6 @@ mod tests {
         }
     }
 
-    // --- Step-1 tests from task-12a-brief.md, reproduced verbatim in intent ---
-
     #[test]
     fn a_row_that_belongs_to_no_run_is_not_attributed_to_one() {
         // `NO_RUN` was `RunId::NoBackend`, which is a REAL run — the offline
@@ -1618,7 +1601,7 @@ mod tests {
         assert_eq!(rows.len(), sample_results().len());
         assert_eq!(parsed["cycle_run"], "second");
         // The large-payload row's skip reason must survive into the JSON —
-        // "same data, no second source of truth" (Step 3's own doc comment).
+        // "same data, no second source of truth" — the renderer's own claim.
         assert!(json.contains("no backend available for this cycle"));
     }
 }

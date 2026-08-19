@@ -2,24 +2,23 @@
 // Version: 1.0.0
 // Date: 2026-08-17
 
-// EVERY module of the harness is declared HERE, in Task 1, even though most of
-// the files arrive later. Rust does not compile a file nobody declared, so a task
-// that creates `foo.rs` without this line produces a module whose tests never run
-// — a Red phase that is green because it does not exist. The tasks that follow
-// CREATE the files; none of them has to remember to wire itself in.
+// EVERY module of the harness is declared HERE. Rust does not compile a file
+// nobody declared, so adding `foo.rs` without a line here produces a module
+// whose tests never run — green because it does not exist. Declaring them all in
+// one place means no new file has to remember to wire itself in.
 mod alias;
-mod config; // Task 2
-mod external; // Task 10 (S1's outside provider)
-mod fixtures; // Task 7 (Manifest lives here)
+mod config;
+mod external; // S1's outside provider
+mod fixtures; // Manifest lives here
 mod git; // The ONE git status invocation; the three callers keep their policies
-mod outcome; // Task 6
-mod paths; // Task 1 — repo_root() / smoke_dir()
-mod payload; // Task 3
-mod preflight; // Task 8
+mod outcome;
+mod paths; // repo_root() / smoke_dir()
+mod payload;
+mod preflight;
 mod proxy; // Tasks 4-5
-mod report; // Task 12
-mod runner; // Task 9
-mod scenarios; // Task 10
+mod report;
+mod runner;
+mod scenarios;
 #[cfg(test)]
 mod testkit;
 // The assertion-relaxation mark guard is a TEST-time mechanism, not a runtime
@@ -38,8 +37,8 @@ mod weakened;
 /// - `--smoke-2` — this is SMOKE #2, so the certificate IS written.
 /// - `--no-backend` — only the scenarios tagged `BackendNeed::None`.
 /// - `--print-payload-size` — generate the payload, print its size, exit. Used
-///   by Task 3 Step 5 to verify the target is reachable against the real tree,
-///   without spending a backend.
+///   to verify the target is reachable against the real tree, without spending
+///   a backend.
 /// - `--json` — also emit the machine-readable report.
 /// - `--break-proxy` — HARNESS SELF-TEST HOOK: the proxy refuses to start, so
 ///   `S20` can be observed. Not configuration.
@@ -302,8 +301,8 @@ async fn main() -> std::process::ExitCode {
     }
     // ONE measured interval PER BACKEND RUN, and the ledger refuses to produce
     // a receipt unless their number matches the count it announced. That is the
-    // point of the loop: it cost two rounds to get the ENDS of the interval
-    // right — a start mark that drifted up into the preflight, then a stop
+    // point of the loop. Getting the ENDS of the interval right took two
+    // attempts — a start mark that drifted up into the preflight, then a stop
     // computed inside `record` that swallowed whatever was moved in between —
     // and both times the bill was the feature matrix's four `cargo check` runs,
     // billed with every test green, because which work sat inside a single

@@ -22,8 +22,8 @@
 //! replays a fixture (see `smoke/fixtures/manifest.toml`), so both directions
 //! of the cross are satisfied vacuously. That is not a placeholder — a
 //! `Manifest::load` that refused to run without a populated file could not
-//! run in its own milestone. The data arrives with `F0` of MS1, copied and
-//! declared by `smoke/sync-fixtures.sh` (R23).
+//! run in its own milestone. The data arrives with the scenarios that replay
+//! it, copied and declared by `smoke/sync-fixtures.sh` (R23).
 
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -100,7 +100,7 @@ pub struct FixtureAudit {
     /// Total `[[fixture]]` entries the manifest declared.
     pub total: usize,
     /// Entries whose currency is `unverified:` — recorded but not
-    /// re-checked against a live backend. Feeds the 30% warning of Task 12.
+    /// re-checked against a live backend. Feeds the 30% warning.
     pub unverified: usize,
 }
 
@@ -140,7 +140,7 @@ const UNVERIFIED_WARNING_PERCENT: usize = 30;
 /// existed. That is precisely the failure R23 was written to prevent — *"a
 /// field nobody counts fills up with `unverified` without the figure ever
 /// appearing"* — reproduced in the code meant to implement it. Latent while
-/// the manifest is empty; live from the first fixture MS1 adds.
+/// the manifest is empty; live from the first fixture anyone adds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FixtureSummary {
     /// Every `[[fixture]]` entry the manifest declared.
@@ -365,8 +365,8 @@ impl Manifest {
     ///
     /// # Nothing is skipped in silence, at EITHER level
     ///
-    /// The directory-level read was fixed in an earlier round; this is the
-    /// ENTRY level, which kept flattening. An entry that cannot be read, or
+    /// The directory-level read is guarded one level up; this is the ENTRY
+    /// level, which used to flatten. An entry that cannot be read, or
     /// whose name is not valid UTF-8 and therefore cannot be compared with a
     /// manifest path at all, is a finding — never a row that quietly does not
     /// appear. Dropping either one lets `verify` return a CLEAN audit over a
@@ -664,10 +664,9 @@ mod tests {
     fn a_fixture_whose_hash_changed_is_rejected() {
         // The real `fixture_dir()` must stay data-file-free in E1 (see the
         // module doc), so this constructs its own on-disk fixture rather
-        // than depending on the shared production directory — see the Task 7
-        // report for why the brief's literal `fixture_dir()` call here would
-        // contradict `an_empty_manifest_verifies_clean_which_is_exactly_e1`
-        // below.
+        // than depending on the shared production directory: a literal
+        // `fixture_dir()` call here would contradict
+        // `an_empty_manifest_verifies_clean_which_is_exactly_e1` below.
         let dir = tempdir_with(&[("native-E-malformed.json", "{\"done_reason\":\"load\"}")]);
         let m = Manifest::from_str(
             r#"
@@ -920,8 +919,8 @@ mod tests {
 
     #[test]
     fn a_missing_fixtures_directory_is_reported_not_silently_clean() {
-        // Fix round 1, Finding 1 (Critical): the disk->manifest scan used to
-        // swallow the `Err` from `std::fs::read_dir`, so with an empty
+        // The disk->manifest scan used to swallow the `Err` from
+        // `std::fs::read_dir`, so with an empty
         // manifest (E1's own state, which has nothing for direction 1 to
         // report either) a directory that does not exist at all verified as
         // CLEAN. A directory that exists and is empty must stay clean — see
@@ -942,11 +941,11 @@ mod tests {
 
     #[test]
     fn an_entry_that_cannot_be_read_is_reported_not_silently_dropped() {
-        // Fix round 2, Finding 1: the directory-level read was fixed one round
-        // ago, and the ENTRY-level iteration kept `.flatten()` — so an entry
-        // that cannot be read vanished and `verify` returned a CLEAN audit over
-        // a corpus it had not fully seen. Same defect, one level down: fixing
-        // one site of a class does not fix the class.
+        // The directory-level read is guarded, and the ENTRY-level iteration
+        // kept `.flatten()` — so an entry that cannot be read vanished and
+        // `verify` returned a CLEAN audit over a corpus it had not fully seen.
+        // Same defect, one level down: fixing one site of a class does not fix
+        // the class.
         //
         // The error is INJECTED rather than forced out of the filesystem, and
         // that limitation is stated instead of hidden: there is no portable way

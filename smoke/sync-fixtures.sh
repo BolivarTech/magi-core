@@ -10,11 +10,10 @@
 # The manifest is GENERATED, never hand-edited: a hand-written hash is a hash
 # that can match nothing.
 #
-# In E1 `wanted.txt` does not exist yet, so the sync step below reports that
-# plainly and does nothing else — the machinery ships now, the data arrives
-# with F0 of MS1. That is deliberately DIFFERENT output from "wanted.txt
-# exists and lists nothing": an absent input and a completed job with zero
-# items must not read as the same thing.
+# Until `wanted.txt` exists the sync step below reports that plainly and does
+# nothing else — the machinery ships before the data does. That is deliberately
+# DIFFERENT output from "wanted.txt exists and lists nothing": an absent input
+# and a completed job with zero items must not read as the same thing.
 set -eu
 
 # ONE base for both paths: the directory this script lives in.
@@ -115,8 +114,8 @@ cat > "$DST/manifest.toml" <<'HEADER'
 # currency = "verified-by: S9b"         # or "unverified: <reason>"
 HEADER
 
-# `wanted.txt` is TRACKED and written by the task that adds fixtures — F0 of
-# MS1 — one line per `<file> <scenario> <currency>`. It is the list of what
+# `wanted.txt` is TRACKED and written by whoever adds fixtures, one line per
+# `<file> <scenario> <currency>`. It is the list of what
 # the harness needs, and it lives in git even though the corpus does not:
 # whoever clones the repo can see WHAT is missing, even before it exists.
 #
@@ -137,7 +136,7 @@ if [ -f "$WANTED" ]; then
       >> "$DST/manifest.toml"
   done < "$WANTED"
 else
-  echo "NOTE: $WANTED is absent — nothing to sync yet (expected until F0 of MS1 adds it)"
+  echo "NOTE: $WANTED is absent — nothing to sync yet (expected until fixtures are declared)"
 fi
 
 # `grep -c` prints a valid count ("0" included) on stdout REGARDLESS of
