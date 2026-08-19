@@ -720,9 +720,9 @@ impl CostLedger {
     pub fn record(&self) -> Result<String, String> {
         if !self.announced {
             return Err(
-                "the real cost cannot be recorded before the estimate was announced: \
-                        R31 asks for the estimate FIRST, because after the spend it is a receipt \
-                        and before it, it is a decision the operator can still make"
+                "the real cost cannot be recorded before the estimate was announced: R31 asks \
+                 for the estimate FIRST, because after the spend it is a receipt and before it, \
+                 it is a decision the operator can still make"
                     .to_string(),
             );
         }
