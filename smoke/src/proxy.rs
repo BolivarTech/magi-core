@@ -1479,6 +1479,113 @@ mod tests {
         );
     }
 
+    /// The path the redirecting stub below points its `Location` at.
+    const REDIRECT_TARGET: &str = "/followed";
+
+    /// Binds on an ephemeral port and answers **`302` with a `Location`** to
+    /// everything except [`REDIRECT_TARGET`], which it answers `200`. It counts
+    /// the requests it received, because that count is the only way to see
+    /// whether the hop was taken: a followed redirect reaches the far end
+    /// TWICE, and from the proxy's own registry the two cases look alike.
+    async fn stub_that_redirects_once() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind redirecting stub");
+        let addr = listener
+            .local_addr()
+            .expect("redirecting stub local address");
+        let seen = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&seen);
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    continue;
+                };
+                let counter = Arc::clone(&counter);
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let svc = hyper::service::service_fn(
+                        move |req: hyper::Request<hyper::body::Incoming>| {
+                            let counter = Arc::clone(&counter);
+                            async move {
+                                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                                let followed = req.uri().path() == REDIRECT_TARGET;
+                                let _ = BodyExt::collect(req.into_body()).await;
+                                let mut resp = hyper::Response::new(Full::new(Bytes::from_static(
+                                    b"{\"ok\":true}",
+                                )));
+                                if !followed {
+                                    *resp.status_mut() = hyper::StatusCode::FOUND;
+                                    resp.headers_mut().insert(
+                                        hyper::header::LOCATION,
+                                        hyper::header::HeaderValue::from_static(REDIRECT_TARGET),
+                                    );
+                                }
+                                Ok::<_, std::convert::Infallible>(resp)
+                            }
+                        },
+                    );
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        (format!("http://{addr}"), seen)
+    }
+
+    #[tokio::test]
+    async fn a_redirect_is_relayed_verbatim_and_never_followed() {
+        // The forward claims to be VERBATIM, and `reqwest`'s DEFAULT redirect
+        // policy follows up to ten hops — so the upstream client silently
+        // turned a `302` into whatever the target answered, and the client saw a
+        // `200` for a response the backend never gave it. The transparency
+        // scenario stayed green only because the endpoint it happens to probe
+        // does not redirect: a property true of one backend, asserted as if it
+        // were true of the proxy.
+        //
+        // The far-end COUNT is what makes this non-vacuous. Relayed or
+        // followed, the proxy's own registry holds one record either way; only
+        // the stub can say whether the second hop was taken.
+        let (upstream, seen) = stub_that_redirects_once().await;
+        let proxy = SpyProxy::start(upstream, 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+
+        let r = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("client")
+            .post(format!("{}/api/chat", proxy.base_url()))
+            .body(r#"{"model":"m"}"#)
+            .send()
+            .await
+            .expect("the proxy must answer");
+
+        assert_eq!(
+            r.status().as_u16(),
+            hyper::StatusCode::FOUND.as_u16(),
+            "the upstream answered 302 and the client must see 302, not the status of a hop              the proxy took on its behalf"
+        );
+        assert_eq!(
+            r.headers()
+                .get(hyper::header::LOCATION)
+                .and_then(|v| v.to_str().ok()),
+            Some(REDIRECT_TARGET),
+            "and with the Location it was given: a redirect stripped of its target is not a              verbatim relay either"
+        );
+        assert_eq!(
+            seen.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the far end must have been reached ONCE — a second request is the hop the proxy              is not allowed to take"
+        );
+        assert_eq!(
+            proxy.records()[0].response_status,
+            hyper::StatusCode::FOUND.as_u16(),
+            "and the record must say what was relayed"
+        );
+    }
+
     #[tokio::test]
     async fn records_the_full_request_body_by_hash_not_just_the_path() {
         // The record identifies the WHOLE body, not merely the envelope: the
