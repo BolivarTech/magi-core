@@ -52,7 +52,7 @@ pub struct Announcement {
     /// [`CostLedger::record`] refuses without it, which makes "announced before,
     /// recorded after" structural instead of a convention about where two prints
     /// sit. The clock it measures does NOT start here — see
-    /// [`CostLedger::mark_runs_started`].
+    /// [`CostLedger::measure`].
     pub ledger: CostLedger,
     /// What the fixture audit counted (R23), on its way to the end-of-run
     /// report and the certificate.
@@ -663,7 +663,7 @@ pub struct CostLedger {
     /// than a measurement, so what matters is that it was made, not when.
     announced: bool,
     /// When the runs actually STARTED, per
-    /// [`mark_runs_started`](CostLedger::mark_runs_started). `None` until then,
+    /// [`measure`](CostLedger::measure). `None` until then,
     /// and it is what the receipt measures from.
     runs_started_at: Option<std::time::Instant>,
     /// How many backend runs the announcement was about, so the receipt
@@ -683,8 +683,7 @@ impl CostLedger {
 
     /// The sentence printed BEFORE the first run.
     ///
-    /// It does **not** start the clock; see
-    /// [`mark_runs_started`](CostLedger::mark_runs_started).
+    /// It does **not** start the clock; see [`measure`](CostLedger::measure).
     ///
     /// # Parameters
     ///
@@ -739,19 +738,27 @@ impl CostLedger {
         ))
     }
 
-    /// Marks the point where the runs actually START, and stamps the clock the
-    /// receipt measures from.
-    ///
-    /// Separate from [`announce`](CostLedger::announce) on purpose: everything
-    /// between the two — the feature matrix above all — is work the harness did
-    /// and the runs did not cost, so it stays out of the interval.
-    pub fn mark_runs_started(&mut self) {
-        self.runs_started_at = Some(std::time::Instant::now());
-    }
-
     /// Measures `work` as the runs, and stamps the clock
     /// [`record`](CostLedger::record) reports from.
+    ///
+    /// The interval is the call rather than a mark placed beside it, because
+    /// the defect this closes was one of ORDERING: a separate mark drifted
+    /// upwards into the preflight and the receipt silently grew by everything
+    /// above it. Passing the runs in leaves no ordering to get wrong.
+    ///
+    /// What that excludes, said as what it is: the git baseline, the spec
+    /// build, the fixture audit, the feature matrix's four `cargo check` runs
+    /// under `--build-matrix`, and the transparency probe. The last one is a
+    /// real round-trip to the backend, so it is excluded not for being local
+    /// but for not being one of the N runs the receipt counts — it spends no
+    /// tokens, and a series that swallows a probe on some releases and four
+    /// builds on others cannot be compared across them.
+    ///
+    /// # Parameters
+    ///
+    /// * `work` — the runs, awaited here and returned untouched.
     pub async fn measure<T>(&mut self, work: impl std::future::Future<Output = T>) -> T {
+        self.runs_started_at = Some(std::time::Instant::now());
         work.await
     }
 }
