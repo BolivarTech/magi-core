@@ -1,29 +1,29 @@
 # Graph Report - MAGI-Core  (2026-08-19)
 
 ## Corpus Check
-- 161 files · ~238,315 words
+- 161 files · ~252,793 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2921 nodes · 6618 edges · 309 communities (178 shown, 131 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 91 edges (avg confidence: 0.8)
+- 2958 nodes · 6711 edges · 288 communities (180 shown, 108 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 92 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `711032a9`
+- Built from commit: `9d14e948`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- String
+- run
 - reporting.rs
 - consensus.rs
 - validate.rs
-- .analyze
+- .new
 - MockProbe
-- AgentName
+- LlmProvider
 - schema.rs
-- compose_transport_message
+- .new
 - claude.rs
 - user_prompt.rs
 - claude_cli.rs
@@ -36,7 +36,7 @@
 - orchestrator.rs
 - Option
 - MAGI System Technical Documentation
-- basic_analysis.rs
+- prelude.rs
 - ollama.rs
 - MagiBuilder
 - .new
@@ -51,18 +51,18 @@
 - report.rs
 - [0.6.0] - 2026-05-21
 - [1.0.0] - 2026-05-24
-- .new
+- VerdictExtractionError
 - RoutingMockProvider
 - [1.1.1] - 2026-07-17
 - [1.1.1] - 2026-07-17
 - preflight.rs
 - magi-core
 - normalize_newlines
-- build_retry_prompt
-- fixtures.rs
+- pool
+- Config
 - Finding
 - Quick Start
-- error.rs
+- MagiError
 - Lineage
 - ExitCode
 - FixedRng
@@ -77,7 +77,7 @@
 - basic_analysis example
 - prompts/mod.rs
 - Path
-- payload.rs
+- fixtures.rs
 - ClaudeCliProvider::build_args
 - ProviderResponse
 - .parse
@@ -111,12 +111,12 @@
 - melchior
 - report
 - Debug
-- RetryAfterProvider
+- compose_transport_message
 - Formatter
 - ProviderError
 - outcome.rs
 - Self
-- ReportFormatter
+- Validator
 - [1.1.0] - 2026-05-25
 - BTreeMap
 - Default
@@ -155,7 +155,7 @@
 - redacted
 - .leak
 - redacted
-- pool
+- run_with_broken_proxy
 - ProviderError
 - SlowFailingProvider
 - Result
@@ -166,35 +166,39 @@
 - sync-fixtures.sh
 - Drop
 - F
-- provider_url.rs
-- ReportConfig
-- paths.rs
+- ValidationLimits
+- .new
+- .new
 - Result
 - testkit.rs
+- EchoServer
 - provider_url.rs
 - AgentName
 - pattern0nonterminal_bad.rs
 - pattern0nonterminal_good.rs
 - .new_checked
 - String
-- Self
-- FieldWriter
-- runner.rs
+- build_retry_prompt
+- embedded_prompt_for
+- AgentName
+- ReportConfig
 - config.rs
-- HostedModel
+- Default
 - I
 - AgentName
 - main.rs
 - Vec
-- Mutex
+- contract_prompt
 - .new
 - git.rs
+- Option
 - rotation.rs
+- Output
 - ProviderRequest
 - Self
 - .redacted
-- BuildOutcome
-- Path
+- RunId
+- Self
 - Into
 - ExitStatus
 - magi-smoke — the smoke harness
@@ -202,34 +206,30 @@
 - Into
 - RunContext
 - compose_transport_message
+- .format_dissent
 - magi-core
 - Scenario
-- redaction_negative.rs
 - PathBuf
+- Arc
 - [2.0.0] - 2026-07-25
-- mock_server.rs
-- MagiReport
 - Drop
+- MagiReport
+- RecordingStub
 - Output
 - proxy.rs
-- ConsensusResult
-- .complete
-- AgentOutput
+- PreflightError
+- Error
+- Config
 - [1.1.0] - 2026-05-25
-- Display
-- RunId
-- RunResult
+- Mutex
 - RequestRecord
 - AgentName
-- RunResult
 - .new
 - ScenarioState
 - log_failure
-- PathBuf
-- I
 - MagiReport
 - RequestRecord
-- Error
+- SpyProxy
 - Duration
 - .send
 - described
@@ -237,49 +237,29 @@
 - [3.0.2] - 2026-07-30
 - RunContext
 - Scenario
-- .new
 - pattern8bnospace_bad.rs
 - pattern8bnospace_good.rs
-- Duration
 - .cmp
-- Formatter
-- Option
-- Path
-- Drop
-- Result
-- TransparencyProbe
 - body_bounds.rs
 - SpyProxy
 - ProviderProbe
 - ExitCode
 - Duration
-- I
-- Self
-- Duration
 - String
-- Default
-- String
-- T
 - pattern7builderalias_bad.rs
 - pattern7builderalias_good.rs
 - pattern7default_bad.rs
 - pattern7default_good.rs
-- Option
-- Vec
 - weakened.rs
-- Option
 - Severity
 - Instant
+- provider_url.rs
+- AgentOutput
+- runner.rs
 - Self
-- Result
-- String
+- RetryAfterProvider
 - Display
 - Formatter
-- Path
-- PathBuf
-- Result
-- String
-- Vec
 
 ## God Nodes (most connected - your core abstractions)
 1. `AgentName` - 70 edges
@@ -289,8 +269,8 @@
 5. `MagiError` - 37 edges
 6. `make_consensus()` - 35 edges
 7. `Lineage` - 35 edges
-8. `Magi` - 34 edges
-9. `make_agent()` - 34 edges
+8. `make_agent()` - 34 edges
+9. `Magi` - 34 edges
 10. `AgentOutput` - 32 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -308,43 +288,43 @@
 ## Import Cycles
 - None detected.
 
-## Communities (309 total, 131 thin omitted)
+## Communities (288 total, 108 thin omitted)
 
-### Community 0 - "String"
-Cohesion: 0.14
-Nodes (22): Config, Display, Duration, Error, Formatter, Into, Result, Self (+14 more)
+### Community 0 - "run"
+Cohesion: 0.13
+Nodes (27): Debug, Into, a_probe_that_is_slow_names_both_possible_causes(), Announcement, check_lock_is_tracked(), check_workspace_isolation(), listed_models(), PreflightError (+19 more)
 
 ### Community 1 - "reporting.rs"
-Cohesion: 0.09
-Nodes (20): a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), cause_label(), estimate_tokens(), fit_content(), report_text() (+12 more)
+Cohesion: 0.08
+Nodes (23): a_clean_run_gains_no_section_at_all(), a_report_from_before_this_version_also_gains_nothing(), a_report_from_the_previous_version_deserializes_as_none_not_zero(), an_exceeded_run_gains_exactly_one_section_naming_both_numbers(), cause_label(), estimate_tokens(), fit_content(), report_text() (+15 more)
 
 ### Community 2 - "consensus.rs"
 Cohesion: 0.10
-Nodes (61): ConsensusConfig, ConsensusEngine, dedup_key(), DedupKey, finding_key(), make_output(), Default, Result (+53 more)
+Nodes (62): ConsensusConfig, ConsensusEngine, dedup_key(), DedupKey, finding_key(), make_output(), BTreeMap, Default (+54 more)
 
 ### Community 3 - "validate.rs"
-Cohesion: 0.06
-Nodes (40): clean_title(), finding_with_title(), output_with_confidence(), output_with_findings(), Default, Result, Self, String (+32 more)
+Cohesion: 0.07
+Nodes (3): test_validate_accepts_confidence_at_boundaries(), test_validate_accepts_valid_agent_output(), test_validator_new_creates_with_default_limits()
 
-### Community 4 - ".analyze"
-Cohesion: 0.10
-Nodes (38): a_measured_candidate_keeps_the_strict_guard_quiet(), a_strict_guard_with_nothing_measured_warns_and_still_completes(), exceeding_the_threshold_warns_and_still_completes(), probe_declaration_warnings_are_told_once_per_instance(), rotation_disabled_by_configuration_keeps_the_strict_guard_quiet(), F, staying_under_the_threshold_announces_nothing(), test_a_clean_run_adds_no_section_to_the_human_report() (+30 more)
+### Community 4 - ".new"
+Cohesion: 0.12
+Nodes (44): a_measured_candidate_keeps_the_strict_guard_quiet(), a_strict_guard_with_nothing_measured_warns_and_still_completes(), exceeding_the_threshold_warns_and_still_completes(), probe_declaration_warnings_are_told_once_per_instance(), rotation_disabled_by_configuration_keeps_the_strict_guard_quiet(), F, test_a_clean_run_adds_no_section_to_the_human_report(), test_a_failure_before_rotation_is_attributed_to_the_pre_rotation_model() (+36 more)
 
 ### Community 5 - "MockProbe"
 Cohesion: 0.13
 Nodes (9): Barrier, FailingProbe, MockProbe, MockProvider, OverlapProbe, AtomicUsize, Formatter, ProviderError (+1 more)
 
-### Community 6 - "AgentName"
-Cohesion: 0.08
-Nodes (40): Agent, AgentFactory, MockProvider, Arc, AtomicUsize, BTreeMap, Default, Option (+32 more)
+### Community 6 - "LlmProvider"
+Cohesion: 0.07
+Nodes (42): describe(), main(), MyBackend, ProviderError, Result, String, Agent, AgentFactory (+34 more)
 
 ### Community 7 - "schema.rs"
 Cohesion: 0.05
 Nodes (6): make_output(), test_agent_output_conditional_is_not_dissenting_from_approve_majority(), test_agent_output_effective_verdict_maps_conditional_to_approve(), test_agent_output_empty_findings_valid(), test_agent_output_is_dissenting_when_verdict_differs_from_majority(), test_agent_output_is_not_dissenting_when_verdict_matches_majority()
 
-### Community 8 - "compose_transport_message"
-Cohesion: 0.12
-Nodes (11): f(), f(), f(), f(), P, Self, compose_caps_the_head_even_with_no_cause_chain(), compose_does_not_truncate_when_under_the_cap() (+3 more)
+### Community 8 - ".new"
+Cohesion: 0.16
+Nodes (26): finding_with_title(), output_with_confidence(), output_with_findings(), Vec, test_validate_accepts_finding_with_normal_title(), test_validate_mut_collapses_control_whitespace_in_titles(), test_validate_mut_preserves_order_of_findings(), test_validate_mut_replaces_title_with_cleaned_form() (+18 more)
 
 ### Community 9 - "claude.rs"
 Cohesion: 0.09
@@ -376,23 +356,23 @@ Nodes (45): Beh, build_oversized_case(), build_schema_local_case(), build_trio_w
 
 ### Community 18 - "orchestrator.rs"
 Cohesion: 0.07
-Nodes (67): a_probe_declaring_another_model_is_named_not_rejected(), a_probe_declaring_its_own_model_is_quiet(), a_probe_that_claims_nothing_is_checked_against_nothing(), a_threshold_is_unreachable_when_the_smallest_warning_input_is_already_rejected(), a_threshold_that_can_never_fire_is_detected(), a_zero_threshold_warns_always_and_does_not_disable(), an_empty_input_never_exceeds_even_a_zero_threshold(), dispatch_one_agent() (+59 more)
+Nodes (63): a_probe_declaring_another_model_is_named_not_rejected(), a_probe_declaring_its_own_model_is_quiet(), a_probe_that_claims_nothing_is_checked_against_nothing(), a_threshold_is_unreachable_when_the_smallest_warning_input_is_already_rejected(), a_threshold_that_can_never_fire_is_detected(), a_zero_threshold_warns_always_and_does_not_disable(), an_empty_input_never_exceeds_even_a_zero_threshold(), dispatch_one_agent() (+55 more)
 
 ### Community 20 - "MAGI System Technical Documentation"
 Cohesion: 0.40
 Nodes (4): Exemption from CLAUDE.local.md §0.2 file-header rule, Local divergence from the pinned reference (F0, 2026-07-16), Regeneration, `src/prompts_md/` — Embedded prompt data
 
-### Community 21 - "basic_analysis.rs"
-Cohesion: 0.29
-Nodes (14): create_provider(), main(), parse_mode(), print_usage(), ProviderArgs, read_input(), Arc, Box (+6 more)
+### Community 21 - "prelude.rs"
+Cohesion: 0.05
+Nodes (24): create_provider(), main(), parse_mode(), print_usage(), ProviderArgs, read_input(), Arc, Box (+16 more)
 
 ### Community 22 - "ollama.rs"
-Cohesion: 0.12
-Nodes (21): a_mounted_prefix_survives_both_spellings(), a_root_that_really_ends_in_v1_is_read_as_the_prefix(), every_accepted_spelling_yields_the_same_endpoints(), new_gives_the_inner_provider_the_real_credentials(), OllamaProvider, Client, Duration, Into (+13 more)
+Cohesion: 0.09
+Nodes (33): a_mounted_prefix_survives_both_spellings(), a_root_that_really_ends_in_v1_is_read_as_the_prefix(), every_accepted_spelling_yields_the_same_endpoints(), new_gives_the_inner_provider_the_real_credentials(), OllamaProvider, Client, Duration, Into (+25 more)
 
 ### Community 23 - "MagiBuilder"
-Cohesion: 0.09
-Nodes (27): ComplexityGate, contract_prompt(), MagiBuilder, Box, P, Self, Send, test_analyze_applies_mode_agnostic_override_to_melchior() (+19 more)
+Cohesion: 0.11
+Nodes (18): ComplexityGate, PathBuf, MagiBuilder, Box, P, Self, Send, test_analyze_nonce_collision_returns_invalid_input() (+10 more)
 
 ### Community 24 - ".new"
 Cohesion: 0.31
@@ -411,8 +391,8 @@ Cohesion: 0.25
 Nodes (8): [0.5.0] - 2026-05-16, Added, Backward compatibility, Changed (breaking), Documentation, Performance, Pre-merge gates (CLAUDE.local.md §6), Test count
 
 ### Community 29 - "verdict_markers.rs"
-Cohesion: 0.05
-Nodes (19): Fn, extract(), is_marker_line(), locate(), locate_block(), normalize_line(), Cow, Display (+11 more)
+Cohesion: 0.07
+Nodes (4): is_marker_line(), normalize_line(), Cow, test_locate_block_argument_order_is_not_symmetric()
 
 ### Community 30 - "[0.2.0] - 2026-04-18"
 Cohesion: 0.29
@@ -428,7 +408,7 @@ Nodes (7): [0.4.0] - 2026-05-16, Added, Backward compatibility, Changed, Documen
 
 ### Community 33 - "report.rs"
 Cohesion: 0.08
-Nodes (42): ExitCode, FixtureSummary, ScenarioState, a_certificate_that_could_not_be_written_never_replaces_the_verdict(), a_clean_tree_gets_the_certificate_written_at_cert_path(), a_corpus_over_the_unverified_threshold_warns_in_the_certificate(), a_dirty_tree_gets_no_certificate_not_a_caveated_one(), a_run_with_a_failed_assertion_gets_no_certificate_at_all() (+34 more)
+Nodes (42): Duration, ExitCode, FixtureSummary, ScenarioState, a_certificate_that_could_not_be_written_never_replaces_the_verdict(), a_clean_tree_gets_the_certificate_written_at_cert_path(), a_corpus_over_the_unverified_threshold_warns_in_the_certificate(), a_dirty_tree_gets_no_certificate_not_a_caveated_one() (+34 more)
 
 ### Community 34 - "[0.6.0] - 2026-05-21"
 Cohesion: 0.33
@@ -438,9 +418,9 @@ Nodes (6): [0.6.0] - 2026-05-21, Backward compatibility, Changed, Pre-merge gate
 Cohesion: 0.40
 Nodes (5): [1.0.0] - 2026-05-24, Added, Changed (breaking), Notes, Security
 
-### Community 36 - ".new"
-Cohesion: 0.21
-Nodes (29): make_agent(), make_consensus(), test_agent_display_fallback_to_agent_name_methods(), test_agent_line_format(), test_banner_all_lines_are_exactly_banner_width(), test_banner_consensus_line_includes_split_for_go_with_caveats(), test_banner_labels_are_column_aligned_to_max_label_len(), test_banner_lines_are_exactly_52_chars_wide() (+21 more)
+### Community 36 - "VerdictExtractionError"
+Cohesion: 0.16
+Nodes (15): Fn, extract(), locate(), locate_block(), Display, Error, Formatter, Result (+7 more)
 
 ### Community 37 - "RoutingMockProvider"
 Cohesion: 0.50
@@ -456,7 +436,7 @@ Nodes (11): [0.1.2] - 2026-04-05, [0.3.1] - 2026-04-19, [2.2.0] - 2026-07-27, [3
 
 ### Community 40 - "preflight.rs"
 Cohesion: 0.10
-Nodes (45): Debug, Default, Future, Output, a_backend_holding_every_seat_model_passes_the_check(), a_backend_listing_the_whole_trio_gets_past_the_backend_step(), a_backend_that_does_not_hold_the_probe_model_is_INCONCLUSIVE_not_clear(), a_cold_model_passes_on_the_second_probe_attempt() (+37 more)
+Nodes (35): a_backend_holding_every_seat_model_passes_the_check(), a_backend_listing_the_whole_trio_gets_past_the_backend_step(), a_backend_that_does_not_hold_the_probe_model_is_INCONCLUSIVE_not_clear(), a_cold_model_passes_on_the_second_probe_attempt(), a_config_that_is_not_a_full_trio_is_rejected_as_a_config_fault(), a_config_with_no_fallbacks_is_a_config_fault_not_a_crate_verdict(), a_config_without_seats_is_rejected_by_name_in_the_config_step(), a_fallback_sharing_a_seats_lineage_is_rejected() (+27 more)
 
 ### Community 41 - "magi-core"
 Cohesion: 0.17
@@ -466,13 +446,13 @@ Nodes (12): Changelog, Consensus Labels, Contribution, Credentials in a provider
 Cohesion: 0.20
 Nodes (12): neutralize_headers(), normalize_newlines(), Cow, String, sanitize_error_for_retry_feedback(), strip_invisibles(), test_neutralize_headers_not_bypassed_by_mongolian_vowel_separator(), test_neutralize_headers_preserves_unmatched_lines_borrowed() (+4 more)
 
-### Community 43 - "build_retry_prompt"
-Cohesion: 0.11
-Nodes (18): build_retry_prompt(), test_build_retry_prompt_appends_feedback_block_exact_format(), test_build_retry_prompt_does_not_neutralize_midline_tokens(), test_build_retry_prompt_does_not_resanitize_content(), test_build_retry_prompt_feedback_block_after_end_delimiter(), test_build_retry_prompt_includes_seven_keys_list(), test_build_retry_prompt_neutralizes_dash_variant_retry_markers(), test_build_retry_prompt_neutralizes_injected_retry_feedback_marker() (+10 more)
+### Community 43 - "pool"
+Cohesion: 0.28
+Nodes (11): ae(), policy(), pool(), state(), test_claim_next_none_leaves_registry_intact(), test_concurrent_claims_never_double_reserve_stress(), test_max_rotations_gate(), test_next_model_returns_first_eligible_in_declared_order() (+3 more)
 
-### Community 44 - "fixtures.rs"
-Cohesion: 0.14
-Nodes (22): BTreeSet, a_file_on_disk_that_nobody_declares_is_an_orphan_too(), a_fixture_whose_hash_changed_is_rejected(), a_missing_fixtures_directory_is_reported_not_silently_clean(), a_nested_corpus_is_refused_because_the_walk_does_not_recurse(), a_readable_entry_is_still_crossed_against_the_manifest(), a_verified_by_naming_a_live_scenario_is_accepted(), a_verified_by_naming_no_live_scenario_is_rejected() (+14 more)
+### Community 44 - "Config"
+Cohesion: 0.17
+Nodes (14): Budgets, Config, default_endpoint(), default_fallbacks(), default_payload_target(), default_probe_timeout(), default_run_payload(), default_seats() (+6 more)
 
 ### Community 45 - "Finding"
 Cohesion: 0.18
@@ -482,9 +462,9 @@ Nodes (12): Finding, Into, String, test_agent_name_btreeset_orders_alphabeticall
 Cohesion: 0.50
 Nodes (3): build(), ProviderError, Self
 
-### Community 47 - "error.rs"
+### Community 47 - "MagiError"
 Cohesion: 0.08
-Nodes (17): a_message_of_exactly_the_cap_is_kept_whole(), a_short_external_message_survives_untouched(), AbandonReason, an_oversized_external_message_is_cut_and_says_so(), external_message(), ProviderError, Duration, Error (+9 more)
+Nodes (19): a_message_of_exactly_the_cap_is_kept_whole(), a_short_external_message_survives_untouched(), AbandonReason, an_oversized_external_message_is_cut_and_says_so(), external_message(), MagiError, ProviderError, Duration (+11 more)
 
 ### Community 48 - "Lineage"
 Cohesion: 0.13
@@ -503,12 +483,12 @@ Cohesion: 0.16
 Nodes (25): FnMut, fixed(), next_backoff(), parse_retry_after(), RetryAfter, Duration, Option, String (+17 more)
 
 ### Community 65 - "prompts/mod.rs"
-Cohesion: 0.10
-Nodes (20): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), lookup_prompt(), melchior_prompt(), BTreeMap, Option, Result (+12 more)
+Cohesion: 0.11
+Nodes (14): lookup_prompt(), BTreeMap, Option, Result, String, test_guard_and_parser_agree_on_the_same_block(), test_seat_aware_validation_names_the_agent_and_mode(), test_the_error_is_actionable_on_its_own() (+6 more)
 
-### Community 67 - "payload.rs"
-Cohesion: 0.12
-Nodes (26): Path, PathBuf, a_root_that_exists_but_cannot_be_read_is_reported_while_an_absent_one_is_not(), a_subdirectory_that_cannot_be_read_is_an_error_not_a_silent_skip(), a_target_landing_inside_a_multibyte_character_still_returns_exactly_target_bytes(), an_entry_the_walk_cannot_read_is_an_error_not_a_dropped_file(), block_comment_depth_after(), collect_from_entries() (+18 more)
+### Community 67 - "fixtures.rs"
+Cohesion: 0.06
+Nodes (62): BTreeSet, Display, Formatter, I, Path, Result, a_file_on_disk_that_nobody_declares_is_an_orphan_too(), a_fixture_whose_hash_changed_is_rejected() (+54 more)
 
 ### Community 69 - "ProviderResponse"
 Cohesion: 0.15
@@ -554,21 +534,21 @@ Nodes (3): redacted(), String, X
 Cohesion: 0.40
 Nodes (3): redacted(), String, X
 
-### Community 104 - "RetryAfterProvider"
-Cohesion: 0.22
-Nodes (6): RetryAfterProvider, Vec, test_dangerous_config_is_announced_for_retry_after_cap_over_budget(), test_dangerous_config_is_announced_for_zero_base_delay(), test_dangerous_config_is_announced_for_zero_cap(), test_dangerous_config_is_announced_for_zero_retry_after_cap()
+### Community 104 - "compose_transport_message"
+Cohesion: 0.12
+Nodes (11): f(), f(), f(), f(), P, Self, compose_caps_the_head_even_with_no_cause_chain(), compose_does_not_truncate_when_under_the_cap() (+3 more)
 
 ### Community 107 - "outcome.rs"
-Cohesion: 0.08
-Nodes (11): F, a_panic_inside_a_run_is_caught_and_attributed_instead_of_killing_the_harness(), a_run_that_finishes_is_returned_untouched(), classify_panic(), exit_code(), install_panic_hook(), is_dependency_source(), is_harness_source() (+3 more)
+Cohesion: 0.07
+Nodes (20): F, a_panic_inside_a_run_is_caught_and_attributed_instead_of_killing_the_harness(), a_run_that_finishes_is_returned_untouched(), classify_panic(), crate_under_test_packages(), every_harness_only_dep_is_ABSENT_from_the_crate_under_tests_own_graph(), exit_code(), graph_query_target_dir() (+12 more)
 
 ### Community 108 - "Self"
 Cohesion: 0.29
 Nodes (4): 8. Evangelion Correspondence Table, 9. Relationship to the MAGI Python Plugin, MAGI System — Complete Technical Documentation, Multi-Perspective Analysis Library for Rust
 
-### Community 109 - "ReportFormatter"
-Cohesion: 0.17
-Nodes (16): ExtractionFailure, InputSize, MagiReport, ReportFormatter, BTreeMap, BTreeSet, Default, Option (+8 more)
+### Community 109 - "Validator"
+Cohesion: 0.38
+Nodes (5): clean_title(), Result, String, test_clean_title_is_idempotent(), Validator
 
 ### Community 110 - "[1.1.0] - 2026-05-25"
 Cohesion: 0.50
@@ -643,8 +623,8 @@ Cohesion: 0.50
 Nodes (4): 2.1 Conceptual Mapping, 2.2 Why Three Perspectives and Not Two or Five, 2.3 Addressing Cognitive Biases, 2. Translation to the Software Engineering Domain
 
 ### Community 134 - "EventLog"
-Cohesion: 0.20
-Nodes (7): Attributes, Event, Id, Metadata, Record, EventLog, Subscriber
+Cohesion: 0.13
+Nodes (11): Attributes, Event, Field, Id, Metadata, Record, EventLog, FieldWriter (+3 more)
 
 ### Community 137 - "String"
 Cohesion: 0.50
@@ -658,9 +638,9 @@ Nodes (4): 3.1 Melchior — The Scientist, 3.2 Balthasar — The Pragmatist, 3.3
 Cohesion: 0.21
 Nodes (13): D, de_category(), de_opt_file(), de_opt_line(), generate_finding_id(), normalize_category(), normalize_path(), Error (+5 more)
 
-### Community 152 - "pool"
-Cohesion: 0.28
-Nodes (11): ae(), policy(), pool(), state(), test_claim_next_none_leaves_registry_intact(), test_concurrent_claims_never_double_reserve_stress(), test_max_rotations_gate(), test_next_model_returns_first_eligible_in_declared_order() (+3 more)
+### Community 152 - "run_with_broken_proxy"
+Cohesion: 0.24
+Nodes (9): Announcement, a_broken_proxy_makes_the_preflight_say_cannot_test_not_failed(), no_backend_skips_the_backend_steps_and_nothing_else(), NotFoundStub, PreflightError, Result, run_against_an_unreachable_backend(), run_with_broken_proxy() (+1 more)
 
 ### Community 164 - "ProviderError"
 Cohesion: 0.50
@@ -686,21 +666,25 @@ Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
 Cohesion: 0.67
 Nodes (3): Architecture, Module Dependency Graph, Prompt Injection Defense
 
-### Community 174 - "provider_url.rs"
-Cohesion: 0.18
-Nodes (7): a_partial_read_stays_within_the_cap_including_its_marker(), diagnostic_truncation_is_announced_and_utf8_safe(), diagnostic_under_the_cap_is_untouched(), mark_truncated(), marking_a_short_text_does_not_pad_it(), marking_never_splits_a_multibyte_character(), truncate_diagnostic()
+### Community 174 - "ValidationLimits"
+Cohesion: 0.33
+Nodes (6): Default, Self, test_title_length_checked_after_strip_zero_width(), test_validate_mut_atomic_no_partial_mutation_on_error(), test_validator_with_limits_uses_custom_limits(), ValidationLimits
 
-### Community 176 - "ReportConfig"
-Cohesion: 0.16
-Nodes (13): ReportConfig, ReportError, Display, Formatter, Result, Self, test_banner_verdict_preserved_when_label_exceeds_width(), test_new_checked_accepts_all_ascii_titles() (+5 more)
+### Community 176 - ".new"
+Cohesion: 0.20
+Nodes (30): make_agent(), make_consensus(), test_agent_display_fallback_to_agent_name_methods(), test_agent_line_format(), test_banner_all_lines_are_exactly_banner_width(), test_banner_consensus_line_includes_split_for_go_with_caveats(), test_banner_labels_are_column_aligned_to_max_label_len(), test_banner_lines_are_exactly_52_chars_wide() (+22 more)
 
-### Community 177 - "paths.rs"
-Cohesion: 0.24
-Nodes (12): feature_matrix_target_dir(), metadata_target_dir(), nothing_the_harness_generates_lands_in_the_repo(), repo_root(), resolve_deepest_existing(), Path, PathBuf, Vec (+4 more)
+### Community 177 - ".new"
+Cohesion: 0.30
+Nodes (12): Future, a_receipt_BEFORE_the_runs_is_refused_even_though_the_estimate_was_announced(), a_receipt_is_refused_when_the_intervals_do_not_MATCH_the_announced_runs(), a_run_that_ends_badly_is_still_measured_so_the_receipt_is_not_withheld(), backend_runs_of(), CostLedger, Default, T (+4 more)
 
 ### Community 180 - "testkit.rs"
-Cohesion: 0.08
-Nodes (32): Announcement, AtomicUsize, PreflightError, a_broken_proxy_makes_the_preflight_say_cannot_test_not_failed(), no_backend_skips_the_backend_steps_and_nothing_else(), AlwaysSlowStub, BulkStub, EchoServer (+24 more)
+Cohesion: 0.16
+Nodes (12): AlwaysSlowStub, block_comment_depth_after(), BulkStub, ListingStub, Path, source_declares_fn(), source_emits(), spawn_truncating_server() (+4 more)
+
+### Community 181 - "EchoServer"
+Cohesion: 0.25
+Nodes (6): Arc, AtomicUsize, EchoServer, SlowOnceStub, spawn_echo_server(), stub_that_is_slow_on_first_request_only()
 
 ### Community 183 - "provider_url.rs"
 Cohesion: 0.50
@@ -710,29 +694,33 @@ Nodes (3): leaky(), Error, String
 Cohesion: 0.40
 Nodes (3): leaky(), Error, String
 
-### Community 192 - "Self"
-Cohesion: 0.33
-Nodes (3): parent_climbs_one_level_and_stops_at_the_root(), Self, T
+### Community 192 - "build_retry_prompt"
+Cohesion: 0.11
+Nodes (18): build_retry_prompt(), test_build_retry_prompt_appends_feedback_block_exact_format(), test_build_retry_prompt_does_not_neutralize_midline_tokens(), test_build_retry_prompt_does_not_resanitize_content(), test_build_retry_prompt_feedback_block_after_end_delimiter(), test_build_retry_prompt_includes_seven_keys_list(), test_build_retry_prompt_neutralizes_dash_variant_retry_markers(), test_build_retry_prompt_neutralizes_injected_retry_feedback_marker() (+10 more)
 
-### Community 193 - "FieldWriter"
-Cohesion: 0.40
-Nodes (4): Field, FieldWriter, Debug, Visit
+### Community 193 - "embedded_prompt_for"
+Cohesion: 0.57
+Nodes (7): balthasar_prompt(), caspar_prompt(), embedded_prompt_for(), melchior_prompt(), test_echo_canary_values_are_present_in_every_shipped_prompt(), test_prompts_match_pinned_reference_sha256(), test_shipped_prompts_satisfy_the_verdict_marker_contract()
 
-### Community 194 - "runner.rs"
-Cohesion: 0.13
-Nodes (11): Arc, MagiError, an_assertion_that_could_not_be_tested_carries_its_reason(), Assertion, BackendNeed, cannot_test_is_a_skip_with_a_reason_not_a_silent_empty_result(), render_error(), Into (+3 more)
+### Community 194 - "AgentName"
+Cohesion: 0.17
+Nodes (20): Condition, ConsensusResult, DedupFinding, Dissent, Option, String, Vec, ExtractionFailure (+12 more)
+
+### Community 195 - "ReportConfig"
+Cohesion: 0.16
+Nodes (13): ReportConfig, ReportError, Default, Display, Formatter, Result, Self, test_new_checked_accepts_all_ascii_titles() (+5 more)
 
 ### Community 196 - "config.rs"
-Cohesion: 0.06
-Nodes (53): Drop, FnOnce, a_budget_beyond_the_ceiling_is_rejected_and_the_field_is_named(), a_correctly_spelled_override_still_loads(), a_file_that_is_still_illegal_once_every_override_is_applied_is_refused(), a_file_value_an_override_rescues_is_judged_on_the_final_set_not_the_file_alone(), a_set_of_overrides_that_is_still_illegal_at_the_end_is_refused(), a_zero_budget_names_the_budget_and_not_the_probe_timeout() (+45 more)
-
-### Community 197 - "HostedModel"
-Cohesion: 0.24
-Nodes (6): HostedModel, Option, ProviderError, Result, String, SidecarProbe
+Cohesion: 0.07
+Nodes (40): FnOnce, a_budget_beyond_the_ceiling_is_rejected_and_the_field_is_named(), a_correctly_spelled_override_still_loads(), a_file_that_is_still_illegal_once_every_override_is_applied_is_refused(), a_file_value_an_override_rescues_is_judged_on_the_final_set_not_the_file_alone(), a_set_of_overrides_that_is_still_illegal_at_the_end_is_refused(), a_zero_budget_names_the_budget_and_not_the_probe_timeout(), a_zero_timeout_is_rejected_and_the_field_is_named() (+32 more)
 
 ### Community 200 - "main.rs"
-Cohesion: 0.12
-Nodes (31): AssertionRow, CycleRun, I, a_genuine_skip_still_reports_exit_two(), a_healthy_run_can_reach_exit_zero(), a_scenario_filtered_out_by_no_backend_is_OUT_OF_SCOPE_not_omitted(), a_scenario_reading_one_run_never_sees_ANOTHER_runs_records(), absent_context() (+23 more)
+Cohesion: 0.07
+Nodes (53): AssertionRow, BuildOutcome, CostLedger, CycleRun, Default, Option, Output, RunId (+45 more)
+
+### Community 202 - "contract_prompt"
+Cohesion: 0.29
+Nodes (8): contract_prompt(), test_analyze_applies_mode_agnostic_override_to_melchior(), test_analyze_per_mode_override_supersedes_all_modes(), test_build_aborts_on_a_corrupt_custom_prompt_before_any_provider_call(), test_legacy_with_custom_prompt_delegates_to_for_mode(), test_legacy_with_custom_prompt_shim_roundtrip(), test_with_custom_prompt_all_modes_stores_with_none_key(), test_with_custom_prompt_for_mode_stores_with_some_key()
 
 ### Community 204 - "git.rs"
 Cohesion: 0.33
@@ -758,41 +746,29 @@ Nodes (12): 10. `cargo audit` for the harness, 11. The reproduction that justifi
 Cohesion: 0.50
 Nodes (3): Error, String, spawn_failure()
 
-### Community 228 - "redaction_negative.rs"
-Cohesion: 0.37
-Nodes (12): a_query_secret_never_appears_in_debug_but_its_name_does(), assert_clean(), both_forms_in_one_url_are_both_redacted_in_debug(), credentials_never_appear_in_a_transport_error(), credentials_never_reach_the_serialized_report(), ollama_credentials_never_appear_in_a_completion_error(), ollama_credentials_never_appear_in_a_probe_error(), ollama_credentials_never_reach_the_serialized_report() (+4 more)
+### Community 225 - ".format_dissent"
+Cohesion: 0.50
+Nodes (3): test_dissent_line_contains_summary_not_reasoning(), test_dissent_section_has_blank_line_after(), test_dissent_shows_one_line_per_dissenter()
+
+### Community 228 - "PathBuf"
+Cohesion: 0.19
+Nodes (12): Drop, Error, symlinks_are_skipped(), fresh_temp_dir(), is_privilege_refusal(), make_dir_link(), make_symlink(), repo_where_the_negation_was_removed() (+4 more)
 
 ### Community 230 - "[2.0.0] - 2026-07-25"
 Cohesion: 0.50
 Nodes (4): [2.0.0] - 2026-07-25, Added, BREAKING, Changed
 
-### Community 231 - "mock_server.rs"
-Cohesion: 0.19
-Nodes (4): JoinHandle, String, spawn_429_with_retry_after(), spawn_hanging_headers()
+### Community 233 - "RecordingStub"
+Cohesion: 0.36
+Nodes (5): Mutex, RecordingStub, String, Vec, SeenRequest
 
 ### Community 235 - "proxy.rs"
 Cohesion: 0.06
-Nodes (54): AtomicBool, B, Box, Bytes, X, Client, HeaderMap, Incoming (+46 more)
-
-### Community 236 - "ConsensusResult"
-Cohesion: 0.23
-Nodes (11): Condition, ConsensusResult, DedupFinding, Dissent, BTreeMap, Option, String, Vec (+3 more)
-
-### Community 237 - ".complete"
-Cohesion: 0.27
-Nodes (6): describe(), main(), MyBackend, ProviderError, Result, String
-
-### Community 238 - "AgentOutput"
-Cohesion: 0.39
-Nodes (3): AgentOutput, Vec, Verdict
+Nodes (56): AtomicBool, B, Box, Bytes, X, Client, HeaderMap, Incoming (+48 more)
 
 ### Community 239 - "[1.1.0] - 2026-05-25"
 Cohesion: 0.67
 Nodes (3): [1.1.0] - 2026-05-25, Added, Notes
-
-### Community 245 - "RunResult"
-Cohesion: 0.19
-Nodes (18): AgentName, Fallback, Injection, Magi, Payload, RunOutcome, Seat, attempts_for() (+10 more)
 
 ### Community 251 - ".new"
 Cohesion: 0.23
@@ -801,10 +777,6 @@ Nodes (15): FallbackPoolBuilder, P, Self, run_preflight(), test_duplicate_lineag
 ### Community 267 - "[3.0.2] - 2026-07-30"
 Cohesion: 0.67
 Nodes (3): [3.0.2] - 2026-07-30, Changed, Fixed
-
-### Community 270 - ".new"
-Cohesion: 0.16
-Nodes (16): PayloadError, Config, Error, Path, Result, SpyProxy, Vec, Runner (+8 more)
 
 ### Community 271 - "pattern8bnospace_bad.rs"
 Cohesion: 0.50
@@ -840,31 +812,51 @@ Nodes (3): also_configured(), configured(), Client
 
 ### Community 301 - "weakened.rs"
 Cohesion: 0.18
-Nodes (11): a_directory_link_is_skipped_rather_than_followed_out_of_the_tree(), a_source_file_that_cannot_be_decoded_is_reported_too(), an_unreadable_path_is_reported_and_never_skipped(), every_mark_outside_this_guards_own_fixtures_is_well_formed(), Path, Result, String, Vec (+3 more)
+Nodes (10): a_source_file_that_cannot_be_decoded_is_reported_too(), an_unreadable_path_is_reported_and_never_skipped(), every_mark_outside_this_guards_own_fixtures_is_well_formed(), Path, Result, String, Vec, scan() (+2 more)
 
 ### Community 304 - "Severity"
 Cohesion: 0.24
 Nodes (6): Ord, PartialOrd, Display, Formatter, Result, Severity
 
+### Community 311 - "provider_url.rs"
+Cohesion: 0.18
+Nodes (7): a_partial_read_stays_within_the_cap_including_its_marker(), diagnostic_truncation_is_announced_and_utf8_safe(), diagnostic_under_the_cap_is_untouched(), mark_truncated(), marking_a_short_text_does_not_pad_it(), marking_never_splits_a_multibyte_character(), truncate_diagnostic()
+
+### Community 315 - "AgentOutput"
+Cohesion: 0.39
+Nodes (3): AgentOutput, Vec, Verdict
+
+### Community 316 - "runner.rs"
+Cohesion: 0.07
+Nodes (45): AgentName, Fallback, Injection, Magi, MagiError, Payload, PayloadError, RunOutcome (+37 more)
+
+### Community 317 - "Self"
+Cohesion: 0.33
+Nodes (3): parent_climbs_one_level_and_stops_at_the_root(), Self, T
+
+### Community 318 - "RetryAfterProvider"
+Cohesion: 0.22
+Nodes (6): RetryAfterProvider, Vec, test_dangerous_config_is_announced_for_retry_after_cap_over_budget(), test_dangerous_config_is_announced_for_zero_base_delay(), test_dangerous_config_is_announced_for_zero_cap(), test_dangerous_config_is_announced_for_zero_retry_after_cap()
+
 ## Knowledge Gaps
 - **214 isolated node(s):** `melchior`, `report`, `X`, `8. Evangelion Correspondence Table`, `9. Relationship to the MAGI Python Plugin` (+209 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **131 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **108 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `LlmProvider` connect `AgentName` to `ProviderError`, `.analyze`, `MockProvider`, `MockProbe`, `claude.rs`, `claude_cli.rs`, `test_support.rs`, `basic_analysis.rs`, `ollama.rs`, `MagiBuilder`, `.new`, `Magi`, `ProviderProbe`, `SlowFailingProvider`, `HostedModel`, `provider.rs`, `rotation.rs`, `RetryAfterProvider`, `.complete`, `openai_compat.rs`, `.new`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Why does `run_catching()` connect `outcome.rs` to `String`, `RunResult`, `Self`?**
-  _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Why does `AgentName` connect `AgentName` to `consensus.rs`, `schema.rs`, `test_support.rs`, `orchestrator.rs`, `.cmp`, `MagiBuilder`, `Magi`, `ProviderProbe`, `String`, `.new`, `ReportConfig`, `Lineage`, `Severity`, `prompts/mod.rs`, `rotation.rs`, `ConsensusResult`, `ReportFormatter`, `AgentOutput`, `.new`?**
+- **Why does `LlmProvider` connect `LlmProvider` to `ProviderError`, `.new`, `MockProvider`, `MockProbe`, `claude.rs`, `claude_cli.rs`, `test_support.rs`, `prelude.rs`, `ollama.rs`, `MagiBuilder`, `.new`, `Magi`, `ProviderProbe`, `SlowFailingProvider`, `RetryAfterProvider`, `provider.rs`, `rotation.rs`, `openai_compat.rs`, `.new`?**
+  _High betweenness centrality (0.043) - this node is a cross-community bridge._
+- **Why does `SpyProxy` connect `proxy.rs` to `preflight.rs`, `run`?**
   _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `stage_e1_run_ids()` connect `.new` to `preflight.rs`, `runner.rs`?**
+  _High betweenness centrality (0.036) - this node is a cross-community bridge._
 - **What connects `melchior`, `report`, `X` to the rest of the system?**
   _214 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `String` be split into smaller, more focused modules?**
-  _Cohesion score 0.13846153846153847 - nodes in this community are weakly interconnected._
+- **Should `run` be split into smaller, more focused modules?**
+  _Cohesion score 0.12873563218390804 - nodes in this community are weakly interconnected._
 - **Should `reporting.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.08522727272727272 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0761904761904762 - nodes in this community are weakly interconnected._
 - **Should `consensus.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.096579476861167 - nodes in this community are weakly interconnected._
