@@ -304,8 +304,13 @@ const SEAT_FIX: &str = "Copy magi-smoke.toml.example to magi-smoke.toml and edit
 /// A config with no seats, with a number of seats other than [`REQUIRED_SEATS`],
 /// with a seat naming something that is not a mage, with two seats naming the
 /// SAME mage, with two entries — two seats, two rotation candidates, or one of
-/// each — declaring the same LINEAGE, or with two seats or a seat and a
-/// rotation candidate naming the same MODEL.
+/// each — declaring the same LINEAGE, or with two entries of the same three
+/// shapes naming the same MODEL.
+///
+/// **Both matrices are complete, and the MODEL one was not.** It covered
+/// seat-vs-seat and candidate-vs-seat and stopped there, while the LINEAGE
+/// matrix beside it had all three pairings — so two candidates naming one model
+/// walked past a check the reader had every reason to read as exhaustive.
 ///
 /// **Only the zero case used to be rejected**, and one or two seats walked
 /// straight past — which is not a harmless permissiveness: the degradation
@@ -418,6 +423,26 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
             return Err(format!(
                 "fallback {:?} declares model {:?}, which seat {:?} already uses: an injected                  failure is matched by MODEL, so rotating there is served the same refusal the                  run was rotating away from and the scenario reports a red row about the crate                  for a candidate that could never have worked. {SEAT_FIX}",
                 candidate.model, candidate.model, seat.agent
+            ));
+        }
+    }
+    // The THIRD cell of this matrix, which the lineage matrix above has and this
+    // one did not: two candidates on ONE model. The injection is keyed by model,
+    // so the second candidate is served the same refusal as the first — the pool
+    // is one deep while looking two, and the rotation scenario waits for a hop
+    // that cannot land. Same arithmetic as the candidate-LINEAGE check, arriving
+    // through the field the proxy actually discriminates on.
+    let mut candidate_models: std::collections::BTreeMap<&str, &str> =
+        std::collections::BTreeMap::new();
+    for candidate in &cfg.fallbacks {
+        if let Some(first) =
+            candidate_models.insert(candidate.model.as_str(), candidate.lineage.as_str())
+        {
+            return Err(format!(
+                "fallbacks on lineages {:?} and {:?} both declare model {:?}: an injected \
+                 failure is matched by MODEL, so the second candidate is served the same \
+                 refusal as the first and the pool is one deep while looking two. {SEAT_FIX}",
+                first, candidate.lineage, candidate.model
             ));
         }
     }
