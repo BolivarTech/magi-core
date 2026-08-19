@@ -499,22 +499,21 @@ impl Config {
                 )));
             }
         }
-        // The probe guards the runs that USE the backend, so it is bounded by the
-        // shortest of THOSE — not by `no_backend_secs`, which belongs to the one
-        // run the probe does not guard at all. Comparing against it tied the
-        // probe to something unrelated and rejected sane configurations.
-        let shortest_guarded = self
-            .budgets
-            .happy_secs
-            .min(self.budgets.large_payload_secs)
-            .min(self.budgets.injected_secs);
-        if self.probe_timeout_secs > shortest_guarded {
-            return Err(ConfigError(format!(
-                "probe_timeout_secs ({}) must be <= the shortest backend-using budget ({}), \
-                 or the probe outlives the scenario it guards",
-                self.probe_timeout_secs, shortest_guarded
-            )));
-        }
+        // The probe bound is checked ONCE, by `validate_probe_window` above. A
+        // second, weaker `probe_timeout_secs > shortest_guarded` comparison used
+        // to sit here with a message of its own, and it was unreachable by
+        // arithmetic: getting past the window check means
+        // `probe * (1 + PROBE_RETRY_FACTOR) <= shortest`, and with `probe >= 1`
+        // already enforced that implies `probe <= shortest`. Its distinct wording
+        // could therefore never reach a reader — and one invariant with two
+        // implementations is how this project already lost a guard once, so the
+        // duplicate is gone rather than kept as unreachable documentation.
+        //
+        // The widened window is the RIGHT comparator anyway: a probe that can
+        // legally consume four times its window would outlast the run it
+        // protects while a bare comparison called it fine.
+        // `the_window_check_is_the_only_implementation_of_the_probe_bound` is
+        // what fails if a second implementation reappears.
         Ok(())
     }
 
