@@ -1042,6 +1042,113 @@ fn response_chunk_stream(
 mod tests {
     use super::*;
 
+    /// An end-to-end response header the fixture upstream below sets, chosen so
+    /// that only a relayed copy can explain its presence: `hyper` and `reqwest`
+    /// generate `content-length` themselves, so asserting on THAT would go green
+    /// whether the header loop existed or not — the
+    /// mechanism-that-reports-success shape this milestone keeps producing.
+    const PROBED_END_TO_END_HEADER: &str = "content-type";
+    const PROBED_END_TO_END_VALUE: &str = "application/json";
+
+    /// A second one with a name nothing in the stack would ever invent, so the
+    /// assertion cannot be satisfied by a library default.
+    const PROBED_CUSTOM_HEADER: &str = "x-magi-smoke-upstream-marker";
+    const PROBED_CUSTOM_VALUE: &str = "set-by-the-upstream";
+
+    /// Answers every request with a fixed body and the two headers above.
+    ///
+    /// Local to this module rather than added to `testkit`: it exists for one
+    /// property of one path, and the shared helpers next door
+    /// ([`crate::testkit::spawn_echo_server`]) deliberately set no headers of
+    /// their own.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the ephemeral port cannot be bound — `#[cfg(test)]` fixture
+    /// setup, where a setup failure should stop the test rather than let it
+    /// assert against nothing.
+    async fn spawn_header_setting_server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind header-setting server");
+        let addr = listener
+            .local_addr()
+            .expect("header-setting server local address");
+        tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    continue;
+                };
+                tokio::spawn(async move {
+                    let io = hyper_util::rt::TokioIo::new(stream);
+                    let svc = hyper::service::service_fn(
+                        move |req: hyper::Request<hyper::body::Incoming>| async move {
+                            let _ = req.into_body().collect().await;
+                            Ok::<_, std::convert::Infallible>(
+                                hyper::Response::builder()
+                                    .status(200)
+                                    .header(PROBED_END_TO_END_HEADER, PROBED_END_TO_END_VALUE)
+                                    .header(PROBED_CUSTOM_HEADER, PROBED_CUSTOM_VALUE)
+                                    // A per-hop header too, so the same test
+                                    // proves the filter still filters.
+                                    .header("keep-alive", "timeout=5")
+                                    .body(Full::new(Bytes::from_static(b"{}")))
+                                    .expect("the fixture's own response must build"),
+                            )
+                        },
+                    );
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn the_buffered_path_relays_end_to_end_response_headers() {
+        // `forward`'s rustdoc says the forward is verbatim — "same method, same
+        // path, same headers, same body" — and the streaming path honours it. The
+        // buffered branch rebuilt the response as `.status(status).body(..)` with
+        // NO header loop at all, so `content-type` and every other end-to-end
+        // header vanished on precisely the two paths `S2b` compares.
+        //
+        // Nothing fails today only because `hyper` regenerates `content-length`
+        // from `Full`'s exact size hint. That is luck, not design: the day the
+        // crate dispatches on a probe response header, it would behave
+        // differently under the proxy and the difference would be attributed to
+        // the crate.
+        let upstream = spawn_header_setting_server().await;
+        let proxy = SpyProxy::start(upstream, 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        // `/api/tags` is a RECORDED_RESPONSE_PATHS entry, so this is the
+        // BUFFERED path, not the streaming one.
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/tags", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .expect("the fixture upstream answers");
+        assert_eq!(r.status().as_u16(), 200);
+        for (name, value) in [
+            (PROBED_END_TO_END_HEADER, PROBED_END_TO_END_VALUE),
+            (PROBED_CUSTOM_HEADER, PROBED_CUSTOM_VALUE),
+        ] {
+            assert_eq!(
+                r.headers().get(name).map(|v| v.to_str().unwrap_or("")),
+                Some(value),
+                "{name} is end-to-end and the buffered forward claims to be verbatim"
+            );
+        }
+        assert!(
+            r.headers().get("keep-alive").is_none(),
+            "and the filter must still filter: a per-hop header must not be relayed \
+             just because the loop now exists"
+        );
+    }
+
     /// Upstream bound for the proxies these tests raise.
     ///
     /// Deliberately far longer than anything a local fixture server takes, so
