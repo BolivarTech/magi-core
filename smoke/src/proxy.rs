@@ -394,6 +394,24 @@ fn max_recorded_body(payload_target_bytes: usize) -> usize {
 
 /// One request as the proxy saw it, and what came back.
 ///
+/// # The order records appear in is COMPLETION order, not arrival order
+///
+/// A record carries no sequence number, and the position it occupies is
+/// decided by when its request FINISHED, not when it started: each connection
+/// is served by its own task and pushes exactly once, after the upstream has
+/// answered. Concurrent requests — which is every MAGI run, three mages at once
+/// — therefore land in whatever order they completed, so a slow first request
+/// appears after a fast second one.
+///
+/// Consequence for a reader: a positional index into
+/// [`records`](SpyProxy::records) or [`records_since`](SpyProxy::records_since)
+/// identifies a request only where the window provably holds ONE, such as a
+/// single request bracketed by its own mark. Anywhere else, select by [`path`]
+/// or by [`body_sha256`].
+///
+/// [`path`]: RequestRecord::path
+/// [`body_sha256`]: RequestRecord::body_sha256
+///
 /// **The request body is identified by its HASH, never stored.** A `method` and
 /// a `body` field lived here for one milestone with no reader outside
 /// `#[cfg(test)]` code, on the argument that a later milestone would want them;
