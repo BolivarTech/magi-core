@@ -1847,6 +1847,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_probe_answered_with_404_names_both_possible_causes_too() {
+        // The sibling above already refuses to guess between two causes it
+        // cannot tell apart. This message did guess: it asserted "a model the
+        // backend does not hold" from a status that establishes no such thing.
+        // A `404` also comes back from an endpoint whose completions PATH is
+        // absent — a base URL pointing at something that is not an
+        // OpenAI-compatible server, or one that is but is mounted elsewhere —
+        // and the harness has exactly the same status either way. An operator
+        // sent to pull a model they already hold spends the round on the wrong
+        // half of their configuration.
+        let msg = probe_inconclusive_message(&Config::default());
+        assert!(
+            msg.contains("model") && msg.contains("path"),
+            "both causes must be named, the way the slow-probe refusal names its two: {msg}"
+        );
+        assert!(
+            msg.contains(&Config::default().endpoint),
+            "and the endpoint must still be there, since it is half of what the operator has              to check: {msg}"
+        );
+    }
+
     /// The absorption message's own words — the ONE of the six error paths that
     /// does not share the `workspace_root:` prefix with the other five, and
     /// therefore the only string that can tell "the comparison ran and failed"
