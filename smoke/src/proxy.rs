@@ -592,7 +592,7 @@ impl SpyProxy {
     /// scenarios take turns on one proxy rather than each getting its own.
     /// The binary is a short-lived CLI that runs its scenarios and exits;
     /// at that point the OS reclaims the listener and every spawned task,
-    /// the same trade-off [`testkit::spawn_echo_server`](crate::testkit::spawn_echo_server)
+    /// the same trade-off the test-time `testkit::spawn_echo_server`
     /// already makes for its own fixture server. A cancellation handle would
     /// be API surface with no caller: nothing in this milestone ever needs
     /// to stop a proxy mid-process, only to let the process end.
