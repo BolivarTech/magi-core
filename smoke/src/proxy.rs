@@ -1289,6 +1289,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_broken_response_read_is_not_answered_as_an_empty_success() {
+        // The RECORD half of this was fixed in round 1 and the request half in
+        // round 2; what the CLIENT observes was still a fabrication. When
+        // `forward_buffered` could not read the body back, the caller answered
+        // `.status(status).body(fixed(&[]))` — the real upstream status, which on
+        // these paths is a 200, with an EMPTY body. So on the two paths the crate
+        // parses as JSON (`/api/show`, `/api/tags`) the crate got a
+        // harness-manufactured success, its probe failed to parse a body the
+        // backend DID send, and the only thing standing between that and a
+        // verdict was the `degraded` latch — a second mechanism every scenario
+        // has to remember to consult.
+        //
+        // The module already defines `RELAY_BUILD_FAILED_STATUS` for this shape:
+        // the proxy talked to the backend and then failed to relay what came of
+        // it, which is a gateway failure and one the crate can classify.
+        let upstream = crate::testkit::spawn_truncating_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/tags", proxy.base_url()))
+            .body("{}")
+            .send()
+            .await
+            .expect("the proxy must still ANSWER: a relay failure is a status, not a hang");
+
+        assert_eq!(
+            r.status().as_u16(),
+            RELAY_BUILD_FAILED_STATUS.as_u16(),
+            "a body the proxy could not relay must come back as a gateway failure, never \
+             as the upstream's success status over an empty body the backend never sent"
+        );
+        assert_ne!(
+            r.status().as_u16(),
+            200,
+            "answering 200 hands the crate a fabricated empty success on a path it parses \
+             as JSON, and then the crate looks like the thing that failed"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "the latch stays — it is now the SECOND line of defence rather than the only \
+             one"
+        );
+    }
+
+    #[tokio::test]
     async fn a_broken_response_read_is_not_recorded_as_an_empty_answer() {
         // The upstream promises a 1000-byte body and delivers 10, then closes
         // the connection: `forward_buffered`'s body read must fail. Before
