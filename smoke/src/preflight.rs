@@ -1053,20 +1053,70 @@ mod tests {
         // caller documents — put four `cargo check` runs back inside the
         // recorded interval, and every test stayed green.
         //
-        // The sleep stands in for that work: it happens AFTER the measured call,
-        // so it must NOT be measured either.
+        // Two sleeps, and BOTH ends are pinned by one window. An assertion that
+        // only excluded — the old `in 0.0s` — could not tell a correct ledger
+        // from one that bills nothing at all: moving the store one line up, so
+        // it runs BEFORE the await, is a one-line refactor that compiles, lints
+        // clean and reports `0.0s` for every workload forever, and every test
+        // stayed green. A cost series that is uniformly zero is broken exactly
+        // as badly as one inflated by four `cargo check` runs, which is what
+        // three rounds of review were spent on.
+        //
+        // So the window has to separate THREE states, not two:
+        //
+        // * correct            — the inside sleep alone, ~0.5s;
+        // * inclusion broken   — the interval stops before the work, ~0.0s;
+        // * exclusion broken   — the end goes positional again, ~1.0s.
+        //
+        // The margins are asymmetric on purpose, because a sleep guarantees a
+        // LOWER bound and never an upper one. Both broken states therefore fail
+        // deterministically: 0.0 is below the floor and can never rise, ~1.0 is
+        // above the ceiling and can only rise further. The single direction
+        // that could flake is the correct case drifting up past the ceiling,
+        // and it is given 400ms of slack — this machine would have to add four
+        // tenths of a second of scheduling overhead INSIDE the measured region
+        // alone. Half-second sleeps rather than the 250ms the exclusion half
+        // used to run with: the receipt formats to one decimal, so a 250/250
+        // split leaves only ~150ms before a loaded machine walks out of the
+        // window, and a gate whose red is ambiguous teaches nothing — this
+        // project has already paid once for a suite that needed five
+        // consecutive green runs before anyone believed it again.
+        //
+        // Both sleeps block the thread rather than yielding, and deliberately:
+        // the runtime has nothing else to run here, and using one mechanism on
+        // both sides keeps the comparison between them free of any question
+        // about timer resolution.
+        const MEASURED_MS: u64 = 500;
+        const AFTER_MS: u64 = 500;
+        const FLOOR_SECS: f64 = 0.4;
+        const CEILING_SECS: f64 = 0.9;
+
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
         ledger.announce(&cfg, false);
-        ledger.measure(async {}).await;
-        std::thread::sleep(std::time::Duration::from_millis(250));
+        ledger
+            .measure(async {
+                std::thread::sleep(std::time::Duration::from_millis(MEASURED_MS));
+            })
+            .await;
+        std::thread::sleep(std::time::Duration::from_millis(AFTER_MS));
 
         let recorded = ledger.record().expect("announced, and the runs measured");
+        let seconds = recorded
+            .rsplit(" in ")
+            .next()
+            .and_then(|tail| tail.strip_suffix('s'))
+            .and_then(|secs| secs.parse::<f64>().ok())
+            .unwrap_or_else(|| {
+                panic!("the receipt must report an interval it can be read from: {recorded}")
+            });
         assert!(
-            recorded.contains("in 0.0s"),
-            "the interval must cover the runs alone; 250ms of work done after they finished \
-             leaked into the receipt because the end of the interval followed `record` instead \
-             of the runs: {recorded}"
+            (FLOOR_SECS..CEILING_SECS).contains(&seconds),
+            "the interval must cover the runs and NOTHING else. Below {FLOOR_SECS}s the \
+             {MEASURED_MS}ms of work handed to `measure` was never billed at all, so every \
+             release would record the same zero; at or above {CEILING_SECS}s the {AFTER_MS}ms \
+             done after the runs finished leaked in, because the end of the interval followed \
+             `record` instead of the runs: {recorded}"
         );
     }
 
