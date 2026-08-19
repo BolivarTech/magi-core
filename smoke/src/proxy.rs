@@ -966,9 +966,17 @@ impl SpyProxy {
     /// used for completions** — that is what keeps streaming intact where it
     /// matters.
     ///
-    /// Bounded by `record_cap` like the request side: a probe answer is
-    /// small, but "small" is an expectation and this is the one place the
-    /// harness could be made to hold an arbitrary body.
+    /// Bounded by `record_cap`: a probe answer is small, but "small" is an
+    /// expectation and this is the one place the harness could be made to hold
+    /// an arbitrary body.
+    ///
+    /// **There is no corresponding bound on the REQUEST side, and there cannot
+    /// be one.** This sentence used to claim there was. The request body is
+    /// forwarded VERBATIM — that literalness is the whole transparency claim —
+    /// and it is never stored, only hashed over every byte so the checksum
+    /// comparison can be trusted. See [`max_recorded_body`], which states the
+    /// same thing from the constant's side; of the two rustdocs that
+    /// contradicted each other, that one was describing the code.
     ///
     /// # Returns
     ///
