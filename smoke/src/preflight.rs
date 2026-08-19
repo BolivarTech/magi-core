@@ -47,10 +47,12 @@ pub struct Announcement {
     /// R31's other half, which had no implementation anywhere: the ledger that
     /// records what the runs ACTUALLY cost once they are done.
     ///
-    /// It travels from here rather than being created in `main` because its
-    /// clock must start when the estimate is announced, and the announcement is
-    /// made here — which is what makes "announced before, recorded after"
-    /// structural instead of a convention about where two prints sit.
+    /// It travels from here rather than being created in `main` because the
+    /// announcement is made here, and the ledger is what remembers that it was:
+    /// [`CostLedger::record`] refuses without it, which makes "announced before,
+    /// recorded after" structural instead of a convention about where two prints
+    /// sit. The clock it measures does NOT start here — see
+    /// [`CostLedger::mark_runs_started`].
     pub ledger: CostLedger,
     /// What the fixture audit counted (R23), on its way to the end-of-run
     /// report and the certificate.
@@ -636,12 +638,34 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
 /// can still act on.
 ///
 /// A ledger makes that order checkable instead of hoping two `eprintln!`s stay
-/// where somebody put them: [`CostLedger::record`] REFUSES when nothing was
-/// announced, so a reordering that puts the receipt first fails rather than
-/// printing something reasonable-looking in the wrong place.
+/// where somebody put them: [`CostLedger::record`] REFUSES unless the estimate
+/// was announced AND the runs were marked as started, so a reordering that puts
+/// the receipt first fails rather than printing something reasonable-looking in
+/// the wrong place.
+///
+/// # Why the announcement alone was not enough, and why the clock is separate
+///
+/// Hanging the refusal on the announcement made the guarantee UNREACHABLE:
+/// [`announce`](CostLedger::announce) runs inside [`run`], so every ledger a
+/// caller can hold has already announced, and `record` moved up to just after
+/// the preflight answered with a plausible receipt for runs that had not
+/// happened yet.
+///
+/// Marking the START of the runs separately also fixes what is measured.
+/// Announcing and starting are NOT the same instant: between them sits the
+/// feature matrix, whose four `cargo check` runs landed inside the recorded
+/// interval whenever `--build-matrix` was passed. A cost series that includes
+/// four builds on some releases and not on others is not comparable across
+/// them, which is the entire point of writing the certificate to one fixed
+/// path.
 pub struct CostLedger {
-    /// When [`CostLedger::announce`] ran. `None` until it has.
-    announced_at: Option<std::time::Instant>,
+    /// Whether [`CostLedger::announce`] ran. The estimate is a statement rather
+    /// than a measurement, so what matters is that it was made, not when.
+    announced: bool,
+    /// When the runs actually STARTED, per
+    /// [`mark_runs_started`](CostLedger::mark_runs_started). `None` until then,
+    /// and it is what the receipt measures from.
+    runs_started_at: Option<std::time::Instant>,
     /// How many backend runs the announcement was about, so the receipt
     /// describes the same set.
     backend_runs: usize,
@@ -651,19 +675,23 @@ impl CostLedger {
     /// A ledger with nothing announced yet.
     pub fn new() -> Self {
         CostLedger {
-            announced_at: None,
+            announced: false,
+            runs_started_at: None,
             backend_runs: 0,
         }
     }
 
-    /// The sentence printed BEFORE the first run, and the start of the clock.
+    /// The sentence printed BEFORE the first run.
+    ///
+    /// It does **not** start the clock; see
+    /// [`mark_runs_started`](CostLedger::mark_runs_started).
     ///
     /// # Parameters
     ///
     /// * `cfg` — the loaded configuration, for the payload size and budgets.
     /// * `no_backend` — the partition flag; see [`announce_cost`].
     pub fn announce(&mut self, cfg: &Config, no_backend: bool) -> String {
-        self.announced_at = Some(std::time::Instant::now());
+        self.announced = true;
         self.backend_runs = stage_e1_run_ids(no_backend)
             .into_iter()
             .filter(|r| r.uses_backend())
@@ -681,13 +709,27 @@ impl CostLedger {
     ///
     /// # Errors
     ///
-    /// When nothing was announced first. That is the ordering guarantee: a
-    /// receipt printed before the estimate is not a receipt.
+    /// When either half of the order is missing, and the two messages say which
+    /// one, because they send the reader to different places:
+    ///
+    /// * nothing was announced — the estimate has to come first, since before
+    ///   the spend the same number is a decision the operator can still make;
+    /// * the runs were never marked as started — there is no interval to report
+    ///   and nothing has been spent, so a number here would be a receipt for
+    ///   work that has not happened.
     pub fn record(&self) -> Result<String, String> {
-        let started = self.announced_at.ok_or_else(|| {
-            "the real cost cannot be recorded before the estimate was announced: R31 asks for \
-             the estimate FIRST, because after the spend it is a receipt and before it, it is a \
-             decision the operator can still make"
+        if !self.announced {
+            return Err(
+                "the real cost cannot be recorded before the estimate was announced: \
+                        R31 asks for the estimate FIRST, because after the spend it is a receipt \
+                        and before it, it is a decision the operator can still make"
+                    .to_string(),
+            );
+        }
+        let started = self.runs_started_at.ok_or_else(|| {
+            "the real cost cannot be recorded before the runs started: there is no interval to \
+             report and nothing has been spent yet, so a number here would be a receipt for work \
+             that has not happened"
                 .to_string()
         })?;
         Ok(format!(
@@ -697,8 +739,15 @@ impl CostLedger {
         ))
     }
 
-    /// Marks the point where the runs actually START, and stamps the clock.
-    pub fn mark_runs_started(&mut self) {}
+    /// Marks the point where the runs actually START, and stamps the clock the
+    /// receipt measures from.
+    ///
+    /// Separate from [`announce`](CostLedger::announce) on purpose: everything
+    /// between the two — the feature matrix above all — is work the harness did
+    /// and the runs did not cost, so it stays out of the interval.
+    pub fn mark_runs_started(&mut self) {
+        self.runs_started_at = Some(std::time::Instant::now());
+    }
 }
 
 impl Default for CostLedger {
