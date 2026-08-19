@@ -162,8 +162,14 @@ async fn main() -> std::process::ExitCode {
     // prints only the byte count, so the target is provably reachable without
     // spending a backend. Handled here and ONLY here, before anything else.
     if cli.print_payload_size {
-        let cfg = config::Config::default();
-        return match payload::generate(&paths::repo_root(), cfg.payload_target_bytes) {
+        let target = match payload_size_target(cli.config.as_deref()) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("{e}");
+                return std::process::ExitCode::from(2);
+            }
+        };
+        return match payload::generate(&paths::repo_root(), target) {
             Ok(p) => {
                 println!("{}", p.bytes);
                 std::process::ExitCode::SUCCESS
@@ -580,11 +586,27 @@ fn evaluate(
 
 /// Which payload target `--print-payload-size` answers about.
 ///
+/// Goes through the SAME loader as a normal run — file, then environment
+/// overrides, then validation — rather than reading the built-in defaults. The
+/// flag exists to prove a target is reachable without spending a backend, and a
+/// size measured against a target the operator did not ask for answers a
+/// different question while looking like an answer to theirs.
+///
+/// A config that was given and cannot be read REFUSES, and does not fall back:
+/// falling back would print a plausible number for a file that was never
+/// loaded, which is the same defect one step earlier.
+///
+/// # Parameters
+///
+/// * `config` — the `--config` path, or `None` for the built-in defaults.
+///
 /// # Errors
 ///
-/// Whatever the configuration layer refuses.
-fn payload_size_target(_config: Option<&std::path::Path>) -> Result<usize, String> {
-    Ok(config::Config::default().payload_target_bytes)
+/// Whatever the configuration layer refuses, rendered.
+fn payload_size_target(config: Option<&std::path::Path>) -> Result<usize, String> {
+    config::Config::load_or_fail(config)
+        .map(|(cfg, _origin)| cfg.payload_target_bytes)
+        .map_err(|e| e.to_string())
 }
 
 /// A context carrying nothing, for a scenario whose run never happened.
