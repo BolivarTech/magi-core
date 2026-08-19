@@ -331,12 +331,28 @@ const ENDPOINT_SCHEMES: [&str; 2] = ["http://", "https://"];
 const AUTHORITY_TERMINATORS: [char; 3] = ['/', '?', '#'];
 
 impl Config {
+    /// Parses a config file. **Shape only — no range validation happens here.**
+    ///
+    /// # Why the ranges are NOT checked at this point
+    ///
+    /// They used to be, and that re-opened the bug the whole-set fix closed, in
+    /// the branch that fix's test does not cover. Ranges here relate fields to
+    /// each other, and the environment gets the last word (`env > file >
+    /// built-in`, R30), so judging the file ALONE refuses a file that is
+    /// illegal by itself and legal once every override is applied — naming a
+    /// relation the configuration that will actually be used satisfies. The
+    /// file cannot be allowed to veto the highest-precedence path.
+    ///
+    /// The validation is not deferred to never: [`Config::load_or_fail`] runs
+    /// it ONCE, over the final set, on every path — and
+    /// `a_file_that_is_still_illegal_once_every_override_is_applied_is_refused`
+    /// is what fails if that call goes missing.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError`] when the TOML does not parse or carries an unknown field.
     pub fn from_str(text: &str) -> Result<Self, ConfigError> {
-        let cfg: Config = toml::from_str(text).map_err(|e| ConfigError(e.to_string()))?;
-        // `validate()` calls `validate_probe_window()`: defining it and never
-        // calling it would leave it as documentation with Rust syntax.
-        cfg.validate()?;
-        Ok(cfg)
+        toml::from_str(text).map_err(|e| ConfigError(e.to_string()))
     }
 
     // --- The ONLY accessors the rest of the harness uses. The `_secs` fields are
@@ -699,6 +715,13 @@ impl Config {
         // and refused legal configurations naming a relation the final one
         // satisfies. The operator could not reorder their way out — the order
         // is `ENV_OVERRIDES`', not theirs.
+        //
+        // The FILE is validated here too, and nowhere else. `Config::from_str`
+        // used to validate what it parsed, which is the same defect one step
+        // earlier: the file was judged before the environment had spoken, so a
+        // value an override rescues was refused by the base it was overriding.
+        // This is the ONE validation site for every base, which is what makes
+        // "the whole set, once" true rather than true of one branch.
         let (mut cfg, origin) = base;
         for (key, _) in ENV_OVERRIDES {
             if let Ok(raw) = std::env::var(key) {
@@ -1136,12 +1159,22 @@ mod tests {
 
     #[test]
     fn a_zero_timeout_is_rejected_and_the_field_is_named() {
-        let toml = r#"
-            endpoint = "http://localhost:11434"
-            probe_timeout_secs = 0
-        "#;
-        let err = Config::from_str(toml).unwrap_err();
-        assert!(format!("{err}").contains("probe_timeout_secs"));
+        // Driven through `load_or_fail`, the real call site, because that is
+        // where a file's ranges are judged: `Config::from_str` parses SHAPE and
+        // deliberately validates nothing, so that the file cannot veto an
+        // override that rescues it. Zero is still refused, and still by name —
+        // deferring the check to the final set must not defer it to never.
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let dir = crate::testkit::tempdir_with(&[(
+            "magi-smoke.toml",
+            "endpoint = \"http://localhost:11434\"
+probe_timeout_secs = 0
+",
+        )]);
+        let err = Config::load_or_fail(Some(&dir.path().join("magi-smoke.toml")))
+            .expect_err("0 disables the contention probe silently and must be refused")
+            .to_string();
+        assert!(err.contains("probe_timeout_secs"), "{err}");
     }
 
     #[test]
