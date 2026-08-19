@@ -476,6 +476,96 @@ mod tests {
     use crate::paths::fixture_dir;
     use crate::testkit::tempdir_with;
 
+    /// Lays out a throw-away replica of the repository — `<root>/smoke/` with a
+    /// copy of the real `sync-fixtures.sh` in it, and an empty
+    /// `<root>/sbtdd/ec-evidence/` for the script's source check — and returns
+    /// the replica's root.
+    ///
+    /// A replica rather than the real checkout because the script WRITES, and a
+    /// test that writes into the tree is the very thing the guard below exists
+    /// to forbid.
+    #[cfg(test)]
+    fn sync_script_replica() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "magi-smoke-sync-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("smoke")).expect("replica smoke dir");
+        std::fs::create_dir_all(root.join("sbtdd").join("ec-evidence")).expect("replica source");
+        std::fs::copy(
+            crate::paths::smoke_dir().join("sync-fixtures.sh"),
+            root.join("smoke").join("sync-fixtures.sh"),
+        )
+        .expect("the script under test must be copyable");
+        root
+    }
+
+    /// Runs the replica's script with `sh`, from `cwd`, and returns its status.
+    #[cfg(test)]
+    fn run_sync_from(root: &std::path::Path, cwd: &std::path::Path) -> std::process::Output {
+        std::process::Command::new("sh")
+            .arg(root.join("smoke").join("sync-fixtures.sh"))
+            .current_dir(cwd)
+            .output()
+            .expect(
+                "this project's gate is itself a `sh` script, so `sh` is a hard dependency; \
+                 skipping here instead would be green by omission",
+            )
+    }
+
+    #[test]
+    fn sync_fixtures_writes_the_same_place_from_any_directory() {
+        // Its two paths used to be resolved against DIFFERENT bases: the source
+        // against the caller's working directory, the destination against the
+        // repository root. Run from the repository root the source pointed
+        // outside the repository; run from `smoke/` the destination landed on
+        // `smoke/smoke/fixtures` — a directory INSIDE the checkout that nothing
+        // is supposed to create. One base makes the script answer the same way
+        // wherever it is invoked from, which is the only contract a script with
+        // two paths can honestly offer.
+        for cwd in ["", "smoke"] {
+            let root = sync_script_replica();
+            let from = root.join(cwd);
+            let out = run_sync_from(&root, &from);
+            assert!(
+                out.status.success(),
+                "running from {from:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            assert!(
+                root.join("smoke").join("fixtures").join("manifest.toml").is_file(),
+                "running from {from:?} did not regenerate smoke/fixtures/manifest.toml"
+            );
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    #[test]
+    fn sync_fixtures_creates_nothing_beside_the_fixture_directory() {
+        // The other half, and the one nothing else enforces: `writable_locations`
+        // covers the BINARY's write sites, and this script is not the binary. A
+        // stray directory here is invisible to that guard and to `git status`
+        // alike once somebody ignores it.
+        for cwd in ["", "smoke"] {
+            let root = sync_script_replica();
+            let out = run_sync_from(&root, &root.join(cwd));
+            assert!(out.status.success(), "the script must run from {cwd:?}");
+            let mut created: Vec<String> = std::fs::read_dir(root.join("smoke"))
+                .expect("the replica's smoke directory must be readable")
+                .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+                .collect();
+            created.sort();
+            assert_eq!(
+                created,
+                vec!["fixtures".to_string(), "sync-fixtures.sh".to_string()],
+                "run from {cwd:?} the script created something beside smoke/fixtures"
+            );
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
     #[test]
     fn a_fixture_whose_hash_changed_is_rejected() {
         // The real `fixture_dir()` must stay data-file-free in E1 (see the
