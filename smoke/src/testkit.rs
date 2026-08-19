@@ -794,6 +794,68 @@ pub async fn stub_that_lists_models(models: &[&str]) -> ListingStub {
     ListingStub { addr }
 }
 
+/// An HTTP stub that answers every request with a body of a chosen size.
+pub struct BulkStub {
+    addr: std::net::SocketAddr,
+}
+
+impl BulkStub {
+    /// The base URL a client (or a proxy under test) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// Binds on an ephemeral port and answers `200` with exactly `bytes` bytes.
+///
+/// The echo server cannot stand in for this: it replies with a fixed two-byte
+/// body whatever it is sent, so nothing driven through it can exceed a cap on
+/// the RESPONSE side, and a test written against it would pass whether or not
+/// the cap existed.
+///
+/// # Parameters
+///
+/// * `bytes` — the response body length, in bytes.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_answers_with_bytes(bytes: usize) -> BulkStub {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind bulk stub");
+    let addr = listener.local_addr().expect("bulk stub local address");
+    let body = hyper::body::Bytes::from(vec![b'x'; bytes]);
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            let body = body.clone();
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    move |req: hyper::Request<hyper::body::Incoming>| {
+                        let body = body.clone();
+                        async move {
+                            let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
+                                http_body_util::Full::new(body),
+                            ))
+                        }
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    BulkStub { addr }
+}
+
 /// An HTTP stub that answers everything with `404 Not Found`, immediately.
 pub struct NotFoundStub {
     addr: std::net::SocketAddr,

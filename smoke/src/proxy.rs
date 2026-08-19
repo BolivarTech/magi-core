@@ -358,13 +358,24 @@ fn is_hop_by_hop(name: &str) -> bool {
     HOP_BY_HOP_HEADERS.contains(&name)
 }
 
-/// Cap on the recorded copy of a request body, **derived from the configured
-/// payload target** instead of hardcoded: the whole point of the large-payload
-/// scenario is that the body is big, and a fixed cap that someone raises the
-/// target past would start truncating the very record the scenario reads.
+/// Cap on the RESPONSE bytes the proxy will hold: the recorded copy on the two
+/// buffered paths, and the bound [`SpyProxy::forward_buffered`] reads them
+/// under. **Derived from the configured payload target** instead of hardcoded:
+/// the whole point of the large-payload scenario is that the body is big, and a
+/// fixed cap that someone raises the target past would start truncating the
+/// very record the scenario reads.
 ///
 /// Twice the target leaves room for the system prompt and the JSON envelope.
-/// **The FORWARDED body is never truncated** — only the copy we keep.
+///
+/// # It is not, and cannot be, a cap on the REQUEST body
+///
+/// This header used to say "the recorded copy of a request body", describing
+/// something that does not exist and could not: the request body is forwarded
+/// VERBATIM — that literalness is the whole transparency claim — and it is
+/// never stored, only hashed, over every byte precisely so the checksum
+/// comparison can be trusted. There is nothing on the request side for a cap to
+/// apply to. **The FORWARDED body is never truncated** — only what the proxy
+/// keeps, and now also how much of a buffered response it will read at all.
 ///
 /// # Panics
 ///
@@ -974,7 +985,8 @@ impl SpyProxy {
     /// regenerates `content-length` from `Full`'s exact size hint — luck, not
     /// design.
     ///
-    /// The **body** is `None` when it could not be read back in full — the status
+    /// The **body** is `None` when it could not be read back in full, **which
+    /// now includes a body larger than `record_cap`** — the status
     /// IS real (headers already arrived), but there is no genuine body. `None`,
     /// not `Some(Vec::new())`: an empty `Vec` would be indistinguishable from a
     /// backend that truly answered with an empty body, and the caller must be
@@ -991,13 +1003,40 @@ impl SpyProxy {
         let resp = self.forward(method, path, headers, body, upstream).await;
         let status = resp.status().as_u16();
         let out_headers = resp.headers().clone();
-        match resp.into_body().collect().await {
-            Ok(c) => (status, out_headers, Some(c.to_bytes().to_vec())),
-            // Could not read it back: report the status and NOTHING else.
-            // The CALLER must route this to `with_status_only`, never to
-            // `with_recorded_response` with an empty body — that would
-            // record a genuine-looking empty answer for a read that failed.
-            Err(_) => (status, out_headers, None),
+        // BOUNDED, which the rustdoc above claimed and the code did not do:
+        // `collect()` on its own reads whatever the upstream sends, so a
+        // backend answering one of the two recorded paths with an arbitrary
+        // body made the harness hold every byte of it. The read stops that
+        // into the refusal below, which is already the honest route: the
+        // caller latches `degraded` and answers `RELAY_BUILD_FAILED_STATUS`
+        // rather than relaying a body it truncated.
+        //
+        // Truncating is NOT an option here. This body is handed back to the
+        // client as well as recorded, and a short one would be a response the
+        // upstream never sent — the fabrication this module exists not to
+        // commit.
+        let mut body = resp.into_body();
+        let mut buf: Vec<u8> = Vec::new();
+        loop {
+            match body.frame().await {
+                None => return (status, out_headers, Some(buf)),
+                // Could not read it back: report the status and NOTHING else.
+                // The CALLER must route this to `with_status_only`, never to
+                // `with_recorded_response` with an empty body — that would
+                // record a genuine-looking empty answer for a read that failed.
+                Some(Err(_)) => return (status, out_headers, None),
+                Some(Ok(frame)) => {
+                    let Some(data) = frame.data_ref() else {
+                        continue; // trailers carry no bytes to hold
+                    };
+                    // Checked BEFORE the bytes are appended, so the cap bounds
+                    // what is held rather than what was already held.
+                    if buf.len().saturating_add(data.len()) > self.record_cap {
+                        return (status, out_headers, None);
+                    }
+                    buf.extend_from_slice(data);
+                }
+            }
         }
     }
 
@@ -1407,17 +1446,17 @@ mod tests {
         // not be read: `None` -> degraded -> the relay-failure status. The
         // proxy never invents an answer, and `degraded` routes every assertion
         // that reads the registry to SKIP rather than to a red row.
-        let upstream = crate::testkit::spawn_echo_server().await;
+        // One byte past the floor, which is what `record_cap` resolves to for
+        // any payload target this small.
+        let upstream =
+            crate::testkit::stub_that_answers_with_bytes(MIN_RECORDED_BODY_CAP + 1).await;
         let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
             .await
             .expect("proxy bind");
-        // The echo server answers with what it was sent, so the request size
-        // decides the response size. One byte past the floor is enough.
-        let oversized = "x".repeat(MIN_RECORDED_BODY_CAP + 1);
 
         let r = reqwest::Client::new()
             .post(format!("{}/api/show", proxy.base_url()))
-            .body(oversized)
+            .body("{}")
             .send()
             .await
             .expect("the proxy must still ANSWER: an oversized body is a status, not a hang");
