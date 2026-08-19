@@ -882,6 +882,15 @@ mod tests {
     ///
     /// * `dir` — where to build it.
     fn fixture_repo_at(dir: PathBuf) -> PathBuf {
+        // REMOVED first, and this is the whole point of the helper. The name is
+        // `{pid}-{counter}`, and both repeat across `cargo test` runs, so a
+        // directory an earlier run left behind is a directory this one inherits
+        // — certificate included. A test asserting no certificate was written
+        // would then be asserting about somebody else's file.
+        //
+        // The result is ignored: "it was not there" is the normal case, and the
+        // `create_dir_all` below is what fails loudly if the path is unusable.
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create fixture repo dir");
         let out = std::process::Command::new("git")
             .arg("init")
