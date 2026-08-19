@@ -866,16 +866,78 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
 /// preflight starts, so no scenario runs against a default backend. Exercised
 /// by `cargo run -- --config <a toml carrying an UNKNOWN FIELD>` (six-invocation
 /// table, README). The input shape is named precisely because it matters: a
-/// SYNTAX-broken toml is also unreadable, produces a different message, and would
-/// fail this assertion — reporting a verdict about the crate for an input the
+/// SYNTAX-broken toml is also unreadable, produces a different message, and used
+/// to fail this assertion — reporting a verdict about the crate for an input the
 /// operator chose. The name below is narrowed to what the body actually checks.
+///
+/// # The stage guard is not enough on its own, which is what this scenario got wrong
+///
+/// [`preflight_error_for_stage`] separates `Config:` from the other three
+/// stages, and there it stopped: EVERY Config-stage failure that was not an
+/// unknown field fell through to the assertion and came out `Fail`. A syntax
+/// error, an absent file and a bad value are all illegible configs, all chosen
+/// by the operator, and none of them is the shape this scenario asserts about.
+/// So the shape is now part of the guard rather than part of the verdict, on the
+/// same ruling the stage prefix already follows: a fault this invocation did not
+/// ask about is `OutOfScope`, never a red row about the crate.
+///
+/// # Declared limitation of this assertion
+///
+/// It reads the preflight's error string and nothing else, so it cannot see the
+/// config that produced it. The regression of an unknown field being SILENTLY
+/// DEFAULTED therefore arrives here as no error at all, which is `OutOfScope` —
+/// indistinguishable from a run that passed no config. Closing that would need
+/// the harness to compare the loaded config against the file it came from, which
+/// belongs to `config.rs` rather than to a scenario. Flagged, not worked around.
 fn s14_illegible_toml_is_fatal(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME: &str =
         "a config with an unknown field names it and cuts with exit 2 before any run";
     match preflight_error_for_stage(ctx, "Config: ") {
         Err(()) => vec![Assertion::out_of_scope(NAME)],
-        Ok(err) => vec![assert_that(NAME, err.contains("unknown field"))],
+        // The config was rejected for something other than an unrecognised key,
+        // so the invocation induced a different fault from this one.
+        Ok(err) if !err.contains(UNKNOWN_FIELD) => vec![Assertion::out_of_scope(NAME)],
+        // It cut at the `Config` stage, which is before any run by
+        // construction — the stage prefix proves that half. What is left to
+        // check is the other half of the sentence, and it is the half an
+        // operator acts on: WHICH field.
+        Ok(err) => vec![assert_that(NAME, names_the_offending_field(err))],
     }
+}
+
+/// What `toml`'s own rejection of an unrecognised key says. The shape `S14`
+/// asserts about, and — since the ruling in [`s14_illegible_toml_is_fatal`] —
+/// the shape that selects it at all.
+const UNKNOWN_FIELD: &str = "unknown field";
+
+/// Whether an unknown-field rejection goes on to NAME the field, the way
+/// `toml` renders it: ``unknown field `some_key` ``.
+///
+/// Selecting on [`UNKNOWN_FIELD`] alone would leave `S14` unable to fail at
+/// all, since every message it still judges would already contain the marker
+/// that selected it — an assertion that cannot go red is the defect this
+/// milestone keeps closing. The field name is what makes the check real, and it
+/// is also the only part of that message an operator can act on: "unknown
+/// field" tells them the config is wrong, and the backticked name tells them
+/// where.
+///
+/// # Parameters
+///
+/// * `err` — the rendered preflight error, already known to contain
+///   [`UNKNOWN_FIELD`].
+///
+/// # Complexity
+///
+/// `O(n)` in `err.len()`.
+fn names_the_offending_field(err: &str) -> bool {
+    /// The delimiter `toml` puts around the key it did not recognise.
+    const QUOTE: char = '`';
+    err.split_once(UNKNOWN_FIELD)
+        .and_then(|(_, tail)| tail.split_once(QUOTE))
+        .and_then(|(_, named)| named.split_once(QUOTE))
+        // A backtick pair with nothing between it names no more than the bare
+        // marker did.
+        .is_some_and(|(name, _)| !name.trim().is_empty())
 }
 
 // ---------------------------------------------------------------------------
@@ -2061,6 +2123,36 @@ mod tests {
                 ScenarioState::OutOfScope,
                 "the Config stage failed in a shape this scenario does not assert about, so \
                  this invocation never asked its question: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn s14_fails_when_the_rejection_does_not_name_the_unknown_field() {
+        // Selecting the scenario on the same marker it then judges would leave
+        // it unable to go red at all, and an assertion that cannot fail is the
+        // defect this milestone keeps closing. This is the half that keeps it
+        // real, and it is the half an operator acts on: "unknown field" says
+        // the config is wrong, the backticked name says where.
+        //
+        // Mutation-verified: with `names_the_offending_field` replaced by a
+        // bare `true` this reports `Pass` and every sibling test stays green,
+        // which is why the marker alone was not a check.
+        for err in [
+            "Config: config: TOML parse error: unknown field",
+            "Config: config: TOML parse error: unknown field ``",
+            "Config: config: TOML parse error: unknown field `   `",
+        ] {
+            let err = err.to_string();
+            let ctx = RunContext {
+                error: Some(&err),
+                ..blank_ctx(RunId::HappySmall)
+            };
+            let a = s14_illegible_toml_is_fatal(&ctx);
+            assert_eq!(
+                a[0].state,
+                ScenarioState::Fail,
+                "a rejection that names no field leaves the operator nowhere to go: {err}"
             );
         }
     }
