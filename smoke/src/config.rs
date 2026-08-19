@@ -480,8 +480,8 @@ impl Config {
         // ORDER IS LOAD-BEARING: the range check comes FIRST, because
         // `validate_probe_window` multiplies this field and the bound is what
         // keeps that multiplication inside `u64`. It used to run second, so a
-        // value above `u64::MAX / 4` overflowed before anything looked at its
-        // range — panicking in debug (inside config parsing, which the harness's
+        // large enough value overflowed before anything looked at its range —
+        // panicking in debug (inside config parsing, which the harness's
         // panic hook does not cover, so exit 101 instead of the exit 2 every
         // other configuration fault produces) and wrapping silently in release
         // to a small product that passed a check it should have failed.
@@ -534,14 +534,15 @@ impl Config {
         // second, weaker `probe_timeout_secs > shortest_guarded` comparison used
         // to sit here with a message of its own, and it was unreachable by
         // arithmetic: getting past the window check means
-        // `probe * (1 + PROBE_RETRY_FACTOR) <= shortest`, and with `probe >= 1`
-        // already enforced that implies `probe <= shortest`. Its distinct wording
-        // could therefore never reach a reader — and one invariant with two
-        // implementations is how this project already lost a guard once, so the
-        // duplicate is gone rather than kept as unreachable documentation.
+        // `probe * sum(PREFLIGHT_BACKEND_WINDOWS) <= shortest`, and since that
+        // sum is at least 1, with `probe >= 1` already enforced, it implies
+        // `probe <= shortest`. Its distinct wording could therefore never reach
+        // a reader — and one invariant with two implementations is how this
+        // project already lost a guard once, so the duplicate is gone rather
+        // than kept as unreachable documentation.
         //
-        // The widened window is the RIGHT comparator anyway: a probe that can
-        // legally consume four times its window would outlast the run it
+        // The summed window is the RIGHT comparator anyway: a probe that can
+        // legally consume several times its window would outlast the run it
         // protects while a bare comparison called it fine.
         // `the_window_check_is_the_only_implementation_of_the_probe_bound` is
         // what fails if a second implementation reappears.
@@ -1445,12 +1446,12 @@ probe_timeout_secs = 0
     #[test]
     fn the_window_check_is_the_only_implementation_of_the_probe_bound() {
         // `validate` used to reject an over-long probe window TWICE: the window
-        // check (`probe * (1 + PROBE_RETRY_FACTOR)` against the shortest
+        // check (`probe * sum(PREFLIGHT_BACKEND_WINDOWS)` against the shortest
         // backend-using budget) and then, at the end, a weaker inline
         // `probe > shortest` with its own message.
         //
         // The inline one was unreachable by arithmetic, not by luck: reaching it
-        // requires surviving the window check, i.e. `probe * 4 <= shortest`, and
+        // requires surviving the window check, and since that sum is at least 1,
         // with `probe >= 1` already enforced that gives `probe <= shortest`. So
         // its distinct message could never reach a reader. One invariant with two
         // implementations is how this project already lost a guard once, so the
@@ -1499,12 +1500,17 @@ probe_timeout_secs = 0
     #[test]
     fn an_absurd_probe_timeout_is_a_named_config_error_not_an_overflow() {
         // `validate_probe_window` was the FIRST step of `validate`, and it
-        // multiplies `probe_timeout_secs` by `1 + PROBE_RETRY_FACTOR` — while the
-        // `MAX_PROBE_TIMEOUT_SECS` bound that would have rejected the value was
-        // checked afterwards. So a value above `u64::MAX / 4` overflowed BEFORE
-        // anything looked at its range: a panic in debug builds (which is how
-        // `cargo test` and a plain `cargo run` are built), and in release a
-        // silent wrap to a small `worst` that passes a check it should fail.
+        // multiplies `probe_timeout_secs` by each entry of
+        // `PREFLIGHT_BACKEND_WINDOWS` — while the `MAX_PROBE_TIMEOUT_SECS`
+        // bound that would have rejected the value was checked afterwards. So a
+        // large enough value overflowed BEFORE anything looked at its range: a
+        // panic in debug builds (which is how `cargo test` and a plain
+        // `cargo run` are built), and in release a silent wrap to a small
+        // `worst` that passes a check it should fail.
+        //
+        // The values below are simply far above the bound; they are NOT tied to
+        // the multiplier, which is why they stay correct now that it is summed
+        // from a list rather than written as `1 + PROBE_RETRY_FACTOR`.
         //
         // The panic is the worse half. It happens inside config parsing, which
         // is not covered by the harness's panic hook, so the process exits 101
