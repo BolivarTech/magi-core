@@ -607,6 +607,18 @@ pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), 
 /// repeats it in `model`, and a backend that fills only one of them still
 /// answered the question.
 ///
+/// # A non-empty array with nothing readable in it is `None`, not `Some([])`
+///
+/// The boundary above used to hold at one level and break at the other. An
+/// array of entries carrying neither key returned an EMPTY vector, which the
+/// caller cannot tell from "the backend holds nothing" — so every declared
+/// model was reported absent and the run refused, on the strength of a body
+/// this harness had merely failed to read. That is precisely the claim the
+/// `None` case exists to avoid making, arriving one level lower down.
+///
+/// An array that is genuinely empty keeps `Some([])`: the backend said,
+/// readably, that it holds nothing, and that IS an established fact.
+///
 /// # Parameters
 ///
 /// * `body` — the reachability response body, as received.
@@ -617,17 +629,19 @@ pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), 
 fn listed_models(body: &[u8]) -> Option<Vec<String>> {
     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
     let models = v.get("models")?.as_array()?;
-    Some(
-        models
-            .iter()
-            .filter_map(|m| {
-                m.get("name")
-                    .or_else(|| m.get("model"))
-                    .and_then(|n| n.as_str())
-                    .map(str::to_string)
-            })
-            .collect(),
-    )
+    let names: Vec<String> = models
+        .iter()
+        .filter_map(|m| {
+            m.get("name")
+                .or_else(|| m.get("model"))
+                .and_then(|n| n.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if names.is_empty() && !models.is_empty() {
+        return None;
+    }
+    Some(names)
 }
 
 /// One bounded attempt at a REAL completion: the WHOLE request — connect, send
