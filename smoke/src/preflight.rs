@@ -1331,6 +1331,66 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_proxy_bound_covers_every_run_that_reaches_the_backend() {
+        // Two places decide which runs use the backend and they decide it by
+        // different means: `announce_cost` DERIVES the set through
+        // `RunId::uses_backend`, while `Config::longest_backend_budget` — the
+        // bound `raise_proxy` hands the proxy — maxes over three budget fields
+        // named by hand. A hand-maintained list that drifts from its derived
+        // twin is how this project has already lost guards, and the drift here
+        // is silent in the worst direction: a backend run whose budget is
+        // longer than the bound makes the PROXY the component that cuts first,
+        // which turns a slow-but-legal backend into a harness fault.
+        //
+        // Nothing in either module compares them, so this does. The derivation
+        // is the same one the announcement uses, and the variant list below is
+        // wildcard-free, so a `RunId` added later stops the compilation here
+        // rather than quietly leaving this assertion over a subset.
+        let all = [
+            RunId::HappySmall,
+            RunId::Large62k,
+            RunId::Rotation,
+            RunId::Degradation,
+            RunId::NoBackend,
+        ];
+        for id in all {
+            match id {
+                RunId::HappySmall
+                | RunId::Large62k
+                | RunId::Rotation
+                | RunId::Degradation
+                | RunId::NoBackend => {}
+            }
+        }
+
+        // Each budget raised past the others in turn: pinning only the default
+        // would pass against a bound that ignored two of the three fields.
+        for raise in [
+            |c: &mut Config| c.budgets.happy_secs = 3_601,
+            |c: &mut Config| c.budgets.large_payload_secs = 3_602,
+            |c: &mut Config| c.budgets.injected_secs = 3_603,
+            |c: &mut Config| c.budgets.no_backend_secs = 3_604,
+        ] {
+            let mut cfg = Config::default();
+            raise(&mut cfg);
+            let derived = all
+                .into_iter()
+                .filter(|id| id.uses_backend())
+                .map(|id| cfg.budget(id))
+                .max()
+                .expect("some run reaches the backend");
+            assert_eq!(
+                cfg.longest_backend_budget(),
+                derived,
+                "the proxy's upstream bound must be the longest budget among the runs \
+                 `RunId::uses_backend` selects. A bound below one of them makes the proxy cut \
+                 before the run does, and a proxy cut is reported as a harness fault rather \
+                 than as what the run was measuring"
+            );
+        }
+    }
+
     /// How many backend runs `cfg` announces, by the ledger's own route.
     ///
     /// The ledger requires one measured interval per announced backend run, so
