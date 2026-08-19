@@ -725,6 +725,61 @@ pub async fn stub_that_is_always_slow() -> AlwaysSlowStub {
     AlwaysSlowStub { addr }
 }
 
+/// An HTTP stub that answers everything with `404 Not Found`, immediately.
+pub struct NotFoundStub {
+    addr: std::net::SocketAddr,
+}
+
+impl NotFoundStub {
+    /// The base URL a client (or `probe`) should send requests to.
+    pub fn url(&self) -> String {
+        format!("http://{}", self.addr)
+    }
+}
+
+/// Binds on an ephemeral port and answers `404` to everything, instantly.
+///
+/// It is the shape of an Ollama asked for a model it does not hold: the
+/// request is rejected on inspection, WITHOUT generating, so it never enters
+/// the inference queue. That is why a fast answer from it proves nothing about
+/// contention, and why the probe has to say so instead of reporting clear.
+///
+/// # Panics
+///
+/// Panics if the ephemeral port cannot be bound. Acceptable here: this is
+/// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
+/// test immediately rather than run against a stub with nothing behind it.
+pub async fn stub_that_holds_no_model() -> NotFoundStub {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind not-found stub");
+    let addr = listener.local_addr().expect("not-found stub local address");
+    tokio::spawn(async move {
+        loop {
+            let Ok((stream, _)) = listener.accept().await else {
+                continue;
+            };
+            tokio::spawn(async move {
+                let io = hyper_util::rt::TokioIo::new(stream);
+                let svc = hyper::service::service_fn(
+                    |req: hyper::Request<hyper::body::Incoming>| async move {
+                        let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                        let mut resp = hyper::Response::new(http_body_util::Full::new(
+                            hyper::body::Bytes::from_static(b"{\"error\":\"model not found\"}"),
+                        ));
+                        *resp.status_mut() = hyper::StatusCode::NOT_FOUND;
+                        Ok::<_, std::convert::Infallible>(resp)
+                    },
+                );
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(io, svc)
+                    .await;
+            });
+        }
+    });
+    NotFoundStub { addr }
+}
+
 /// Runs the REAL preflight, end to end, with `break_proxy = true` — proves
 /// `S20`: a broken proxy is reported as "cannot test", never as a scenario
 /// failure.

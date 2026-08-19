@@ -909,8 +909,9 @@ mod tests {
     use crate::config::Seat;
     use crate::testkit::{
         repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
-        run_with_broken_proxy, stub_that_is_always_slow, stub_that_is_slow_on_first_request_only,
-        stub_that_records_requests, temp_root_with, tempdir_with,
+        run_with_broken_proxy, stub_that_holds_no_model, stub_that_is_always_slow,
+        stub_that_is_slow_on_first_request_only, stub_that_records_requests, temp_root_with,
+        tempdir_with,
     };
 
     #[test]
@@ -1556,6 +1557,36 @@ mod tests {
         assert!(
             err.contains(&taken),
             "the message must name the colliding lineage: {err}"
+        );
+    }
+
+    #[tokio::test]
+    #[allow(non_snake_case)]
+    async fn a_backend_that_does_not_hold_the_probe_model_is_INCONCLUSIVE_not_clear() {
+        // The blind spot the completion-instead-of-listing fix was supposed to
+        // close, re-entering through MODEL selection instead of PATH selection:
+        // `probe_model` deliberately names the LAST fallback, the one least
+        // likely to be resident, and a model the backend does not hold is
+        // rejected on inspection WITHOUT generating. The request never enters
+        // the inference queue, so a saturated backend answers it instantly and
+        // the probe would report "clear" over the contention it exists to
+        // detect. Nothing was measured, so the probe must say so.
+        let stub = stub_that_holds_no_model().await;
+        let cfg = Config {
+            endpoint: stub.url(),
+            ..Config::default()
+        };
+        let err = probe(&cfg, Duration::from_millis(500))
+            .await
+            .expect_err("a 404 answers nothing about the queue, so it cannot pass as clear");
+        assert!(
+            err.contains(&cfg.probe_model()),
+            "the refusal must name the model that was not held: {err}"
+        );
+        assert!(
+            !err.contains("retried once"),
+            "and must NOT be the contention message: nothing was slow, so widening the \
+             window would prove nothing either: {err}"
         );
     }
 
