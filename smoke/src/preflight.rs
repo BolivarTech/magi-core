@@ -1132,16 +1132,16 @@ impl CostLedger {
     ///
     /// * nothing was announced — the estimate has to come first, since before
     ///   the spend the same number is a decision the operator can still make;
-    /// * the runs were never measured — there is no interval to report, so a
-    ///   number here would be a receipt for work nothing timed. It says
-    ///   MEASURED and not "the runs never started", because the two are not
-    ///   the same claim and only one of them is always true: a [`measure`]
-    ///   future dropped mid-await leaves runs that did start and still no
-    ///   interval, and the refusal has to be honest about that case too;
     /// * the number of intervals does not equal the number of backend runs the
-    ///   announcement counted — see below. Its own message, because it sends
-    ///   the reader to a third place: not to a missing call but to the SHAPE of
-    ///   the call site.
+    ///   announcement counted — see below. **This covers the unmeasured ledger
+    ///   too**, and a branch of its own used to precede it for that case: zero
+    ///   intervals against a positive announced count is this same comparison
+    ///   with one argument fixed, so the second implementation decided nothing
+    ///   except which message a reader saw. It sends that reader to the SHAPE
+    ///   of the call site, where a missing [`measure`] call is found as readily
+    ///   as a misplaced one — including the case that branch was worded for, a
+    ///   `measure` future dropped mid-await, which leaves runs that did start
+    ///   and still no interval.
     ///
     /// # Why the COUNT is checked, and what that does and does not close
     ///
@@ -1172,13 +1172,16 @@ impl CostLedger {
                     .to_string(),
             );
         }
-        if self.measured.is_empty() && self.backend_runs > 0 {
-            return Err(
-                "the real cost cannot be recorded before the runs were measured: there is no \
-                 interval to report, so a number here would be a receipt for work nothing timed"
-                    .to_string(),
-            );
-        }
+        // ONE comparison for the whole interval invariant. An
+        // `is_empty() && backend_runs > 0` branch used to sit here with a
+        // message of its own, and it is this comparison with one argument
+        // fixed at zero — `0 != n` holds for every `n > 0` — so it added no
+        // coverage and only decided which of two messages a reader saw. One
+        // invariant with two implementations is how this project already lost
+        // a guard once, and `validate_probe_window` retired its own duplicate
+        // for exactly this reason.
+        // `the_count_check_is_the_only_implementation_of_the_interval_invariant`
+        // is what fails if a second implementation reappears.
         if self.measured.len() != self.backend_runs {
             return Err(format!(
                 "the real cost cannot be recorded from {} interval(s) for {} announced backend \
@@ -1519,6 +1522,11 @@ mod tests {
         //
         // The runs must therefore have been MEASURED for a receipt to exist,
         // and that measurement is what a reordering loses.
+        //
+        // The refusal is the COUNT comparison, which is the only implementation of
+        // this invariant: zero intervals against three announced runs. It names
+        // the missing half as plainly as the retired emptiness branch did, and
+        // it cannot be mistaken for the announcement half.
         let cfg = Config::default();
         let mut ledger = CostLedger::new();
         ledger.announce(&cfg, false);
@@ -1527,7 +1535,7 @@ mod tests {
             .record()
             .expect_err("a receipt for runs nothing timed is not a receipt");
         assert!(
-            refusal.contains("before the runs were measured"),
+            refusal.contains("0 interval(s) for 3 announced backend run(s)"),
             "the refusal must name WHICH half is missing — the announcement was made, so a \
              message about the announcement would send the reader to the wrong place: {refusal}"
         );
