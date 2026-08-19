@@ -538,12 +538,32 @@ fn why_the_forced_failure_cannot_be_read(ctx: &RunContext<'_>) -> Option<String>
 ///   correct classification for it; `Schema` or `Timeout` here would mean the
 ///   telemetry is naming the wrong cause. Checked only when a hop exists —
 ///   there is no cause to classify when nothing rotated.
+///
+/// # The cause assertion is NOT "mage-local versus run-wide", and used to say
+/// it was
+///
+/// The spec's `S4` asks that *"the reported cause distinguishes mage-local
+/// from run-wide"*, and this assertion was named for that sentence. **`3.2.0`
+/// cannot express it.** `RotationKind` has three variants there — `Transport`,
+/// `Schema`, `Timeout` — and its own rustdoc says connection and HTTP failures
+/// *both normalize to* `Transport`; the mage-local causes report `Transport`
+/// too, with the distinction carried in `detail` behind a `mage-local:` text
+/// prefix. So `kind == Transport` separates transport from schema and timeout,
+/// and nothing more.
+///
+/// The name now says what the body checks. **The spec clause is DEFERRED to
+/// E2**, where the EC major's typed `RotationKind` variants make the property
+/// expressible; asserting it here would have left a green row under a sentence
+/// the code could not support, which is the shape of green-by-omission this
+/// harness exists to refuse.
 fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_WIRE: &str =
         "the injected failure reached a completion request over the wire, not a coincidence";
     const NAME_ROTATED: &str =
         "the injected agent rotated to a second, differently-lineaged candidate";
-    const NAME_CAUSE: &str = "the reported rotation cause distinguishes mage-local from run-wide";
+    const NAME_CAUSE: &str =
+        "the reported rotation cause is Transport, not Schema or Timeout (3.2.0 cannot \
+         distinguish mage-local from run-wide; deferred to E2)";
 
     if ctx.proxy_degraded {
         let reason = "the proxy registry degraded during this run";
