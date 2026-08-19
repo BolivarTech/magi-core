@@ -595,7 +595,10 @@ mod tests {
                 String::from_utf8_lossy(&out.stderr)
             );
             assert!(
-                root.join("smoke").join("fixtures").join("manifest.toml").is_file(),
+                root.join("smoke")
+                    .join("fixtures")
+                    .join("manifest.toml")
+                    .is_file(),
                 "running from {from:?} did not regenerate smoke/fixtures/manifest.toml"
             );
             let _ = std::fs::remove_dir_all(&root);

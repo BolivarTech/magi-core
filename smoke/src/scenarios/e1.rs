@@ -447,7 +447,7 @@ fn why_the_wire_cannot_answer(ctx: &RunContext<'_>) -> Option<String> {
     }
     // Absence of traffic, with whatever the run said about why. The reason is
     // built here rather than at the call site so the three shapes stay together.
-    Some(match (ctx.error, ctx.over_budget) {
+    Some(match (ctx.error, ctx.budget_exceeded) {
         (Some(e), _) => format!(
             "the run never reached a completion request, so the injection had nothing to fire \
              on; it ended with: {e}"
@@ -1418,7 +1418,7 @@ mod tests {
             records: &[],
             proxy_degraded: false,
             attempts: 1,
-            over_budget: None,
+            budget_exceeded: None,
             direct_probe_body: None,
             direct_probe_status: None,
             probe_record: None,

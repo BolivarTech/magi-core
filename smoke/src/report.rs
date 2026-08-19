@@ -12,7 +12,7 @@
 //!
 //! - **A TIME failure is never rendered like an assertion failure.** Collapsing
 //!   them reports "the crate is wrong" when the truth is "the deployment is
-//!   slower than the cap someone chose". [`AssertionRow::over_budget`] is kept
+//!   slower than the cap someone chose". [`AssertionRow::budget_exceeded`] is kept
 //!   as a field separate from `state` for exactly this reason, and every
 //!   renderer gives `Timeout` a marker (`TIMEOUT`) that a `Fail` row can never
 //!   produce.
@@ -74,8 +74,7 @@ pub enum CycleRun {
 }
 
 /// One assertion, ready to render: which scenario, which shared run fed it,
-/// what it found, and — only for a TIME failure — by how much it overran its
-/// budget.
+/// what it found, and — only for a TIME failure — the cap it exceeded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssertionRow {
     /// The scenario this row belongs to, by its stable id.
@@ -93,11 +92,19 @@ pub struct AssertionRow {
     pub run_id: RunId,
     /// What the assertion found.
     pub state: ScenarioState,
-    /// `Some` only when `state` is [`ScenarioState::Timeout`]: how far over
-    /// its budget the run was. Kept as a field separate from `state` so a
-    /// TIME failure can never be rendered indistinguishably from an
-    /// assertion failure — the one thing this row exists to keep visible.
-    pub over_budget: Option<Duration>,
+    /// `Some` only when `state` is [`ScenarioState::Timeout`]: the time cap
+    /// this run was given and did not finish within.
+    ///
+    /// **The cap, never an overrun.** `tokio::time::timeout` cuts the run AT
+    /// the cap, so how far past it the run would have gone is unknowable — and
+    /// a clock reading taken when the timeout fires IS the cap, which rendered
+    /// as "over budget by" claimed the run had taken twice its budget. The cap
+    /// is also the number an operator can act on, being the one they set.
+    ///
+    /// Kept as a field separate from `state` so a TIME failure can never be
+    /// rendered indistinguishably from an assertion failure — the one thing
+    /// this row exists to keep visible.
+    pub budget_exceeded: Option<Duration>,
 }
 
 /// Every assertion from one cycle run, ready to render in all three forms.
@@ -267,7 +274,7 @@ impl Report {
             scenario: "the release certificate was written and verified",
             run_id: NO_RUN,
             state: ScenarioState::Skip(reason.to_string()),
-            over_budget: None,
+            budget_exceeded: None,
         });
     }
 }
@@ -647,8 +654,8 @@ fn format_row(row: &AssertionRow) -> String {
     if let ScenarioState::Skip(reason) = &row.state {
         let _ = write!(line, " (skipped: {reason})");
     }
-    if let Some(over) = row.over_budget {
-        let _ = write!(line, " (over budget by {:.1}s)", over.as_secs_f64());
+    if let Some(over) = row.budget_exceeded {
+        let _ = write!(line, " (exceeded its {:.1}s budget)", over.as_secs_f64());
     }
     line
 }
@@ -683,7 +690,7 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
         "run_id": row.run_id.as_str(),
         "state": state,
         "detail": detail,
-        "over_budget_secs": row.over_budget.map(|d| d.as_secs_f64()),
+        "budget_secs": row.budget_exceeded.map(|d| d.as_secs_f64()),
     })
 }
 
@@ -703,7 +710,7 @@ impl AssertionRow {
         scenario_id: &'static str,
         run_id: RunId,
         assertions: Vec<crate::runner::Assertion>,
-        over_budget: Option<Duration>,
+        budget_exceeded: Option<Duration>,
     ) -> Vec<AssertionRow> {
         assertions
             .into_iter()
@@ -711,8 +718,8 @@ impl AssertionRow {
                 scenario_id,
                 scenario: a.name,
                 run_id,
-                over_budget: match a.state {
-                    ScenarioState::Timeout => over_budget,
+                budget_exceeded: match a.state {
+                    ScenarioState::Timeout => budget_exceeded,
                     _ => None,
                 },
                 state: a.state,
@@ -736,7 +743,7 @@ impl Report {
                 scenario: "the harness could not test",
                 run_id: NO_RUN,
                 state: ScenarioState::Skip(reason.to_string()),
-                over_budget: None,
+                budget_exceeded: None,
             }],
             run: CycleRun::First,
         }
@@ -795,7 +802,7 @@ mod tests {
             run_id: RunId::HappySmall,
             scenario: "a property",
             state,
-            over_budget: None,
+            budget_exceeded: None,
         };
         assert_eq!(Report::with(&[row(ScenarioState::Fail)]).exit_code(), 1);
         assert_eq!(Report::cannot_test("proxy").exit_code(), 2);
@@ -832,21 +839,21 @@ mod tests {
                 scenario: "the happy path run produces a valid verdict from all three seats",
                 run_id: RunId::HappySmall,
                 state: ScenarioState::Pass,
-                over_budget: None,
+                budget_exceeded: None,
             },
             AssertionRow {
                 scenario_id: "S-test",
                 scenario: "the large payload run converges within its budget",
                 run_id: RunId::Large62k,
                 state: ScenarioState::Skip("no backend available for this cycle".into()),
-                over_budget: None,
+                budget_exceeded: None,
             },
             AssertionRow {
                 scenario_id: "S-test",
                 scenario: "rotation recovers from an injected failure",
                 run_id: RunId::Rotation,
                 state: ScenarioState::Pass,
-                over_budget: None,
+                budget_exceeded: None,
             },
         ]
     }
@@ -862,10 +869,19 @@ mod tests {
     /// rationale as `testkit::repo_where_the_negation_was_removed`).
     fn repo_with_uncommitted_changes() -> PathBuf {
         let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
+        fixture_repo_at(std::env::temp_dir().join(format!(
             "magi-smoke-report-test-{}-{unique}",
             std::process::id()
-        ));
+        )))
+    }
+
+    /// Builds the dirty fixture repository AT a given path, so the naming and
+    /// the construction can be exercised separately.
+    ///
+    /// # Parameters
+    ///
+    /// * `dir` — where to build it.
+    fn fixture_repo_at(dir: PathBuf) -> PathBuf {
         std::fs::create_dir_all(&dir).expect("create fixture repo dir");
         let out = std::process::Command::new("git")
             .arg("init")
@@ -1148,7 +1164,7 @@ mod tests {
                 scenario: "a property the crate broke",
                 run_id: RunId::HappySmall,
                 state: ScenarioState::Fail,
-                over_budget: None,
+                budget_exceeded: None,
             }],
             run: CycleRun::Second,
         };
@@ -1180,7 +1196,7 @@ mod tests {
             scenario: "a property the crate broke",
             run_id: RunId::HappySmall,
             state: ScenarioState::Fail,
-            over_budget: None,
+            budget_exceeded: None,
         });
         let failing = Report {
             rows,
@@ -1305,7 +1321,7 @@ mod tests {
             scenario: "s",
             run_id: RunId::Large62k,
             state: ScenarioState::Timeout,
-            over_budget: Some(cap),
+            budget_exceeded: Some(cap),
         };
         let human = format_row(&row);
         assert!(
@@ -1339,14 +1355,14 @@ mod tests {
             scenario: "s",
             run_id: RunId::HappySmall,
             state: ScenarioState::Timeout,
-            over_budget: Some(Duration::from_secs(5)),
+            budget_exceeded: Some(Duration::from_secs(5)),
         };
         let fail_row = AssertionRow {
             scenario_id: "S-test",
             scenario: "s",
             run_id: RunId::HappySmall,
             state: ScenarioState::Fail,
-            over_budget: None,
+            budget_exceeded: None,
         };
         let report = Report {
             rows: vec![timeout_row, fail_row],
@@ -1405,7 +1421,7 @@ mod tests {
             scenario: "the two dependency modes cannot be confused",
             run_id: RunId::HappySmall,
             state: ScenarioState::Pass,
-            over_budget: None,
+            budget_exceeded: None,
         }];
         let report = Report {
             rows,

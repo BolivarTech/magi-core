@@ -456,13 +456,13 @@ fn evaluate(
                 run_id: config::RunId::NoBackend,
                 scenario: "not part of the --no-backend partition",
                 state: outcome::ScenarioState::OutOfScope,
-                over_budget: None,
+                budget_exceeded: None,
             });
             continue;
         }
         let mut ctx = absent_context(config::RunId::NoBackend);
         let mut run_id = config::RunId::NoBackend;
-        let mut over_budget = None;
+        let mut budget_exceeded = None;
         match scenario.source {
             runner::Source::Run(id) => {
                 run_id = id;
@@ -488,7 +488,7 @@ fn evaluate(
                         run_id: id,
                         scenario: "the crate panicked during this run",
                         state: outcome::ScenarioState::Fail,
-                        over_budget: None,
+                        budget_exceeded: None,
                     });
                     continue;
                 }
@@ -520,7 +520,7 @@ fn evaluate(
                                 .clone()
                                 .unwrap_or_else(|| "no reason was recorded".to_string()),
                         ),
-                        over_budget: None,
+                        budget_exceeded: None,
                     });
                     continue;
                 }
@@ -533,7 +533,7 @@ fn evaluate(
                         run_id: id,
                         scenario: "the run exceeded its time budget before it could be read",
                         state: outcome::ScenarioState::Timeout,
-                        over_budget: r.over_budget,
+                        budget_exceeded: r.budget_exceeded,
                     });
                     continue;
                 }
@@ -545,13 +545,13 @@ fn evaluate(
                         ctx.records = &r.records;
                         ctx.proxy_degraded = r.proxy_degraded;
                         ctx.attempts = r.attempts;
-                        ctx.over_budget = r.over_budget;
+                        ctx.budget_exceeded = r.budget_exceeded;
                         ctx.direct_probe_body = probe.direct_response.as_deref();
                         ctx.direct_probe_status = probe.direct_status;
                         ctx.probe_record = probe.record.as_ref();
                         ctx.probe_sent_body = probe.sent_body.as_deref();
                         ctx.injected_agent = r.injected_agent;
-                        over_budget = r.over_budget;
+                        budget_exceeded = r.budget_exceeded;
                     }
                     // The run this scenario reads did not happen. Its assertions
                     // SKIP with that reason rather than being omitted.
@@ -581,7 +581,7 @@ fn evaluate(
             scenario.id,
             run_id,
             (scenario.assert_fn)(&ctx),
-            over_budget,
+            budget_exceeded,
         ));
     }
     rows
@@ -624,7 +624,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         records: &[],
         proxy_degraded: false,
         attempts: 0,
-        over_budget: None,
+        budget_exceeded: None,
         direct_probe_body: None,
         direct_probe_status: None,
         probe_record: None,
@@ -672,7 +672,7 @@ fn evaluate_preflight_only(
                 run_id: config::RunId::NoBackend,
                 scenario: "not evaluated: the preflight stopped before any run",
                 state: outcome::ScenarioState::Skip(rendered.clone()),
-                over_budget: None,
+                budget_exceeded: None,
             });
         }
     }
@@ -1372,7 +1372,7 @@ mod tests {
                 .collect(),
             proxy_degraded: false,
             attempts: 1,
-            over_budget: None,
+            budget_exceeded: None,
             injected_agent: None,
         }
     }

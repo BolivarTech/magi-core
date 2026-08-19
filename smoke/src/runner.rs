@@ -22,7 +22,7 @@
 
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::alias::magi_core::error::MagiError;
 use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder};
@@ -138,9 +138,10 @@ pub struct RunContext<'a> {
     /// How many attempts this run took. `2` means the first was inconclusive and
     /// the single retry was spent.
     pub attempts: u32,
-    /// `Some` only when the run hit its time cap, so a reader can tell a TIME
-    /// failure from an assertion failure.
-    pub over_budget: Option<Duration>,
+    /// `Some` only when the run hit its time cap: the cap itself, so a reader
+    /// can tell a TIME failure from an assertion failure and knows which number
+    /// to raise. Never an overrun — the run was cut, so no overrun was measured.
+    pub budget_exceeded: Option<Duration>,
     /// The response to the DIRECT half of the transparency probe — the term of
     /// comparison. `None` on every run but the one that primed it.
     pub direct_probe_body: Option<&'a [u8]>,
@@ -298,8 +299,9 @@ pub struct RunResult {
     /// How many attempts were spent. At most two, and two only for an
     /// inconclusive first attempt.
     pub attempts: u32,
-    /// `Some` only when the run hit its time cap.
-    pub over_budget: Option<Duration>,
+    /// `Some` only when the run hit its time cap: the cap itself, never an
+    /// overrun — the run was cut before it finished, so none was measured.
+    pub budget_exceeded: Option<Duration>,
     /// WHICH seat this run injected a failure into, when it injected one.
     ///
     /// Derived from the injection's model rather than carried alongside it, so
@@ -328,7 +330,7 @@ impl RunResult {
             records: Vec::new(),
             proxy_degraded: false,
             attempts: 1,
-            over_budget: None,
+            budget_exceeded: None,
             injected_agent: None,
         }
     }
@@ -710,8 +712,11 @@ impl Runner {
     /// would mean the harness has no cap of its own — a run would last as long
     /// as the crate allows.
     async fn attempt(&mut self, spec: &RunSpec) -> RunResult {
+        // The cap is the ONLY duration in scope, and deliberately so: the clock
+        // reading that used to sit beside it was what the timeout arm reported,
+        // and a reading taken when `tokio::time::timeout` fires IS the cap —
+        // presented as an overrun it claimed a run had taken twice its budget.
         let cap = self.config.budget(spec.id);
-        let started = Instant::now();
         match tokio::time::timeout(cap, run_catching(Self::run_once(&mut self.proxy, spec))).await {
             // The run finished within its cap and did not panic.
             Ok(Ok(result)) => result,
@@ -726,12 +731,12 @@ impl Runner {
                 records: Vec::new(),
                 proxy_degraded: false,
                 attempts: 1,
-                over_budget: None,
+                budget_exceeded: None,
                 injected_agent: injected_agent(spec),
             },
             // It ran out of time. A TIME failure is NOT a verdict about the
             // crate: it says the deployment is slower than the cap someone chose.
-            Err(_) => timed_out(spec.id, started.elapsed(), injected_agent(spec)),
+            Err(_) => timed_out(spec.id, cap, injected_agent(spec)),
         }
     }
 
@@ -775,7 +780,7 @@ impl Runner {
             records: proxy.records_since(mark),
             proxy_degraded: proxy.is_degraded(),
             attempts: 1,
-            over_budget: None,
+            budget_exceeded: None,
             injected_agent: injected_agent(spec),
         }
     }
@@ -869,7 +874,7 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
     RunResult {
         run,
         outcome: RunOutcome::TimedOut,
-        over_budget: Some(cap),
+        budget_exceeded: Some(cap),
         report: None,
         error: None,
         records: Vec::new(),
@@ -969,7 +974,7 @@ mod tests {
         let cap = Duration::from_secs(300);
         let result = timed_out(RunId::Large62k, cap, None);
         assert_eq!(
-            result.over_budget,
+            result.budget_exceeded,
             Some(cap),
             "the cap must arrive unchanged, not scaled or re-derived"
         );
