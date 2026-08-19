@@ -57,7 +57,16 @@ pub struct Config {
     /// Seats MUST be last in the file: in TOML every loose key must precede the
     /// first array-of-tables, so a key added afterwards silently parses into the
     /// wrong table.
-    #[serde(default)]
+    ///
+    /// **Omitting the section yields the built-in trio, not an empty pool.**
+    /// This defaulted to `Vec::default()` while every other field in the file
+    /// names a `default_*` function, and the difference was not neutral: the
+    /// `SEAT_FIX` text every seat refusal ends with tells the reader to drop the
+    /// override and fall back to the built-in trio, so the file's own advice
+    /// produced the config the preflight then refused. `env > file > built-in`
+    /// (R30) reads the same way — an absent key inherits the layer below it, not
+    /// a blank.
+    #[serde(default = "default_seats")]
     pub seats: Vec<Seat>,
     /// The rotation candidates the trio can fall back to.
     ///
@@ -71,7 +80,11 @@ pub struct Config {
     /// — but [`Config::probe_model`] does: the last entry is the weakest model
     /// the operator named, which is the only answer to R27's "smallest" that
     /// this file actually contains.
-    #[serde(default)]
+    ///
+    /// Defaults to the built-in candidates for the reason [`Config::seats`]
+    /// gives: `check_seats` refuses an empty pool naming the same fix, so an
+    /// omitted section must reach the layer below rather than a blank.
+    #[serde(default = "default_fallbacks")]
     pub fallbacks: Vec<Fallback>,
 }
 
