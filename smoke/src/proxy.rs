@@ -1396,6 +1396,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_response_larger_than_the_cap_is_refused_instead_of_held_whole() {
+        // `forward_buffered`'s own rustdoc says it is "bounded by `record_cap`
+        // like the request side", and it collected the whole body with no bound
+        // at all: a backend answering a recorded path with an arbitrary body
+        // made the harness hold every byte of it. A doc that asserts a bound
+        // nothing enforces is the shape this milestone keeps producing.
+        //
+        // Overflow takes the route that already exists for a body that could
+        // not be read: `None` -> degraded -> the relay-failure status. The
+        // proxy never invents an answer, and `degraded` routes every assertion
+        // that reads the registry to SKIP rather than to a red row.
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, TEST_UPSTREAM_TIMEOUT)
+            .await
+            .expect("proxy bind");
+        // The echo server answers with what it was sent, so the request size
+        // decides the response size. One byte past the floor is enough.
+        let oversized = "x".repeat(MIN_RECORDED_BODY_CAP + 1);
+
+        let r = reqwest::Client::new()
+            .post(format!("{}/api/show", proxy.base_url()))
+            .body(oversized)
+            .send()
+            .await
+            .expect("the proxy must still ANSWER: an oversized body is a status, not a hang");
+
+        assert_eq!(
+            r.status().as_u16(),
+            RELAY_BUILD_FAILED_STATUS.as_u16(),
+            "the proxy talked to the backend and could not relay what came of it"
+        );
+        assert!(
+            proxy.is_degraded(),
+            "a harness-side refusal must latch degraded, or a scenario goes RED for it"
+        );
+        assert!(
+            !proxy.records()[0].response_recorded,
+            "nothing was recorded, and an empty recording would look like a genuine              empty answer"
+        );
+    }
+
+    #[tokio::test]
     async fn records_the_full_request_body_by_hash_not_just_the_path() {
         // The record identifies the WHOLE body, not merely the envelope: the
         // hash is taken over every byte that went on the wire, so a proxy that
