@@ -1634,38 +1634,6 @@ fn default_rotations(
         .collect()
 }
 
-/// Marks a rotation whose condemnation reached only the mage that saw it.
-///
-/// The subject names in this module's classifying `match` expressions — `outcome` and `err` — are
-/// COUPLED to the continuous-integration check that forbids a catch-all arm in them. Renaming
-/// either turns that check into one that watches nothing and still reports success. If a third
-/// classifier appears, it has to be added there or it is unguarded from the day it is written.
-///
-/// # Why the detail carries this and the kind does not
-///
-/// Two rotation causes are mage-local — an oversized body and a failure reported by a third-party
-/// backend — yet both report `RotationKind::Transport`, which elsewhere means a run-wide
-/// condemnation. That enum is public and not `#[non_exhaustive]`, so giving them their own variant
-/// would be a breaking change in a minor release; the distinction rides in the detail instead.
-///
-/// A shared constant rather than the words typed at each site: the point is that a reader — human
-/// or otherwise — can tell the two cases apart, and two hand-written prefixes drift until they
-/// cannot. A test asserts every mage-local outcome carries it.
-///
-/// This does NOT make the telemetry equivalent to a typed variant. Reading it still means reading
-/// a string, and a consumer that greps for it is coupled to prose. It makes the information
-/// present rather than absent, which is the most a frozen enum allows.
-///
-/// # What replaces this
-///
-/// The right shape is dedicated rotation kinds for the mage-local causes, so the distinction is
-/// carried by the type and no one has to parse anything. That is a breaking change to a public,
-/// exhaustively-matchable enum, so it waits for the next major — where it is recorded as planned
-/// work, not left as an idea in a comment. No helper is offered for detecting the prefix: nothing
-/// in this crate consumes it, and a predicate written for a caller that does not exist is dead
-/// code that makes a convention look like an interface.
-const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
-
 /// The rotation detail for an oversized response body.
 ///
 /// # Parameters
@@ -1680,7 +1648,7 @@ const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
 /// the loop runs this same code. Returning `String` rather than `Option<String>` keeps the caller
 /// from needing a fallback it would have to invent.
 fn oversized_detail(limit: usize) -> String {
-    format!("{MAGE_LOCAL_PREFIX}response body exceeded {limit} bytes")
+    format!("response body exceeded {limit} bytes")
 }
 
 /// The rotation detail for a failure reported by a third-party backend.
@@ -1689,7 +1657,7 @@ fn oversized_detail(limit: usize) -> String {
 /// - `kind`: the shape the external provider declared.
 /// - `detail`: the rendered error, already capped by the constructor.
 fn external_failure_detail(kind: ExternalErrorKind, detail: &str) -> String {
-    format!("{MAGE_LOCAL_PREFIX}external ({kind:?}): {detail}")
+    format!("external ({kind:?}): {detail}")
 }
 
 /// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
@@ -2290,22 +2258,22 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 );
             }
             ModelOutcome::OversizedResponse { limit } => {
-                // Mage-local, exactly like Schema: this mage will not retry this lineage, but the
-                // other seats still may. Reported as `Transport` in telemetry because that enum is
-                // public and not `#[non_exhaustive]` — a new variant would be a SemVer break — so
-                // the precision rides in `detail` instead.
+                // Mage-local, exactly like `Schema`: this seat will not retry this lineage, and
+                // the other two keep it. It ALWAYS behaved this way; until `4.0.0` it could not
+                // SAY so, because `RotationKind` was public and not `#[non_exhaustive]`, making a
+                // new variant a SemVer break — so the precision rode in the `detail` text. The
+                // major spends that break, and the text goes back to being just text.
                 state.failed_lineages.insert(current_lineage.clone());
-                (RotationKind::Transport, oversized_detail(limit))
+                (RotationKind::OversizedResponse, oversized_detail(limit))
             }
             ModelOutcome::ExternalFailure { detail, kind } => {
-                // Mage-local, exactly like `Schema` and `OversizedResponse`: this seat gives up on
-                // this lineage, the other seats keep theirs. Reported as `Transport` for the same
-                // reason as `OversizedResponse` — `RotationKind` is public and NOT
-                // `#[non_exhaustive]`, so a new variant would be a SemVer break in a minor — so
-                // the precision rides in `detail`, where it is at least not lost.
+                // Mage-local for the same reason as `OversizedResponse`, and reported by its own
+                // kind for the same reason: this crate cannot know whether a third-party
+                // backend's failure says anything about the lineages the other seats are on, so
+                // it never condemns run-wide — and now the telemetry says that in the type.
                 state.failed_lineages.insert(current_lineage.clone());
                 (
-                    RotationKind::Transport,
+                    RotationKind::ExternalFailure,
                     external_failure_detail(kind, &detail),
                 )
             }
@@ -2580,32 +2548,29 @@ mod input_threshold_tests {
     }
 
     #[test]
-    fn every_mage_local_rotation_detail_says_so() {
-        // Both of these report `Transport`, which everywhere else means the whole run was
-        // condemned. Without the marker a reader of `rotations` cannot tell a content failure that
-        // cost one seat from an outage that cost the run — and that is the question the telemetry
-        // is read to answer. Asserted against the functions the rotation loop itself calls, so
-        // this cannot pass while the loop emits something else.
+    fn a_mage_local_rotation_detail_says_what_happened_and_not_its_scope() {
+        // Both of these used to report `Transport`, which everywhere else means the whole run was
+        // condemned, so the scope had to be spelled out in prose for a reader of `rotations` to
+        // tell a content failure that cost one seat from an outage that cost the run. Since
+        // `4.0.0` each has its own kind, and the prose goes back to describing the event.
         let oversized = oversized_detail(4096);
         let external = external_failure_detail(ExternalErrorKind::Network, "backend refused");
 
-        // The LITERAL, not the constant, and this is the one place in the file where naming a
-        // value twice is right. Written as `starts_with(MAGE_LOCAL_PREFIX)` the assertion agrees
-        // with whatever the constant happens to be — empty it and `starts_with("")` is true of
-        // every string, so the test passes while the marker is gone.
+        // The prefix these two used to carry is GONE, and its absence is asserted rather than
+        // assumed. It existed as a stopgap while `RotationKind` was frozen: with a variant per
+        // cause the scope is carried by the TYPE, and a copy of it in prose is information that
+        // can only ever contradict the type it duplicates.
         //
-        // Verified by MUTATION, and stated precisely because the two probes are not the same:
-        // removing the prefix from one of the helpers below turns this red, which is the defect
-        // that matters. (Emptying the constant itself does not compile, so that mutation proves
-        // nothing either way — worth saying, since it is the first one a reader would try.)
+        // Asserted against the functions the rotation loop itself calls, so this cannot pass
+        // while the loop emits something else.
         for detail in [&oversized, &external] {
             assert!(
-                detail.starts_with("mage-local: "),
-                "a mage-local rotation must announce itself: {detail}"
+                !detail.starts_with("mage-local: "),
+                "the type says the scope now; the text must not say it again: {detail}"
             );
         }
-        // And still say what happened — a marker that replaced the diagnosis would be worse than
-        // no marker.
+        // And they still say WHAT happened — deleting the prefix must not have deleted the
+        // diagnosis with it.
         assert!(oversized.contains("4096"), "{oversized}");
         assert!(external.contains("backend refused"), "{external}");
         assert!(external.contains("Network"), "{external}");
