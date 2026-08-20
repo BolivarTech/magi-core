@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1786334197.661853,
-    "ast_hash": "d51dafcdac3ecd08f29e8dda26b61f48",
+    "mtime": 1787191516.5796099,
+    "ast_hash": "382b8dd4b8664293119294ce2f585c10",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -812,6 +812,56 @@
   "smoke/src/git.rs": {
     "mtime": 1787170877.5922952,
     "ast_hash": "1f21f45ece93628a22addac005cf66eb",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/README.md": {
+    "mtime": 1787190697.1291792,
+    "ast_hash": "595b5d106409da39124755dbd1e1d9dd",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/mod.rs": {
+    "mtime": 1787190665.301284,
+    "ast_hash": "44b0c482caed6d85192c453cf36286aa",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-cold-start.json": {
+    "mtime": 1787182701.119219,
+    "ast_hash": "2a5ba29e8a7453f45f7f5c8c57435041",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-unload-empty-messages.json": {
+    "mtime": 1787182663.8034182,
+    "ast_hash": "311bfa59ab30c53939e6ae0c621d68e9",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-E-malformed.json": {
+    "mtime": 1787190622.3356972,
+    "ast_hash": "afe5327d4c15de89adfe84ec9f6918fe",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-E-model-not-found.json": {
+    "mtime": 1787190622.3674943,
+    "ast_hash": "f745afe26523681474052e7d4787b302",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-N1.json": {
+    "mtime": 1787190622.2740345,
+    "ast_hash": "d32bfbf24b57903536ee501853a0bf33",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/native-N2.json": {
+    "mtime": 1787190622.3051636,
+    "ast_hash": "84513b08430a5776a1d0ac4011692db7",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/resp-C.json": {
+    "mtime": 1787190622.4182808,
+    "ast_hash": "49b0f00aee9f098c1b2bb6b49536244b",
+    "semantic_hash": ""
+  },
+  "tests/fixtures/ec/resp-H.json": {
+    "mtime": 1787190622.4493573,
+    "ast_hash": "799ff26b378aae99befd1ae3bea1d87b",
     "semantic_hash": ""
   }
 }
