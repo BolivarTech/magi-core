@@ -1390,27 +1390,23 @@ impl Magi {
                     // Lost-signal recovery (W11/W18): recover endpoint-down straight
                     // from the registry latch, robust to a panicked carrier.
                     failed.insert(name, format!("panic: {join_err}"));
-                    if let Some(err) = resolve_abnormal_exit(name, &join_err, &registry).await {
+                    // The SAME resolution the normal arm uses. It used to consult only the
+                    // endpoint-down latch and then `continue`, so a crate defect latched by a
+                    // concurrent seat was skipped on every panicked join.
+                    let answered = answered_so_far(&successful, &failed);
+                    if let Some(err) =
+                        resolve_abnormal_exit(name, &join_err, &registry, &answered).await
+                    {
                         return Err(err);
                     }
                     continue;
                 }
             }
             // Normal outcome: a concurrent mage may still have tripped either latch.
-            if let Some(err) = resolve_endpoint_down(&registry).await {
-                return Err(err);
-            }
-            // A defect of OURS invalidates the run, so it is checked on the same beat as
-            // endpoint-down and with the same consequence. `AbortGuard` cancels whatever is
-            // still in flight when this returns — the existing mechanism doing its job, not a
-            // new one. The seats already joined travel with the error, which is what tells a
-            // reader whether this hit one seat or all of them.
-            let answered: BTreeMap<AgentName, ()> = successful
-                .iter()
-                .map(|o| (o.agent, ()))
-                .chain(failed.keys().map(|n| (*n, ())))
-                .collect();
-            if let Some(err) = resolve_crate_defect(&registry, &answered).await {
+            // `AbortGuard` cancels whatever is still in flight when this returns — the existing
+            // mechanism doing its job, not a new one.
+            let answered = answered_so_far(&successful, &failed);
+            if let Some(err) = resolve_run_abort(&registry, &answered).await {
                 return Err(err);
             }
         }
@@ -2123,6 +2119,50 @@ async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
     }
 }
 
+/// The seats already JOINED when an abort was reached.
+///
+/// One owner, because this rule has drifted once already: an earlier version of the
+/// non-rotating path counted successes only and claimed to be symmetric with this one.
+///
+/// The name says `joined`, not `answered`, and the distinction is load-bearing — membership is
+/// decided by dispatch and join ORDER, so a seat that answered while this was being built is
+/// absent. It is a diagnostic hint, never a census.
+fn answered_so_far(
+    successful: &[AgentOutput],
+    failed: &BTreeMap<AgentName, String>,
+) -> BTreeMap<AgentName, ()> {
+    successful
+        .iter()
+        .map(|o| (o.agent, ()))
+        .chain(failed.keys().map(|n| (*n, ())))
+        .collect()
+}
+
+/// Resolves whether the run must abort, and in WHICH order the two reasons are considered.
+///
+/// # The order is the invariant, not an implementation detail
+///
+/// A defect of THIS crate is raised BEFORE endpoint-down. Both can be latched at once — a bad
+/// request of ours reaches one seat while two other lineages genuinely lose their connection —
+/// and whichever is reported is the one the operator investigates. Reporting the outage would
+/// send them to inspect an environment that is not at fault, which is the exact misdirection
+/// this milestone exists to remove, recreated one level up.
+///
+/// Losing the outage costs nothing: it is environmental, it persists, and the next run reports
+/// it. Losing the defect costs the bug, because it hides in the noise of the normal.
+///
+/// It is a FUNCTION rather than two calls at each site because it had already drifted: the
+/// panic arm consulted one latch and skipped the other entirely.
+async fn resolve_run_abort(
+    reg: &LineageRegistry,
+    responded: &BTreeMap<AgentName, ()>,
+) -> Option<MagiError> {
+    if let Some(err) = resolve_endpoint_down(reg).await {
+        return Some(err);
+    }
+    resolve_crate_defect(reg, responded).await
+}
+
 /// Raises a latched defect of THIS crate into the run-aborting error.
 ///
 /// # Parameters
@@ -2175,8 +2215,9 @@ pub(crate) async fn resolve_abnormal_exit(
     agent: AgentName,
     err: &tokio::task::JoinError,
     reg: &LineageRegistry,
+    responded: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    let decision = resolve_endpoint_down(reg).await;
+    let decision = resolve_run_abort(reg, responded).await;
     if decision.is_some() {
         tracing::warn!(
             agent = agent.display_name(),
@@ -3918,7 +3959,8 @@ mod tests {
         handle.abort();
         let join_err = handle.await.unwrap_err();
 
-        let decision = resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg).await;
+        let decision =
+            resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg, &BTreeMap::new()).await;
         assert!(
             matches!(decision, Some(MagiError::EndpointDown { .. })),
             "abnormal exit must recover EndpointDown from the registry latch"
@@ -6110,6 +6152,66 @@ mod tests {
             .collect();
         assert_eq!(models.len(), 2, "two attempts, two records");
         assert_eq!(models[0], models[1], "same model, corrected prompt");
+    }
+
+    /// A defect of OURS must be reported even when the environment is failing at the same time.
+    ///
+    /// # Why this is not a preference between two true statements
+    ///
+    /// Both latches can be set at once: our bad request reaches one seat while two other
+    /// lineages genuinely lose their connection. Whichever the run reports is the one an
+    /// operator investigates — and reporting the outage sends them to inspect an environment
+    /// that is not at fault. That is the exact misdirection this milestone exists to remove,
+    /// recreated one level up from where it was found.
+    ///
+    /// The asymmetry decides it: an outage is environmental and persists, so losing it costs
+    /// one run's diagnosis. A defect of ours that is masked hides in the noise of ordinary
+    /// model failure, which is how it survives for releases.
+    #[tokio::test]
+    async fn a_crate_defect_outranks_a_simultaneous_endpoint_outage() {
+        let mut init = BTreeMap::new();
+        for (agent, lineage, model) in [
+            (AgentName::Melchior, "alibaba", "q"),
+            (AgentName::Balthasar, "moonshot", "k"),
+            (AgentName::Caspar, "deepseek", "d"),
+        ] {
+            init.insert(
+                agent,
+                ActiveEntry {
+                    lineage: Lineage::new(lineage),
+                    model: model.into(),
+                },
+            );
+        }
+        let reg = LineageRegistry::new(init);
+
+        // Two distinct lineages lose their connection: the endpoint-down latch is set.
+        reg.register_transport_failure(Lineage::new("alibaba"), true)
+            .await;
+        reg.register_transport_failure(Lineage::new("moonshot"), true)
+            .await;
+        assert!(
+            reg.endpoint_down_signalled().await,
+            "the outage must really be latched, or this test proves nothing"
+        );
+
+        // And a third seat hits a defect of ours.
+        reg.latch_crate_defect(CrateDefectRecord {
+            observation: "no generation - token counters absent".to_string(),
+            hypothesis: CRATE_DEFECT_HYPOTHESIS,
+            agent: AgentName::Caspar,
+            model: "d".to_string(),
+        })
+        .await;
+
+        let err = resolve_run_abort(&reg, &BTreeMap::new())
+            .await
+            .expect("both latches are set, so the run must abort");
+
+        assert!(
+            matches!(err, MagiError::CrateDefect { .. }),
+            "an outage must not mask a defect of ours: {err}"
+        );
     }
 
     #[test]
