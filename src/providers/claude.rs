@@ -327,6 +327,10 @@ impl ClaudeProvider {
         telemetry = telemetry.with_reasoning(match reasoning {
             ReasoningControl::Disabled => ReasoningState::Unsupported {
                 backend: "anthropic".to_string(),
+                // This wire exposes no separate reasoning channel, so there was nothing to see
+                // and nothing to report — a real zero, not a look that did not happen.
+                chars: 0,
+                text: None,
             },
             ReasoningControl::Default => ReasoningState::NotMeasured,
         });
@@ -563,7 +567,7 @@ mod tests {
         assert!(
             matches!(
                 out.telemetry.reasoning,
-                ReasoningState::Unsupported { ref backend } if backend == "anthropic"
+                ReasoningState::Unsupported { ref backend, .. } if backend == "anthropic"
             ),
             "expected Unsupported{{backend: \"anthropic\"}}, got {:?}",
             out.telemetry.reasoning

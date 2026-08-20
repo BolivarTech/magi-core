@@ -3469,12 +3469,16 @@ mod tests {
         // state exists to remove.
         let t = CompletionTelemetry::unmeasured().with_reasoning(ReasoningState::Unsupported {
             backend: "openai-compatible".to_string(),
+            chars: 0,
+            text: None,
         });
         let r = CompletionRecord::from_telemetry("m".to_string(), 4096, &t);
         assert_eq!(
             r.reasoning,
             ReasoningState::Unsupported {
-                backend: "openai-compatible".to_string()
+                backend: "openai-compatible".to_string(),
+                chars: 0,
+                text: None,
             }
         );
     }

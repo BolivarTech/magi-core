@@ -162,8 +162,14 @@ impl OpenAiResponse {
         // control had no effect. Resolving it the other way round overwrote that declaration in
         // silence, which is the whole failure mode C-8 exists to prevent.
         let reasoning = match (control, reasoning) {
-            (ReasoningControl::Disabled, _) => ReasoningState::Unsupported {
+            // The control could not be honoured — and the trace that came back anyway is the
+            // PROOF of that, so its size travels with the declaration instead of being dropped.
+            // Discarding it was the quiet half of the same failure the declaration exists to
+            // prevent: the consumer learns the control did not take, and not how much it cost.
+            (ReasoningControl::Disabled, seen) => ReasoningState::Unsupported {
                 backend: COMPAT_BACKEND_NAME.to_string(),
+                chars: seen.as_ref().map_or(0, |s| s.chars().count()),
+                text: trace.then_some(seen).flatten(),
             },
             (ReasoningControl::Default, Some(s)) => ReasoningState::Measured {
                 chars: s.chars().count(),
@@ -850,10 +856,16 @@ mod tests {
         let c = r
             .into_completion(16_384, false, ReasoningControl::Disabled)
             .expect("content is present");
+        // And it carries the length of the trace that came back ANYWAY — 3 535 characters on
+        // this fixture. That number IS the proof the control had no effect, and it is the
+        // operator's question in a mixed trio: how much is the seat that cannot honour this
+        // still spending? Reporting the declaration without it answers half.
         assert_eq!(
             c.telemetry.reasoning,
             ReasoningState::Unsupported {
-                backend: "openai-compatible".to_string()
+                backend: "openai-compatible".to_string(),
+                chars: 3535,
+                text: None,
             }
         );
     }

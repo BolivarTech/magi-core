@@ -403,14 +403,6 @@ pub(crate) struct NativeError {
 /// to the raw text otherwise, so a body this crate cannot parse still reaches
 /// the caller instead of being silently dropped.
 ///
-/// # What this function does NOT do
-///
-/// It does not carry `Retry-After` or a receipt timestamp: the caller reads
-/// the body through `read_verdict_body`, which consumes the response and
-/// leaves neither available at the call site. Ollama's native API is not
-/// documented to send `Retry-After`, so this is not a currently-known gap —
-/// but a caller that later needs it must capture both **before** reading the
-/// body, the same way the OpenAI-compatible path does.
 pub(crate) fn native_error(
     status: u16,
     body: &str,

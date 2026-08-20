@@ -1134,21 +1134,28 @@ impl Magi {
                     failed.insert(name, format!("panic: {join_err}"));
                 }
             }
-        }
-
-        // Raised BEFORE the min-agents check, so a defect of ours is never reported as
-        // "not enough agents" — which would send the operator to look at the models.
-        if let Some(d) = crate_defect {
-            return Err(MagiError::CrateDefect {
-                observation: d.observation,
-                hypothesis: d.hypothesis,
-                agent: d.agent,
-                model: d.model,
-                // Only the seats that ANSWERED, which on this path already excludes the one
-                // that hit the defect: it is in `failed`, not in `successful`. Kept symmetric
-                // with the rotating path, which filters it out explicitly.
-                responded: successful.iter().map(|o| o.agent).collect(),
-            });
+            // Checked INSIDE the loop, on the same beat as the rotating path consults its
+            // latch. Draining every handle first made `AbortGuard` inert here — nothing was left
+            // in flight to cancel — and made the error's own documentation false, since
+            // `responded` would then always list every seat.
+            if let Some(d) = crate_defect.take() {
+                return Err(MagiError::CrateDefect {
+                    observation: d.observation,
+                    hypothesis: d.hypothesis,
+                    agent: d.agent,
+                    model: d.model,
+                    // The SAME set the rotating path builds: everything joined so far, whether it
+                    // succeeded or failed, minus the seat that hit the defect — which already
+                    // travels as `agent`. An earlier version counted successes only and its
+                    // comment claimed symmetry it did not have.
+                    responded: successful
+                        .iter()
+                        .map(|o| o.agent)
+                        .chain(failed.keys().copied())
+                        .filter(|a| *a != d.agent)
+                        .collect(),
+                });
+            }
         }
 
         let min_agents = self.consensus_engine.min_agents();

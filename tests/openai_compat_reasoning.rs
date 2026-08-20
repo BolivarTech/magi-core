@@ -36,7 +36,7 @@ async fn a_provider_that_cannot_honour_the_control_says_so_and_does_not_break_th
     assert!(
         matches!(
             out.telemetry.reasoning,
-            ReasoningState::Unsupported { ref backend } if backend == "openai-compatible"
+            ReasoningState::Unsupported { ref backend, .. } if backend == "openai-compatible"
         ),
         "expected Unsupported{{backend: \"openai-compatible\"}}, got {:?}",
         out.telemetry.reasoning
@@ -80,7 +80,7 @@ async fn the_declaration_is_a_type_not_a_string_a_consumer_must_grep() {
         .expect("the canned body parses");
 
     let backend: String = match out.telemetry.reasoning {
-        ReasoningState::Unsupported { backend } => backend,
+        ReasoningState::Unsupported { backend, .. } => backend,
         other => panic!("expected Unsupported, got {other:?}"),
     };
     assert_eq!(backend, "openai-compatible");

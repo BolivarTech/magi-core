@@ -40,6 +40,34 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: bash ci/run_all_checks.sh
 
+  # The smoke harness is its OWN cargo package with an empty `[workspace]`, so nothing the Gate
+  # job runs ever reaches it — it was compiled and tested on one developer's machine and nowhere
+  # else. That matters for two reasons beyond tidiness: it is a hard release prerequisite, and it
+  # is the first EXTERNAL consumer of the `complete() -> Completion` break, so it is the only
+  # thing that empirically prices that migration.
+  #
+  # Its own unit tests need no backend and no network — the scenarios that do are driven by the
+  # binary, not by `cargo test` — so this job stays fast and deterministic. What it does NOT do is
+  # run the harness against a live backend; that is SMOKE #1 and #2, which are release-cycle
+  # steps, not per-push ones.
+  smoke:
+    name: Smoke Harness (unit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smoke
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.91"
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo nextest run
+
   # Separate because it needs a generated lockfile and network access to the advisory database, so
   # it fails for reasons that have nothing to do with this crate's code. Keeping it apart means an
   # advisory-database outage does not read as a gate failure.

@@ -114,9 +114,10 @@ pub struct CompletionConfig {
     /// | the Claude providers | none — they report [`ReasoningState::NotMeasured`] |
     ///
     /// `NotMeasured` there, never `Measured { chars: 0 }`, which would claim a look that never
-    /// happened. It is also a different question from [`ReasoningState::Unsupported`], which is
-    /// about the [`ReasoningControl`] — a backend can be unable to switch reasoning off and
-    /// still report how long it was, or the reverse.
+    /// happened. It is a different question from [`ReasoningState::Unsupported`], which is about
+    /// the [`ReasoningControl`]: a backend that cannot switch reasoning off still reasons, so
+    /// that variant reports the length it saw anyway — the trace coming back is the proof the
+    /// control had no effect, and its size is what a consumer wants from that proof.
     pub reasoning_trace: bool,
 }
 
@@ -314,10 +315,25 @@ pub enum ReasoningState {
     /// stylistic: this type travels inside the serialized report, which is
     /// **deserialized**, and no `Deserialize` impl can produce a `&'static str`
     /// from borrowed input.
+    ///
+    /// # It carries what came back anyway, and that is the point
+    ///
+    /// A backend that cannot switch reasoning off still reasons, and the trace it returns is
+    /// the **proof** the control had no effect. Discarding its length would throw away the
+    /// operator's actual question in a mixed trio — *how much is the seat that cannot honour
+    /// this still spending?* — and would quietly break the contract that the length travels
+    /// either way.
     Unsupported {
         /// The backend that cannot honour it, so a human reading the report knows
         /// which seat is unaffected by the control it set.
         backend: String,
+        /// Length of the reasoning trace that came back regardless, in characters.
+        ///
+        /// Zero here is a real zero: the channel was read and the model did not reason.
+        chars: usize,
+        /// The trace itself, present only when the consumer opted in — the same rule
+        /// [`ReasoningState::Measured`] follows.
+        text: Option<String>,
     },
     /// The backend honoured the control and measured the reasoning channel.
     Measured {
@@ -2529,7 +2545,9 @@ mod tests {
         // first two.
         assert_ne!(
             ReasoningState::Unsupported {
-                backend: "anthropic".into()
+                backend: "anthropic".into(),
+                chars: 0,
+                text: None,
             },
             ReasoningState::Measured {
                 chars: 0,

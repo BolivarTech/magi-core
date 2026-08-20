@@ -626,9 +626,9 @@ fn s12_a_mixed_trio_honours_and_declares(ctx: &RunContext<'_>) -> Vec<Assertion>
     // Non-empty, or both assertions below quantify over nothing and certify a run they never saw.
     let declares = assert_that(
         NAME_SOMEONE_DECLARES,
-        states
-            .iter()
-            .any(|s| matches!(s, ReasoningState::Unsupported { backend } if !backend.is_empty())),
+        states.iter().any(
+            |s| matches!(s, ReasoningState::Unsupported { backend, .. } if !backend.is_empty()),
+        ),
     );
 
     // The point of a typed state rather than an `Option`: "this backend cannot do it" must not
@@ -1212,7 +1212,8 @@ mod tests {
     }
 
     /// What a seat on a backend that cannot honour the control reports.
-    const UNSUPPORTED: &str = r#"{"Unsupported":{"backend":"openai-compatible"}}"#;
+    const UNSUPPORTED: &str =
+        r#"{"Unsupported":{"backend":"openai-compatible","chars":3535,"text":null}}"#;
     /// What a seat that CAN honour it reports when the model did not reason.
     const MEASURED_ZERO: &str = r#"{"Measured":{"chars":0,"text":null}}"#;
 

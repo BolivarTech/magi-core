@@ -208,6 +208,10 @@ fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion
     telemetry = telemetry.with_reasoning(match reasoning {
         ReasoningControl::Disabled => ReasoningState::Unsupported {
             backend: "anthropic-cli".to_string(),
+            // This wire exposes no separate reasoning channel, so there was nothing to see and
+            // nothing to report — a real zero, not a look that did not happen.
+            chars: 0,
+            text: None,
         },
         ReasoningControl::Default => ReasoningState::NotMeasured,
     });
@@ -558,7 +562,7 @@ mod tests {
         assert!(
             matches!(
                 out.telemetry.reasoning,
-                ReasoningState::Unsupported { ref backend } if backend == "anthropic-cli"
+                ReasoningState::Unsupported { ref backend, .. } if backend == "anthropic-cli"
             ),
             "expected Unsupported{{backend: \"anthropic-cli\"}}, got {:?}",
             out.telemetry.reasoning

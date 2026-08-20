@@ -676,8 +676,21 @@ async fn a_crate_defect_aborts_even_with_no_fallback_pool_declared() {
         .await
         .expect_err("a defect of ours invalidates the run whether or not a pool was declared");
 
-    assert!(
-        matches!(err, MagiError::CrateDefect { .. }),
-        "without a pool the defect used to degrade the run instead of aborting it: {err}"
-    );
+    // And the seats it names are the ones that ANSWERED, never itself: `agent` already carries
+    // the defective seat, and counting it twice would make the field disagree with its own
+    // documentation. Asserted here because the first version of this test matched only the
+    // variant, which left the two dispatch paths free to build the set differently — and they
+    // did.
+    match err {
+        MagiError::CrateDefect {
+            agent, responded, ..
+        } => {
+            assert_eq!(agent, AgentName::Caspar);
+            assert!(
+                !responded.contains(&AgentName::Caspar),
+                "the seat that hit it is not one of the seats that answered: {responded:?}"
+            );
+        }
+        other => panic!("without a pool the defect used to degrade instead of aborting: {other}"),
+    }
 }
