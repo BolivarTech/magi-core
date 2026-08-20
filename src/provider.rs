@@ -2632,4 +2632,49 @@ mod tests {
         };
         assert!(!out.reasoning.is_empty());
     }
+    // ---------------------------------------------------------------------
+    // Task 19 — the synthetic HTTP status is gone from the tree.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn no_synthetic_http_status_survives_anywhere_in_the_crate() {
+        // B-1/B-3, as a MECHANICAL check rather than a reading. `PARSE_FAILURE_STATUS` was a
+        // contract failure wearing an HTTP error's clothes, and that disguise is the root cause
+        // of this whole milestone: it inherited run-wide semantics by carrying the wrong type.
+        //
+        // With it gone, `Http.status` only ever holds a real status — which makes lineage
+        // condemnation honest BY CONSTRUCTION rather than by comment.
+        for (file, src) in [
+            ("provider.rs", include_str!("provider.rs")),
+            ("error.rs", include_str!("error.rs")),
+            (
+                "providers/provider_url.rs",
+                include_str!("providers/provider_url.rs"),
+            ),
+            ("providers/claude.rs", include_str!("providers/claude.rs")),
+        ] {
+            assert!(
+                !src.contains("PARSE_FAILURE_STATUS"),
+                "the disguise is still alive in {file}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_refused_redirect_is_mage_local_and_never_retried() {
+        // The one site that was NOT a content failure and still used the sentinel. It kept the
+        // zero for three properties — never a real status, non-retryable, mage-local — and only
+        // the first of those came from the zero itself.
+        //
+        // It lands in `ResponseContract` because that is where its CONSEQUENCE lives, which is
+        // the unit of separation in this error type. What it must never be: `Network`, whose
+        // connection class trips the endpoint-down latch and would abort a whole run over a
+        // misconfigured redirect chain on one seat.
+        let e = ProviderError::ResponseContract {
+            reason: ResponseContractCause::RedirectRefused,
+        };
+        assert!(!is_retryable(&e));
+        // Same chain, same failure, every time: retrying only spends budget.
+        assert!(e.to_string().contains("redirect"));
+    }
 }
