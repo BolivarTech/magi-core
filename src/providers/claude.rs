@@ -243,19 +243,28 @@ impl ClaudeProvider {
     /// The text content of the first `"text"` content block, or a
     /// `ProviderError` if parsing fails or no text block is found.
     pub fn parse_response(body: &str) -> Result<String, ProviderError> {
-        let response: ClaudeResponse =
-            serde_json::from_str(body).map_err(|e| ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: format!(
-                    "failed to parse response: {}",
-                    crate::provider::describe_parse_error(&e)
-                ),
-                retry_after_raw: vec![],
-                received_at: None,
-            })?;
+        Self::text_of(Self::deserialize_body(body)?.content)
+    }
 
-        response
-            .content
+    /// Deserializes the body ONCE, so a caller that also wants telemetry does not pay for a
+    /// second full parse of the same bytes into the same type. The body is bounded by the cap
+    /// derived from `max_tokens`, so "parse it twice" is not free: it is one extra pass over up
+    /// to a megabyte, on every completion, of every seat, of every rotation hop.
+    fn deserialize_body(body: &str) -> Result<ClaudeResponse, ProviderError> {
+        serde_json::from_str(body).map_err(|e| ProviderError::Http {
+            status: PARSE_FAILURE_STATUS,
+            body: format!(
+                "failed to parse response: {}",
+                crate::provider::describe_parse_error(&e)
+            ),
+            retry_after_raw: vec![],
+            received_at: None,
+        })
+    }
+
+    /// Picks the first text block out of already-parsed content.
+    fn text_of(content: Vec<ContentBlock>) -> Result<String, ProviderError> {
+        content
             .into_iter()
             .find(|block| block.type_ == "text")
             .and_then(|block| block.text)
@@ -301,22 +310,23 @@ impl ClaudeProvider {
         body: &str,
         reasoning: ReasoningControl,
     ) -> Result<Completion, ProviderError> {
-        let text = Self::parse_response(body)?;
+        let response = Self::deserialize_body(body)?;
 
         let mut telemetry = CompletionTelemetry::unmeasured();
-        if let Ok(extra) = serde_json::from_str::<ClaudeResponse>(body) {
-            if let Some(raw) = extra.stop_reason.as_deref() {
-                telemetry = telemetry.with_finish(map_stop_reason(raw));
+        if let Some(raw) = response.stop_reason.as_deref() {
+            telemetry = telemetry.with_finish(map_stop_reason(raw));
+        }
+        if let Some(usage) = response.usage {
+            if let Some(n) = usage.output_tokens {
+                telemetry = telemetry.with_completion_tokens(n);
             }
-            if let Some(usage) = extra.usage {
-                if let Some(n) = usage.output_tokens {
-                    telemetry = telemetry.with_completion_tokens(n);
-                }
-                if let Some(n) = usage.input_tokens {
-                    telemetry = telemetry.with_prompt_tokens(n);
-                }
+            if let Some(n) = usage.input_tokens {
+                telemetry = telemetry.with_prompt_tokens(n);
             }
         }
+        // Taken from the SAME parse: reading the text through `parse_response` here would
+        // deserialize these very bytes a second time into this very type.
+        let text = Self::text_of(response.content)?;
         telemetry = telemetry.with_reasoning(match reasoning {
             ReasoningControl::Disabled => ReasoningState::Unsupported {
                 backend: "anthropic".to_string(),

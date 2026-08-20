@@ -106,20 +106,12 @@ impl ClaudeCliProvider {
     }
 }
 
-/// Parses the CLI output envelope from the `claude` subprocess.
+/// Deserializes the CLI envelope ONCE and applies its error convention.
 ///
-/// The CLI returns a JSON envelope:
-/// ```json
-/// {"is_error": false, "result": "<inner content as string>"}
-/// ```
-///
-/// If `is_error` is `true`, returns `ProviderError::Process`.
-/// Otherwise, returns the `result` string.
-///
-/// # Errors
-///
-/// - `ProviderError::Process` if `is_error` is `true` or JSON is malformed
-fn parse_cli_output(raw: &str) -> Result<String, ProviderError> {
+/// Split out so a caller that also wants the envelope's `usage` does not pay for a second full
+/// parse of the same bytes into the same type — which is what it did, and the envelope carries a
+/// whole completion's worth of text.
+fn parse_envelope(raw: &str) -> Result<CliOutput, ProviderError> {
     let output: CliOutput = serde_json::from_str(raw).map_err(|e| ProviderError::Process {
         exit_code: None,
         stderr: format!("failed to parse CLI output: {e}"),
@@ -132,7 +124,7 @@ fn parse_cli_output(raw: &str) -> Result<String, ProviderError> {
         });
     }
 
-    Ok(output.result)
+    Ok(output)
 }
 
 /// Strips code fences from text.
@@ -151,7 +143,7 @@ fn strip_code_fences(text: &str) -> &str {
 }
 
 /// Outer JSON envelope from the Claude CLI tool.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct CliOutput {
     is_error: bool,
     result: String,
@@ -196,17 +188,12 @@ struct CliUsage {
 /// is present. `finish` stays `None` unconditionally (see [`CliUsage`]).
 ///
 /// # Errors
-/// Same as [`parse_cli_output`], whose error path this reuses rather than
-/// duplicating: a second, tolerant re-parse only reads `usage`, since
-/// `is_error` and malformed-JSON handling already happened above.
+/// Shares its error path with [`parse_envelope`], which owns the envelope's convention.
 fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion, ProviderError> {
-    let result = parse_cli_output(raw)?;
-    let text = strip_code_fences(&result).to_string();
+    let output = parse_envelope(raw)?;
+    let text = strip_code_fences(&output.result).to_string();
 
-    let prompt_tokens = serde_json::from_str::<CliOutput>(raw)
-        .ok()
-        .and_then(|o| o.usage)
-        .and_then(|u| u.input_tokens);
+    let prompt_tokens = output.usage.and_then(|u| u.input_tokens);
 
     let mut telemetry = CompletionTelemetry::unmeasured();
     if let Some(n) = prompt_tokens {
@@ -495,11 +482,11 @@ mod tests {
 
     // -- BDD Scenario 19: parses double-nested JSON --
 
-    /// parse_cli_output extracts inner JSON from {"is_error": false, "result": "..."} envelope.
+    /// The envelope parser extracts the inner result from `{"is_error": false, "result": ...}`.
     #[test]
     fn test_parse_cli_output_extracts_inner_result() {
         let outer = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"agent\":\"melchior\",\"verdict\":\"approve\"}","usage":{"input_tokens":100}}"#;
-        let result = parse_cli_output(outer).unwrap();
+        let result = parse_envelope(outer).unwrap().result;
         assert_eq!(result, r#"{"agent":"melchior","verdict":"approve"}"#);
     }
 
@@ -510,7 +497,7 @@ mod tests {
     fn test_parse_cli_output_error_flag_returns_process_error() {
         let outer =
             r#"{"type":"result","subtype":"error","is_error":true,"result":"Rate limit exceeded"}"#;
-        let result = parse_cli_output(outer);
+        let result = parse_envelope(outer);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -522,7 +509,7 @@ mod tests {
     /// Malformed JSON returns ProviderError::Process.
     #[test]
     fn test_parse_cli_output_malformed_json_returns_process_error() {
-        let result = parse_cli_output("not valid json");
+        let result = parse_envelope("not valid json");
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
