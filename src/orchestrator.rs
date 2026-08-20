@@ -989,6 +989,7 @@ impl Magi {
             rotations,
             extraction_failures,
             input_size: Some(input_size),
+            completions: BTreeMap::new(),
         })
     }
 

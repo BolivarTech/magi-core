@@ -8,6 +8,7 @@ use std::fmt;
 use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
+use crate::provider::{CompletionTelemetry, FinishReason, ReasoningState};
 use crate::rotation::AgentRotation;
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::verdict_markers::ExtractionFailureCause;
@@ -404,6 +405,176 @@ pub struct MagiReport {
     /// to certify a measurement must not fabricate the one it lacks.
     #[serde(default)]
     pub input_size: Option<InputSize>,
+
+    /// per-agent record of EVERY completion attempt, in the order the attempts happened.
+    ///
+    /// # What it costs, said out loud
+    ///
+    /// Because every attempt is recorded and not only the cut ones, this map is **not empty in a
+    /// normal run**: about **3 entries (~400 B)** on a clean three-seat run, and up to **~18
+    /// (~2.5 KB)** when every seat rotates and takes its corrective retry. That is the price of
+    /// not being blind until the first cut, and it is stated rather than discovered.
+    ///
+    /// `skip_serializing_if` therefore guards the **real** empty case — a report with no
+    /// completions at all — and not "a report with no cuts", which no longer exists.
+    ///
+    /// # One entry per ATTEMPT, which is not the same as per model
+    ///
+    /// The corrective schema retry is a second call by the orchestrator against the **same**
+    /// model, so it leaves a second entry with the same model string. A transport retry is not:
+    /// it happens inside [`RetryProvider`](crate::provider::RetryProvider), which hands back a
+    /// single result, so a hung-then-recovered attempt is one entry.
+    ///
+    /// # Read it JOINED with `rotations`, on `AgentName`
+    ///
+    /// `rotations` says where a seat ended up; this says what each hop actually spent. Neither
+    /// answers *"was the cap the binding constraint?"* alone.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
+}
+
+/// One completion ATTEMPT, with whatever the provider could measure about it.
+///
+/// # Every completion, not only the ones that were cut
+///
+/// Recording only the notable attempts leaves the consumer blind until the FIRST cut, which is
+/// precisely the blindness this release exists to end: the old 4096-token default did not fail all
+/// at once, it had been scraping by. Knowing how close an attempt came is what makes the next cap
+/// a decision instead of a reaction.
+///
+/// # Records, not counters
+///
+/// A count would say *"Caspar was cut twice"*. With rotation those two cuts may be two different
+/// models, and **which model** is the question that decides what leaves the pool. Per-seat and
+/// per-cause totals are trivially derivable from these records; the attribution is not derivable
+/// from the totals.
+///
+/// # Not an extraction failure
+///
+/// This and [`MagiReport::extraction_failures`] are **disjoint**. An attempt that was cut and
+/// still produced a valid verdict belongs here and nowhere else — putting it there would assert a
+/// failure that did not happen, and a consumer counting that list to gate a run would start seeing
+/// failures where extraction went perfectly.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::prelude::{CompletionRecord, FinishReason};
+///
+/// let r = CompletionRecord::new("glm-5.2".to_string(), 16_384)
+///     .with_finish(FinishReason::Length)
+///     .with_completion_tokens(16_384);
+/// assert_eq!(r.cap, 16_384);
+/// assert_eq!(r.finish, Some(FinishReason::Length));
+/// // Never measured, never invented: the prompt side stays absent.
+/// assert_eq!(r.prompt_tokens, None);
+/// ```
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionRecord {
+    /// The model that served the attempt. With rotation a seat may use several, and this is the
+    /// dimension that makes the record actionable.
+    pub model: String,
+    /// The output budget in force for the attempt. Set by the caller, never read off the
+    /// response — a provider does not know what it was given.
+    pub cap: u32,
+    /// Why the model stopped, when the backend said.
+    pub finish: Option<FinishReason>,
+    /// Tokens the completion consumed, when the backend counted them.
+    pub completion_tokens: Option<u32>,
+    /// Tokens the prompt consumed, when the backend counted them.
+    pub prompt_tokens: Option<u32>,
+    /// Whether the reasoning control was honoured, and what was measured.
+    pub reasoning: ReasoningState,
+}
+
+impl CompletionRecord {
+    /// A record of an attempt, with **nothing measured yet**.
+    ///
+    /// # Parameters
+    ///
+    /// - `model` — the model that served the attempt.
+    /// - `cap` — the output budget in force.
+    ///
+    /// # Returns
+    ///
+    /// A record whose every measurable field declares absence, including the reasoning one.
+    /// Zeros are not used: a zero meaning "nobody counted" is indistinguishable from a real one.
+    ///
+    /// Fixed-arity on purpose over the two values the caller **always** knows; everything a
+    /// backend may or may not report arrives through a `with_*`, so a field added later costs one
+    /// more method and breaks nobody.
+    pub fn new(model: String, cap: u32) -> Self {
+        Self {
+            model,
+            cap,
+            finish: None,
+            completion_tokens: None,
+            prompt_tokens: None,
+            reasoning: ReasoningState::NotMeasured,
+        }
+    }
+
+    /// Records why the model stopped.
+    #[must_use]
+    pub fn with_finish(mut self, reason: FinishReason) -> Self {
+        self.finish = Some(reason);
+        self
+    }
+
+    /// Records the tokens the completion consumed.
+    #[must_use]
+    pub fn with_completion_tokens(mut self, n: u32) -> Self {
+        self.completion_tokens = Some(n);
+        self
+    }
+
+    /// Records the tokens the prompt consumed.
+    #[must_use]
+    pub fn with_prompt_tokens(mut self, n: u32) -> Self {
+        self.prompt_tokens = Some(n);
+        self
+    }
+
+    /// Records what the provider could say about the reasoning channel.
+    #[must_use]
+    pub fn with_reasoning(mut self, state: ReasoningState) -> Self {
+        self.reasoning = state;
+        self
+    }
+
+    /// The one conversion from what a provider measured into what the report keeps.
+    ///
+    /// # Parameters
+    ///
+    /// - `model` and `cap` come from the **orchestrator**: a provider knows neither which budget
+    ///   it was handed nor which seat it served.
+    /// - `telemetry` — everything the provider did measure, copied across field for field.
+    ///
+    /// # Returns
+    ///
+    /// A record that asserts exactly what was measured and nothing more.
+    ///
+    /// Written here and nowhere else: two places building this record is how the two start
+    /// disagreeing about what "not measured" means.
+    ///
+    /// # Complexity
+    ///
+    /// O(n) in the length of a carried reasoning trace, which is cloned; O(1) otherwise.
+    #[must_use]
+    pub fn from_telemetry(model: String, cap: u32, telemetry: &CompletionTelemetry) -> Self {
+        let mut record = Self::new(model, cap).with_reasoning(telemetry.reasoning.clone());
+        if let Some(f) = telemetry.finish.clone() {
+            record = record.with_finish(f);
+        }
+        if let Some(n) = telemetry.completion_tokens {
+            record = record.with_completion_tokens(n);
+        }
+        if let Some(n) = telemetry.prompt_tokens {
+            record = record.with_prompt_tokens(n);
+        }
+        record
+    }
 }
 
 /// Maps an [`ExtractionFailureCause`] to a short human label for the
@@ -1978,6 +2149,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         }
     }
 
@@ -2006,6 +2178,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2041,6 +2214,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -2066,6 +2240,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -2087,6 +2262,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2116,6 +2292,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2168,6 +2345,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -2236,6 +2414,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         assert!(report.degraded);
@@ -2864,6 +3043,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2896,6 +3076,7 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

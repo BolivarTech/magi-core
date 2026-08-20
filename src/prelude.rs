@@ -30,8 +30,8 @@ pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 
 // Reporting
 pub use crate::reporting::{
-    BANNER_INNER, BANNER_WIDTH, InputSize, MagiReport, ReportConfig, ReportError, ReportFormatter,
-    TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
+    BANNER_INNER, BANNER_WIDTH, CompletionRecord, InputSize, MagiReport, ReportConfig, ReportError,
+    ReportFormatter, TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 
 // Provider trait and config
