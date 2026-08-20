@@ -13,11 +13,6 @@ publish = false
 default   = ["tree"]
 tree      = ["dep:magi_core_tree"]
 published = ["dep:magi_core_pub"]
-# Stage gate, ORTHOGONAL to tree/published. OFF in E1, turned ON by MS1: it is
-# what makes the E2 guards — the R17 token count and the 4.0.0 scenarios — go from
-# "not compiled" to "failing loudly if unimplemented". A stage boundary someone
-# can forget is no boundary.
-e2        = []
 
 [dependencies]
 magi_core_tree = { package = "magi-core", path = "..",     optional = true, features = ["ollama"] }

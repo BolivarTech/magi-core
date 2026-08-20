@@ -331,7 +331,7 @@ const MAX_BUDGET_SECS: u64 = 4 * 60 * 60;
 /// large-payload scenario cannot reproduce the failure the harness exists to
 /// catch — a reasoning model exhausting its output budget on a large
 /// payload — and would certify exactly what never fails.
-const MIN_PAYLOAD_TARGET_BYTES: usize = 100_000;
+pub(crate) const MIN_PAYLOAD_TARGET_BYTES: usize = 100_000;
 
 /// Lower bound for `run_payload_bytes`, in bytes.
 ///

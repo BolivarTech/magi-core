@@ -9,7 +9,7 @@
 //! away — which is the `3.0.2` failure wearing different clothes. Written after, the property
 //! ships uncertified. Written alongside, the scenario IS the test.
 
-use crate::alias::magi_core::prelude::ReasoningState;
+use crate::alias::magi_core::prelude::{CompletionRecord, ReasoningState};
 use crate::config::RunId;
 use crate::proxy::RequestRecord;
 use crate::runner::{
@@ -159,11 +159,55 @@ const NAME_NO_SEAT_LOST: &str = "no seat was lost to an empty completion on the 
 const NAME_NOT_DEGRADED: &str = "the large-payload run is not degraded";
 const NAME_NEW_DEFAULT_APPLIED: &str =
     "every completion ran under the raised output budget, not the old one";
+const NAME_PROMPT_LARGE: &str =
+    "the large payload reached the model large IN TOKENS, not just in bytes";
 
 /// The budget this release raised TO. Named rather than inlined because the assertion below
 /// is about this number: on a tree where the raise never happened, every record would carry
 /// the old one instead.
 const RAISED_MAX_TOKENS: u32 = 16_384;
+
+/// `R17` — the large-payload run really is large **in tokens**.
+///
+/// # Why bytes are not enough, and why this could not be written until now
+///
+/// Everything upstream of the wire is measured in BYTES: the generator fills to
+/// `payload_target_bytes` and `config` refuses anything under
+/// [`crate::config::MIN_PAYLOAD_TARGET_BYTES`]. But the failure this stage reproduces is a
+/// function of TOKENS — evidence run H passes on the same model and the same budget that run C
+/// fails, and the only difference is how much the model had to read. Four scenarios (`S3`,
+/// `S8b`, `S10`, `S11`) read `RunId::Large62k` and **none of them would notice a payload that
+/// silently shrank**, because none of them looks at size at all.
+///
+/// This guard was specified with E1 and left unimplemented, because until `A-5` there was
+/// nothing on the report to read: the backend's own `prompt_eval_count` now arrives as
+/// [`CompletionRecord::prompt_tokens`]. It is measured by the BACKEND, which is strictly better
+/// evidence than any byte proxy this harness could compute.
+///
+/// # The floor is derived, never hardcoded
+///
+/// A fixed floor would be wrong for a legally configured smaller payload: the default target is
+/// 250 000 bytes (~63 900 tokens measured) but the accepted MINIMUM is 100 000. So the bound is
+/// derived from that minimum at **twice** the crate's own `chars/4` estimate — a lower bound on
+/// a lower bound, deliberately loose, because tokenisers vary and this asserts that the payload
+/// ARRIVED large, not that any particular ratio holds. It still discriminates by ~24x: the
+/// small-run payload is 2 048 bytes, which measured 569 prompt tokens.
+fn r17_the_prompt_is_large_in_tokens(records: &[&CompletionRecord]) -> Assertion {
+    const FLOOR_TOKENS: usize = crate::config::MIN_PAYLOAD_TARGET_BYTES / 8;
+
+    // Only the records that actually carry a measurement. A provider that does not report
+    // `prompt_tokens` says nothing about the payload, and folding its `None` in either
+    // direction would be an opinion the harness has no basis for.
+    let measured: Vec<u32> = records.iter().filter_map(|c| c.prompt_tokens).collect();
+
+    // The non-empty companion is the whole point: `all` over an empty set is TRUE, so without
+    // this the row would go green on a run where nobody measured anything -- which is exactly
+    // the shape of the defect this guard exists to catch, reproduced inside the guard.
+    assert_that(
+        NAME_PROMPT_LARGE,
+        !measured.is_empty() && measured.iter().all(|t| *t as usize >= FLOOR_TOKENS),
+    )
+}
 
 /// `S10` — the raised output budget stops the 62 k bundle from costing a seat
 /// (`sbtdd/smoke-harness-spec.md`, "S10").
@@ -191,7 +235,8 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
             Assertion::skip(NAME_LARGE_OBSERVED, reason.clone()),
             Assertion::skip(NAME_NO_SEAT_LOST, reason.clone()),
             Assertion::skip(NAME_NOT_DEGRADED, reason.clone()),
-            Assertion::skip(NAME_NEW_DEFAULT_APPLIED, reason),
+            Assertion::skip(NAME_NEW_DEFAULT_APPLIED, reason.clone()),
+            Assertion::skip(NAME_PROMPT_LARGE, reason),
         ];
     };
 
@@ -235,7 +280,13 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
         !records.is_empty() && records.iter().all(|c| c.cap == RAISED_MAX_TOKENS),
     );
 
-    vec![observed, no_seat_lost, not_degraded, new_default_applied]
+    vec![
+        observed,
+        no_seat_lost,
+        not_degraded,
+        new_default_applied,
+        r17_the_prompt_is_large_in_tokens(&records),
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -806,6 +857,66 @@ pub fn e2_scenarios() -> Vec<Scenario> {
 
 #[cfg(test)]
 mod tests {
+    /// The name the R17 token guard is declared under. Held as a constant so the tripwire and
+    /// the guard cannot drift apart silently.
+    const R17_GUARD_FN: &str = "r17_the_prompt_is_large_in_tokens";
+
+    /// # This tripwire earned its keep, which is why it outlived the stub it was written for
+    ///
+    /// R17 spent E1 as an `unimplemented!()` behind an `e2` feature whose own comment promised
+    /// MS1 would enable it. MS1 did not, and the feature gated nothing else, so the guard was
+    /// never compiled — the boundary written specifically so it could not be forgotten was
+    /// itself forgotten, while four scenarios kept reading the payload it was meant to size.
+    /// The guard is real and unconditional now, and its tripwire follows it here.
+    #[test]
+    fn the_r17_token_guard_is_still_present_in_the_source() {
+        assert!(
+            crate::testkit::source_declares_fn(include_str!("e2.rs"), R17_GUARD_FN),
+            "the R17 guard was removed or commented out; four scenarios read the large payload              and not one of the others looks at its size"
+        );
+    }
+
+    #[test]
+    fn a_mention_of_the_r17_guard_does_not_satisfy_the_tripwire() {
+        // The tripwire matched a SUBSTRING once, so two slashes in front of the guard left it
+        // green while the guard was gone. Every input here contains the name; none declares it.
+        let mentions = [
+            format!("// fn {R17_GUARD_FN}() {{"),
+            format!("    //fn {R17_GUARD_FN}() {{"),
+            format!("    let name = \"fn {R17_GUARD_FN}\";"),
+            format!("/*\nfn {R17_GUARD_FN}() {{}}\n*/"),
+            format!("/* fn {R17_GUARD_FN}() {{}} */"),
+            format!("/// See [`fn {R17_GUARD_FN}`] for the token bound."),
+        ];
+        for src in mentions {
+            assert!(
+                !crate::testkit::source_declares_fn(&src, R17_GUARD_FN),
+                "a mention must not satisfy the tripwire: {src:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_r17_declaration_satisfies_the_tripwire_however_it_is_formatted() {
+        // The other direction, and it matters just as much: a tripwire that goes red when
+        // someone re-indents the guard is a tripwire that gets deleted.
+        let declarations = [
+            format!("fn {R17_GUARD_FN}() {{}}"),
+            format!("                fn {R17_GUARD_FN}() {{}}"),
+            format!("\t\tfn {R17_GUARD_FN}(\n) {{}}"),
+            format!("#[allow(dead_code)]\n    fn {R17_GUARD_FN}() {{}}"),
+            // A block comment that OPENED and CLOSED earlier must not leave the scanner stuck.
+            format!("/* an earlier note */\nfn {R17_GUARD_FN}() {{}}"),
+            // Nor must a `/*` that only ever appears inside a line comment.
+            format!("// see /* the note */\nfn {R17_GUARD_FN}() {{}}"),
+        ];
+        for src in declarations {
+            assert!(
+                crate::testkit::source_declares_fn(&src, R17_GUARD_FN),
+                "a real declaration must satisfy the tripwire: {src:?}"
+            );
+        }
+    }
     use super::*;
     use crate::alias::magi_core::prelude::MagiReport;
     use crate::outcome::ScenarioState;
@@ -927,6 +1038,66 @@ mod tests {
             );
         }
     }
+
+    // -- R17 --
+
+    fn rec(prompt_tokens: Option<u32>) -> CompletionRecord {
+        let r = CompletionRecord::new("glm-5.2".to_string(), 16_384);
+        match prompt_tokens {
+            Some(n) => r.with_prompt_tokens(n),
+            None => r,
+        }
+    }
+
+    #[test]
+    fn r17_passes_when_the_payload_arrived_large() {
+        let recs = [rec(Some(63_924))];
+        let refs: Vec<&CompletionRecord> = recs.iter().collect();
+        assert_eq!(
+            r17_the_prompt_is_large_in_tokens(&refs).state,
+            ScenarioState::Pass
+        );
+    }
+
+    #[test]
+    fn r17_fails_when_the_payload_silently_shrank() {
+        // The small-run payload is 2 048 bytes, which measured 569 prompt tokens against the
+        // live backend. That is the substitution this guard exists to catch: every other row
+        // of `S10` is satisfied by three healthy seats whatever they were asked to read.
+        let recs = [rec(Some(569))];
+        let refs: Vec<&CompletionRecord> = recs.iter().collect();
+        assert_eq!(
+            r17_the_prompt_is_large_in_tokens(&refs).state,
+            ScenarioState::Fail
+        );
+    }
+
+    #[test]
+    fn r17_fails_rather_than_passing_vacuously_when_nothing_was_measured() {
+        // THE case the row is written around. `all` over an empty set is TRUE, so a guard
+        // without its non-empty companion goes green precisely when it learned nothing —
+        // reproducing, inside the guard, the defect the guard was added to prevent.
+        let recs = [rec(None), rec(None)];
+        let refs: Vec<&CompletionRecord> = recs.iter().collect();
+        assert_eq!(
+            r17_the_prompt_is_large_in_tokens(&refs).state,
+            ScenarioState::Fail
+        );
+    }
+
+    #[test]
+    fn r17_reads_the_measured_records_and_ignores_the_silent_ones() {
+        // A provider that does not report `prompt_tokens` says nothing about the payload.
+        // Folding its `None` in either direction would be an opinion with no basis: counted as
+        // a failure it would redden a healthy run, counted as a pass it would be vacuity again.
+        let recs = [rec(None), rec(Some(63_924))];
+        let refs: Vec<&CompletionRecord> = recs.iter().collect();
+        assert_eq!(
+            r17_the_prompt_is_large_in_tokens(&refs).state,
+            ScenarioState::Pass
+        );
+    }
+
     // -- S3 --
 
     /// A report carrying ONE rotation hop for Caspar, whose `chain` is exactly `chain_json`, and
