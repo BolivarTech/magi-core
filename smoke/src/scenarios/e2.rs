@@ -129,6 +129,66 @@ fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![one_per_seat, model_and_cap, termination]
 }
 
+// ---------------------------------------------------------------------------
+// S10 — the 62 k bundle stops costing a seat
+// ---------------------------------------------------------------------------
+
+const NAME_LARGE_OBSERVED: &str = "the large-payload run reached the wire and was recorded";
+const NAME_NO_SEAT_LOST: &str = "no seat was lost to an empty completion on the large payload";
+const NAME_NOT_DEGRADED: &str = "the large-payload run is not degraded";
+
+/// `S10` — the raised output budget stops the 62 k bundle from costing a seat
+/// (`sbtdd/smoke-harness-spec.md`, "S10").
+///
+/// # The large payload is the whole scenario, not a bigger version of a small one
+///
+/// Evidence run H passes clean against the same model and the same budget that run C fails; the
+/// only difference is the size of the input. A harness that exercises only small payloads
+/// certifies exactly what never breaks, and that blindness is what let this defect reach four
+/// consumer reports before anyone saw it.
+///
+/// # What it does NOT assert, and why the obvious assertion is wrong
+///
+/// It does not require that no completion terminated on `length`. A completion that hit the
+/// budget and **still produced a valid verdict** is a success, and recording it is the entire
+/// point of the telemetry this milestone added — asserting its absence would make the harness
+/// contradict the field it certifies. What must not happen is a seat being **lost**.
+fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_LARGE_OBSERVED, reason.clone()),
+            Assertion::skip(NAME_NO_SEAT_LOST, reason.clone()),
+            Assertion::skip(NAME_NOT_DEGRADED, reason),
+        ];
+    };
+
+    // Without this the two assertions below are true of a run that analysed nothing, and a green
+    // meaning "nothing was looked at" is the failure mode this whole harness exists to prevent.
+    let observed = assert_that(
+        NAME_LARGE_OBSERVED,
+        !report.completions.is_empty() && report.agents.len() + report.failed_agents.len() >= 3,
+    );
+
+    // The failure this release is named for, read from the outside: a seat whose model burned its
+    // budget reasoning and returned nothing. The reason text is the crate's own rendering, which
+    // `4.0.0` made name the budget instead of saying "http error 0".
+    let no_seat_lost = assert_that(
+        NAME_NO_SEAT_LOST,
+        !report
+            .failed_agents
+            .values()
+            .any(|reason| reason.contains("empty completion")),
+    );
+
+    let not_degraded = assert_that(NAME_NOT_DEGRADED, !report.degraded);
+
+    vec![observed, no_seat_lost, not_degraded]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -139,6 +199,14 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::HappySmall),
             backend_tag: BackendNeed::Required,
             assert_fn: s8_completions_are_native_only,
+        },
+        Scenario {
+            id: "S10",
+            // The ONLY scenario that reads the large-payload run, and the reason that run
+            // exists: the property is invisible at small sizes.
+            source: Source::Run(RunId::Large62k),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s10_the_large_payload_costs_no_seat,
         },
         Scenario {
             id: "S13",
@@ -164,7 +232,7 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S13"]);
+        assert_eq!(ids, vec!["S8", "S10", "S13"]);
     }
 
     #[test]

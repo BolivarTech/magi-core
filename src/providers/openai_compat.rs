@@ -531,7 +531,7 @@ mod tests {
         let cfg = CompletionConfig::default();
         let body = p.build_request_body("S", "U", &cfg);
         assert_eq!(body.model, "phi4-mini");
-        assert_eq!(body.max_tokens, 4096);
+        assert_eq!(body.max_tokens, 16_384);
         assert!((body.temperature - 0.0).abs() < f64::EPSILON);
         assert_eq!(body.messages.len(), 2);
         assert_eq!(body.messages[0].role, "system");

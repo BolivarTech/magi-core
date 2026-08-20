@@ -526,24 +526,25 @@ pub fn build_magi_against(
     }
 }
 
-/// The ids [`RunSpec::for_stage_e1`] produces, without generating a payload.
+/// The ids [`RunSpec::all`] produces, without generating a payload.
 ///
 /// It exists because the cost announcement is printed by the PREFLIGHT, before
 /// any spec is built, and announcing a cost means naming the runs about to
 /// happen. A second hand-written list of run ids would be one more thing that
-/// can drift out of step with `for_stage_e1` in silence — which is exactly what
-/// happened: the announcement summed the large-payload run's budget, a run this
-/// stage deliberately never launches, and so promised time nobody was going to
-/// spend.
+/// can drift out of step with `all` in silence — which is exactly what
+/// happened twice, once in each direction: it first summed the large-payload
+/// run's budget for a run nothing launched, and then, when `S10` made that run
+/// real, it omitted the budget of a run that now takes the longest of them all.
+/// Both times the paired test is what said so.
 ///
 /// `the_announced_runs_are_the_runs_this_stage_actually_launches` compares this
-/// against what `for_stage_e1` really returns, so the two cannot disagree
+/// against what `all` really returns, so the two cannot disagree
 /// without a red test.
 ///
 /// # Parameters
 ///
 /// * `no_backend` — the partition flag, with the same meaning it has in
-///   [`RunSpec::for_stage_e1`].
+///   [`RunSpec::all`].
 ///
 /// # Complexity
 ///
@@ -556,18 +557,26 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::HappySmall,
         RunId::Rotation,
         RunId::Degradation,
+        RunId::Large62k,
         RunId::NoBackend,
     ]
 }
 
 impl RunSpec {
-    /// This stage's runs.
+    /// Every run the harness launches.
     ///
-    /// The large-payload run is deliberately NOT among them: no assertion in
-    /// this stage reads it, so launching it would pay for the harness's most
-    /// expensive run, twice per cycle, for nobody. The payload is still
-    /// generated and checked by size, which is the only claim available before
-    /// the telemetry that would justify running it exists.
+    /// # The large-payload run is now among them, and the reason it was not is what changed
+    ///
+    /// It used to be excluded because *no assertion read it*, so launching the most expensive
+    /// run twice per cycle bought nobody anything. `S10` reads it: the whole point of raising
+    /// the default output budget is that the 62 k bundle stops costing a seat, and a small
+    /// payload cannot observe that — evidence run H passes clean against the same model and the
+    /// same budget that run C fails. **A harness that only exercises small inputs certifies
+    /// exactly what never breaks.**
+    ///
+    /// The function was called `all` while it was the E1 run set. It no longer is:
+    /// the run it returns exists for an E2 scenario, and a name promising otherwise is the
+    /// defect this project keeps closing.
     ///
     /// # Parameters
     ///
@@ -585,7 +594,7 @@ impl RunSpec {
     /// # Complexity
     ///
     /// One payload generation, then `O(r)` in the number of runs.
-    pub fn for_stage_e1(
+    pub fn all(
         cfg: &Config,
         repo_root: &Path,
         no_backend: bool,
@@ -645,6 +654,18 @@ impl RunSpec {
                     model: injected_seat,
                     status: INJECTED_FAILURE_STATUS,
                 }),
+                providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+            },
+            RunSpec {
+                id: RunId::Large62k,
+                seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
+                // The one run sized from `payload_target_bytes` rather than
+                // `run_payload_bytes`: it exists to reproduce the large-input case, and the
+                // other runs exist to exercise paths cheaply.
+                payload: payload::generate(repo_root, cfg.payload_target_bytes)?,
+                injection: None,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
             },
@@ -909,7 +930,7 @@ const PROBE_MODEL: &str = "smoke-transparency-probe";
 /// Whether the transparency probe has anything to say about this invocation.
 ///
 /// Derived from the runs that are about to execute, never from the flag that
-/// selected them. `RunSpec::for_stage_e1` already returns only the offline run
+/// selected them. `RunSpec::all` already returns only the offline run
 /// under `--no-backend`, so reading the specs cannot disagree with what is
 /// executed, while a second reading of the flag can — and this decides whether
 /// the harness's one deliberate bypass of the proxy is used at all.
@@ -1095,7 +1116,7 @@ mod tests {
         // deliberate bypass in the whole harness — at exactly the moment the
         // operator asked for none.
         //
-        // Derived from the SPECS rather than from the flag: `for_stage_e1`
+        // Derived from the SPECS rather than from the flag: `all`
         // already returns only the offline run under `--no-backend`, so reading
         // the specs cannot disagree with what is about to be executed, while a
         // second reading of the flag can.
@@ -1227,7 +1248,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the manifest dir always has a parent");
-        let specs = RunSpec::for_stage_e1(&cfg, root, true).expect("payload generation");
+        let specs = RunSpec::all(&cfg, root, true).expect("payload generation");
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].id, RunId::NoBackend);
         assert_eq!(specs[0].providers, ProviderKind::ExternalStub);
@@ -1245,8 +1266,11 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the manifest dir always has a parent");
-        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
-        assert!(specs.iter().all(|s| s.id != RunId::Large62k));
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
+        // It used to be excluded, and the exclusion expired the moment an assertion read it:
+        // `S10` certifies that the raised output budget stops costing a seat on the 62 k
+        // bundle, and only the large payload can show that.
+        assert!(specs.iter().any(|s| s.id == RunId::Large62k));
     }
 
     #[test]
@@ -1261,7 +1285,7 @@ mod tests {
             .parent()
             .expect("the manifest dir always has a parent");
         for no_backend in [false, true] {
-            let real: Vec<RunId> = RunSpec::for_stage_e1(&cfg, root, no_backend)
+            let real: Vec<RunId> = RunSpec::all(&cfg, root, no_backend)
                 .expect("payload generation")
                 .iter()
                 .map(|s| s.id)
@@ -1285,7 +1309,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the manifest dir always has a parent");
-        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
         let rotation = specs
             .iter()
             .find(|s| s.id == RunId::Rotation)
@@ -1313,7 +1337,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the manifest dir always has a parent");
-        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
         let degradation = specs
             .iter()
             .find(|s| s.id == RunId::Degradation)
@@ -1336,7 +1360,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the manifest dir always has a parent");
-        let specs = RunSpec::for_stage_e1(&cfg, root, false).expect("payload generation");
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
         let injected: Vec<&Injection> = specs.iter().filter_map(|s| s.injection.as_ref()).collect();
         assert_eq!(injected.len(), 2, "rotation and degradation both inject");
         for inj in injected {

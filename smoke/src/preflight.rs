@@ -999,7 +999,7 @@ const TOKEN_ESTIMATE_DIVISOR: usize = 4;
 /// Both halves of this sentence used to describe a run this stage never
 /// launches. The time was the sum over a hand-written list that included
 /// [`RunId::Large62k`], deliberately excluded from the stage
-/// ([`RunSpec::for_stage_e1`](crate::runner::RunSpec::for_stage_e1)), so the
+/// ([`RunSpec::all`](crate::runner::RunSpec::all)), so the
 /// figure promised time nobody was going to spend. And the tokens came from
 /// `payload_target_bytes`, which sizes that same absent run, while every run
 /// that does launch analyses `run_payload_bytes` — two orders of magnitude
@@ -1070,20 +1070,59 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
             .to_string();
     }
     let seats = cfg.seats.len();
-    let input_tokens = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR).saturating_mul(seats);
+    // Summed PER RUN, not multiplied out from one figure, because the runs no longer analyse
+    // the same payload: the large-payload run is sized from `payload_target_bytes` and the rest
+    // from `run_payload_bytes`, two orders of magnitude apart with the shipped defaults. The
+    // announcement used to say "each spending ~N", and the moment the large run started
+    // launching that word made the estimate understate its most expensive member by ~100x.
+    // An announcement that overstates gets ignored; one that understates gets believed.
+    // `fold` with `saturating_add`, never `sum()`: `sum()` panics on overflow in debug and
+    // wraps in release, and a wrapped number announced as an estimate is worse than no
+    // announcement because it looks measured. `run_payload_bytes` carries only a MINIMUM bound
+    // in `Config`, so a huge-but-legal value reaches here.
+    let input_tokens: usize = backend_runs.iter().fold(0usize, |acc, r| {
+        acc.saturating_add(
+            (payload_bytes_for(cfg, *r) / TOKEN_ESTIMATE_DIVISOR).saturating_mul(seats),
+        )
+    });
     let output_cap = CompletionConfig::default().max_tokens as usize;
-    let output_tokens = output_cap.saturating_mul(seats);
+    let output_tokens = output_cap
+        .saturating_mul(seats)
+        .saturating_mul(backend_runs.len());
     let expected_secs: u64 = backend_runs.iter().map(|r| cfg.budget(*r).as_secs()).sum();
     let names: Vec<&str> = backend_runs.iter().map(|r| r.as_str()).collect();
     format!(
-        "preflight: {} backend run(s) about to start ({}), each spending ~{input_tokens} input \
-         tokens ({seats} seats x bytes/4, a coarse bound, not a measurement) and up to \
-         ~{output_tokens} output tokens ({seats} x the {output_cap}-token cap), ~{} tokens in \
-         all; expected time budget ~{expected_secs}s in total",
+        "preflight: {} backend run(s) about to start ({}), spending ~{input_tokens} input \
+         tokens in total ({seats} seats x bytes/4 per run, a coarse bound, not a measurement) \
+         and up to ~{output_tokens} output tokens ({} runs x {seats} x the {output_cap}-token \
+         cap), ~{} tokens in all; expected time budget ~{expected_secs}s in total",
         backend_runs.len(),
         names.join(", "),
+        backend_runs.len(),
         input_tokens.saturating_add(output_tokens)
     )
+}
+
+/// How many bytes of payload a given run analyses.
+///
+/// One place that knows the split, because the estimate and the tests both need it and two
+/// copies of "which run reads which size" is how an announcement starts describing a run that
+/// is not the one about to happen.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration, which carries both sizes.
+/// * `run` — the run whose payload is being sized.
+///
+/// # Returns
+///
+/// The target size in bytes: `payload_target_bytes` for the large-payload run,
+/// `run_payload_bytes` for every other.
+fn payload_bytes_for(cfg: &Config, run: RunId) -> usize {
+    match run {
+        RunId::Large62k => cfg.payload_target_bytes,
+        _ => cfg.run_payload_bytes,
+    }
 }
 
 /// R31, both halves: the estimate printed BEFORE the runs, and the real cost
@@ -1439,53 +1478,40 @@ mod tests {
 
     #[test]
     fn the_cost_announced_is_the_cost_of_the_runs_that_will_actually_happen() {
-        // It used to sum the large-payload run's budget — a run this stage
-        // deliberately never launches — and to size its token estimate from
-        // `payload_target_bytes`, which belongs to that same absent run. Both
-        // halves therefore promised more than the invocation could ever spend,
-        // and an announcement that overstates is one an operator learns to
-        // ignore.
+        // The announcement has drifted from the run list in BOTH directions and this test is
+        // what said so each time. It first summed the large-payload run's budget for a run
+        // nothing launched — overstating, which an operator learns to ignore. Now that `S10`
+        // launches it, the same test guards the opposite failure: leaving it out, or pricing it
+        // like a small run, would understate by ~100x — which an operator believes.
         let cfg = Config::default();
         let announced = announce_cost(&cfg, false);
 
         let expected_secs: u64 = cfg.budget(RunId::HappySmall).as_secs()
             + cfg.budget(RunId::Rotation).as_secs()
-            + cfg.budget(RunId::Degradation).as_secs();
+            + cfg.budget(RunId::Degradation).as_secs()
+            + cfg.budget(RunId::Large62k).as_secs();
         assert!(
             announced.contains(&format!("~{expected_secs}s")),
             "the time must be the sum over the launched backend runs: {announced}"
         );
         assert!(
-            !announced.contains(&format!(
-                "~{}s",
-                expected_secs + cfg.budget(RunId::Large62k).as_secs()
-            )),
-            "the large-payload run is not launched, so its budget must not be in the \
-             announcement: {announced}"
+            announced.contains(RunId::Large62k.as_str()),
+            "and the run must be named, since it is now the longest of them: {announced}"
+        );
+        // Priced from ITS OWN payload, not from the small one. Summing one figure over four
+        // runs would have been arithmetic that looked right and was wrong by two orders of
+        // magnitude for the member that dominates the bill.
+        let seats = cfg.seats.len();
+        let small = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+        let large = (cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+        assert!(
+            announced.contains(&format!("~{} input tokens", small * 3 + large)),
+            "three small runs plus the large one, each priced from its own payload: {announced}"
         );
         assert!(
-            !announced.contains(RunId::Large62k.as_str()),
-            "and it must not be named as a run about to start: {announced}"
-        );
-        // The payload the LAUNCHED runs analyse, not the one that sizes the
-        // absent large-payload run — the two are two orders of magnitude apart
-        // with the shipped defaults. Multiplied by the seats, since that is
-        // what the run really spends; the arithmetic itself is pinned by
-        // `the_announced_cost_counts_every_seat_and_both_sides_of_the_wire`.
-        assert!(
-            announced.contains(&format!(
-                "~{} input tokens",
-                (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * cfg.seats.len()
-            )),
-            "the tokens must come from the payload the launched runs analyse, not from the \
-             one that sizes the absent run: {announced}"
-        );
-        assert!(
-            !announced.contains(&format!(
-                "~{} input tokens",
-                cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR
-            )),
-            "and never from the absent run's own payload: {announced}"
+            !announced.contains(&format!("~{} input tokens", small * 4)),
+            "and never four small ones, which is what one figure multiplied out would say: \
+             {announced}"
         );
     }
 
@@ -1501,15 +1527,21 @@ mod tests {
         let announced = announce_cost(&cfg, false);
 
         let seats = cfg.seats.len();
-        let per_seat_in = cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR;
-        let input = per_seat_in * seats;
+        let runs = backend_runs_of(&cfg);
+        let input: usize = stage_e1_run_ids(false)
+            .into_iter()
+            .filter(|r| r.uses_backend())
+            .fold(0usize, |acc, r| {
+                acc + (payload_bytes_for(&cfg, r) / TOKEN_ESTIMATE_DIVISOR) * seats
+            });
         let cap =
             crate::alias::magi_core::provider::CompletionConfig::default().max_tokens as usize;
-        let output = cap * seats;
+        let output = cap * seats * runs;
 
         assert!(
             announced.contains(&format!("~{input} input tokens")),
-            "the input estimate must count all {seats} seats, not one: {announced}"
+            "the input estimate must count all {seats} seats of every run, not one: \
+             {announced}"
         );
         assert!(
             announced.contains(&format!("~{output} output tokens")),
@@ -1589,7 +1621,14 @@ mod tests {
             .record()
             .expect_err("a receipt for runs nothing timed is not a receipt");
         assert!(
-            refusal.contains("0 interval(s) for 3 announced backend run(s)"),
+            // DERIVED, never written down: `backend_runs_of`'s own doc says a test that
+            // writes the number is a test asserting a count it fixed itself. These four
+            // sites ignored it and all went red the day a fourth backend run was added,
+            // for a reason that had nothing to do with what they guard.
+            refusal.contains(&format!(
+                "0 interval(s) for {} announced backend run(s)",
+                backend_runs_of(&cfg)
+            )),
             "the refusal must name WHICH half is missing — the announcement was made, so a \
              message about the announcement would send the reader to the wrong place: {refusal}"
         );
@@ -1847,7 +1886,9 @@ mod tests {
             .record()
             .expect_err("one interval for three runs is the batch-wrapping shape");
         assert!(
-            refusal.contains("1 interval(s) for 3 announced backend run(s)"),
+            refusal.contains(&format!(
+                "1 interval(s) for {announced} announced backend run(s)"
+            )),
             "the refusal must report both numbers, since the reader has to see WHICH way the \
              call site drifted: {refusal}"
         );
@@ -1861,7 +1902,10 @@ mod tests {
             .record()
             .expect_err("a fourth interval bills work the estimate never announced");
         assert!(
-            refusal.contains("4 interval(s) for 3 announced backend run(s)"),
+            refusal.contains(&format!(
+                "{} interval(s) for {announced} announced backend run(s)",
+                announced + 1
+            )),
             "and in the other direction too: {refusal}"
         );
     }
@@ -1888,7 +1932,10 @@ mod tests {
             .record()
             .expect_err("a receipt for runs nothing timed must still be refused");
         assert!(
-            refusal.contains("0 interval(s) for 3 announced backend run(s)"),
+            refusal.contains(&format!(
+                "0 interval(s) for {} announced backend run(s)",
+                backend_runs_of(&cfg)
+            )),
             "and the surviving check is what answers, reporting both numbers: {refusal}"
         );
         assert!(
@@ -1927,7 +1974,12 @@ mod tests {
         // Values standing in for the outcomes a run can end with. `measure`
         // returns them untouched, which is the other half of the contract: a
         // ledger cannot be made to swallow a result.
-        let outcomes: Vec<Result<&str, &str>> = vec![Err("cannot test"), Err("skip"), Ok("pass")];
+        let outcomes: Vec<Result<&str, &str>> = vec![
+            Err("cannot test"),
+            Err("skip"),
+            Err("timed out"),
+            Ok("pass"),
+        ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");
         for outcome in outcomes {
             assert_eq!(ledger.measure(async { outcome }).await, outcome);

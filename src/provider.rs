@@ -40,6 +40,30 @@ pub enum ReasoningControl {
 #[derive(Debug, Clone)]
 pub struct CompletionConfig {
     /// Maximum number of tokens in the LLM response.
+    ///
+    /// Defaults to `16_384` since `4.0.0`, raised from `4096` because that number was cutting
+    /// verdicts a model had genuinely produced. With the real system prompt on a 62 k-token
+    /// bundle, `glm-5.2` demanded **10 686** completion tokens — so the old default truncated a
+    /// legitimate answer from a model that converges, not merely from a pathological one.
+    ///
+    /// # What the raise does NOT buy
+    ///
+    /// A model that spends its whole budget in a reasoning channel is not rescued by a bigger
+    /// budget: `deepseek-v4-pro` was measured returning nothing at `16_384` **and** at `32_768`.
+    /// That is what [`ReasoningControl`] is for. Reading this number as the fix repeats the first
+    /// hypothesis the reporters measured until it broke.
+    ///
+    /// # One backend takes this value verbatim, and can reject it
+    ///
+    /// [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) passes `max_tokens` straight
+    /// through without comparing it against the model's own output ceiling, and asking for more
+    /// than that ceiling is a **400 from Anthropic**, not a degraded answer. It is deliberately
+    /// not clamped: a silent clamp would be exactly the quiet no-op this crate refuses elsewhere.
+    ///
+    /// The three aliases this crate resolves — `sonnet`, `opus`, `haiku` — are all 4.x models
+    /// whose ceilings are far above `16_384`, so a consumer on the default configuration cannot
+    /// hit this. What can: pinning a **literal pre-4.x model id** through the passthrough and
+    /// never setting `max_tokens`. Set it explicitly if you do that.
     pub max_tokens: u32,
     /// Sampling temperature (0.0 = deterministic).
     pub temperature: f64,
@@ -65,7 +89,7 @@ pub struct CompletionConfig {
 impl Default for CompletionConfig {
     fn default() -> Self {
         Self {
-            max_tokens: 4096,
+            max_tokens: 16_384,
             temperature: 0.0,
             reasoning: ReasoningControl::default(),
             reasoning_trace: false,
@@ -2048,11 +2072,11 @@ mod tests {
 
     // -- CompletionConfig tests --
 
-    /// CompletionConfig::default has max_tokens=4096, temperature=0.0.
+    /// CompletionConfig::default has max_tokens=16_384, temperature=0.0.
     #[test]
     fn test_completion_config_default_values() {
         let config = CompletionConfig::default();
-        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.max_tokens, 16_384);
         assert!((config.temperature - 0.0).abs() < f64::EPSILON);
     }
 
@@ -2060,7 +2084,7 @@ mod tests {
     #[test]
     fn test_completion_config_is_non_exhaustive() {
         let config = CompletionConfig::default();
-        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.max_tokens, 16_384);
         assert!((config.temperature).abs() < f64::EPSILON);
     }
 

@@ -490,7 +490,7 @@ mod tests {
         let body = provider.build_request_body("You are helpful", "Hello", &config);
 
         assert_eq!(body.model, "claude-sonnet-4-6");
-        assert_eq!(body.max_tokens, 4096);
+        assert_eq!(body.max_tokens, 16_384);
         assert!((body.temperature - 0.0).abs() < f64::EPSILON);
         assert_eq!(body.system, "You are helpful");
         assert_eq!(body.messages.len(), 1);

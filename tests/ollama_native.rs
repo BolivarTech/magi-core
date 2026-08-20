@@ -42,7 +42,7 @@ async fn every_completion_goes_to_api_chat_with_stream_false() {
         "no conditional routing: the /v1 compatibility path is gone"
     );
     assert_eq!(req.body["stream"], false);
-    assert_eq!(req.body["options"]["num_predict"], 4096);
+    assert_eq!(req.body["options"]["num_predict"], 16_384);
     handle.abort();
 }
 

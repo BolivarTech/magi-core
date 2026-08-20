@@ -275,7 +275,7 @@ fn analyze_produced_a_report(ctx: &RunContext<'_>) -> Assertion {
 ///
 /// It cannot tell a backend's own `500` from an injected one; nothing on the
 /// wire distinguishes them. It does not need to: **this run configures no
-/// injection at all** ([`crate::runner::RunSpec::for_stage_e1`] gives
+/// injection at all** ([`crate::runner::RunSpec::all`] gives
 /// `HappySmall` `injection: None`), so the proxy has no rule to apply and a
 /// `500` here can only be the backend's. The assertion's name says what is
 /// actually checked — no completion carried the failure status — rather than
@@ -356,7 +356,7 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
             .iter()
             .any(|r| r.response_status == INJECTED_FAILURE_STATUS)
         {
-            // **This run injects nothing** (`RunSpec::for_stage_e1` gives
+            // **This run injects nothing** (`RunSpec::all` gives
             // `HappySmall` `injection: None`), so a failure status here can
             // only be the BACKEND's own — and a report in hand means the crate
             // saw it and recovered, which is the crate behaving correctly.

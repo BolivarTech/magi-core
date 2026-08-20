@@ -306,7 +306,7 @@ async fn main() -> std::process::ExitCode {
     };
 
     // 4. The shared runs.
-    let specs = match runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), cli.no_backend) {
+    let specs = match runner::RunSpec::all(&cfg, &paths::repo_root(), cli.no_backend) {
         Ok(s) => s,
         Err(e) => return report::Report::cannot_test(&e.to_string(), cycle_run(&cli)).emit(),
     };
@@ -1411,7 +1411,7 @@ mod tests {
     /// property under test.
     fn stage_specs() -> Vec<runner::RunSpec> {
         let cfg = config::Config::default();
-        runner::RunSpec::for_stage_e1(&cfg, &paths::repo_root(), false)
+        runner::RunSpec::all(&cfg, &paths::repo_root(), false)
             .expect("the stage's payload must be generatable from the real tree")
     }
 
