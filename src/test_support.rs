@@ -143,6 +143,19 @@ impl LlmProvider for RoutingMockProvider {
 static BAD_JSON: LazyLock<String> =
     LazyLock::new(|| format!("{VERDICT_OPEN}\nnot json at all\n{VERDICT_CLOSE}"));
 
+/// A block that OPENS and never closes — the signature of a response cut off mid-flight.
+///
+/// The JSON inside is deliberately well-formed and complete: what is missing is only the
+/// closing marker, so the failure is `Unterminated` and not `InvalidJson`. A truncated body
+/// with mangled JSON would fail for the nearer reason and never exercise the sentinel's
+/// unterminated arm at all.
+static TRUNCATED: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{VERDICT_OPEN}\n{{\"agent\":\"caspar\",\"verdict\":\"approve\",\"confidence\":0.9,\
+         \"summary\":\"ok\",\"reasoning\":\"r\",\"recommendation\":\"go\",\"findings\":[]}}"
+    )
+});
+
 /// AGENT-AWARE valid verdict body. Reads the `CURRENT_AGENT_IDENTITY` task-local
 /// (set by [`crate::agent::Agent::execute`]/`execute_with`) and emits a verdict
 /// whose `agent` field MATCHES the launched mage — so a shared-pool fallback
@@ -194,6 +207,12 @@ pub enum Beh {
     /// `serde_json`, so this variant would test the *absence* of markers instead of bad
     /// JSON. The full reasoning is on the private `BAD_JSON` constant.
     BadJson,
+    /// Return a block that OPENS and never closes (`Unterminated` → schema failure →
+    /// mage-local rotation).
+    ///
+    /// The JSON inside is complete on purpose: only the closing marker is missing, so the
+    /// failure is the sentinel's unterminated arm and not the nearer `InvalidJson` one.
+    Truncated,
     /// Surface `ProviderError::ResponseTooLarge`.
     ///
     /// A CONTENT failure that looks superficially like transport: the server answered fine, it
@@ -257,6 +276,7 @@ impl LlmProvider for ScriptProvider {
         match beh {
             Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
             Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
+            Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
             Beh::Network => Err(ProviderError::Network {
                 message: "connection refused".into(),
             }),

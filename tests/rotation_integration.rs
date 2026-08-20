@@ -17,6 +17,7 @@ use magi_core::test_support::{
     build_two_failing_with_single_free_fallback, build_two_network_failing_no_fallback,
     report_run_failed,
 };
+use magi_core::verdict_markers::ExtractionFailureCause;
 
 /// Wraps a provider in a `RetryProvider` that exhausts INSTANTLY (zero delay,
 /// one retry), so retry-then-rotate composition is exercised without slow sleeps.
@@ -387,4 +388,74 @@ async fn a_seat_that_rotated_leaves_one_entry_per_model() {
     // The seat that never rotated still records its single completion: recording
     // only the interesting seats is the same blindness one level up.
     assert_eq!(report.completions[&AgentName::Melchior].len(), 1);
+}
+
+/// AC5 — a NO-REGRESSION, not a new property: `3.0.0`'s sentinel already handles truncated
+/// content, and this milestone must not disturb it.
+///
+/// A cut BEFORE the closing marker is `Unterminated`; inside the JSON it is `InvalidJson`;
+/// after the closing marker only trailing prose is lost. **The report that motivated this
+/// milestone was WRONG in believing this was still open** — its "symptom 3" asked for telemetry
+/// on a truncated-but-parseable verdict being accepted as complete, and that case is not
+/// reachable through the marker path.
+///
+/// What this pins is the half that could plausibly break here: the classification must stay
+/// **mage-local**, so the seat rotates and the lineage stays available to the other two. A
+/// milestone that moved `Unterminated` onto the transport path would take a healthy lineage away
+/// from two seats over one seat's cut output.
+#[tokio::test]
+async fn truncated_content_still_lands_on_the_mage_local_path_via_unterminated() {
+    // Caspar's primary emits an OPEN marker and a body with no close: the signature of a
+    // response cut off mid-flight. Its fallback answers properly, so the seat recovers and the
+    // run is not degraded — which is what makes the lineage claim observable.
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::Truncated]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    // The cause is still `Unterminated`, and still attributed to the model that produced it.
+    let failures = &report.extraction_failures[&AgentName::Caspar];
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.cause == ExtractionFailureCause::Unterminated),
+        "the 3.0.0 sentinel must still name a cut block as Unterminated: {failures:?}"
+    );
+
+    // MAGE-LOCAL, exactly as in 3.2.0: the two seats that did not see the cut are untouched and
+    // still produced verdicts, so the run is whole.
+    assert!(
+        !report.degraded,
+        "a cut on one seat must not degrade a run the other two completed"
+    );
+    assert_eq!(report.agents.len(), 3);
+    // And the seat itself recovered by rotating, which is what mage-local condemnation buys.
+    assert_eq!(report.rotations[&AgentName::Caspar].chain.len(), 1);
+    assert_eq!(
+        report.rotations[&AgentName::Caspar].chain[0].kind(),
+        RotationKind::Schema,
+        "a cut block is a CONTENT failure, never a transport one"
+    );
 }
