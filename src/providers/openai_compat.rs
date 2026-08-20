@@ -188,20 +188,6 @@ impl OpenAiCompatibleProvider {
         })
     }
 
-    /// The URL authority this provider was built with.
-    ///
-    /// Test-only, and deliberately so. Its single purpose is letting a test **compare** the
-    /// authority the Ollama provider handed over — which is how the credential-destroying
-    /// `format!("{base}/v1")` was caught. Returning the authority rather than a string keeps the
-    /// guarantee intact even here: a caller can compare or derive, never render.
-    ///
-    /// Not exposed outside tests because no production path needs to read a URL back; every use
-    /// goes through the request builder.
-    #[cfg(all(test, feature = "ollama"))]
-    pub(crate) fn base(&self) -> &ProviderUrl {
-        &self.base_url
-    }
-
     /// Provider name for diagnostics/telemetry.
     pub fn name(&self) -> &str {
         "openai-compat"

@@ -71,3 +71,94 @@ pub async fn spawn_429_with_retry_after(value: &str) -> (String, JoinHandle<()>)
     });
     (format!("http://{addr}"), handle)
 }
+
+/// What a captured request carried: the path it was sent to, and its JSON body.
+///
+/// Written in English, unlike the two servers above, because §0.2 asks for it in `tests/` too —
+/// they predate the rule and are left alone rather than rewritten in an unrelated task.
+#[allow(dead_code)]
+pub struct CapturedRequest {
+    pub path: String,
+    pub body: serde_json::Value,
+}
+
+/// Serves one canned JSON response and RECORDS the request that asked for it.
+///
+/// Exists because the assertion that matters for the native endpoint is not "the response was
+/// parsed" but "the request went to `/api/chat` with `stream: false`" — and neither is
+/// observable from the response. The two servers above answer without looking at what arrived.
+///
+/// Reads exactly `Content-Length` bytes of body rather than one `read` call: a body split across
+/// TCP segments would otherwise be captured truncated and the JSON parse would fail for a reason
+/// that has nothing to do with the code under test.
+#[allow(dead_code)]
+pub async fn spawn_capturing(
+    status: u16,
+    response_body: &str,
+) -> (
+    String,
+    Arc<std::sync::Mutex<Option<CapturedRequest>>>,
+    JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral port");
+    let addr = listener.local_addr().expect("local addr");
+    let captured = Arc::new(std::sync::Mutex::new(None));
+    let sink = Arc::clone(&captured);
+    let body = Arc::new(response_body.to_string());
+    let handle = tokio::spawn(async move {
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let mut raw: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 4096];
+            // Headers first: read until the blank line that ends them.
+            let head_end = loop {
+                match sock.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break None,
+                    Ok(n) => {
+                        raw.extend_from_slice(&chunk[..n]);
+                        if let Some(p) = raw.windows(4).position(|w| w == b"\r\n\r\n") {
+                            break Some(p + 4);
+                        }
+                    }
+                }
+            };
+            if let Some(head_end) = head_end {
+                let head = String::from_utf8_lossy(&raw[..head_end]).to_string();
+                let path = head
+                    .lines()
+                    .next()
+                    .and_then(|l| l.split_whitespace().nth(1))
+                    .unwrap_or("")
+                    .to_string();
+                let want: usize = head
+                    .lines()
+                    .find_map(|l| {
+                        l.strip_prefix("content-length: ")
+                            .or_else(|| l.strip_prefix("Content-Length: "))
+                    })
+                    .and_then(|v| v.trim().parse().ok())
+                    .unwrap_or(0);
+                while raw.len() - head_end < want {
+                    match sock.read(&mut chunk).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => raw.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let parsed =
+                    serde_json::from_slice(&raw[head_end..]).unwrap_or(serde_json::Value::Null);
+                if let Ok(mut slot) = sink.lock() {
+                    *slot = Some(CapturedRequest { path, body: parsed });
+                }
+            }
+            let response = format!(
+                "HTTP/1.1 {} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                status,
+                body.len(),
+                body
+            );
+            let _ = sock.write_all(response.as_bytes()).await;
+        }
+    });
+    (format!("http://{addr}"), captured, handle)
+}
