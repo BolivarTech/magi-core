@@ -1097,27 +1097,36 @@ impl Magi {
         // here means the seat produced no attempt at all, which is a different claim from
         // an empty one and worth being able to tell apart.
         let mut completions: BTreeMap<AgentName, Vec<CompletionRecord>> = BTreeMap::new();
+        // A defect of OURS invalidates the run on this path too. It needs no registry here:
+        // there is no rotation to coordinate, and the join loop below is the same point at
+        // which the rotating path consults its latch.
+        let mut crate_defect: Option<CrateDefectRecord> = None;
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> = agent_models
             .keys()
             .map(|name| (*name, Vec::new()))
             .collect();
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), was_retried, failures, records)) => {
+                Ok((Ok(output), was_retried, failures, records, defect)) => {
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
                     completions.insert(name, records);
+                    crate_defect = crate_defect.or(defect);
                 }
-                Ok((Err(reason), was_retried, failures, records)) => {
+                Ok((Err(reason), was_retried, failures, records, defect)) => {
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
                     completions.insert(name, records);
+                    // SET-ONCE, exactly like the registry latch the rotating path uses: if two
+                    // seats hit it the result is the same abort, and no state depends on which
+                    // one was joined first.
+                    crate_defect = crate_defect.or(defect);
                 }
                 Err(join_err) => {
                     // A panicked task loses its in-flight records; the pre-seeded empty
@@ -1125,6 +1134,18 @@ impl Magi {
                     failed.insert(name, format!("panic: {join_err}"));
                 }
             }
+        }
+
+        // Raised BEFORE the min-agents check, so a defect of ours is never reported as
+        // "not enough agents" — which would send the operator to look at the models.
+        if let Some(d) = crate_defect {
+            return Err(MagiError::CrateDefect {
+                observation: d.observation,
+                hypothesis: d.hypothesis,
+                agent: d.agent,
+                model: d.model,
+                responded: successful.iter().map(|o| o.agent).collect(),
+            });
         }
 
         let min_agents = self.consensus_engine.min_agents();
@@ -1464,6 +1485,41 @@ fn record_attempt(
     }
 }
 
+/// Whether a surfaced provider failure is a defect of THIS crate, and what to record if so.
+///
+/// # Why it asks the classifier instead of matching the variant here
+///
+/// A second place deciding what a crate defect is would be a second place that can disagree with
+/// the first. `provider_err_outcome` already owns that decision, exhaustively and without a
+/// catch-all, so this asks it rather than re-answering.
+///
+/// # Parameters
+///
+/// * `err` — the failure as the provider surfaced it.
+/// * `agent` / `model` — the seat and the model in force, neither of which the classifier knows.
+///
+/// # Returns
+///
+/// `Some` only for the one classification whose consequence is the whole run.
+///
+/// # Complexity
+///
+/// O(n) in the rendered error text, which the classifier composes once.
+fn crate_defect_of(err: ProviderError, agent: AgentName, model: &str) -> Option<CrateDefectRecord> {
+    match provider_err_outcome(err) {
+        ModelOutcome::CrateDefect {
+            observation,
+            hypothesis,
+        } => Some(CrateDefectRecord {
+            observation,
+            hypothesis,
+            agent,
+            model: model.to_string(),
+        }),
+        _ => None,
+    }
+}
+
 /// Dispatch a single agent with one-shot retry on schema/parse errors.
 ///
 /// Returns `(Result<AgentOutput, String>, bool)` — a flat tuple, no enum
@@ -1495,6 +1551,7 @@ pub(crate) async fn dispatch_one_agent(
     bool,
     Vec<ExtractionFailure>,
     Vec<CompletionRecord>,
+    Option<CrateDefectRecord>,
 ) {
     // Attribution is STRUCTURAL here: the model is the one whose provider actually ran,
     // so a failure can never be credited to a model that had not executed yet (E23c).
@@ -1507,12 +1564,17 @@ pub(crate) async fn dispatch_one_agent(
     let first_raw = match first_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
-            return (
-                Err(MagiError::Provider(provider_err).to_string()),
-                false,
-                failures,
-                records,
-            );
+            // Routed through the SAME classifier the rotating path uses, so the two cannot
+            // disagree about what counts as a defect of ours. Only that one case changes the
+            // control flow; every other failure keeps the reason string it always had.
+            //
+            // Found by review: the abort existed only on the rotating path, so a defect of
+            // ours in the DEFAULT configuration — no fallback pool — degraded the run to 2/3
+            // and filed itself among ordinary model failures, which is exactly what B-5 says
+            // it must never do.
+            let reason = MagiError::Provider(provider_err.clone()).to_string();
+            let defect = crate_defect_of(provider_err, agent.name(), &model);
+            return (Err(reason), false, failures, records, defect);
         }
         Err(_elapsed) => {
             return (
@@ -1520,13 +1582,14 @@ pub(crate) async fn dispatch_one_agent(
                 false,
                 failures,
                 records,
+                None,
             );
         }
     };
 
     // Parse + validate first response. Success exits here.
     let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), &validator) {
-        Ok(output) => return (Ok(output), false, failures, records),
+        Ok(output) => return (Ok(output), false, failures, records, None),
         Err(f) => f,
     };
     failures.push(ExtractionFailure {
@@ -1553,7 +1616,13 @@ pub(crate) async fn dispatch_one_agent(
             MagiError::Validation(_) | MagiError::Deserialization(_)
         );
     if !should_retry {
-        return (Err(first_err.error.to_string()), false, failures, records);
+        return (
+            Err(first_err.error.to_string()),
+            false,
+            failures,
+            records,
+            None,
+        );
     }
 
     // Single-shot retry with corrective feedback prompt.
@@ -1571,15 +1640,12 @@ pub(crate) async fn dispatch_one_agent(
     let second_raw = match second_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
-            return (
-                Err(format!(
-                    "retry-failed: {}",
-                    MagiError::Provider(provider_err)
-                )),
-                true,
-                failures,
-                records,
+            let reason = format!(
+                "retry-failed: {}",
+                MagiError::Provider(provider_err.clone())
             );
+            let defect = crate_defect_of(provider_err, agent.name(), &model);
+            return (Err(reason), true, failures, records, defect);
         }
         Err(_elapsed) => {
             return (
@@ -1587,12 +1653,13 @@ pub(crate) async fn dispatch_one_agent(
                 true,
                 failures,
                 records,
+                None,
             );
         }
     };
 
     match parse_validate_and_check(&second_raw.text, agent.name(), &validator) {
-        Ok(output) => (Ok(output), true, failures, records),
+        Ok(output) => (Ok(output), true, failures, records, None),
         Err(f) => {
             // `attempt: 2` — the corrective retry, on the SAME model. The counter is
             // per-model by construction, so it restarts at 1 if a rotation happens later
@@ -1607,6 +1674,7 @@ pub(crate) async fn dispatch_one_agent(
                 true,
                 failures,
                 records,
+                None,
             )
         }
     }
@@ -4541,7 +4609,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4569,7 +4637,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4599,7 +4667,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: design\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4631,7 +4699,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4662,7 +4730,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4693,7 +4761,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4718,7 +4786,7 @@ mod tests {
         let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4741,7 +4809,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4766,7 +4834,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4796,7 +4864,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: x\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4829,7 +4897,7 @@ mod tests {
         let cfg = CompletionConfig::default();
 
         // retry_enabled=false
-        let (result, retried, _failures, _records) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
