@@ -96,7 +96,22 @@ use hyper::body::Bytes;
 /// now — and buys certainty about its shape instead of guessing at it.
 #[derive(Clone, Debug)]
 pub enum Injection {
-    FailModel { model: String, status: u16 },
+    FailModel {
+        model: String,
+        status: u16,
+    },
+    /// Answer a named model with a CAPTURED body instead of forwarding.
+    ///
+    /// `FailModel` can only produce a status; this scenario needs a **200 that is wrong in a
+    /// specific way** — the footprint of a request the backend accepted and did not generate
+    /// from. That shape cannot be provoked by asking a healthy backend nicely, and it is exactly
+    /// the shape whose classification aborts a run, so replaying the captured artifact is the
+    /// only way to exercise the abort without shipping a deliberately broken request.
+    ReplayBody {
+        model: String,
+        status: u16,
+        body: Vec<u8>,
+    },
 }
 
 /// One body type for every response the proxy returns, so the streamed path
@@ -1103,6 +1118,11 @@ impl SpyProxy {
             Injection::FailModel { model, status } if names_model(&text, model) => {
                 Some((*status, Vec::new()))
             }
+            Injection::ReplayBody {
+                model,
+                status,
+                body,
+            } if names_model(&text, model) => Some((*status, body.clone())),
             _ => None,
         }
     }

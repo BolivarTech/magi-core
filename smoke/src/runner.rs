@@ -569,9 +569,19 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::Rotation,
         RunId::Degradation,
         RunId::Large62k,
+        RunId::CrateDefect,
         RunId::NoBackend,
     ]
 }
+
+/// The one captured body of a request the backend ACCEPTED and did not generate from: HTTP
+/// 200, `done_reason: "load"`, empty content, and — the discriminant — token counters
+/// **absent** rather than zero.
+///
+/// Embedded rather than fetched: no healthy backend produces this shape on request, and the
+/// classification it drives ABORTS a run, so the only honest way to exercise the abort is to
+/// replay the artifact that was actually captured.
+const CRATE_DEFECT_BODY: &str = include_str!("../../tests/fixtures/ec/native-E-malformed.json");
 
 impl RunSpec {
     /// Every run the harness launches.
@@ -629,6 +639,8 @@ impl RunSpec {
             .last()
             .map(|s| s.model.clone())
             .unwrap_or_default();
+        let injected_seat_defect = injected_seat.clone();
+        let small_for_defect = small.clone();
         Ok(vec![
             RunSpec {
                 id: RunId::HappySmall,
@@ -687,6 +699,24 @@ impl RunSpec {
                 // having: a model burning a large budget is the case somebody turns this on
                 // to understand. On a small run it would only show the field is not empty.
                 trace: true,
+            },
+            RunSpec {
+                id: RunId::CrateDefect,
+                seats: cfg.seats.clone(),
+                // NO fallbacks, and this is the assertion rather than a saving: a defect of ours
+                // must not rotate, and a run with nowhere to rotate to could not tell whether it
+                // refused or merely had no option. The pool is present so the refusal is a
+                // choice — see the `fallbacks` line below.
+                fallbacks: cfg.fallbacks.clone(),
+                payload: small_for_defect,
+                injection: Some(Injection::ReplayBody {
+                    model: injected_seat_defect,
+                    status: 200,
+                    body: CRATE_DEFECT_BODY.as_bytes().to_vec(),
+                }),
+                providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+                trace: false,
             },
             no_backend_spec,
         ])
@@ -1042,7 +1072,11 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
 /// that took out two seats, reported against one, and read as the crate
 /// degrading badly rather than as the harness over-injecting.
 fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
-    let Injection::FailModel { model, .. } = spec.injection.as_ref()?;
+    // An exhaustive match rather than a `let ... else`: both injections name a model, and a
+    // third one that did not would have to say so here instead of silently attributing to none.
+    let model = match spec.injection.as_ref()? {
+        Injection::FailModel { model, .. } | Injection::ReplayBody { model, .. } => model,
+    };
     spec.seats
         .iter()
         .find(|s| &s.model == model)
@@ -1382,9 +1416,13 @@ mod tests {
             .expect("the manifest dir always has a parent");
         let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
         let injected: Vec<&Injection> = specs.iter().filter_map(|s| s.injection.as_ref()).collect();
-        assert_eq!(injected.len(), 2, "rotation and degradation both inject");
+        assert_eq!(
+            injected.len(),
+            3,
+            "rotation, degradation and the crate-defect run all inject"
+        );
         for inj in injected {
-            let Injection::FailModel { model, .. } = inj;
+            let (Injection::FailModel { model, .. } | Injection::ReplayBody { model, .. }) = inj;
             assert!(
                 cfg.seats.iter().any(|s| &s.model == model),
                 "injected model {model:?} is in no seat"

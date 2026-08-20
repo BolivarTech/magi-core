@@ -1486,10 +1486,13 @@ mod tests {
         let cfg = Config::default();
         let announced = announce_cost(&cfg, false);
 
-        let expected_secs: u64 = cfg.budget(RunId::HappySmall).as_secs()
-            + cfg.budget(RunId::Rotation).as_secs()
-            + cfg.budget(RunId::Degradation).as_secs()
-            + cfg.budget(RunId::Large62k).as_secs();
+        // Summed by the SAME route the announcement uses, not by a hand-written list: a list is
+        // what drifted from the run set twice already, once in each direction.
+        let expected_secs: u64 = stage_e1_run_ids(false)
+            .into_iter()
+            .filter(|r| r.uses_backend())
+            .map(|r| cfg.budget(r).as_secs())
+            .sum();
         assert!(
             announced.contains(&format!("~{expected_secs}s")),
             "the time must be the sum over the launched backend runs: {announced}"
@@ -1504,13 +1507,17 @@ mod tests {
         let seats = cfg.seats.len();
         let small = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
         let large = (cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+        let small_runs = stage_e1_run_ids(false)
+            .into_iter()
+            .filter(|r| r.uses_backend() && *r != RunId::Large62k)
+            .count();
         assert!(
-            announced.contains(&format!("~{} input tokens", small * 3 + large)),
-            "three small runs plus the large one, each priced from its own payload: {announced}"
+            announced.contains(&format!("~{} input tokens", small * small_runs + large)),
+            "the small runs plus the large one, each priced from its own payload: {announced}"
         );
         assert!(
-            !announced.contains(&format!("~{} input tokens", small * 4)),
-            "and never four small ones, which is what one figure multiplied out would say: \
+            !announced.contains(&format!("~{} input tokens", small * (small_runs + 1))),
+            "and never all of them small, which is what one figure multiplied out would say: \
              {announced}"
         );
     }
@@ -1808,6 +1815,7 @@ mod tests {
             RunId::Large62k,
             RunId::Rotation,
             RunId::Degradation,
+            RunId::CrateDefect,
             RunId::NoBackend,
         ];
         for id in all {
@@ -1816,6 +1824,7 @@ mod tests {
                 | RunId::Large62k
                 | RunId::Rotation
                 | RunId::Degradation
+                | RunId::CrateDefect
                 | RunId::NoBackend => {}
             }
         }
@@ -1978,6 +1987,7 @@ mod tests {
             Err("cannot test"),
             Err("skip"),
             Err("timed out"),
+            Err("aborted"),
             Ok("pass"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");

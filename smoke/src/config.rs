@@ -272,6 +272,7 @@ pub enum RunId {
     Large62k,
     Rotation,
     Degradation,
+    CrateDefect,
     NoBackend,
 }
 
@@ -284,6 +285,7 @@ impl RunId {
             Self::Large62k => "large_62k",
             Self::Rotation => "rotation",
             Self::Degradation => "degradation",
+            Self::CrateDefect => "crate_defect",
             Self::NoBackend => "no_backend",
         }
     }
@@ -295,7 +297,11 @@ impl RunId {
     /// being inherited from whichever side the author of the list forgot.
     pub fn uses_backend(self) -> bool {
         match self {
-            Self::HappySmall | Self::Large62k | Self::Rotation | Self::Degradation => true,
+            Self::HappySmall
+            | Self::Large62k
+            | Self::Rotation
+            | Self::Degradation
+            | Self::CrateDefect => true,
             Self::NoBackend => false,
         }
     }
@@ -467,7 +473,7 @@ impl Config {
         let secs = match run {
             RunId::HappySmall => self.budgets.happy_secs,
             RunId::Large62k => self.budgets.large_payload_secs,
-            RunId::Rotation | RunId::Degradation => self.budgets.injected_secs,
+            RunId::Rotation | RunId::Degradation | RunId::CrateDefect => self.budgets.injected_secs,
             RunId::NoBackend => self.budgets.no_backend_secs,
         };
         Duration::from_secs(secs)

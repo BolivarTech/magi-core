@@ -357,6 +357,67 @@ fn content_failure_detail(detail: &str) -> bool {
     detail.contains("empty completion") || detail.contains("response contract")
 }
 
+// ---------------------------------------------------------------------------
+// S9 — a malformed request of OURS aborts; it does not masquerade as a dead mage
+// ---------------------------------------------------------------------------
+
+const NAME_ABORTS: &str = "the run ends with an error that names a defect of this crate";
+const NAME_NOT_A_SEAT: &str = "no report was produced, so no seat was blamed for it";
+
+/// `S9` — the abort, read from the outside (`sbtdd/smoke-harness-spec.md`, "S9").
+///
+/// # Why the assertion is about the ERROR and not about a report field
+///
+/// There is no report. That is the whole point: `failed_agents` is where model failures land
+/// every day, so a defect of ours filed there would be invisible in the noise of the normal and
+/// the operator would go and look at the model. This project has already paid that bill once, on
+/// a bug that masqueraded as a provider error.
+///
+/// # What it does NOT do, and could not
+///
+/// It cannot tell a backend's own `load` from the replayed one — nothing on the wire
+/// distinguishes them. It does not need to: this run configures the replay itself, so the
+/// footprint can only be the one it injected.
+fn s9_a_defect_of_ours_aborts_the_run(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    // Deliberately NOT the `report.is_none()` skip the other scenarios use: here an absent
+    // report is the PASS condition, so borrowing that guard would skip the run this scenario
+    // exists to read.
+    let Some(error) = ctx.error else {
+        let why = if ctx.report.is_some() {
+            "the run produced a report, so the defect was filed against a seat instead of \
+             aborting — which is the failure this scenario exists to catch"
+                .to_string()
+        } else {
+            "the run produced neither a report nor an error, so it never happened".to_string()
+        };
+        // A report in hand is a FAIL, not a skip: the crate did something, and it did the wrong
+        // thing. Only "the run never happened" is unanswerable.
+        return if ctx.report.is_some() {
+            vec![
+                assert_that(NAME_ABORTS, false),
+                assert_that(NAME_NOT_A_SEAT, false),
+            ]
+        } else {
+            vec![
+                Assertion::skip(NAME_ABORTS, why.clone()),
+                Assertion::skip(NAME_NOT_A_SEAT, why),
+            ]
+        };
+    };
+
+    // The name has to carry the category, or the bug hides in the noise. The rendered error says
+    // "defect in magi-core", and it separates what was OBSERVED from the hypothesis about why —
+    // because the discriminant rests on a single captured case.
+    let aborts = assert_that(
+        NAME_ABORTS,
+        error.contains("magi-core") && error.contains("no generation"),
+    );
+
+    let not_a_seat = assert_that(NAME_NOT_A_SEAT, ctx.report.is_none());
+
+    vec![aborts, not_a_seat]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -375,6 +436,14 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::Large62k),
             backend_tag: BackendNeed::Required,
             assert_fn: s3_the_large_payload_loses_no_seat_to_misclassification,
+        },
+        Scenario {
+            id: "S9",
+            // Its own run, because the injected footprint ABORTS: sharing a run with any other
+            // scenario would deny that scenario the report it reads.
+            source: Source::Run(RunId::CrateDefect),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s9_a_defect_of_ours_aborts_the_run,
         },
         Scenario {
             id: "S10",
@@ -408,6 +477,7 @@ mod tests {
     use super::*;
     use crate::alias::magi_core::prelude::MagiReport;
     use crate::outcome::ScenarioState;
+    use crate::runner::ErrorClass;
 
     fn report_from(json: &str) -> MagiReport {
         serde_json::from_str(json).expect("test fixture JSON must deserialize into MagiReport")
@@ -416,7 +486,7 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S3", "S10", "S11", "S13"]);
+        assert_eq!(ids, vec!["S8", "S3", "S9", "S10", "S11", "S13"]);
     }
 
     #[test]
@@ -622,6 +692,68 @@ mod tests {
     fn s3_skips_rather_than_fails_when_the_run_produced_no_report() {
         let ctx = RunContext::blank(RunId::Large62k);
         for a in s3_the_large_payload_loses_no_seat_to_misclassification(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, got {:?}",
+                a.name,
+                a.state
+            );
+        }
+    }
+    // -- S9 --
+
+    #[test]
+    fn s9_passes_when_the_run_aborted_naming_the_crate() {
+        let err = "defect in magi-core, run aborted: no generation - token counters absent \
+                   (termination: Some(Load)); the known cause is a request without `messages`";
+        let ctx = RunContext {
+            error: Some(err),
+            error_class: Some(ErrorClass::CrateFailure),
+            ..RunContext::blank(RunId::CrateDefect)
+        };
+        for a in s9_a_defect_of_ours_aborts_the_run(&ctx) {
+            assert_eq!(a.state, ScenarioState::Pass, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s9_fails_when_the_defect_was_filed_against_a_seat_instead_of_aborting() {
+        // The regression this scenario exists for, and the reason a report in hand is a FAIL
+        // rather than a skip: the crate DID something, and what it did was hide a bug of ours in
+        // the place where model failures land every day.
+        let report = report_from(NO_RECORDS_AT_ALL);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::CrateDefect)
+        };
+        for a in s9_a_defect_of_ours_aborts_the_run(&ctx) {
+            assert_eq!(a.state, ScenarioState::Fail, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s9_fails_when_the_run_aborted_for_some_other_reason() {
+        // An abort alone is not the property: `EndpointDown` also aborts, and reading it as this
+        // defect would certify a classification that never happened.
+        let ctx = RunContext {
+            error: Some("endpoint down: 2 lineages connection-failed"),
+            error_class: Some(ErrorClass::CrateFailure),
+            ..RunContext::blank(RunId::CrateDefect)
+        };
+        let states: Vec<_> = s9_a_defect_of_ours_aborts_the_run(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_ABORTS, ScenarioState::Fail)),
+            "{states:?}"
+        );
+    }
+
+    #[test]
+    fn s9_skips_only_when_the_run_never_happened_at_all() {
+        let ctx = RunContext::blank(RunId::CrateDefect);
+        for a in s9_a_defect_of_ours_aborts_the_run(&ctx) {
             assert!(
                 matches!(a.state, ScenarioState::Skip(_)),
                 "{} must skip, got {:?}",
