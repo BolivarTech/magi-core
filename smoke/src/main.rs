@@ -317,6 +317,9 @@ async fn main() -> std::process::ExitCode {
     {
         let ids: Vec<config::RunId> = specs.iter().map(|s| s.id).collect();
         run.prime_transparency_probe(&cfg.endpoint, &ids).await;
+        // The erosion probe rides here too: both are direct, both run once before anything, and
+        // both are no-ops when no run reaches the backend.
+        run.prime_erosion_probe(&cfg.endpoint, &ids).await;
     }
     // ONE measured interval PER BACKEND RUN, and the ledger refuses to produce
     // a receipt unless their number matches the count it announced. That is the
@@ -357,6 +360,7 @@ async fn main() -> std::process::ExitCode {
         &scenarios,
         &results,
         run.probe(),
+        run.erosion(),
         matrix.as_deref(),
         cli.no_backend,
         status_before.as_deref(),
@@ -503,6 +507,7 @@ fn evaluate(
     scenarios: &[runner::Scenario],
     results: &[runner::RunResult],
     probe: &runner::TransparencyProbe,
+    erosion: &runner::ErosionProbe,
     matrix: Option<&[(String, runner::BuildOutcome)]>,
     no_backend: bool,
     repo_status_before: Option<&str>,
@@ -613,6 +618,8 @@ fn evaluate(
                         ctx.direct_probe_status = probe.direct_status;
                         ctx.probe_record = probe.record.as_ref();
                         ctx.probe_sent_body = probe.sent_body.as_deref();
+                        ctx.erosion_probe_body = erosion.response.as_deref();
+                        ctx.erosion_probe_status = erosion.status;
                         ctx.injected_agent = r.injected_agent;
                         budget_exceeded = r.budget_exceeded;
                     }
@@ -623,7 +630,15 @@ fn evaluate(
             }
             // The preflight got far enough to hand back a proxy, so nothing
             // failed: a preflight-scoped scenario reads that as "no error".
-            runner::Source::Preflight => {}
+            //
+            // The erosion probe's result rides here because the probe belongs to no run: it is
+            // sent once, before the first one. Copied EXPLICITLY rather than left to the
+            // per-run arm — a preflight scenario never reaches that arm, so without this the
+            // fields would be `None` and the scenario would skip while the probe had answered.
+            runner::Source::Preflight => {
+                ctx.erosion_probe_body = erosion.response.as_deref();
+                ctx.erosion_probe_status = erosion.status;
+            }
             runner::Source::Session => {
                 // `records` stays EMPTY, and that is a decision rather than an
                 // omission: the one session-scoped scenario reads the repository,
@@ -680,6 +695,8 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
     runner::RunContext {
         run,
         report: None,
+        erosion_probe_body: None,
+        erosion_probe_status: None,
         error: None,
         error_class: None,
         records: &[],
@@ -1186,7 +1203,15 @@ mod tests {
         // was unreachable and an unmeasurable tree read as an empty one.
         let scenarios = scenarios::e1_scenarios();
         let probe = runner::TransparencyProbe::default();
-        let rows = evaluate(&scenarios, &[], &probe, None, false, None);
+        let rows = evaluate(
+            &scenarios,
+            &[],
+            &probe,
+            &runner::ErosionProbe::default(),
+            None,
+            false,
+            None,
+        );
         let row = rows
             .iter()
             .find(|r| r.scenario_id == "S16")
@@ -1226,6 +1251,7 @@ mod tests {
             &scenarios::e1_scenarios(),
             &[],
             &probe,
+            &runner::ErosionProbe::default(),
             None,
             false,
             Some(""),
@@ -1289,6 +1315,7 @@ mod tests {
             &scenarios::e1_scenarios(),
             &[],
             &probe,
+            &runner::ErosionProbe::default(),
             Some(&unrunnable),
             false,
             Some(""),
@@ -1496,6 +1523,7 @@ mod tests {
             &scenarios::e1_scenarios(),
             &could_not_start,
             &probe,
+            &runner::ErosionProbe::default(),
             None,
             false,
             Some(""),
@@ -1586,6 +1614,7 @@ mod tests {
                 run_with(config::RunId::Rotation, 5),
             ],
             &probe,
+            &runner::ErosionProbe::default(),
             None,
             false,
             None,
@@ -1606,7 +1635,15 @@ mod tests {
         // would have been invisible: green by omission, which R25 forbids.
         let scenarios = scenarios::e1_scenarios();
         let probe = runner::TransparencyProbe::default();
-        let rows = evaluate(&scenarios, &[], &probe, None, true, Some(""));
+        let rows = evaluate(
+            &scenarios,
+            &[],
+            &probe,
+            &runner::ErosionProbe::default(),
+            None,
+            true,
+            Some(""),
+        );
 
         for scenario in &scenarios {
             assert!(

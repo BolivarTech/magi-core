@@ -140,6 +140,15 @@ pub enum ErrorClass {
 pub struct RunContext<'a> {
     /// Which shared run fed this assertion.
     pub run: RunId,
+    /// The body the LIVE backend returned to a deliberately malformed request.
+    ///
+    /// `None` when the probe did not run — under `--no-backend`, or when the request could not
+    /// be sent. A scenario reading it SKIPS in that case: a probe that did not run says nothing
+    /// about whether the footprint still matches.
+    pub erosion_probe_body: Option<&'a [u8]>,
+    /// The status that came with it, kept beside the body for the same reason the transparency
+    /// probe keeps its own: half a probe compares against a term that is not there.
+    pub erosion_probe_status: Option<u16>,
     /// `None` when the run produced no report. Read it TOGETHER with `error`
     /// and `error_class`: `None` + `Some(error)` is a typed failure, whose
     /// CLASS decides whether it is a verdict about the crate (FAIL) or the
@@ -233,6 +242,8 @@ impl RunContext<'static> {
         Self {
             run,
             report: None,
+            erosion_probe_body: None,
+            erosion_probe_status: None,
             error: None,
             error_class: None,
             records: &[],
@@ -751,6 +762,19 @@ pub(crate) const INJECTED_FAILURE_STATUS: u16 = 500;
 /// nothing calls any more. One definition removes the drift rather than describing it.
 pub(crate) const COMPLETIONS_PATH: &str = "/api/chat";
 
+/// What the erosion probe left behind.
+///
+/// Separate from [`TransparencyProbe`] because it answers a different question against a
+/// different request: transparency asks whether the proxy changed anything, and this asks
+/// whether the BACKEND still produces the footprint a classification depends on.
+#[derive(Default)]
+pub struct ErosionProbe {
+    /// The live backend's body, verbatim.
+    pub response: Option<Vec<u8>>,
+    /// The status it came with.
+    pub status: Option<u16>,
+}
+
 /// What the transparency probe left behind.
 ///
 /// It lives on the [`Runner`] and not in a [`RunResult`] because it runs before
@@ -777,6 +801,7 @@ pub struct Runner {
     config: Config,
     proxy: SpyProxy,
     probe: TransparencyProbe,
+    erosion: ErosionProbe,
 }
 
 impl Runner {
@@ -791,11 +816,17 @@ impl Runner {
             config,
             proxy,
             probe: TransparencyProbe::default(),
+            erosion: ErosionProbe::default(),
         }
     }
 
     /// What the transparency probe left, for the evaluation step to copy into a
     /// [`RunContext`].
+    /// What the erosion probe left, for the evaluation step to copy into a context.
+    pub fn erosion(&self) -> &ErosionProbe {
+        &self.erosion
+    }
+
     pub fn probe(&self) -> &TransparencyProbe {
         &self.probe
     }
@@ -840,6 +871,46 @@ impl Runner {
         self.probe.record = self.proxy.records_since(mark).into_iter().next();
         self.probe.direct_response = Some(direct_body);
         self.probe.direct_status = Some(direct_status);
+    }
+
+    /// Asks the LIVE backend, directly, whether the footprint a run-aborting classification
+    /// depends on still holds.
+    ///
+    /// # Why a fixture is not enough, and this is not a duplicate of `S9`
+    ///
+    /// `S9` replays a CAPTURED body, so it certifies that OUR classification is right — and it
+    /// would stay green forever even if the backend changed its API, because the fixture does
+    /// not change. This is the only thing that detects **erosion**: the day the backend reports
+    /// `eval_count: 0` instead of omitting it, the footprint stops matching and the protection
+    /// disappears in silence, degrading to the reversible route with nobody told.
+    ///
+    /// # Declared scope: a WARM backend
+    ///
+    /// It does not cover a cold start, which is the most plausible way to see this footprint
+    /// without anyone having written a bad request. Saying so is the point: claiming coverage
+    /// this does not have would be worse than the gap.
+    ///
+    /// # Parameters
+    ///
+    /// * `backend` — the real endpoint. Bypassed straight, like the transparency probe's direct
+    ///   half, because a proxy in the path would be a second thing that could explain a change.
+    /// * `runs` — the runs this invocation will execute; nothing is sent when none of them uses
+    ///   the backend, so `--no-backend` keeps its promise to reach no network.
+    pub async fn prime_erosion_probe(&mut self, backend: &str, runs: &[RunId]) {
+        if !probe_is_in_scope(runs) {
+            return;
+        }
+        let window = probe_window(&self.config);
+        // Deliberately missing `messages` — the one request shape measured to produce the
+        // footprint. Written out here rather than derived, so what is being asked stays visible.
+        let body = format!("{{\"model\":\"{PROBE_MODEL}\",\"stream\":false}}");
+        let Ok((status, response)) = chat_request(backend, &body, window).await else {
+            // Leaves both fields None, which makes the scenario SKIP. A probe that could not run
+            // says nothing about whether the footprint eroded.
+            return;
+        };
+        self.erosion.response = Some(response);
+        self.erosion.status = Some(status);
     }
 
     /// Executes one run, with a single retry for an inconclusive first attempt.
@@ -1021,6 +1092,40 @@ async fn show_request(
         .timeout(within)
         .build()?
         .post(format!("{base}/api/show"))
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await?;
+    // Read BEFORE consuming the response into its body, which takes ownership.
+    let status = response.status().as_u16();
+    response.bytes().await.map(|b| (status, b.to_vec()))
+}
+
+/// Sends one request to the native completions endpoint and returns its status and body.
+///
+/// Sibling of [`show_request`] rather than a generalisation of it: the two hit different paths
+/// and one of them is deliberately malformed, so a shared helper taking a path would invite the
+/// malformed body to be sent somewhere it was never measured against.
+///
+/// # Parameters
+///
+/// * `base` — the endpoint root.
+/// * `body` — the request body, verbatim.
+/// * `within` — the timeout for the whole exchange.
+///
+/// # Errors
+///
+/// Any transport failure, which the caller reads as "the probe did not run".
+async fn chat_request(
+    base: &str,
+    body: &str,
+    within: Duration,
+) -> Result<(u16, Vec<u8>), reqwest::Error> {
+    let response = reqwest::Client::builder()
+        .referer(false)
+        .timeout(within)
+        .build()?
+        .post(format!("{base}/api/chat"))
         .header("content-type", "application/json")
         .body(body.to_string())
         .send()

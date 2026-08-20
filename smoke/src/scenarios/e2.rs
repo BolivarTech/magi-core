@@ -418,6 +418,80 @@ fn s9_a_defect_of_ours_aborts_the_run(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![aborts, not_a_seat]
 }
 
+// ---------------------------------------------------------------------------
+// S9b — the NoGeneration footprint still matches against the REAL backend
+// ---------------------------------------------------------------------------
+
+const NAME_COUNTERS_ABSENT: &str = "the live backend still OMITS the token counters";
+const NAME_REASON_LOAD: &str = "the live backend still reports the load termination";
+const NAME_CONTENT_EMPTY: &str = "the live backend still returns empty content";
+
+/// `S9b` — erosion detection (`sbtdd/smoke-harness-spec.md`, "S9b").
+///
+/// # Not a duplicate of `S9`, and the difference is the whole reason it exists
+///
+/// `S9` replays a CAPTURED body, so it certifies that our classification is right — and it would
+/// stay green forever even if the backend changed its API, because a fixture does not change.
+/// This asks the LIVE backend, and it is the only thing that detects erosion: the day the backend
+/// reports `eval_count: 0` instead of omitting it, the footprint stops matching, the run-aborting
+/// protection degrades to the reversible route, and nobody is told.
+///
+/// # Three assertions, because the footprint is a CONJUNCTION
+///
+/// The trigger requires all three signals together, deliberately, so that everything else takes
+/// the reversible route. A scenario asserting them as one would say "the footprint eroded"
+/// without saying which signal moved — and which one moved is the fix.
+///
+/// # Declared scope: a WARM backend
+///
+/// It does not cover a cold start, which is the most plausible way to see this footprint without
+/// anyone having written a bad request — `done_reason: "load"` literally means the model was
+/// loading. That gap is named rather than papered over: claiming coverage this does not have
+/// would be worse than the gap itself.
+fn s9b_the_footprint_still_matches_the_live_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let (Some(body), Some(status)) = (ctx.erosion_probe_body, ctx.erosion_probe_status) else {
+        let why = "the erosion probe did not run, so nothing was asked of the live backend";
+        return vec![
+            Assertion::skip(NAME_COUNTERS_ABSENT, why),
+            Assertion::skip(NAME_REASON_LOAD, why),
+            Assertion::skip(NAME_CONTENT_EMPTY, why),
+        ];
+    };
+
+    let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(body) else {
+        let why = format!("the backend answered {status} with a body that is not JSON");
+        return vec![
+            Assertion::skip(NAME_COUNTERS_ABSENT, why.clone()),
+            Assertion::skip(NAME_REASON_LOAD, why.clone()),
+            Assertion::skip(NAME_CONTENT_EMPTY, why),
+        ];
+    };
+
+    // ABSENT, not zero, and the difference is the whole discriminant: a backend that starts
+    // sending `eval_count: 0` would satisfy any check written as "counters are zero or missing",
+    // and the protection would be gone with the test still green.
+    let counters_absent = assert_that(
+        NAME_COUNTERS_ABSENT,
+        parsed.get("eval_count").is_none() && parsed.get("prompt_eval_count").is_none(),
+    );
+
+    let reason_load = assert_that(
+        NAME_REASON_LOAD,
+        parsed.get("done_reason").and_then(|v| v.as_str()) == Some("load"),
+    );
+
+    let content_empty = assert_that(
+        NAME_CONTENT_EMPTY,
+        parsed
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .is_some_and(str::is_empty),
+    );
+
+    vec![counters_absent, reason_load, content_empty]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -444,6 +518,13 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::CrateDefect),
             backend_tag: BackendNeed::Required,
             assert_fn: s9_a_defect_of_ours_aborts_the_run,
+        },
+        Scenario {
+            id: "S9b",
+            // Preflight-sourced: the probe runs once, before anything, and belongs to no run.
+            source: Source::Preflight,
+            backend_tag: BackendNeed::Required,
+            assert_fn: s9b_the_footprint_still_matches_the_live_backend,
         },
         Scenario {
             id: "S10",
@@ -486,7 +567,7 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S3", "S9", "S10", "S11", "S13"]);
+        assert_eq!(ids, vec!["S8", "S3", "S9", "S9b", "S10", "S11", "S13"]);
     }
 
     #[test]
@@ -754,6 +835,73 @@ mod tests {
     fn s9_skips_only_when_the_run_never_happened_at_all() {
         let ctx = RunContext::blank(RunId::CrateDefect);
         for a in s9_a_defect_of_ours_aborts_the_run(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, got {:?}",
+                a.name,
+                a.state
+            );
+        }
+    }
+    // -- S9b --
+
+    /// The captured footprint, verbatim: `200`, `done_reason: "load"`, empty content, and the
+    /// token counters **absent** rather than zero.
+    const LIVE_FOOTPRINT: &[u8] = br#"{"model":"m","created_at":"t","message":{"role":"assistant","content":""},"done_reason":"load","done":true}"#;
+
+    fn erosion_ctx(body: &'static [u8]) -> RunContext<'static> {
+        RunContext {
+            erosion_probe_body: Some(body),
+            erosion_probe_status: Some(200),
+            ..RunContext::blank(RunId::HappySmall)
+        }
+    }
+
+    #[test]
+    fn s9b_passes_while_the_footprint_still_matches() {
+        for a in s9b_the_footprint_still_matches_the_live_backend(&erosion_ctx(LIVE_FOOTPRINT)) {
+            assert_eq!(a.state, ScenarioState::Pass, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s9b_fails_the_moment_the_counters_stop_being_absent() {
+        // THE erosion case, and the one a looser check would miss: a backend that starts sending
+        // `eval_count: 0` satisfies "zero or missing" perfectly, and the run-aborting protection
+        // would be gone with the scenario still green.
+        const WITH_ZEROS: &[u8] = br#"{"model":"m","message":{"role":"assistant","content":""},"done_reason":"load","eval_count":0,"prompt_eval_count":0,"done":true}"#;
+        let states: Vec<_> =
+            s9b_the_footprint_still_matches_the_live_backend(&erosion_ctx(WITH_ZEROS))
+                .into_iter()
+                .map(|a| (a.name, a.state))
+                .collect();
+        assert!(
+            states.contains(&(NAME_COUNTERS_ABSENT, ScenarioState::Fail)),
+            "the counters row must be the one that names the erosion: {states:?}"
+        );
+    }
+
+    #[test]
+    fn s9b_fails_when_the_termination_reason_changes() {
+        const OTHER_REASON: &[u8] = br#"{"model":"m","message":{"role":"assistant","content":""},"done_reason":"stop","done":true}"#;
+        let states: Vec<_> =
+            s9b_the_footprint_still_matches_the_live_backend(&erosion_ctx(OTHER_REASON))
+                .into_iter()
+                .map(|a| (a.name, a.state))
+                .collect();
+        assert!(
+            states.contains(&(NAME_REASON_LOAD, ScenarioState::Fail)),
+            "{states:?}"
+        );
+    }
+
+    #[test]
+    fn s9b_skips_when_the_probe_did_not_run() {
+        // Under `--no-backend`, or when the request could not be sent. A probe that did not run
+        // says nothing about whether the footprint eroded, and a red row here would send a
+        // reader to look at a backend nobody asked.
+        let ctx = RunContext::blank(RunId::HappySmall);
+        for a in s9b_the_footprint_still_matches_the_live_backend(&ctx) {
             assert!(
                 matches!(a.state, ScenarioState::Skip(_)),
                 "{} must skip, got {:?}",
