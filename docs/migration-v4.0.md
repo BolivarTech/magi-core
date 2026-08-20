@@ -18,7 +18,8 @@ spent all at once rather than saved up.
 
 ## 1. `complete()` returns `Completion`, not `String`
 
-In one line: complete() returns Completion where it used to return String.
+In one line: complete() returns Completion where it used to return String. That is **two edits
+per implementation**, not one — the signature and the returned value — spelled out below.
 
 **Before**
 

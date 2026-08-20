@@ -215,6 +215,8 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
 
     let not_degraded = assert_that(NAME_NOT_DEGRADED, !report.degraded);
 
+    let records: Vec<_> = report.completions.values().flatten().collect();
+
     // Without this the scenario ALSO passes on a tree where the raise never happened: three
     // healthy seats on a large payload satisfy every assertion above whether the budget was
     // 4 096 or 16 384. What ties it to the raise is the budget each attempt actually ran under.
@@ -227,11 +229,10 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
     // could not produce it.
     let new_default_applied = assert_that(
         NAME_NEW_DEFAULT_APPLIED,
-        report
-            .completions
-            .values()
-            .flatten()
-            .all(|c| c.cap == RAISED_MAX_TOKENS),
+        // Its own non-empty companion, like every other row in this module. The scenario would
+        // still redden through `NAME_LARGE_OBSERVED`, but a row that can pass over nothing is
+        // the pattern this harness relies on not having.
+        !records.is_empty() && records.iter().all(|c| c.cap == RAISED_MAX_TOKENS),
     );
 
     vec![observed, no_seat_lost, not_degraded, new_default_applied]
@@ -344,9 +345,13 @@ fn s3_the_large_payload_loses_no_seat_to_misclassification(ctx: &RunContext<'_>)
     // the outlier.
     //
     // The precondition is the RECORD SET, not the presence of a cut: what has to have happened
-    // for these to mean anything is that completions were observed. A run where nothing was cut
-    // then satisfies the message-shape row truthfully, and the two condemnation rows are read
-    // over rotations that actually exist.
+    // for these to mean anything is that completions were observed at all.
+    //
+    // It does NOT make the rotation row unconditional, and saying otherwise would repeat the
+    // defect in a smaller place: a healthy large-payload run rotates nowhere, so
+    // `NAME_NO_RUN_WIDE` still quantifies over an empty chain. What the guard buys is that the
+    // rows speak about a run that HAPPENED; what the rotation row asserts is "no hop, if any,
+    // misreports its scope". Both are true statements and only one of them is unconditional.
     if report.completions.values().flatten().count() == 0 {
         let why = "the run recorded no completion at all, so there was nothing to classify — a \
                    green here would certify a run this scenario never saw";

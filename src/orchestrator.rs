@@ -1129,8 +1129,12 @@ impl Magi {
                     crate_defect = crate_defect.or(defect);
                 }
                 Err(join_err) => {
-                    // A panicked task loses its in-flight records; the pre-seeded empty
-                    // Vec stands, and the panic itself is the headline in `failed_agents`.
+                    // A panicked task loses its in-flight records. `extraction_failures` is
+                    // pre-seeded so its empty Vec stands; `completions` deliberately is NOT, so
+                    // this seat gets no entry — and by that field's own definition an absent
+                    // entry means "made no attempt", which is not what happened. It is left
+                    // absent anyway: seeding an empty Vec would claim a seat that attempted
+                    // twice attempted nothing, and the panic is the headline either way.
                     failed.insert(name, format!("panic: {join_err}"));
                 }
             }
@@ -1532,13 +1536,15 @@ fn crate_defect_of(err: ProviderError, agent: AgentName, model: &str) -> Option<
 
 /// Dispatch a single agent with one-shot retry on schema/parse errors.
 ///
-/// Returns `(Result<AgentOutput, String>, bool)` — a flat tuple, no enum
-///:
-/// - First element: `Ok(output)` on success (first or second attempt),
-///   `Err(reason)` on failure.
-/// - Second element: `true` if a retry attempt was made (regardless of
-///   outcome), `false` otherwise. Used by orchestrator to populate
-///   [`MagiReport::retried_agents`] telemetry.
+/// Returns a flat 5-tuple rather than an enum:
+///
+/// 1. `Ok(output)` on success (first or second attempt), `Err(reason)` on failure.
+/// 2. `true` if a retry attempt was made, whatever its outcome — this is what populates
+///    [`MagiReport::retried_agents`].
+/// 3. The extraction failures this seat accumulated, in attempt order.
+/// 4. One [`CompletionRecord`] per completion ATTEMPT, success or failure alike.
+/// 5. `Some` when the failure was a defect of THIS crate, which the caller raises to abort the
+///    run. `None` for every ordinary failure.
 ///
 /// Retry trigger: `MagiError::Validation` or `MagiError::Deserialization`
 /// from [`parse_and_validate`] on the first attempt. Provider errors and

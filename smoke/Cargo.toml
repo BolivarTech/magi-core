@@ -29,6 +29,13 @@ magi_core_tree = { package = "magi-core", path = "..",     optional = true, feat
 # A forgotten bump is caught post-publish by the version-drift guard of
 # HARNESS-E3, which compares the job-resolved lock against the version just
 # published; it can never pass silently.
+#
+# UNAVAILABLE UNTIL 4.0.0 IS PUBLISHED, and that is a state rather than a defect. This harness
+# implements `LlmProvider`, whose `complete()` returns `Completion` since 4.0.0 — a type `3.2`
+# does not have — so `--features published` cannot COMPILE against the pinned version until the
+# release it is waiting for exists. The default `tree` mode is unaffected. The comment above
+# covers version DRIFT; this covers the interval where the two modes are genuinely incompatible,
+# which is every major with a trait break.
 magi_core_pub  = { package = "magi-core", version = "3.2", optional = true, features = ["ollama"] }
 tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
 hyper   = { version = "1", features = ["server", "http1"] }
