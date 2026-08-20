@@ -145,15 +145,22 @@ The order is enforced rather than conventional: the ledger refuses to produce a 
 estimate was announced first. Before the spend the number is a decision the operator can still
 make; after it, the same number is only a receipt.
 
-The default run analyses a small payload three times over — happy path, rotation, degradation —
-plus one run with no backend at all. Against a cloud backend that is on the order of a few
-minutes and tens of thousands of tokens; against a local model it is bounded by your hardware,
-not by the harness.
+The default invocation runs **seven** backend runs: five over a small payload — happy path,
+rotation, degradation, mixed trio, and the crate-defect replay — plus **two** over the large one,
+and one run with no backend at all. Against a cloud backend that is on the order of four minutes
+and a few hundred thousand tokens; against a local model it is bounded by your hardware, not by
+the harness.
 
-**The large-payload run is deliberately not part of this stage.** No assertion here reads it, so
-launching it would pay for the most expensive run twice per cycle for nobody. The payload is
-still generated and checked by size, which is the only claim available until the telemetry that
-would justify running it exists.
+**The large payload is paid for TWICE, and that is a deliberate cost rather than an oversight.**
+Two scenarios need it and they need opposite things from it: `S10` and `S11` need the reasoning
+channel ON — one reads a completion that spent more than the old default would have allowed, the
+other reads a trace — while `S8b` needs it OFF, because what it certifies is that switching the
+channel off makes the payload converge. Both properties are about the same payload and cannot
+share a run. Naming the cost is better than quietly weakening one of them.
+
+**It was not always so.** Through the E1 stage the large payload was generated and checked by
+size but never analysed, because no assertion read it — the only honest claim available before
+the telemetry that would justify running it existed. It exists now.
 
 ## 7. The coverage cliff: several SKIPs sharing a run-id are ONE failure
 
@@ -203,7 +210,7 @@ invocation: putting two together leaves the second one unrun, which is green by 
 
 | invocation | what it covers |
 |---|---|
-| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, and the no-trace check |
+| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, and both large-payload runs |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |
