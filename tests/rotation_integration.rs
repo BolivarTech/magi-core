@@ -638,3 +638,46 @@ async fn an_external_failure_reports_its_own_kind_with_no_behaviour_change() {
     assert!(!report.degraded);
     assert!(!hop.detail().starts_with("mage-local:"));
 }
+
+/// The abort must not depend on a rotation pool the spec never scoped it to.
+///
+/// Found by review: `latch_crate_defect` lived only on the rotating dispatch path, so for
+/// `MagiBuilder::new(provider)` with no `with_fallback_pool` — the simplest supported setup, and
+/// the one most consumers start from — a defect of ours took the generic provider-error arm,
+/// landed in `failed_agents` as a string, and degraded the run to 2/3.
+///
+/// That is precisely the outcome B-5 exists to prevent, and both the variant's rustdoc and the
+/// migration guide claimed otherwise. The milestone's own integration test missed it because it
+/// declared a pool and therefore took the rotating path.
+#[tokio::test]
+async fn a_crate_defect_aborts_even_with_no_fallback_pool_declared() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        // NO `with_fallback_pool`: this is the whole point of the test.
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run whether or not a pool was declared");
+
+    assert!(
+        matches!(err, MagiError::CrateDefect { .. }),
+        "without a pool the defect used to degrade the run instead of aborting it: {err}"
+    );
+}
