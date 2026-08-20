@@ -157,11 +157,13 @@ fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
 const NAME_LARGE_OBSERVED: &str = "the large-payload run reached the wire and was recorded";
 const NAME_NO_SEAT_LOST: &str = "no seat was lost to an empty completion on the large payload";
 const NAME_NOT_DEGRADED: &str = "the large-payload run is not degraded";
-const NAME_OVER_OLD_DEFAULT: &str = "some completion spent more than the old 4096-token default";
+const NAME_NEW_DEFAULT_APPLIED: &str =
+    "every completion ran under the raised output budget, not the old one";
 
-/// The budget this release raised away from. Named rather than inlined because the assertion
-/// below is ABOUT this number: what it certifies is that the raise mattered on this payload.
-const OLD_DEFAULT_MAX_TOKENS: u32 = 4_096;
+/// The budget this release raised TO. Named rather than inlined because the assertion below
+/// is about this number: on a tree where the raise never happened, every record would carry
+/// the old one instead.
+const RAISED_MAX_TOKENS: u32 = 16_384;
 
 /// `S10` — the raised output budget stops the 62 k bundle from costing a seat
 /// (`sbtdd/smoke-harness-spec.md`, "S10").
@@ -189,7 +191,7 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
             Assertion::skip(NAME_LARGE_OBSERVED, reason.clone()),
             Assertion::skip(NAME_NO_SEAT_LOST, reason.clone()),
             Assertion::skip(NAME_NOT_DEGRADED, reason.clone()),
-            Assertion::skip(NAME_OVER_OLD_DEFAULT, reason),
+            Assertion::skip(NAME_NEW_DEFAULT_APPLIED, reason),
         ];
     };
 
@@ -215,17 +217,24 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
 
     // Without this the scenario ALSO passes on a tree where the raise never happened: three
     // healthy seats on a large payload satisfy every assertion above whether the budget was
-    // 4 096 or 16 384. What makes it about the raise is evidence that something spent more than
-    // the old default would have allowed — a completion that the old number would have cut.
-    let over_old_default = assert_that(
-        NAME_OVER_OLD_DEFAULT,
-        report.completions.values().flatten().any(|c| {
-            c.completion_tokens
-                .is_some_and(|n| n > OLD_DEFAULT_MAX_TOKENS)
-        }),
+    // 4 096 or 16 384. What ties it to the raise is the budget each attempt actually ran under.
+    //
+    // NOT "some completion spent more than 4 096", which is what this asserted first and what
+    // the plan proposed. That is a property of the MODEL, not of the crate, and it flaked
+    // between two consecutive live runs of identical code — green in the first, red in the
+    // second. A gate that flickers teaches nothing, and this one would have been read as a
+    // regression in the raise. The cap is what the crate controls, and a tree without the raise
+    // could not produce it.
+    let new_default_applied = assert_that(
+        NAME_NEW_DEFAULT_APPLIED,
+        report
+            .completions
+            .values()
+            .flatten()
+            .all(|c| c.cap == RAISED_MAX_TOKENS),
     );
 
-    vec![observed, no_seat_lost, not_degraded, over_old_default]
+    vec![observed, no_seat_lost, not_degraded, new_default_applied]
 }
 
 // ---------------------------------------------------------------------------
