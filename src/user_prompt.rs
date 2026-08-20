@@ -1383,4 +1383,66 @@ mod tests {
         assert!(out.contains("  MODE: analysis"));
         assert!(out.contains("  CONTEXT: hijack"));
     }
+    // ---------------------------------------------------------------------
+    // Task 17 — a cut the CRATE caused stops being blamed on the model.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_known_budget_cut_stops_asking_the_model_not_to_stop() {
+        // The old wording told a model that did NOT choose to stop "do not stop before the
+        // closing marker is written" — and the retry carries the same budget, so the
+        // instruction was impossible to obey. Worse than useless: it spends a second call
+        // asking for something the configuration forbids.
+        let t = retry_template(
+            ExtractionFailureCause::Unterminated,
+            Some(FinishReason::Length),
+        );
+        assert!(
+            !t.contains("do not stop before"),
+            "the model did not choose to stop: {t}"
+        );
+        assert!(
+            t.contains("output budget"),
+            "and the feedback must name what actually cut it: {t}"
+        );
+    }
+
+    #[test]
+    fn an_unterminated_of_unknown_cause_keeps_the_old_wording() {
+        // When the crate does NOT know the termination reason, the model stopping on its own is
+        // still the likeliest explanation, and telling it not to is the right instruction. The
+        // change is about attributing a cut the crate CAN attribute — not about giving up on
+        // the case it cannot.
+        let t = retry_template(ExtractionFailureCause::Unterminated, None);
+        assert!(t.contains("do not stop before"));
+    }
+
+    #[test]
+    fn a_cut_that_was_not_the_budget_also_keeps_the_old_wording() {
+        // `Stop` means the model finished on its own and the block was still unterminated —
+        // that IS the model's doing, so the original instruction is the correct one.
+        let t = retry_template(
+            ExtractionFailureCause::Unterminated,
+            Some(FinishReason::Stop),
+        );
+        assert!(t.contains("do not stop before"));
+    }
+
+    #[test]
+    fn the_other_causes_are_untouched_by_the_termination_reason() {
+        // The attribution only applies to `Unterminated`: a body with no markers or with
+        // invalid JSON says nothing about why generation ended, so varying the reason must not
+        // change a single word of their feedback.
+        for cause in [
+            ExtractionFailureCause::MissingMarkers,
+            ExtractionFailureCause::Ambiguous,
+            ExtractionFailureCause::InvalidJson,
+        ] {
+            assert_eq!(
+                retry_template(cause, Some(FinishReason::Length)),
+                retry_template(cause, None),
+                "{cause:?} must not vary with the termination reason"
+            );
+        }
+    }
 }
