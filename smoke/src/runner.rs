@@ -216,6 +216,39 @@ pub struct RunContext<'a> {
     pub repo_status_before: Option<&'a str>,
 }
 
+impl RunContext<'static> {
+    /// A context in which NOTHING was observed, for tests that set one field and read one
+    /// assertion.
+    ///
+    /// Lives beside the type rather than inside one scenario module's test block: it started
+    /// private to `scenarios::e1`, and the moment a second scenario module needed it the choice
+    /// was to hoist it or to copy a fifteen-field literal — and a copied fixture is how two test
+    /// suites start disagreeing about what "nothing observed" means.
+    ///
+    /// # Parameters
+    ///
+    /// * `run` — which shared run the context claims to describe.
+    #[cfg(test)]
+    pub(crate) fn blank(run: RunId) -> Self {
+        Self {
+            run,
+            report: None,
+            error: None,
+            error_class: None,
+            records: &[],
+            proxy_degraded: false,
+            budget_exceeded: None,
+            direct_probe_body: None,
+            direct_probe_status: None,
+            probe_record: None,
+            probe_sent_body: None,
+            injected_agent: None,
+            build_matrix: None,
+            repo_status_before: None,
+        }
+    }
+}
+
 /// Where a scenario's assertion reads from.
 ///
 /// **Not every scenario is a run.** Some fire during the preflight and some span

@@ -1563,22 +1563,7 @@ mod tests {
     // -- shared fixtures --
 
     fn blank_ctx(run: RunId) -> RunContext<'static> {
-        RunContext {
-            run,
-            report: None,
-            error: None,
-            error_class: None,
-            records: &[],
-            proxy_degraded: false,
-            budget_exceeded: None,
-            direct_probe_body: None,
-            direct_probe_status: None,
-            probe_record: None,
-            probe_sent_body: None,
-            injected_agent: None,
-            build_matrix: None,
-            repo_status_before: None,
-        }
+        RunContext::blank(run)
     }
 
     fn record(path: &str, status: u16) -> RequestRecord {

@@ -62,27 +62,109 @@ fn s8_completions_are_native_only(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![native_only, no_legacy]
 }
 
+// ---------------------------------------------------------------------------
+// S13 — the telemetry records EVERY completion
+// ---------------------------------------------------------------------------
+
+const NAME_ONE_PER_SEAT: &str = "every seat that answered left a completion record";
+const NAME_MODEL_AND_CAP: &str = "every record names its model and the budget it ran under";
+const NAME_TERMINATION: &str = "every record carries the termination reason the backend reported";
+
+/// `S13` — a clean run still records one entry per completion
+/// (`sbtdd/smoke-harness-spec.md`, "S13").
+///
+/// # Why a CLEAN run is the interesting case, not a cut one
+///
+/// Recording only the attempts that were cut leaves a consumer blind until the first cut, which
+/// is the blindness this release exists to end: the old 4096-token default did not fail all at
+/// once, it had been scraping by for a while. A unit test can prove the field is populated; only
+/// a real backend proves the numbers in it came from a real response rather than from a mock that
+/// was told what to say.
+///
+/// # What it deliberately does NOT assert
+///
+/// It does not check the token counters for a specific value, nor that they are present at all.
+/// This run uses a MIXED trio on purpose, and a compatible backend that omits `usage` is a
+/// legitimate deployment — the crate's contract is that an absent counter is reported as absent,
+/// never as a zero, and a scenario demanding presence would be asserting a property of the
+/// backend rather than of the crate.
+fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_ONE_PER_SEAT, reason.clone()),
+            Assertion::skip(NAME_MODEL_AND_CAP, reason.clone()),
+            Assertion::skip(NAME_TERMINATION, reason),
+        ];
+    };
+
+    let records: Vec<_> = report.completions.values().flatten().collect();
+
+    // The non-empty half is the scenario, not a formality: every assertion below quantifies over
+    // this set, and all of them are vacuously true over an empty one. A report in hand with no
+    // records at all is exactly the regression this scenario exists to catch, and a green that
+    // means "nothing was looked at" has already cost this project a release.
+    let one_per_seat = assert_that(
+        NAME_ONE_PER_SEAT,
+        !records.is_empty() && report.completions.len() == report.agents.len(),
+    );
+
+    let model_and_cap = assert_that(
+        NAME_MODEL_AND_CAP,
+        !records.is_empty() && records.iter().all(|r| !r.model.is_empty() && r.cap > 0),
+    );
+
+    // Both live backends in this run report a termination reason on the wire, so an absent one
+    // here means the crate dropped it between the response and the report — which is the exact
+    // omission that made "the model burned its budget" and "the server sent nothing" the same
+    // opaque error until `4.0.0`.
+    let termination = assert_that(
+        NAME_TERMINATION,
+        !records.is_empty() && records.iter().all(|r| r.finish.is_some()),
+    );
+
+    vec![one_per_seat, model_and_cap, termination]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
-    vec![Scenario {
-        id: "S8",
-        // The small happy run is enough: routing is a property of every completion, not of a
-        // large payload. Reading it here also keeps S8 off the slow run's critical path.
-        source: Source::Run(RunId::HappySmall),
-        backend_tag: BackendNeed::Required,
-        assert_fn: s8_completions_are_native_only,
-    }]
+    vec![
+        Scenario {
+            id: "S8",
+            // The small happy run is enough: routing is a property of every completion, not of a
+            // large payload. Reading it here also keeps S8 off the slow run's critical path.
+            source: Source::Run(RunId::HappySmall),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s8_completions_are_native_only,
+        },
+        Scenario {
+            id: "S13",
+            // Same run as S8, and for the same reason: recording is a property of every
+            // completion, so the cheap run observes it as well as the expensive one would.
+            source: Source::Run(RunId::HappySmall),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s13_every_completion_is_recorded,
+        },
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::alias::magi_core::prelude::MagiReport;
+    use crate::outcome::ScenarioState;
+
+    fn report_from(json: &str) -> MagiReport {
+        serde_json::from_str(json).expect("test fixture JSON must deserialize into MagiReport")
+    }
 
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
-        let s = e2_scenarios();
-        assert_eq!(s.len(), 1);
-        assert_eq!(s[0].id, "S8");
+        let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec!["S8", "S13"]);
     }
 
     #[test]
@@ -92,5 +174,100 @@ mod tests {
         // the other requiring none. Pinning them as distinct makes that a test failure instead.
         assert_ne!(COMPLETIONS_PATH, LEGACY_COMPAT_PATH);
         assert_eq!(COMPLETIONS_PATH, "/api/chat");
+    }
+    // -- S13 --
+
+    /// A report with one clean seat and one completion record for it. Written as JSON rather
+    /// than built field by field because that is what a consumer actually receives, and it
+    /// exercises the serde path the crate ships alongside the assertion.
+    const ONE_CLEAN_SEAT: &str = r#"{
+      "agents": [
+        {"agent":"caspar","verdict":"approve","confidence":0.9,"summary":"s","reasoning":"r","findings":[],"recommendation":"go"}
+      ],
+      "consensus": {
+        "consensus":"GO (1-0)","consensus_verdict":"approve","confidence":0.9,"score":1.0,
+        "agent_count":1,"votes":{},"majority_summary":"","dissent":[],"findings":[],"conditions":[],"recommendations":{}
+      },
+      "banner":"","report":"","degraded":false,"failed_agents":{},
+      "completions":{"caspar":[{"model":"glm-5.2","cap":16384,"finish":"stop",
+        "completion_tokens":1280,"prompt_tokens":569,"reasoning":"NotMeasured"}]}
+    }"#;
+
+    /// The same report with the field absent entirely — which is what a `3.2.0` document looks
+    /// like, and what a regression that stopped populating it would produce.
+    const NO_RECORDS_AT_ALL: &str = r#"{
+      "agents": [
+        {"agent":"caspar","verdict":"approve","confidence":0.9,"summary":"s","reasoning":"r","findings":[],"recommendation":"go"}
+      ],
+      "consensus": {
+        "consensus":"GO (1-0)","consensus_verdict":"approve","confidence":0.9,"score":1.0,
+        "agent_count":1,"votes":{},"majority_summary":"","dissent":[],"findings":[],"conditions":[],"recommendations":{}
+      },
+      "banner":"","report":"","degraded":false,"failed_agents":{}
+    }"#;
+
+    #[test]
+    fn s13_passes_when_every_seat_left_a_record() {
+        let report = report_from(ONE_CLEAN_SEAT);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::HappySmall)
+        };
+        for a in s13_every_completion_is_recorded(&ctx) {
+            assert_eq!(a.state, ScenarioState::Pass, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s13_fails_on_a_report_that_recorded_nothing() {
+        // The direction that matters. Every assertion in this scenario quantifies over the
+        // record set, so all three are vacuously true over an empty one — and a scenario that
+        // cannot go red on the regression it exists to catch is worse than no scenario.
+        let report = report_from(NO_RECORDS_AT_ALL);
+        assert!(
+            report.completions.is_empty(),
+            "the fixture must really be empty"
+        );
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::HappySmall)
+        };
+        for a in s13_every_completion_is_recorded(&ctx) {
+            assert_eq!(a.state, ScenarioState::Fail, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s13_fails_when_the_termination_reason_was_dropped() {
+        // The omission that made "the model burned its budget" and "the server sent nothing"
+        // the same opaque error until `4.0.0`, observed from the outside.
+        let report = report_from(&ONE_CLEAN_SEAT.replace(r#""finish":"stop","#, ""));
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::HappySmall)
+        };
+        let states: Vec<_> = s13_every_completion_is_recorded(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_TERMINATION, ScenarioState::Fail)),
+            "the termination row must be the one that goes red: {states:?}"
+        );
+    }
+
+    #[test]
+    fn s13_skips_rather_than_fails_when_the_run_produced_no_report() {
+        // A run that never happened says nothing about the crate, and a red row here would
+        // point an operator at code that was never reached.
+        let ctx = RunContext::blank(RunId::HappySmall);
+        for a in s13_every_completion_is_recorded(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, got {:?}",
+                a.name,
+                a.state
+            );
+        }
     }
 }
