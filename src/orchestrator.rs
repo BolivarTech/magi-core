@@ -6173,4 +6173,92 @@ mod tests {
         // been renamed away.
         assert!(production[helper_start..helper_end].contains("CompletionRecord::from_telemetry"));
     }
+
+    /// Acceptance criterion 1, observed from the REGISTRY — which is what the criterion asks for
+    /// and what its first attempt did not do.
+    ///
+    /// # The test this replaces was circular, and the mutation proved it
+    ///
+    /// It asserted over `report_run_failed`, a helper that derives the condemned set from the
+    /// rotation KINDS. So `condemned.is_empty()` and `hop.kind() == EmptyCompletion` were the
+    /// same fact stated twice, and nothing read the registry at all. Injecting the exact
+    /// regression it existed to catch — a `register_transport_failure` call in the mage-local
+    /// arm — left it **green**.
+    ///
+    /// This drives the rotating dispatcher directly and asks the registry, which is the only
+    /// thing that can distinguish "the arm did not condemn run-wide" from "the telemetry says it
+    /// did not".
+    #[tokio::test]
+    async fn the_mage_local_arm_never_condemns_a_lineage_run_wide() {
+        let registry = Arc::new(LineageRegistry::new(
+            [(
+                AgentName::Caspar,
+                ActiveEntry {
+                    lineage: Lineage::new("deepseek"),
+                    model: "deepseek".to_string(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ));
+
+        // A seat whose provider returns an empty completion, and a fallback that answers.
+        let primary = Arc::new(MockProvider::mixed(
+            "mock",
+            "deepseek",
+            vec![Err(ProviderError::EmptyCompletion {
+                finish: Some(FinishReason::Length),
+                cap: 16_384,
+            })],
+        )) as Arc<dyn LlmProvider>;
+        let fallback = Arc::new(MockProvider::success(
+            "mock",
+            "glm",
+            vec![mock_agent_json("caspar", "approve", 0.95)],
+        )) as Arc<dyn LlmProvider>;
+
+        let agent = Agent::new(AgentName::Caspar, Arc::clone(&primary));
+        let pool = FallbackPool::builder()
+            .push(fallback, Lineage::new("zhipu"))
+            .max_rotations(2)
+            .build();
+
+        let (result, rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
+            agent,
+            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
+
+        assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
+
+        // THE observation, and the one the derived helper could not make: the registry's
+        // run-wide condemned set is untouched, so the lineage stays claimable by any other seat.
+        let condemned = registry.run_failed_lineages().await;
+        assert!(
+            condemned.is_empty(),
+            "an empty completion is mage-local: it must never enter the run-wide set: {condemned:?}"
+        );
+
+        // And the seat itself DID give up on that lineage — otherwise the assertion above would
+        // be satisfied by an arm that simply never condemned anything at all.
+        assert_eq!(rotation.chain.len(), 1);
+        assert_eq!(rotation.chain[0].kind(), RotationKind::EmptyCompletion);
+    }
 }
