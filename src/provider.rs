@@ -2498,4 +2498,18 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn the_default_covers_the_largest_measured_demand() {
+        // A-7. `glm-5.2` demanded 10 686 completion tokens with the REAL system prompt on the
+        // 62k bundle, so 8 192 cuts a demand that was measured, not imagined. And in the
+        // degraded run `eb-run-1800.json` Caspar's SECOND candidate is measured converging at
+        // both 8 192 and 16 384 — with this default that `degraded 2/3` would have been 3/3.
+        //
+        // What it does NOT buy is worth pinning in the same breath: `deepseek-v4-pro` converges
+        // at no value tried, 32 768 included. The budget was never the whole problem; the
+        // reasoning channel was, and that is the C axis. Reading this raise as "fixed" repeats
+        // the reporter's own first hypothesis, which they measured until it broke.
+        assert_eq!(CompletionConfig::default().max_tokens, 16_384);
+    }
 }

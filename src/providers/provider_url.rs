@@ -871,4 +871,19 @@ mod tests {
         assert!(!msg.contains("q3ry"), "query secret leaked: {msg}");
         assert!(msg.contains("127.0.0.1"), "host must survive: {msg}");
     }
+
+    #[test]
+    fn raising_the_default_max_tokens_does_not_move_the_memory_bound() {
+        // A-8, and it lives HERE because `body_cap` is private to this module: making it
+        // public just to test it from `provider.rs` would widen the surface for a test's
+        // convenience, which this project's standards forbid.
+        assert_eq!(body_cap(16_384), body_cap(4_096));
+        // The VALUE too, not merely that the two agree: they could agree on a wrong number.
+        // 16 384 * 16 = 262 144 stays under the 1 MiB floor, so the floor is what both return.
+        assert_eq!(body_cap(16_384), 1_048_576);
+        // And the boundary, which is what makes "the bound does not move" checkable instead of
+        // merely restated: the floor stops governing at 65 536.
+        assert_eq!(body_cap(65_536), 1_048_576);
+        assert_eq!(body_cap(65_537), 65_537 * 16);
+    }
 }
