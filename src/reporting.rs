@@ -406,7 +406,7 @@ pub struct MagiReport {
     #[serde(default)]
     pub input_size: Option<InputSize>,
 
-    /// per-agent record of EVERY completion attempt, in the order the attempts happened.
+    /// Per-agent record of EVERY completion attempt, in the order the attempts happened.
     ///
     /// # What it costs, said out loud
     ///

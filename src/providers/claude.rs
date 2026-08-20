@@ -291,13 +291,13 @@ impl ClaudeProvider {
     /// nothing is declared, and there is no trace channel this provider reads
     /// regardless.
     ///
-    /// This deserializes `body` a second time (`body` is a small JSON
-    /// envelope, parsed once per completion — not a hot loop): the first
-    /// parse lives inside [`Self::parse_response`], which already owns the
-    /// error path for a malformed body or a missing text block. Duplicating
-    /// that branching here to save one `serde_json::from_str` would gain
-    /// nothing, since a body this second, tolerant parse cannot read has
-    /// already failed above.
+    /// # Reads the response ONCE
+    ///
+    /// An earlier version parsed `body` here and then again, in the same function, to reach the
+    /// text — a full extra parse per completion, per seat, per rotation hop, over a body bounded
+    /// only by the cap derived from `max_tokens`. Its stated reason was that removing the helper
+    /// would leave it dead, and that was not true: the helper had a caller, one line above. The
+    /// text now comes from the same parse the telemetry does.
     ///
     /// # Errors
     /// Same as [`Self::parse_response`].

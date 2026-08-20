@@ -134,6 +134,13 @@ match err {
 **What you do:** match the contract variants. `ResponseContractCause` is exported from the
 prelude, and every variant is `#[non_exhaustive]`, so match with `..`.
 
+**One of them is now retried where the old sentinel was not.** `Http { status: 0 }` was
+explicitly non-retryable; `ResponseContractCause::Unreadable` **is** retryable, because a body can
+be unreadable for having been clipped in transit and asking again can genuinely return something
+different. A backend that consistently returns malformed JSON therefore costs a full retry chain
+where it used to cost one attempt. `NoMessage` and `RedirectRefused` stay non-retryable: neither
+changes on a second try.
+
 `Http.status` now only ever holds a real HTTP status. That is what makes lineage condemnation
 honest **by construction** rather than by comment: the synthetic zero is how a contract failure
 inherited run-wide semantics it was never entitled to.
