@@ -1089,6 +1089,7 @@ pub(crate) struct RotationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::Completion;
 
     /// Extracts the source text of a single item declaration (e.g.
     /// `"enum RotationKind"`) from a file's full source: from any attribute
@@ -1612,8 +1613,8 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
-            Ok(self.resp.clone())
+        ) -> Result<Completion, ProviderError> {
+            Ok(Completion::new(self.resp.clone()))
         }
         fn name(&self) -> &str {
             &self.name
@@ -1641,8 +1642,8 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
-            Ok(String::new())
+        ) -> Result<Completion, ProviderError> {
+            Ok(Completion::new(String::new()))
         }
         fn name(&self) -> &str {
             "mock-probe"

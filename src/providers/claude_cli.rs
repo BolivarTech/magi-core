@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, LlmProvider, resolve_claude_alias};
+use crate::provider::{Completion, CompletionConfig, LlmProvider, resolve_claude_alias};
 use serde::Deserialize;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
@@ -174,7 +174,7 @@ impl LlmProvider for ClaudeCliProvider {
         system_prompt: &str,
         user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let args = self.build_args(system_prompt);
 
         let mut child = Command::new("claude")
@@ -216,7 +216,9 @@ impl LlmProvider for ClaudeCliProvider {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         let result = parse_cli_output(&stdout)?;
-        Ok(strip_code_fences(&result).to_string())
+        // A subprocess reports no token counts and no termination reason, so its telemetry is
+        // `unmeasured()` — and that is not a gap to fill later with zeros, it is the truth.
+        Ok(Completion::new(strip_code_fences(&result).to_string()))
     }
 
     fn name(&self) -> &str {

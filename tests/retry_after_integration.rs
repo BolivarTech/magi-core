@@ -28,7 +28,7 @@ async fn test_real_429_with_header_waits_what_the_server_asked() {
         .expect("the second attempt must succeed");
     let elapsed = start.elapsed();
 
-    assert!(out.contains("ok"));
+    assert!(out.text.contains("ok"));
     // >= 1800ms proves the ~2 s server header was honored (the formula, base 1 s,
     // would wait <= ~1 s). Not `== 2 s`: the C3.1 discount shaves a few ms and the
     // jitter adds up to 1 s, so a lower bound below 2 s is the robust check.
@@ -86,7 +86,7 @@ async fn test_retry_after_zero_falls_back_to_jittered_formula() {
         .expect("the retry must succeed");
     let elapsed = start.elapsed();
 
-    assert!(out.contains("ok"));
+    assert!(out.text.contains("ok"));
     // The formula wait (base 1 s, jittered <= 1 s) is short — clearly not the
     // honored path and not an instant-zero flood.
     assert!(

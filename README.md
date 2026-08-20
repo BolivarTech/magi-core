@@ -381,8 +381,11 @@ impl LlmProvider for MyProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
-        // Call your LLM backend here
+    ) -> Result<Completion, ProviderError> {
+        // Call your LLM backend here, then:
+        //   Ok(text.into())
+        // An implementor that measures nothing gets telemetry that SAYS so,
+        // rather than reporting zeros that would read as a measurement.
         todo!()
     }
 

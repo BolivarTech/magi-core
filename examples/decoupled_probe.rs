@@ -53,10 +53,10 @@ impl LlmProvider for HostedModel {
         _system_prompt: &str,
         _user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         // Never invoked — this example proves registration compiles, not that a
         // completion runs.
-        Ok(String::new())
+        Ok(Completion::new(String::new()))
     }
 
     fn name(&self) -> &str {

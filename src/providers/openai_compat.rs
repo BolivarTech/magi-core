@@ -320,7 +320,7 @@ impl OpenAiCompatibleProvider {
     }
 }
 
-use crate::provider::LlmProvider;
+use crate::provider::{Completion, LlmProvider};
 
 #[async_trait::async_trait]
 impl LlmProvider for OpenAiCompatibleProvider {
@@ -339,7 +339,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let body = self.build_request_body(system_prompt, user_prompt, config);
         let mut req = self
             .base_url
@@ -378,7 +378,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         // The total timeout can also fire while reading (headers arrive, then the server hangs);
         // the shared mapper classifies that as `Timeout`, not `Network`.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
-        Self::parse_response(&response_body)
+        Self::parse_response(&response_body).map(Completion::new)
     }
 
     fn name(&self) -> &str {

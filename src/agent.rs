@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::error::{MagiError, ProviderError};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::schema::{AgentName, Mode};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -115,11 +115,16 @@ impl Agent {
     ///
     /// # Errors
     /// Returns `ProviderError` on LLM communication failure.
+    ///
+    /// # Returns
+    ///
+    /// The whole [`Completion`], not just its text: the telemetry rides along to the report, and
+    /// dropping it here would break the diagnosis axis inside the task that enables it.
     pub async fn execute(
         &self,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         // Set CURRENT_AGENT_IDENTITY for the duration of the provider call
         // so test-only providers (RoutingMockProvider) can route responses
         // per-agent. Production providers ignore the task-local.
@@ -148,7 +153,7 @@ impl Agent {
         provider: &Arc<dyn LlmProvider>,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         CURRENT_AGENT_IDENTITY
             .scope(
                 self.name,
@@ -411,9 +416,9 @@ mod tests {
             _system_prompt: &str,
             _user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
-            Ok(self.response.clone())
+            Ok(Completion::new(self.response.clone()))
         }
 
         fn name(&self) -> &str {
@@ -541,7 +546,7 @@ mod tests {
         let config = CompletionConfig::default();
 
         let result = agent.execute("user input", &config).await;
-        assert_eq!(result.unwrap(), "response text");
+        assert_eq!(result.unwrap().text, "response text");
         assert_eq!(provider.calls(), 1);
     }
 

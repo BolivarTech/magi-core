@@ -4,7 +4,7 @@
 
 use crate::error::ProviderError;
 use crate::provider::{
-    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, PARSE_FAILURE_STATUS,
+    Completion, CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, PARSE_FAILURE_STATUS,
     resolve_claude_alias,
 };
 use crate::providers::provider_url::ProviderUrl;
@@ -274,7 +274,7 @@ impl LlmProvider for ClaudeProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let body = self.build_request_body(system_prompt, user_prompt, config);
 
         // Routed through the URL authority like every other HTTP provider. The endpoint has no
@@ -312,7 +312,10 @@ impl LlmProvider for ClaudeProvider {
         // loses its closing marker, which would make the parser blame the model for our cut.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
 
-        Self::parse_response(&response_body)
+        // The parser still yields text; the telemetry this wraps it in is `unmeasured()` until
+        // the diagnosis axis teaches this provider to read `finish_reason`. Saying "not measured"
+        // is the honest state — it is not the same claim as measuring zero.
+        Self::parse_response(&response_body).map(Completion::new)
     }
 
     fn name(&self) -> &str {

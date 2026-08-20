@@ -1410,7 +1410,7 @@ pub(crate) async fn dispatch_one_agent(
     };
 
     // Parse + validate first response. Success exits here.
-    let first_err = match parse_validate_and_check(&first_raw, agent.name(), &validator) {
+    let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), &validator) {
         Ok(output) => return (Ok(output), false, failures),
         Err(f) => f,
     };
@@ -1466,7 +1466,7 @@ pub(crate) async fn dispatch_one_agent(
         }
     };
 
-    match parse_validate_and_check(&second_raw, agent.name(), &validator) {
+    match parse_validate_and_check(&second_raw.text, agent.name(), &validator) {
         Ok(output) => (Ok(output), true, failures),
         Err(f) => {
             // `attempt: 2` — the corrective retry, on the SAME model. The counter is
@@ -1678,10 +1678,20 @@ fn is_connection(err: &ProviderError) -> bool {
         // this crate has no way to know whether that says anything about the lineages the OTHER
         // two seats are using, and aborting the whole run on that guess is unrecoverable.
         ProviderError::External { .. } => false,
+        // None of the three is connection-class: in all of them the endpoint ANSWERED. The
+        // endpoint-down latch exists for a backend that cannot be reached, and feeding it from a
+        // response that arrived would make the run abort on a healthy endpoint.
+        ProviderError::ResponseContract { .. }
+        | ProviderError::EmptyCompletion { .. }
+        | ProviderError::NoGeneration { .. } => false,
     }
 }
 
 /// Outcome of a single model attempt (including its own corrective schema retry).
+///
+/// `Debug` so a failing classifier test can say what it got instead of only what it wanted. The
+/// type is private, so this adds nothing to the public surface.
+#[derive(Debug)]
 enum ModelOutcome {
     /// A valid verdict was committed.
     Success(AgentOutput),
@@ -1695,6 +1705,26 @@ enum ModelOutcome {
         detail: String,
         connection: bool,
         kind: RotationKind,
+    },
+    /// A content/contract failure the endpoint answered with — **mage-local**, then rotate.
+    ///
+    /// Separate from [`ModelOutcome::Transport`] because that arm calls
+    /// `register_transport_failure`, which condemns the lineage **run-wide**. `connection` only
+    /// governs the endpoint-down latch, NOT the scope of the condemnation, so routing a
+    /// mage-local cause through `Transport` with `connection: false` would still take the
+    /// lineage away from the other two seats — which is the defect this milestone exists to fix.
+    MageLocal { detail: String, kind: RotationKind },
+    /// The backend generated nothing at all: a defect in THIS crate, not a model failure.
+    ///
+    /// Carries only what the classifier OBSERVED. It does not build the final error, because
+    /// that needs facts the classifier cannot have — which seats had already answered — and
+    /// filling those with an empty vector would read as "none" when it means "not yet".
+    ///
+    /// Does not rotate, by construction: rotating would reproduce our own bad request against
+    /// every seat in turn.
+    CrateDefect {
+        observation: String,
+        hypothesis: &'static str,
     },
     /// Body over the cap on a successful response — **mage-local**, then rotate.
     ///
@@ -1750,7 +1780,7 @@ async fn attempt_model(
         }
     };
 
-    let first_err = match parse_validate_and_check(&first_raw, agent.name(), validator) {
+    let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), validator) {
         Ok(output) => return ModelOutcome::Success(output),
         Err(f) => f,
     };
@@ -1809,7 +1839,7 @@ async fn attempt_model(
             };
         }
     };
-    match parse_validate_and_check(&second_raw, agent.name(), validator) {
+    match parse_validate_and_check(&second_raw.text, agent.name(), validator) {
         Ok(output) => ModelOutcome::Success(output),
         Err(f) => {
             failures.push(ExtractionFailure {
@@ -1864,8 +1894,32 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
             connection,
             kind: RotationKind::Transport,
         },
+        ProviderError::ResponseContract { .. } => ModelOutcome::MageLocal {
+            detail: MagiError::Provider(err).to_string(),
+            kind: RotationKind::ResponseContract,
+        },
+        ProviderError::EmptyCompletion { .. } => ModelOutcome::MageLocal {
+            detail: MagiError::Provider(err).to_string(),
+            kind: RotationKind::EmptyCompletion,
+        },
+        // The observation and the hypothesis travel as SEPARATE fields, so the distinction
+        // survives however someone later formats the message.
+        ProviderError::NoGeneration { done_reason } => ModelOutcome::CrateDefect {
+            observation: format!(
+                "no generation - token counters absent (termination: {done_reason:?})"
+            ),
+            hypothesis: CRATE_DEFECT_HYPOTHESIS,
+        },
     }
 }
+
+/// The one cause known to produce an accepted request that generates nothing.
+///
+/// Stated as a hypothesis and kept apart from the observation because it rests on a single
+/// captured case. A second cause with the same footprint would not make the observation wrong;
+/// it would make this wrong, and whoever finds it has to be able to tell which was which.
+const CRATE_DEFECT_HYPOTHESIS: &str =
+    "the known cause is a request without `messages`, which points at a defect in magi-core";
 
 /// Returns `Some(MagiError::EndpointDown)` iff the registry's endpoint-down latch
 /// is set, else `None`. The latch is the single source of truth for the fast-fail
@@ -2001,6 +2055,39 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 registry.release(agent_name).await;
                 guard.mark_released();
                 return (Err(detail), state.to_rotation(), was_retried, failures);
+            }
+            ModelOutcome::MageLocal { detail, kind } => {
+                // Mage-local, exactly like `Schema`: this seat gives up on this lineage and the
+                // other two keep it. Note what is NOT called here — `register_transport_failure`.
+                state.failed_lineages.insert(current_lineage.clone());
+                (kind, detail)
+            }
+            ModelOutcome::CrateDefect {
+                observation,
+                hypothesis,
+            } => {
+                // No rotation: our own bad request would reproduce on every seat. Surfaced as a
+                // defect of THIS crate rather than dropped into `failed_agents`, where model
+                // failures land every day and a bug of ours would be invisible in the noise.
+                registry.release(agent_name).await;
+                guard.mark_released();
+                // The seat's error channel is a `String` (see `ModelOutcome::Unexpected`), so the
+                // typed error is BUILT here and rendered on the way out. Raising it to the run —
+                // the latch that turns this into an abort instead of one failed seat — is the
+                // task that owns the latch; what this arm guarantees today is the property that
+                // cannot wait: it does NOT rotate.
+                return (
+                    Err(MagiError::CrateDefect {
+                        observation,
+                        hypothesis,
+                        agent: agent_name,
+                        model: current_provider.model().to_string(),
+                    }
+                    .to_string()),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                );
             }
             ModelOutcome::OversizedResponse { limit } => {
                 // Mage-local, exactly like Schema: this mage will not retry this lineage, but the
@@ -2483,8 +2570,88 @@ mod input_threshold_tests {
 
 #[cfg(test)]
 mod tests {
+
+    // ---- Task 3b: the arms are proved HERE, not seventeen tasks later ----
+
+    #[test]
+    fn each_contract_variant_gets_the_consequence_the_spec_assigned() {
+        use crate::error::ResponseContractCause;
+
+        // A unit test over the classifier — cheap, no registry, no async. It pins the decision at
+        // the moment it is made instead of leaving the arms unexercised until the task that
+        // observes the registry.
+        //
+        // WHY `MageLocal` AND NOT `Transport { connection: false }`, which is what a first
+        // reading suggests: `connection` governs the endpoint-down LATCH, not the SCOPE of the
+        // condemnation. `ModelOutcome::Transport` calls `register_transport_failure`, which
+        // condemns the lineage RUN-WIDE for every seat regardless of `connection` — its own
+        // rustdoc says so and that behaviour is deliberate for genuine transport faults. Routing
+        // a content failure through it with `connection: false` would still take the lineage away
+        // from the other two mages, which is precisely the defect this milestone exists to fix.
+        let contract = ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+        };
+        match provider_err_outcome(contract) {
+            ModelOutcome::MageLocal { kind, .. } => {
+                assert_eq!(kind, RotationKind::ResponseContract);
+                assert!(kind.is_mage_local());
+            }
+            other => panic!("family 1 is mage-local, got {other:?}"),
+        }
+
+        let empty = ProviderError::EmptyCompletion {
+            finish: Some(crate::provider::FinishReason::Length),
+            cap: 4096,
+        };
+        match provider_err_outcome(empty) {
+            ModelOutcome::MageLocal { kind, .. } => {
+                assert_eq!(kind, RotationKind::EmptyCompletion);
+                assert!(kind.is_mage_local());
+            }
+            other => panic!("family 2 is mage-local, got {other:?}"),
+        }
+
+        // The SIGNAL, not a MagiError: the classifier does not know which seats had already
+        // answered, and filling that with an empty vector would read as "none" when it means
+        // "not yet".
+        let defect = ProviderError::NoGeneration {
+            done_reason: Some(crate::provider::FinishReason::Load),
+        };
+        match provider_err_outcome(defect) {
+            ModelOutcome::CrateDefect {
+                observation,
+                hypothesis,
+            } => {
+                assert!(observation.contains("counters absent"), "{observation}");
+                assert!(hypothesis.contains("magi-core"), "{hypothesis}");
+            }
+            other => panic!("family 3 is a crate defect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_contract_failure_is_connection_class() {
+        use crate::error::ResponseContractCause;
+
+        // In all three the endpoint ANSWERED. The endpoint-down latch exists for a backend that
+        // cannot be reached; feeding it from a response that arrived would abort the run on a
+        // healthy endpoint.
+        for err in [
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+            },
+            ProviderError::EmptyCompletion {
+                finish: None,
+                cap: 16_384,
+            },
+            ProviderError::NoGeneration { done_reason: None },
+        ] {
+            assert!(!is_connection(&err), "{err:?}");
+        }
+    }
     use super::*;
     use crate::prompts::lookup_prompt;
+    use crate::provider::Completion;
     use crate::schema::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2636,7 +2803,7 @@ mod tests {
     struct MockProvider {
         name: String,
         model: String,
-        responses: Vec<Result<String, ProviderError>>,
+        responses: Vec<Result<Completion, ProviderError>>,
         call_count: AtomicUsize,
     }
 
@@ -2645,7 +2812,10 @@ mod tests {
             Self {
                 name: name.to_string(),
                 model: model.to_string(),
-                responses: responses.into_iter().map(Ok).collect(),
+                responses: responses
+                    .into_iter()
+                    .map(|t| Ok(Completion::new(t)))
+                    .collect(),
                 call_count: AtomicUsize::new(0),
             }
         }
@@ -2654,7 +2824,10 @@ mod tests {
             Self {
                 name: name.to_string(),
                 model: model.to_string(),
-                responses,
+                responses: responses
+                    .into_iter()
+                    .map(|r| r.map(Completion::new))
+                    .collect(),
                 call_count: AtomicUsize::new(0),
             }
         }
@@ -2671,7 +2844,7 @@ mod tests {
             _system_prompt: &str,
             _user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
             let idx = idx % self.responses.len();
             self.responses[idx].clone()
@@ -3828,9 +4001,9 @@ mod tests {
                 _s: &str,
                 _u: &str,
                 _c: &CompletionConfig,
-            ) -> Result<String, ProviderError> {
+            ) -> Result<Completion, ProviderError> {
                 self.counter.fetch_add(1, OrderingV05::SeqCst);
-                Ok(String::new())
+                Ok(Completion::new(String::new()))
             }
             fn name(&self) -> &str {
                 "count"
@@ -4913,7 +5086,7 @@ mod tests {
             system_prompt: &str,
             user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.captured
                 .lock()
                 .unwrap()
@@ -4928,7 +5101,7 @@ mod tests {
                 AgentName::Balthasar => "balthasar",
                 AgentName::Caspar => "caspar",
             };
-            Ok(mock_agent_json(agent_str, "approve", 0.9))
+            Ok(Completion::new(mock_agent_json(agent_str, "approve", 0.9)))
         }
 
         fn name(&self) -> &str {
@@ -4958,9 +5131,9 @@ mod tests {
                 _s: &str,
                 _u: &str,
                 _c: &CompletionConfig,
-            ) -> Result<String, ProviderError> {
+            ) -> Result<Completion, ProviderError> {
                 self.calls.fetch_add(1, Ordering::SeqCst);
-                Ok(String::new())
+                Ok(Completion::new(String::new()))
             }
             fn name(&self) -> &str {
                 "tally"

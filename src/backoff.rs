@@ -142,6 +142,12 @@ pub enum RetryClass {
     /// Response body over the buffering cap. Distinct from `Http`: nothing about the status was
     /// wrong, and its condemnation scope is mage-local rather than run-wide.
     ResponseTooLarge,
+    /// The response did not satisfy the provider's response contract.
+    ResponseContract,
+    /// The model returned no usable content.
+    EmptyCompletion,
+    /// The backend generated nothing at all — a defect in this crate.
+    NoGeneration,
     /// Failure reported by a provider implemented outside this crate.
     ///
     /// Adding this and `ResponseTooLarge` was additive rather than a break, because the enum is

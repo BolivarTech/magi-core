@@ -33,7 +33,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider};
 use crate::providers::openai_compat::OpenAiCompatibleProvider;
 use crate::providers::provider_url::ProviderUrl;
 use crate::rotation::ProviderProbe;
@@ -213,7 +213,7 @@ impl LlmProvider for OllamaProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         self.inner
             .complete(system_prompt, user_prompt, config)
             .await

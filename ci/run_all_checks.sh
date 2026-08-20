@@ -83,6 +83,13 @@ CARGO_TARGET_DIR="$ALL_DIR" cargo build --all-features --examples
 step "examples (default features)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo build --examples
 
+# BUILDING an example is not running it. `external_provider` asserts that an outside
+# implementor's telemetry reports NOT MEASURED rather than zeros, and an assert that never
+# executes guards nothing — the same shape as the edge-case test that sat behind
+# `not(debug_assertions)` and therefore never ran in CI.
+step "external provider example (behaviour, not just compilation)"
+CARGO_TARGET_DIR="$ALL_DIR" cargo run --all-features --example external_provider
+
 step "tests (all features)"
 CARGO_TARGET_DIR="$ALL_DIR" cargo nextest run --all-features
 

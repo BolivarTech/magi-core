@@ -3,7 +3,7 @@
 // Date: 2026-04-05
 
 use crate::backoff::RetryClass;
-use crate::error::{AbandonReason, ExternalErrorKind, ProviderError};
+use crate::error::{AbandonReason, ExternalErrorKind, ProviderError, ResponseContractCause};
 use crate::schema::Mode;
 use std::sync::Arc;
 use std::time::Duration;
@@ -435,12 +435,23 @@ pub trait LlmProvider: Send + Sync {
     ///   consequences stay here.
     ///
     /// [`ProviderError::external`]: crate::error::ProviderError::external
+    ///
+    /// # Migrating from 3.x
+    ///
+    /// Two changes, and only two: the **signature** (`Result<String, _>` becomes
+    /// `Result<Completion, _>`) and the **return** (`Ok(text)` becomes `Ok(text.into())`) —
+    /// plus any helper of your own that returns the old type.
+    ///
+    /// An implementor that measures nothing gets [`CompletionTelemetry::unmeasured`], which
+    /// **says so** rather than reporting zeros. That distinction is the point of the break: a
+    /// zero token count that means "nobody looked" is indistinguishable from one that means
+    /// "the model emitted nothing", and this crate spent a release learning the difference.
     async fn complete(
         &self,
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError>;
+    ) -> Result<Completion, ProviderError>;
 
     /// Returns the provider's name (e.g., "claude", "claude-cli", "openai").
     fn name(&self) -> &str;
@@ -756,6 +767,19 @@ fn is_retryable(error: &ProviderError) -> bool {
             | ExternalErrorKind::ServerError => true,
             ExternalErrorKind::Auth | ExternalErrorKind::Other => false,
         },
+        // Retrying an empty completion reproduces it by construction — same request, same
+        // budget, same nothing — and that is measured, not assumed. `NoGeneration` is OUR bad
+        // request: four identical attempts would only delay the diagnosis while burning the
+        // chain the rotation needs.
+        ProviderError::EmptyCompletion { .. } | ProviderError::NoGeneration { .. } => false,
+        // The two contract causes split, and they split on whether asking again can return
+        // something different. It can for a body that arrived unreadable — a cut connection, a
+        // proxy that clipped the response — and it cannot for a body that parsed fine and
+        // deliberately carried no message.
+        ProviderError::ResponseContract { reason } => match reason {
+            ResponseContractCause::Unreadable => true,
+            ResponseContractCause::NoMessage => false,
+        },
     }
 }
 
@@ -910,6 +934,9 @@ pub(crate) fn classify(err: &ProviderError) -> RetryClass {
         // let a third party inherit whatever backoff policy is configured for this crate's own
         // network failures, which is exactly the ownership the design keeps here.
         ProviderError::External { .. } => RetryClass::External,
+        ProviderError::ResponseContract { .. } => RetryClass::ResponseContract,
+        ProviderError::EmptyCompletion { .. } => RetryClass::EmptyCompletion,
+        ProviderError::NoGeneration { .. } => RetryClass::NoGeneration,
     }
 }
 
@@ -920,7 +947,7 @@ impl LlmProvider for RetryProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let started = std::time::Instant::now();
         let mut last_error: Option<ProviderError> = None;
 
@@ -1178,6 +1205,55 @@ mod message_composition_tests {
 
 #[cfg(test)]
 mod tests {
+
+    // ---- Task 3b: retryability of the three contract variants ----
+
+    #[test]
+    fn three_of_the_four_contract_cases_are_not_retryable() {
+        // Without this, `RetryProvider` would retry OUR OWN bad request four times and the abort
+        // would land after the whole chain had been burned.
+        assert!(!is_retryable(&ProviderError::EmptyCompletion {
+            finish: Some(FinishReason::Length),
+            cap: 4096,
+        }));
+        assert!(!is_retryable(&ProviderError::NoGeneration {
+            done_reason: Some(FinishReason::Load),
+        }));
+        assert!(!is_retryable(&ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+        }));
+
+        // The one that IS retryable, and the reason it differs: an unreadable body can be a
+        // TRUNCATION IN TRANSIT — a cut connection, a proxy that clipped the response — so asking
+        // again can genuinely return something else. The other three cannot: same request, same
+        // budget, same answer.
+        assert!(is_retryable(&ProviderError::ResponseContract {
+            reason: ResponseContractCause::Unreadable,
+        }));
+    }
+
+    #[test]
+    fn every_contract_variant_has_its_own_retry_class() {
+        // `RetryClass` mirrors `ProviderError`'s discriminants one-to-one — that is the enum's
+        // stated contract — so that `flat_classes` and the limited-retry list can name any of
+        // them without a variant inheriting another's backoff policy.
+        let classes = [
+            classify(&ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+            }),
+            classify(&ProviderError::EmptyCompletion {
+                finish: None,
+                cap: 16_384,
+            }),
+            classify(&ProviderError::NoGeneration { done_reason: None }),
+        ];
+        assert_eq!(classes[0], RetryClass::ResponseContract);
+        assert_eq!(classes[1], RetryClass::EmptyCompletion);
+        assert_eq!(classes[2], RetryClass::NoGeneration);
+        // Distinct from each other AND from the transport classes they must never inherit.
+        assert_ne!(classes[0], RetryClass::Http);
+        assert_ne!(classes[1], RetryClass::Http);
+    }
     use super::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
@@ -1210,7 +1286,7 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Err(self.error.clone())
         }
@@ -1256,7 +1332,7 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             let now = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak_in_flight.fetch_max(now, Ordering::SeqCst);
@@ -1300,10 +1376,10 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             let n = self.calls.fetch_add(1, Ordering::SeqCst);
             if n >= self.fail_times {
-                return Ok("ok".to_string());
+                return Ok(Completion::new("ok".to_string()));
             }
             Err(ProviderError::Http {
                 status: 429,
@@ -1768,7 +1844,7 @@ mod tests {
     struct MockProvider {
         provider_name: String,
         provider_model: String,
-        responses: std::sync::Mutex<Vec<Result<String, ProviderError>>>,
+        responses: std::sync::Mutex<Vec<Result<Completion, ProviderError>>>,
         call_count: AtomicU32,
     }
 
@@ -1785,7 +1861,7 @@ mod tests {
         fn with_responses(
             name: &str,
             model: &str,
-            responses: Vec<Result<String, ProviderError>>,
+            responses: Vec<Result<Completion, ProviderError>>,
         ) -> Self {
             // Reverse so we can pop from the end (FIFO order)
             let mut reversed = responses;
@@ -1810,13 +1886,13 @@ mod tests {
             _system_prompt: &str,
             _user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             let mut responses = self.responses.lock().unwrap();
             if let Some(result) = responses.pop() {
                 result
             } else {
-                Ok("default response".to_string())
+                Ok(Completion::new("default response".to_string()))
             }
         }
 
@@ -1880,7 +1956,7 @@ mod tests {
                 Err(ProviderError::Timeout {
                     message: "t2".into(),
                 }),
-                Ok("success".into()),
+                Ok(Completion::new("success".to_string())),
             ],
         ));
         let retry = RetryProvider::with_config(
@@ -1894,7 +1970,7 @@ mod tests {
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "success");
+        assert_eq!(result.unwrap().text, "success");
         assert_eq!(mock.call_count(), 3);
     }
 
@@ -1911,7 +1987,7 @@ mod tests {
                     retry_after_raw: vec![],
                     received_at: None,
                 }),
-                Ok("ok".into()),
+                Ok(Completion::new("ok".to_string())),
             ],
         ));
         let retry = RetryProvider::with_config(
@@ -1941,7 +2017,7 @@ mod tests {
                     retry_after_raw: vec![],
                     received_at: None,
                 }),
-                Ok("ok".into()),
+                Ok(Completion::new("ok".to_string())),
             ],
         ));
         let retry = RetryProvider::with_config(
@@ -1968,7 +2044,7 @@ mod tests {
                 Err(ProviderError::Network {
                     message: "dns".into(),
                 }),
-                Ok("ok".into()),
+                Ok(Completion::new("ok".to_string())),
             ],
         ));
         let retry = RetryProvider::with_config(
@@ -2130,7 +2206,7 @@ mod tests {
                 Err(ProviderError::Timeout {
                     message: "t1".into(),
                 }),
-                Ok("recovered".into()),
+                Ok(Completion::new("recovered".to_string())),
             ],
         ));
         let retry = RetryProvider::with_config(
@@ -2144,7 +2220,7 @@ mod tests {
         let config = CompletionConfig::default();
         let result = retry.complete("sys", "usr", &config).await;
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "recovered");
+        assert_eq!(result.unwrap().text, "recovered");
         assert_eq!(mock.call_count(), 2);
     }
 

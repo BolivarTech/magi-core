@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use crate::agent::CURRENT_AGENT_IDENTITY;
 use crate::error::{ExternalErrorKind, ProviderError};
 use crate::orchestrator::{Magi, MagiBuilder};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::reporting::MagiReport;
 use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
@@ -88,7 +88,7 @@ impl LlmProvider for RoutingMockProvider {
         _system_prompt: &str,
         _user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let identity =
             CURRENT_AGENT_IDENTITY
                 .try_with(|name| *name)
@@ -114,7 +114,7 @@ impl LlmProvider for RoutingMockProvider {
                 stderr: format!("RoutingMockProvider: sequence exhausted for {identity:?}"),
             });
         }
-        Ok(seq.remove(0)?)
+        Ok(Completion::new(seq.remove(0)?))
     }
 
     fn name(&self) -> &str {
@@ -246,7 +246,7 @@ impl LlmProvider for ScriptProvider {
         _s: &str,
         _u: &str,
         _c: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let i = self.calls.fetch_add(1, Ordering::SeqCst);
         let beh = self
             .script
@@ -255,8 +255,8 @@ impl LlmProvider for ScriptProvider {
             .cloned()
             .unwrap_or(Beh::Ok);
         match beh {
-            Beh::Ok => Ok(valid_verdict_for_current_agent()),
-            Beh::BadJson => Ok(BAD_JSON.clone()),
+            Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
+            Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
             Beh::Network => Err(ProviderError::Network {
                 message: "connection refused".into(),
             }),
@@ -320,8 +320,8 @@ impl LlmProvider for MockProbe {
         _s: &str,
         _u: &str,
         _c: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
-        Ok(valid_verdict_for_current_agent())
+    ) -> Result<Completion, ProviderError> {
+        Ok(Completion::new(valid_verdict_for_current_agent()))
     }
     fn name(&self) -> &str {
         &self.name
@@ -544,19 +544,19 @@ mod tests {
             .scope(AgentName::Melchior, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r1, "MEL_1");
+        assert_eq!(r1.text, "MEL_1");
 
         let r2 = CURRENT_AGENT_IDENTITY
             .scope(AgentName::Balthasar, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r2, "BAL_1");
+        assert_eq!(r2.text, "BAL_1");
 
         let r3 = CURRENT_AGENT_IDENTITY
             .scope(AgentName::Melchior, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r3, "MEL_2");
+        assert_eq!(r3.text, "MEL_2");
     }
 
     #[tokio::test]
@@ -607,7 +607,7 @@ mod tests {
             .scope(AgentName::Melchior, mp.complete("s", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r2, "MEL_2");
+        assert_eq!(r2.text, "MEL_2");
     }
 
     /// Invariant — each prompt file still contains the agent
