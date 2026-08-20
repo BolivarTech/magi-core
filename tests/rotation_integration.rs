@@ -466,6 +466,68 @@ async fn truncated_content_still_lands_on_the_mage_local_path_via_unterminated()
 /// provider error and took a long time to identify as local. `failed_agents` is where model
 /// failures land EVERY DAY, so a defect of ours filed there is invisible in the noise of the
 /// normal and the operator goes to look at the model.
+/// The SAME abort, on the configuration that has no fallback pool at all.
+///
+/// # Why this is its own test rather than a variation
+///
+/// The sibling below declares a pool, so it exercises the ROTATING dispatcher. The default
+/// configuration -- no pool -- runs a different path, and that path did not abort at all: it
+/// degraded the seat to 2/3 while the rustdoc and the migration guide both said the run ends.
+/// Review found it; nothing in the suite did, because the only test of this behaviour happened
+/// to declare a pool.
+///
+/// A defect of this crate reaching a consumer as "one agent failed" is precisely the disguise
+/// the whole milestone exists to remove, so the path without a guard is the one that mattered.
+#[tokio::test]
+async fn a_defect_of_our_own_aborts_the_run_without_any_fallback_pool() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        // NO `with_fallback_pool`: this is the default configuration.
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run on every path, pool or not");
+
+    let MagiError::CrateDefect {
+        agent,
+        responded,
+        observation,
+        ..
+    } = &err
+    else {
+        panic!("the category must be legible on this path too, not just when a pool exists: {err}");
+    };
+
+    assert_eq!(*agent, AgentName::Caspar, "the seat that hit it travels");
+    assert!(
+        observation.contains("no generation"),
+        "the OBSERVATION is what was measured: {observation}"
+    );
+    // The seat that hit it is excluded -- it already travels as `agent`, and counting it twice
+    // would make the field disagree with its own documentation.
+    assert!(
+        !responded.contains(&AgentName::Caspar),
+        "the defective seat must not appear among the joined ones: {responded:?}"
+    );
+}
+
 #[tokio::test]
 async fn a_defect_of_our_own_aborts_the_run_and_is_named_as_such() {
     let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
