@@ -411,6 +411,28 @@ pub enum RotationKind {
     ResponseContract,
 }
 
+impl RotationKind {
+    /// `true` when this cause condemns the lineage only for the reporting
+    /// mage; `false` when it condemns the lineage **run-wide** (every mage
+    /// avoids it for the rest of the run).
+    ///
+    /// Exists because `#[non_exhaustive]` forces every downstream `match` on
+    /// `RotationKind` to carry a catch-all arm — and a catch-all is exactly
+    /// where a future mage-local cause would get silently miscounted as
+    /// run-wide (or vice versa). Calling this instead of hand-rolling the
+    /// split keeps that classification in one place.
+    pub fn is_mage_local(&self) -> bool {
+        match self {
+            RotationKind::Transport | RotationKind::Timeout => false,
+            RotationKind::Schema
+            | RotationKind::OversizedResponse
+            | RotationKind::ExternalFailure
+            | RotationKind::EmptyCompletion
+            | RotationKind::ResponseContract => true,
+        }
+    }
+}
+
 impl fmt::Display for RotationKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
