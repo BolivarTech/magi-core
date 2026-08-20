@@ -59,8 +59,12 @@ pub enum FinishReason {
     Length,
     /// The backend answered without generating, while loading the model.
     Load,
-    /// A value this crate does not know, kept verbatim up to
-    /// [`MAX_FINISH_REASON_CHARS`] characters.
+    /// A value this crate does not know, kept verbatim up to 64 characters.
+    ///
+    /// The cap is `MAX_FINISH_REASON_CHARS`, which stays private: it is a bound
+    /// on wire-sourced text, not a knob, and nothing outside the crate consumes
+    /// it. The number is written out here because a doc link to a private item
+    /// does not resolve, and CI denies rustdoc warnings.
     Other(String),
 }
 
@@ -99,7 +103,7 @@ impl FinishReason {
     /// # Returns
     ///
     /// The matching known variant, or [`FinishReason::Other`] holding `raw`
-    /// **truncated at [`MAX_FINISH_REASON_CHARS`] characters** — characters, not
+    /// **truncated at 64 characters** (`MAX_FINISH_REASON_CHARS`) — characters, not
     /// bytes, cut on a character boundary, so it never panics on multi-byte
     /// input.
     ///
