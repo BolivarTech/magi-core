@@ -1857,6 +1857,34 @@ mod tests {
         }
     }
 
+    // ---- Task 24: is_mage_local() ----
+
+    #[test]
+    fn the_consumer_does_not_have_to_memorise_which_variant_is_which() {
+        // Without the accessor, a non_exhaustive enum forces every consumer to write
+        // a catch-all — and a catch-all is exactly where a future mage-local cause
+        // gets silently counted as run-wide, which is the bug being fixed.
+        //
+        // BOTH the five and the two, not just one direction: an accessor hardcoded
+        // to `true` (or `false`) for everything would pass a one-sided test.
+        for k in [
+            RotationKind::OversizedResponse,
+            RotationKind::ExternalFailure,
+            RotationKind::EmptyCompletion,
+            RotationKind::ResponseContract,
+            RotationKind::Schema,
+        ] {
+            assert!(k.is_mage_local());
+        }
+        // The run-wide causes are proved EXPLICITLY, not by omission.
+        for k in [RotationKind::Transport, RotationKind::Timeout] {
+            assert!(
+                !k.is_mage_local(),
+                "{k:?} means the run was condemned; confusing it is the defect this axis fixes"
+            );
+        }
+    }
+
     #[test]
     fn test_agent_rotation_serializes_with_chain() {
         let ar = AgentRotation {
