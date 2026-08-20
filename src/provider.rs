@@ -2032,6 +2032,36 @@ mod tests {
     }
 
     #[test]
+    fn an_external_implementor_can_report_real_telemetry_not_only_unmeasured() {
+        // `#[non_exhaustive]` on a STRUCT forbids literal construction from
+        // another crate. Without builders, an external provider could only ever
+        // say "unmeasured" — even holding the numbers. That would contradict the
+        // very argument that made complete() return a richer type.
+        let t = CompletionTelemetry::unmeasured()
+            .with_finish(FinishReason::Stop)
+            .with_completion_tokens(602);
+        assert_eq!(t.finish, Some(FinishReason::Stop));
+        assert_eq!(t.completion_tokens, Some(602));
+    }
+
+    #[test]
+    fn from_string_yields_unmeasured_never_zeros() {
+        let c: Completion = "hello".to_string().into();
+        assert_eq!(
+            c.telemetry.completion_tokens, None,
+            "a 0 meaning 'could not measure' is the same lie as a zeroed input size"
+        );
+    }
+
+    #[test]
+    fn completion_new_takes_only_the_mandatory_field() {
+        // A fixed-arity `new` on a #[non_exhaustive] type breaks with the first
+        // new field — exactly the trap the sibling builder exists to avoid.
+        let c = Completion::new("text".into());
+        assert_eq!(c.text, "text");
+    }
+
+    #[test]
     fn unsupported_is_distinguishable_from_measured_zero() {
         // Three states, not two: "the backend cannot", "it can and the model did
         // not reason", "it can and it reasoned". An Option would collapse the
