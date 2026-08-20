@@ -212,7 +212,9 @@ pub enum ProviderError {
     /// Retrying with the same budget reproduces the failure by construction, and that is
     /// measured, not assumed.
     #[error(
-        "empty completion: the model returned no content (termination: {finish:?}).          The output budget in force was {cap} tokens, configurable via          `CompletionConfig::max_tokens`."
+        "empty completion: the model returned no content (termination: {finish:?}). \
+         The output budget in force was {cap} tokens, configurable via \
+         `CompletionConfig::max_tokens`."
     )]
     #[non_exhaustive]
     EmptyCompletion {
@@ -243,7 +245,8 @@ pub enum ProviderError {
     /// A cold start was captured and does **not** match — it answers `stop`, with content and
     /// with counters present — but that is one observation, not a proof of exclusivity.
     #[error(
-        "no generation - token counters absent (termination: {done_reason:?}); the known cause          of this is a request without `messages`, which points at a defect in magi-core"
+        "no generation - token counters absent (termination: {done_reason:?}); the known cause \
+         of this is a request without `messages`, which points at a defect in magi-core"
     )]
     #[non_exhaustive]
     NoGeneration {
@@ -637,7 +640,8 @@ mod tests {
         assert!(rendered.contains("the known cause is"));
         assert!(
             rendered.contains("magi-core"),
-            "the category has to be legible, or the bug hides in the noise of ordinary model              failures: {rendered}"
+            "the category has to be legible, or the bug hides in the noise of ordinary model \
+             failures: {rendered}"
         );
     }
     use super::*;
