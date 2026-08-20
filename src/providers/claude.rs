@@ -385,9 +385,11 @@ impl LlmProvider for ClaudeProvider {
     /// - `ProviderError::Auth` on 401/403 responses.
     /// - `ProviderError::Http` on other non-2xx responses — and since `4.0.0` `Http`
     ///   carries **only real HTTP statuses**.
-    /// - [`ProviderError::ResponseContract`] when the endpoint answered but the body is
-    ///   not the shape the contract promises. It is **mage-local**: the endpoint
-    ///   answered, so no lineage is condemned run-wide.
+    /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
+    ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
+    /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
+    ///   `Unreadable`, `NoMessage`, or `RedirectRefused`. It is **mage-local**: no lineage
+    ///   is condemned run-wide.
     async fn complete(
         &self,
         system_prompt: &str,

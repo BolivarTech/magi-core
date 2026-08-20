@@ -233,12 +233,17 @@ impl LlmProvider for OllamaProvider {
     /// # Errors
     /// - [`ProviderError::Timeout`] if the request exceeds the total client timeout.
     /// - [`ProviderError::Network`] on connection failures.
-    /// - [`ProviderError::Http`] on a non-2xx response, carrying the **real** status —
-    ///   a missing model answers `404` with `{"error": "..."}`, which is nothing like the
-    ///   OpenAI-compatible error shape.
-    /// - [`ProviderError::ResponseContract`] when the daemon answered but the body is not
-    ///   the shape the contract promises, and [`ProviderError::EmptyCompletion`] when the
-    ///   model produced no usable content. Both are **mage-local**.
+    /// - [`ProviderError::Auth`] on 401/403 — the daemon itself is keyless, but this
+    ///   provider is explicitly built to sit behind a reverse proxy, which may not be.
+    /// - [`ProviderError::Http`] on any **other** non-2xx response, carrying the **real**
+    ///   status — a missing model answers `404` with `{"error": "..."}`, which is nothing
+    ///   like the OpenAI-compatible error shape.
+    /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
+    ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
+    /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
+    ///   `Unreadable`, `NoMessage`, or `RedirectRefused` — and
+    ///   [`ProviderError::EmptyCompletion`] when the model produced no usable content. Both
+    ///   are **mage-local**: no lineage is condemned run-wide.
     /// - [`ProviderError::NoGeneration`] when the daemon accepted the request, generated
     ///   nothing, and returned **no token counters at all**. That footprint is a defect of
     ///   THIS crate rather than a failure of the model, so the orchestrator raises it and

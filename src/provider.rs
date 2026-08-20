@@ -307,7 +307,8 @@ impl FinishReason {
 /// another crate, and an external [`LlmProvider`] has to be able to report what it measured —
 /// which is the whole reason `complete` returns a [`Completion`] rather than a `String`. Closing
 /// them would re-create, one level down, the `E0639` trap that left `ProviderError`
-/// unconstructible from outside this crate for two releases before a consumer reported it.
+/// unconstructible from outside this crate across six published releases before a consumer
+/// reported it.
 ///
 /// The price is real and is stated rather than hidden: **adding a field to a variant here is a
 /// breaking change**, where adding one to a `ProviderError` variant is not. `4.0.0` already paid

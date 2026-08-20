@@ -407,9 +407,12 @@ impl LlmProvider for OpenAiCompatibleProvider {
     ///   used to return for a malformed body is gone: a contract failure wearing an
     ///   HTTP error's clothes inherited run-wide lineage condemnation, which is the
     ///   defect `4.0.0` is named for.
-    /// - [`ProviderError::ResponseContract`] when the endpoint answered but the body
-    ///   is not the shape the contract promises — `Unreadable` for a body serde
-    ///   cannot parse, `NoMessage` when no choice carries a message.
+    /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
+    ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
+    /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
+    ///   `Unreadable` for a body serde cannot parse, `NoMessage` when no choice carries a
+    ///   message, `RedirectRefused` when the transport gave up following redirects, in which
+    ///   case no body was received at all.
     /// - [`ProviderError::EmptyCompletion`] when the model produced no usable content,
     ///   carrying the termination reason and the budget that was in force. Both are
     ///   **mage-local**: the endpoint answered, so no lineage is condemned run-wide.

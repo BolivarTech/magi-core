@@ -547,7 +547,7 @@ is retried, and how far the condemnation reaches). A complete implementation is 
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
 | `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
-| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe` (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
+| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe`. Still enables `openai-compat` (for `reqwest` and the shared URL machinery, **not** for the completions path), so `OpenAiCompatibleProvider` is exported too (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
 | `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
