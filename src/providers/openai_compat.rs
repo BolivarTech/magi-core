@@ -614,4 +614,207 @@ mod tests {
         assert_eq!(p.name(), "openai-compat");
         assert_eq!(p.model(), "phi4-mini");
     }
+    // ---------------------------------------------------------------------
+    // Task 12 — the compat wire read COMPLETE: `finish_reason`, the reasoning
+    // channel and `usage`, plus the conversion that puts them in the telemetry.
+    // ---------------------------------------------------------------------
+
+    /// A `/v1` capture whose model burned its whole budget reasoning: HTTP 200,
+    /// `finish_reason: "length"`, empty content, 15 409 chars of reasoning.
+    /// This exact shape is the head of the causal chain this release exists for.
+    const FIX_C: &str = include_str!("../../tests/fixtures/ec/resp-C.json");
+
+    /// The same model against a small payload: it converges, so content is
+    /// present, `finish_reason` is `stop`, and the reasoning channel is non-empty.
+    const FIX_H: &str = include_str!("../../tests/fixtures/ec/resp-H.json");
+
+    #[test]
+    fn finish_reason_is_read_where_today_it_is_silently_dropped() {
+        // The response side used to deserialize ONLY `message`. That single
+        // omission is the head of the whole causal chain: without it, "the model
+        // burned its budget reasoning" and "the server sent nothing" are the same
+        // opaque error.
+        let r: OpenAiResponse = serde_json::from_str(FIX_C).expect("fixture parses");
+        assert_eq!(r.choices[0].finish_reason, Some(FinishReason::Length));
+    }
+
+    #[test]
+    fn the_reasoning_channel_is_read_and_its_absence_is_not_an_error() {
+        let with: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        assert!(with.choices[0].message.reasoning.is_some());
+        // Literal rather than a fixture: no captured body OMITS the field, and the
+        // point of the assertion is precisely that a backend which never sends it
+        // must still parse. `Option`, not `String`: absent and empty are different
+        // claims, and collapsing them would say the model did not reason when the
+        // backend merely did not report.
+        let without: OpenAiResponse =
+            serde_json::from_str(r#"{"choices":[{"message":{"content":"hi"}}]}"#)
+                .expect("a body without the field still parses");
+        assert!(without.choices[0].message.reasoning.is_none());
+    }
+
+    #[test]
+    fn the_reasoning_channel_is_also_read_under_its_other_spelling() {
+        // Some compatible servers call it `reasoning_content`. One alias, because
+        // both spellings are in the wild and a body using the other one would
+        // otherwise report `NotMeasured` — a measurement that never happened.
+        let r: OpenAiResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":"hi","reasoning_content":"abc"}}]}"#,
+        )
+        .expect("parses");
+        assert_eq!(r.choices[0].message.reasoning.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn the_response_structs_stay_private() {
+        // A-3: they are wire plumbing. `OpenAiRequest`/`OpenAiMessage` are already
+        // `pub(crate)`; the response side must not become public by accident, the
+        // way `ClaudeRequest`/`ClaudeMessage` did before 1.0.0 had to demote them.
+        //
+        // Scans only the PRODUCTION half, split at the `#[cfg(test)]` that opens
+        // this module: `include_str!` embeds the test source too, so this literal
+        // would otherwise make the file "contain" the needle it checks for.
+        let src = include_str!("openai_compat.rs");
+        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
+        for needle in [
+            "pub struct OpenAiResponse",
+            "pub struct OpenAiChoice",
+            "pub struct OpenAiRespMessage",
+            "pub struct OpenAiUsage",
+        ] {
+            assert!(
+                !production.contains(needle),
+                "the response side is wire plumbing and stays private: {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn into_completion_carries_the_telemetry_of_a_real_success() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, false, ReasoningControl::Default)
+            .expect("content is present");
+        assert!(!c.text.is_empty());
+        assert_eq!(c.telemetry.finish, Some(FinishReason::Stop));
+        // `usage` was read by no task before this one, so both counters would have
+        // stayed `None` for EVERY compat provider — half of the telemetry A-5
+        // promises.
+        assert_eq!(c.telemetry.completion_tokens, Some(1280));
+        assert_eq!(c.telemetry.prompt_tokens, Some(569));
+        assert_eq!(
+            c.telemetry.reasoning,
+            ReasoningState::Measured {
+                chars: 3535,
+                text: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_trace_is_carried_only_when_the_consumer_opted_in() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, true, ReasoningControl::Default)
+            .expect("content is present");
+        match c.telemetry.reasoning {
+            ReasoningState::Measured { chars, text } => {
+                assert_eq!(chars, 3535);
+                // Additive, never substitutive: the length is there in both modes.
+                assert_eq!(text.map(|t| t.chars().count()), Some(3535));
+            }
+            other => panic!("expected a measured trace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_completion_names_the_budget_that_cut_it() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_C).expect("fixture parses");
+        let err = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect_err("no content is a failure");
+        assert!(
+            matches!(
+                err,
+                ProviderError::EmptyCompletion {
+                    finish: Some(FinishReason::Length),
+                    cap: 4096
+                }
+            ),
+            "the cap that cut it travels with the error: {err:?}"
+        );
+    }
+
+    #[test]
+    fn a_body_without_choices_is_a_contract_failure_named_for_what_is_missing() {
+        let r: OpenAiResponse = serde_json::from_str(r#"{"choices":[]}"#).expect("valid JSON");
+        let err = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect_err("no choices is a failure");
+        assert!(
+            matches!(
+                err,
+                ProviderError::ResponseContract {
+                    reason: ResponseContractCause::NoMessage
+                }
+            ),
+            "valid JSON that does not carry what the contract promises: {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_compat_path_never_claims_our_own_defect() {
+        // `NoGeneration`'s discriminant is a set of NATIVE wire fields that do not
+        // exist here. With no way to assert the defect is ours, the reversible
+        // route is the only honest one — an aborted run on a guess is the failure
+        // this release exists to stop making.
+        for body in [
+            r#"{"choices":[{"message":{}}]}"#,
+            r#"{"choices":[{"message":{"content":null}}]}"#,
+            r#"{"choices":[{"message":{"content":""}}]}"#,
+            r#"{"choices":[{"message":{"content":"   "}}]}"#,
+        ] {
+            let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+            let err = r
+                .into_completion(4096, false, ReasoningControl::Default)
+                .expect_err("no usable content is a failure");
+            assert!(
+                matches!(err, ProviderError::EmptyCompletion { .. }),
+                "mage-local and reversible, never NoGeneration: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_control_that_cannot_be_honoured_is_declared_even_when_reasoning_came_back() {
+        // ORDER: the control resolves BEFORE the trace. A provider asked for
+        // `Disabled` that cannot honour it declares `Unsupported` even though the
+        // body carries `message.reasoning` — in fact ESPECIALLY then, because the
+        // reasoning being present is the proof the control had no effect.
+        // Resolving it the other way round overwrote C-8's declaration in silence.
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, false, ReasoningControl::Disabled)
+            .expect("content is present");
+        assert_eq!(
+            c.telemetry.reasoning,
+            ReasoningState::Unsupported {
+                backend: "openai-compatible".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn absent_usage_leaves_the_counters_unmeasured_rather_than_zero() {
+        let r: OpenAiResponse =
+            serde_json::from_str(r#"{"choices":[{"message":{"content":"hi"}}]}"#).expect("parses");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("content is present");
+        // A zero meaning "nobody counted" is indistinguishable from a real zero.
+        assert_eq!(c.telemetry.completion_tokens, None);
+        assert_eq!(c.telemetry.prompt_tokens, None);
+        assert_eq!(c.telemetry.finish, None);
+        assert_eq!(c.telemetry.reasoning, ReasoningState::NotMeasured);
+    }
 }
