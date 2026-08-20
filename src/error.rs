@@ -208,8 +208,8 @@ pub enum ProviderError {
         /// establishing that a redacted URL must still say which endpoint failed; dropping it
         /// here would have taken that back for one path without anyone deciding to.
         ///
-        /// Composed by [`crate::provider::to_provider_error`], which is the only place in the
-        /// crate that renders an endpoint at all, so it is redacted by construction.
+        /// Composed by the crate's single transport-error mapper, which is the only place that
+        /// renders an endpoint at all — so whatever appears here is redacted by construction.
         detail: String,
     },
 
