@@ -1923,6 +1923,35 @@ mod tests {
         assert!((config.temperature).abs() < f64::EPSILON);
     }
 
+    // ---- Task 5: ReasoningControl and reasoning_trace ----
+
+    #[test]
+    fn the_default_reasoning_control_leaves_the_wire_untouched() {
+        // Default must mean "say nothing", not "say think:true": a crate that starts
+        // asserting a control it was never asked for would change behaviour for every
+        // consumer that never mentioned reasoning.
+        let cfg = CompletionConfig::default();
+        assert_eq!(cfg.reasoning, ReasoningControl::Default);
+    }
+
+    #[test]
+    fn the_control_is_set_through_a_builder_because_the_struct_is_non_exhaustive() {
+        let cfg = CompletionConfig::default().with_reasoning(ReasoningControl::Disabled);
+        assert_eq!(cfg.reasoning, ReasoningControl::Disabled);
+    }
+
+    #[test]
+    fn reasoning_trace_defaults_to_false_and_is_set_through_its_own_builder() {
+        // Default `false`: with it, behaviour does not change and no report grows by
+        // surprise. It is ADDITIVE — the flag adds the text, never replaces the length.
+        assert!(!CompletionConfig::default().reasoning_trace);
+        assert!(
+            CompletionConfig::default()
+                .with_reasoning_trace(true)
+                .reasoning_trace
+        );
+    }
+
     // -- RetryProvider delegation tests --
 
     /// RetryProvider wraps inner provider and delegates name().
