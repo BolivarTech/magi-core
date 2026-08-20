@@ -444,6 +444,10 @@ const NAME_COUNTERS_ABSENT: &str = "the live backend still OMITS the token count
 const NAME_REASON_LOAD: &str = "the live backend still reports the load termination";
 const NAME_CONTENT_EMPTY: &str = "the live backend still returns empty content";
 
+/// The status a native answer carries. A probe that got anything else did not obtain the
+/// response this scenario is about.
+const NATIVE_OK: u16 = 200;
+
 /// `S9b` — erosion detection (`sbtdd/smoke-harness-spec.md`, "S9b").
 ///
 /// # Not a duplicate of `S9`, and the difference is the whole reason it exists
@@ -476,6 +480,26 @@ fn s9b_the_footprint_still_matches_the_live_backend(ctx: &RunContext<'_>) -> Vec
         ];
     };
 
+    // The STATUS is a gate, not a decoration, and leaving it unread cost a whole smoke round.
+    // The probe once asked about a model that does not exist and got a `404` error envelope
+    // back; two assertions went red and the third — "the counters are absent" — passed
+    // VACUOUSLY, because an error body has no counters either. The result read as "the backend
+    // half-eroded" when the truth was "we asked the wrong question".
+    //
+    // Anything but a `200` means the probe did not obtain the answer this scenario is about, so
+    // it SKIPS naming the status rather than reporting erosion it never observed.
+    if status != NATIVE_OK {
+        let why = format!(
+            "the backend answered {status}, so this is not the response whose footprint is \
+             being checked — the probe asked the wrong question, which says nothing about erosion"
+        );
+        return vec![
+            Assertion::skip(NAME_COUNTERS_ABSENT, why.clone()),
+            Assertion::skip(NAME_REASON_LOAD, why.clone()),
+            Assertion::skip(NAME_CONTENT_EMPTY, why),
+        ];
+    }
+
     let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(body) else {
         let why = format!("the backend answered {status} with a body that is not JSON");
         return vec![
@@ -485,12 +509,19 @@ fn s9b_the_footprint_still_matches_the_live_backend(ctx: &RunContext<'_>) -> Vec
         ];
     };
 
+    // And the counters assertion is no longer allowed to answer on its own. Absence is only
+    // meaningful in a body that IS a native answer; in anything else it is the absence of the
+    // whole shape, which is a different statement.
+    let is_native_answer = parsed.get("message").is_some() && parsed.get("done").is_some();
+
     // ABSENT, not zero, and the difference is the whole discriminant: a backend that starts
     // sending `eval_count: 0` would satisfy any check written as "counters are zero or missing",
     // and the protection would be gone with the test still green.
     let counters_absent = assert_that(
         NAME_COUNTERS_ABSENT,
-        parsed.get("eval_count").is_none() && parsed.get("prompt_eval_count").is_none(),
+        is_native_answer
+            && parsed.get("eval_count").is_none()
+            && parsed.get("prompt_eval_count").is_none(),
     );
 
     let reason_load = assert_that(
@@ -1191,5 +1222,80 @@ mod tests {
                 a.state
             );
         }
+    }
+    /// The `404` envelope the backend returns for a model that does not exist.
+    ///
+    /// This is the body the erosion probe actually received on its first live run, because it
+    /// reused a model name chosen precisely because it does not exist.
+    const NOT_FOUND_ENVELOPE: &[u8] = br#"{"error":"model \"x\" not found"}"#;
+
+    #[test]
+    fn s9b_skips_rather_than_reporting_erosion_when_the_probe_asked_the_wrong_question() {
+        // The defect this closes, from the first live SMOKE round: a `404` made two rows go red
+        // and the third pass VACUOUSLY — an error body has no counters either — so the result
+        // read as "the backend half-eroded" when nothing about erosion had been observed.
+        let ctx = RunContext {
+            erosion_probe_body: Some(NOT_FOUND_ENVELOPE),
+            erosion_probe_status: Some(404),
+            ..RunContext::blank(RunId::HappySmall)
+        };
+        for a in s9b_the_footprint_still_matches_the_live_backend(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip on a non-200, got {:?}",
+                a.name,
+                a.state
+            );
+        }
+    }
+
+    #[test]
+    fn s9b_counters_row_cannot_pass_on_a_body_that_is_not_a_native_answer() {
+        // Belt to the status gate's braces, and a different failure: a `200` carrying something
+        // that is not a native answer at all. Absence of the counters means nothing there — it
+        // is the absence of the whole shape, which is a different statement.
+        let ctx = RunContext {
+            erosion_probe_body: Some(br#"{"unexpected":"shape"}"#),
+            erosion_probe_status: Some(200),
+            ..RunContext::blank(RunId::HappySmall)
+        };
+        let states: Vec<_> = s9b_the_footprint_still_matches_the_live_backend(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_COUNTERS_ABSENT, ScenarioState::Fail)),
+            "the counters row must not answer on a body that is not a native answer: {states:?}"
+        );
+    }
+
+    #[test]
+    fn the_erosion_probe_does_not_reuse_the_deliberately_missing_transparency_model() {
+        // The root cause, pinned at its source. `PROBE_MODEL` is a name chosen BECAUSE it does
+        // not exist — right for a probe that compares two halves against each other, wrong for
+        // one that needs the backend's real answer to a malformed request.
+        let src = include_str!("../runner.rs").replace("\r\n", "\n");
+        let start = src
+            .find("pub async fn prime_erosion_probe")
+            .expect("the erosion probe must exist");
+        let end = src[start..]
+            .find("\n    }\n")
+            .map(|i| start + i)
+            .expect("the probe must be a complete function");
+        // COMMENT LINES STRIPPED before scanning: the probe's own comment names the constant in
+        // order to explain why reusing it was wrong, and a scan that reads prose as code would
+        // fail on the very explanation of the fix. Same trap as two sibling checks in the crate.
+        let code: String = src[start..end]
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        assert!(
+            !code.contains("PROBE_MODEL"),
+            "the erosion probe must ask about a model that EXISTS"
+        );
     }
 }

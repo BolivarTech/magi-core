@@ -978,9 +978,17 @@ impl Runner {
             return;
         }
         let window = probe_window(&self.config);
+        // A REAL model, and this is the correction that matters: an earlier version reused
+        // `PROBE_MODEL`, a name chosen precisely BECAUSE it does not exist — which is right for
+        // the transparency probe, since that one compares two halves against each other rather
+        // than against a correct answer. Here it produced a `404` error envelope, and the
+        // scenario then read a body it should never have been handed.
+        let Some(model) = self.config.seats.first().map(|s| s.model.clone()) else {
+            return;
+        };
         // Deliberately missing `messages` — the one request shape measured to produce the
         // footprint. Written out here rather than derived, so what is being asked stays visible.
-        let body = format!("{{\"model\":\"{PROBE_MODEL}\",\"stream\":false}}");
+        let body = format!("{{\"model\":\"{model}\",\"stream\":false}}");
         let Ok((status, response)) = chat_request(backend, &body, window).await else {
             // Leaves both fields None, which makes the scenario SKIP. A probe that could not run
             // says nothing about whether the footprint eroded.
