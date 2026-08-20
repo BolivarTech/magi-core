@@ -5,7 +5,7 @@
 use crate::error::ProviderError;
 use crate::provider::{
     Completion, CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, PARSE_FAILURE_STATUS,
-    resolve_claude_alias,
+    ReasoningControl, resolve_claude_alias,
 };
 use crate::providers::provider_url::ProviderUrl;
 use reqwest::Client;
@@ -223,6 +223,29 @@ impl ClaudeProvider {
             })
     }
 
+    /// Parses a Claude Messages API response body into a [`Completion`],
+    /// carrying whatever telemetry Anthropic reported alongside the text
+    /// [`Self::parse_response`] already extracts.
+    ///
+    /// # Parameters
+    /// * `body` — the raw JSON response body.
+    /// * `reasoning` — the caller's [`ReasoningControl`].
+    ///
+    /// # Returns
+    /// A [`Completion`] with its telemetry.
+    ///
+    /// # Errors
+    /// Same as [`Self::parse_response`].
+    // TODO(Task 11, Green): read `stop_reason`/`usage` and declare
+    // `ReasoningState::Unsupported` for `ReasoningControl::Disabled` — this stub
+    // exists only so the Red tests below fail by ASSERTION, not compile error.
+    pub(crate) fn parse_completion(
+        body: &str,
+        _reasoning: ReasoningControl,
+    ) -> Result<Completion, ProviderError> {
+        Self::parse_response(body).map(Completion::new)
+    }
+
     /// Maps an HTTP status code and response body to the appropriate
     /// `ProviderError` variant.
     ///
@@ -312,10 +335,7 @@ impl LlmProvider for ClaudeProvider {
         // loses its closing marker, which would make the parser blame the model for our cut.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
 
-        // The parser still yields text; the telemetry this wraps it in is `unmeasured()` until
-        // the diagnosis axis teaches this provider to read `finish_reason`. Saying "not measured"
-        // is the honest state — it is not the same claim as measuring zero.
-        Self::parse_response(&response_body).map(Completion::new)
+        Self::parse_completion(&response_body, config.reasoning)
     }
 
     fn name(&self) -> &str {
@@ -420,6 +440,59 @@ mod tests {
     fn test_parse_response_error_on_invalid_json() {
         let result = super::ClaudeProvider::parse_response("not json");
         assert!(result.is_err());
+    }
+
+    // -- Task 11: telemetry the HTTP provider CAN report --
+
+    /// Step 3b: `stop_reason` and `usage` are read into the completion's
+    /// telemetry. `"max_tokens"` maps to `FinishReason::Length` — the output
+    /// budget cut, which is the signal the diagnosis axis exists to surface.
+    #[test]
+    fn the_anthropic_http_provider_reports_its_stop_reason_and_usage() {
+        use crate::provider::FinishReason;
+
+        let json = r#"{"content":[{"type":"text","text":"hi"}],
+            "stop_reason":"max_tokens",
+            "usage":{"input_tokens":100,"output_tokens":50}}"#;
+        let out = super::ClaudeProvider::parse_completion(json, super::ReasoningControl::default())
+            .expect("valid body parses");
+        assert_eq!(out.telemetry.finish, Some(FinishReason::Length));
+        assert_eq!(out.telemetry.completion_tokens, Some(50));
+        assert_eq!(out.telemetry.prompt_tokens, Some(100));
+    }
+
+    /// Task 11 / C-8: the Messages API has no per-request switch for its
+    /// reasoning channel, so `Disabled` is DECLARED rather than silently
+    /// ignored — the forbidden thing was never "carry on", it was carrying on
+    /// in silence.
+    #[test]
+    fn the_provider_declares_unsupported_when_the_caller_disables_reasoning() {
+        use crate::provider::ReasoningState;
+
+        let json = r#"{"content":[{"type":"text","text":"hi"}]}"#;
+        let out = super::ClaudeProvider::parse_completion(json, super::ReasoningControl::Disabled)
+            .expect("valid body parses");
+        assert!(
+            matches!(
+                out.telemetry.reasoning,
+                ReasoningState::Unsupported { ref backend } if backend == "anthropic"
+            ),
+            "expected Unsupported{{backend: \"anthropic\"}}, got {:?}",
+            out.telemetry.reasoning
+        );
+    }
+
+    /// The other half of C-8: with nothing asked, nothing is declared — and
+    /// there is no trace channel this provider reads regardless, so this must
+    /// be `NotMeasured`, never `Measured {{ chars: 0 }}`.
+    #[test]
+    fn the_provider_declares_nothing_when_reasoning_control_is_default() {
+        use crate::provider::ReasoningState;
+
+        let json = r#"{"content":[{"type":"text","text":"hi"}]}"#;
+        let out = super::ClaudeProvider::parse_completion(json, super::ReasoningControl::Default)
+            .expect("valid body parses");
+        assert_eq!(out.telemetry.reasoning, ReasoningState::NotMeasured);
     }
 
     // -- Error mapping --

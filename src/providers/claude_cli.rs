@@ -3,7 +3,9 @@
 // Date: 2026-04-05
 
 use crate::error::ProviderError;
-use crate::provider::{Completion, CompletionConfig, LlmProvider, resolve_claude_alias};
+use crate::provider::{
+    Completion, CompletionConfig, LlmProvider, ReasoningControl, resolve_claude_alias,
+};
 use serde::Deserialize;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
@@ -154,6 +156,27 @@ struct CliOutput {
     result: String,
 }
 
+/// Parses the CLI output envelope into a [`Completion`], carrying whatever
+/// telemetry the envelope holds.
+///
+/// # Parameters
+/// * `raw` — the subprocess's raw stdout.
+/// * `reasoning` — the caller's [`ReasoningControl`].
+///
+/// # Returns
+/// A [`Completion`] whose text has its code fences stripped, and whose
+/// telemetry carries what the envelope reports.
+///
+/// # Errors
+/// Same as [`parse_cli_output`].
+// TODO(Task 11, Green): read `usage.input_tokens` and declare
+// `ReasoningState::Unsupported` for `ReasoningControl::Disabled` — this stub
+// exists only so the Red tests below fail by ASSERTION, not compile error.
+fn parse_completion(raw: &str, _reasoning: ReasoningControl) -> Result<Completion, ProviderError> {
+    let result = parse_cli_output(raw)?;
+    Ok(Completion::new(strip_code_fences(&result).to_string()))
+}
+
 #[async_trait::async_trait]
 impl LlmProvider for ClaudeCliProvider {
     /// Sends a completion request by launching a `claude` subprocess.
@@ -165,15 +188,20 @@ impl LlmProvider for ClaudeCliProvider {
     /// The timeout is NOT applied here — the orchestrator wraps the
     /// entire agent task in `tokio::time::timeout`.
     ///
-    /// **Note:** `config` (max_tokens, temperature) is ignored because the
-    /// `claude --print` CLI does not expose those flags. The CLI uses its
-    /// own server-side defaults. Users who need fine-grained control should
-    /// use [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) (HTTP API) instead.
+    /// **Note:** `config.max_tokens` / `config.temperature` are ignored because
+    /// the `claude --print` CLI does not expose those flags — it uses its own
+    /// server-side defaults. `config.reasoning` IS read, only to declare
+    /// [`crate::provider::ReasoningState::Unsupported`] when the caller asked
+    /// to disable it (C-8): the CLI exposes no such flag either, and the
+    /// forbidden thing was never carrying on, it was carrying on in silence.
+    /// Users who need fine-grained control should use
+    /// [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) (HTTP API)
+    /// instead.
     async fn complete(
         &self,
         system_prompt: &str,
         user_prompt: &str,
-        _config: &CompletionConfig,
+        config: &CompletionConfig,
     ) -> Result<Completion, ProviderError> {
         let args = self.build_args(system_prompt);
 
@@ -215,10 +243,7 @@ impl LlmProvider for ClaudeCliProvider {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let result = parse_cli_output(&stdout)?;
-        // A subprocess reports no token counts and no termination reason, so its telemetry is
-        // `unmeasured()` — and that is not a gap to fill later with zeros, it is the truth.
-        Ok(Completion::new(strip_code_fences(&result).to_string()))
+        parse_completion(&stdout, config.reasoning)
     }
 
     fn name(&self) -> &str {
@@ -459,6 +484,58 @@ mod tests {
             matches!(err, ProviderError::Process { .. }),
             "expected Process, got: {err}"
         );
+    }
+
+    // -- Task 11: telemetry the CLI provider CAN report --
+
+    /// Step 1c/3: the envelope carries `usage.input_tokens` (visible on its own
+    /// in `test_parse_cli_output_extracts_inner_result`'s fixture), but NO
+    /// `stop_reason` field at all — verified against the envelope shape, not
+    /// assumed. `finish` staying `None` says "this backend does not say";
+    /// asserting `Stop` would invent a measurement.
+    #[test]
+    fn the_cli_provider_reports_usage_and_leaves_finish_none() {
+        let raw = r#"{"is_error":false,"result":"hi","usage":{"input_tokens":100}}"#;
+        let out = super::parse_completion(raw, ReasoningControl::default())
+            .expect("valid envelope parses");
+        assert_eq!(out.telemetry.prompt_tokens, Some(100));
+        assert_eq!(
+            out.telemetry.finish, None,
+            "the CLI envelope has no stop_reason"
+        );
+    }
+
+    /// Task 11 / C-8: `ClaudeCliProvider` is an INDEPENDENT struct — it does not
+    /// delegate to `ClaudeProvider` — so omitting it would leave a provider
+    /// declaring nothing, exactly the silent no-op this task exists to stop.
+    /// The `claude --print` CLI exposes no flag for its reasoning channel at
+    /// all, so `Disabled` is DECLARED here too.
+    #[test]
+    fn the_cli_provider_declares_unsupported_when_the_caller_disables_reasoning() {
+        use crate::provider::ReasoningState;
+
+        let raw = r#"{"is_error":false,"result":"hi"}"#;
+        let out = super::parse_completion(raw, ReasoningControl::Disabled)
+            .expect("valid envelope parses");
+        assert!(
+            matches!(
+                out.telemetry.reasoning,
+                ReasoningState::Unsupported { ref backend } if backend == "anthropic-cli"
+            ),
+            "expected Unsupported{{backend: \"anthropic-cli\"}}, got {:?}",
+            out.telemetry.reasoning
+        );
+    }
+
+    /// The other half of C-8: nothing asked, nothing declared.
+    #[test]
+    fn the_cli_provider_declares_nothing_when_reasoning_control_is_default() {
+        use crate::provider::ReasoningState;
+
+        let raw = r#"{"is_error":false,"result":"hi"}"#;
+        let out =
+            super::parse_completion(raw, ReasoningControl::Default).expect("valid envelope parses");
+        assert_eq!(out.telemetry.reasoning, ReasoningState::NotMeasured);
     }
 
     // -- BDD Scenario 21: strips code fences --

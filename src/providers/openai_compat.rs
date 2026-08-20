@@ -380,6 +380,19 @@ impl LlmProvider for OpenAiCompatibleProvider {
 mod tests {
     use super::*;
 
+    /// C-9. This provider must never acquire the native routing that
+    /// `OllamaProvider` uses — it stays the documented path for OpenAI cloud,
+    /// LocalAI, vLLM, LM Studio and llama.cpp-server (ADR 006). The only thing
+    /// Task 11 adds here is C-8's declaration.
+    #[test]
+    fn the_openai_compatible_provider_never_acquires_native_routing() {
+        let src = include_str!("openai_compat.rs");
+        assert!(
+            !src.contains("/api/chat"),
+            "the compat provider must keep speaking the OpenAI wire format only"
+        );
+    }
+
     #[test]
     fn test_new_valid_url_ok_and_model_passthrough() {
         let p = OpenAiCompatibleProvider::new("http://127.0.0.1:11434/v1", "phi4-mini", None)
