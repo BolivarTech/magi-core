@@ -16,7 +16,10 @@
 //! dependency (shared with `claude-api`).
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, PARSE_FAILURE_STATUS};
+use crate::provider::{
+    CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, PARSE_FAILURE_STATUS,
+    ReasoningControl, ReasoningState,
+};
 use crate::providers::provider_url::ProviderUrl;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -364,7 +367,23 @@ impl LlmProvider for OpenAiCompatibleProvider {
         // The total timeout can also fire while reading (headers arrive, then the server hangs);
         // the shared mapper classifies that as `Timeout`, not `Network`.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
-        Self::parse_response(&response_body).map(Completion::new)
+        let text = Self::parse_response(&response_body)?;
+
+        // C-8: this wire has no way to skip its reasoning channel — `think: false`
+        // was measured accepted-with-HTTP-200-and-no-effect here (evidence run G),
+        // so `Disabled` is DECLARED rather than silently ignored. Reading
+        // `finish_reason`/`usage` from a real response is Task 12's, not this
+        // one's: this provider's telemetry stays otherwise `unmeasured()`.
+        let reasoning = match config.reasoning {
+            ReasoningControl::Disabled => ReasoningState::Unsupported {
+                backend: "openai-compatible".to_string(),
+            },
+            // Nothing was asked, so nothing is declared either — and there is no
+            // trace channel read here regardless, so this is NOT a measured zero.
+            ReasoningControl::Default => ReasoningState::NotMeasured,
+        };
+        let telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
+        Ok(Completion::new(text).with_telemetry(telemetry))
     }
 
     fn name(&self) -> &str {
@@ -384,11 +403,17 @@ mod tests {
     /// `OllamaProvider` uses — it stays the documented path for OpenAI cloud,
     /// LocalAI, vLLM, LM Studio and llama.cpp-server (ADR 006). The only thing
     /// Task 11 adds here is C-8's declaration.
+    ///
+    /// Scans only the PRODUCTION half of this file, split at the `#[cfg(test)]`
+    /// marker that opens this very module: `include_str!` embeds the whole
+    /// file, test source included, and this assertion's own literal would
+    /// otherwise make the file "contain" the needle it is checking for.
     #[test]
     fn the_openai_compatible_provider_never_acquires_native_routing() {
         let src = include_str!("openai_compat.rs");
+        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
         assert!(
-            !src.contains("/api/chat"),
+            !production.contains("/api/chat"),
             "the compat provider must keep speaking the OpenAI wire format only"
         );
     }

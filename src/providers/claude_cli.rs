@@ -4,7 +4,8 @@
 
 use crate::error::ProviderError;
 use crate::provider::{
-    Completion, CompletionConfig, LlmProvider, ReasoningControl, resolve_claude_alias,
+    Completion, CompletionConfig, CompletionTelemetry, LlmProvider, ReasoningControl,
+    ReasoningState, resolve_claude_alias,
 };
 use serde::Deserialize;
 use std::process::Stdio;
@@ -154,6 +155,25 @@ fn strip_code_fences(text: &str) -> &str {
 struct CliOutput {
     is_error: bool,
     result: String,
+    /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
+    /// the envelope does not guarantee this field across CLI versions, and
+    /// `is_error`/`result` extraction must not depend on it.
+    #[serde(default)]
+    usage: Option<CliUsage>,
+}
+
+/// Token counts from the CLI envelope's `usage` object.
+///
+/// The CLI envelope carries **no `stop_reason`-equivalent field at all** —
+/// verified against the envelope shape (`CliOutput`'s only fields are
+/// `is_error`/`result`/`usage`) — so there is nothing here to translate into a
+/// [`crate::provider::FinishReason`]. [`parse_completion`] leaves `finish` at
+/// `None`, which says "this backend does not say" rather than inventing
+/// [`crate::provider::FinishReason::Stop`].
+#[derive(Debug, Default, Deserialize)]
+struct CliUsage {
+    #[serde(default)]
+    input_tokens: Option<u32>,
 }
 
 /// Parses the CLI output envelope into a [`Completion`], carrying whatever
@@ -161,20 +181,45 @@ struct CliOutput {
 ///
 /// # Parameters
 /// * `raw` — the subprocess's raw stdout.
-/// * `reasoning` — the caller's [`ReasoningControl`].
+/// * `reasoning` — the caller's [`ReasoningControl`], read only to decide
+///   whether to DECLARE that this provider cannot honour
+///   [`ReasoningControl::Disabled`] (C-8) — `claude --print` exposes no flag
+///   for its reasoning channel at all, and `ClaudeCliProvider` does **not**
+///   delegate to [`crate::providers::claude::ClaudeProvider`]: it is an
+///   independent struct with its own `model_id`, so omitting this call would
+///   leave a provider declaring nothing — the exact silent no-op C-8 exists to
+///   stop.
 ///
 /// # Returns
 /// A [`Completion`] whose text has its code fences stripped, and whose
-/// telemetry carries what the envelope reports.
+/// telemetry carries `prompt_tokens` when the envelope's `usage.input_tokens`
+/// is present. `finish` stays `None` unconditionally (see [`CliUsage`]).
 ///
 /// # Errors
-/// Same as [`parse_cli_output`].
-// TODO(Task 11, Green): read `usage.input_tokens` and declare
-// `ReasoningState::Unsupported` for `ReasoningControl::Disabled` — this stub
-// exists only so the Red tests below fail by ASSERTION, not compile error.
-fn parse_completion(raw: &str, _reasoning: ReasoningControl) -> Result<Completion, ProviderError> {
+/// Same as [`parse_cli_output`], whose error path this reuses rather than
+/// duplicating: a second, tolerant re-parse only reads `usage`, since
+/// `is_error` and malformed-JSON handling already happened above.
+fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion, ProviderError> {
     let result = parse_cli_output(raw)?;
-    Ok(Completion::new(strip_code_fences(&result).to_string()))
+    let text = strip_code_fences(&result).to_string();
+
+    let prompt_tokens = serde_json::from_str::<CliOutput>(raw)
+        .ok()
+        .and_then(|o| o.usage)
+        .and_then(|u| u.input_tokens);
+
+    let mut telemetry = CompletionTelemetry::unmeasured();
+    if let Some(n) = prompt_tokens {
+        telemetry = telemetry.with_prompt_tokens(n);
+    }
+    telemetry = telemetry.with_reasoning(match reasoning {
+        ReasoningControl::Disabled => ReasoningState::Unsupported {
+            backend: "anthropic-cli".to_string(),
+        },
+        ReasoningControl::Default => ReasoningState::NotMeasured,
+    });
+
+    Ok(Completion::new(text).with_telemetry(telemetry))
 }
 
 #[async_trait::async_trait]

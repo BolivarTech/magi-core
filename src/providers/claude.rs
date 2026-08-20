@@ -4,8 +4,8 @@
 
 use crate::error::ProviderError;
 use crate::provider::{
-    Completion, CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, PARSE_FAILURE_STATUS,
-    ReasoningControl, resolve_claude_alias,
+    Completion, CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, FinishReason,
+    LlmProvider, PARSE_FAILURE_STATUS, ReasoningControl, ReasoningState, resolve_claude_alias,
 };
 use crate::providers::provider_url::ProviderUrl;
 use reqwest::Client;
@@ -88,9 +88,17 @@ pub(crate) struct ClaudeMessage {
 }
 
 /// Response from the Claude Messages API.
+///
+/// `stop_reason` and `usage` are `#[serde(default)]`: a body that omits either
+/// (or both) must still parse (A-3) — the text extraction in
+/// [`ClaudeProvider::parse_response`] never depended on them.
 #[derive(Debug, Deserialize)]
 struct ClaudeResponse {
     content: Vec<ContentBlock>,
+    #[serde(default)]
+    stop_reason: Option<String>,
+    #[serde(default)]
+    usage: Option<ClaudeUsage>,
 }
 
 /// A content block in the Claude Messages API response.
@@ -99,6 +107,42 @@ struct ContentBlock {
     #[serde(rename = "type")]
     type_: String,
     text: Option<String>,
+}
+
+/// Token counts from the Claude Messages API's `usage` object.
+///
+/// Both fields `#[serde(default)]`: a partial `usage` object (Anthropic has
+/// sent one missing `input_tokens` before) must not fail the whole parse.
+#[derive(Debug, Default, Deserialize)]
+struct ClaudeUsage {
+    #[serde(default)]
+    output_tokens: Option<u32>,
+    #[serde(default)]
+    input_tokens: Option<u32>,
+}
+
+/// Translates Anthropic's `stop_reason` vocabulary to this crate's
+/// [`FinishReason`] at the provider boundary (T-5.3) — the same translation
+/// [`crate::providers::ollama_wire`] performs for the native wire's
+/// `done_reason`. Public API vocabulary stays vendor-neutral; the translation
+/// lives entirely inside the provider that speaks the vendor's wire.
+///
+/// # Parameters
+/// * `raw` — the value Anthropic sent.
+///
+/// # Returns
+/// [`FinishReason::Length`] for `"max_tokens"` — the output-budget cut this
+/// crate's diagnosis axis exists to surface — [`FinishReason::Stop`] for the
+/// three values Anthropic documents as the model finishing on its own terms,
+/// and [`FinishReason::Other`] for anything else, via
+/// [`FinishReason::from_wire`] (capped at 64 characters, open space: Anthropic
+/// could add a fourth value at any time).
+fn map_stop_reason(raw: &str) -> FinishReason {
+    match raw {
+        "end_turn" | "stop_sequence" | "tool_use" => FinishReason::Stop,
+        "max_tokens" => FinishReason::Length,
+        other => FinishReason::from_wire(other),
+    }
 }
 
 impl ClaudeProvider {
@@ -229,21 +273,58 @@ impl ClaudeProvider {
     ///
     /// # Parameters
     /// * `body` — the raw JSON response body.
-    /// * `reasoning` — the caller's [`ReasoningControl`].
+    /// * `reasoning` — the caller's [`ReasoningControl`], read only to decide
+    ///   whether to DECLARE that this provider cannot honour
+    ///   [`ReasoningControl::Disabled`] (C-8) — the Messages API has no
+    ///   per-request switch for its reasoning channel at all.
     ///
     /// # Returns
-    /// A [`Completion`] with its telemetry.
+    /// A [`Completion`] whose telemetry carries `stop_reason` (mapped through
+    /// [`map_stop_reason`]) and `usage`'s token counts when Anthropic sent
+    /// them, and [`ReasoningState::Unsupported`] when the caller asked to
+    /// disable reasoning. With [`ReasoningControl::Default`] the reasoning
+    /// state is [`ReasoningState::NotMeasured`] — nothing was asked, so
+    /// nothing is declared, and there is no trace channel this provider reads
+    /// regardless.
+    ///
+    /// This deserializes `body` a second time (`body` is a small JSON
+    /// envelope, parsed once per completion — not a hot loop): the first
+    /// parse lives inside [`Self::parse_response`], which already owns the
+    /// error path for a malformed body or a missing text block. Duplicating
+    /// that branching here to save one `serde_json::from_str` would gain
+    /// nothing, since a body this second, tolerant parse cannot read has
+    /// already failed above.
     ///
     /// # Errors
     /// Same as [`Self::parse_response`].
-    // TODO(Task 11, Green): read `stop_reason`/`usage` and declare
-    // `ReasoningState::Unsupported` for `ReasoningControl::Disabled` — this stub
-    // exists only so the Red tests below fail by ASSERTION, not compile error.
     pub(crate) fn parse_completion(
         body: &str,
-        _reasoning: ReasoningControl,
+        reasoning: ReasoningControl,
     ) -> Result<Completion, ProviderError> {
-        Self::parse_response(body).map(Completion::new)
+        let text = Self::parse_response(body)?;
+
+        let mut telemetry = CompletionTelemetry::unmeasured();
+        if let Ok(extra) = serde_json::from_str::<ClaudeResponse>(body) {
+            if let Some(raw) = extra.stop_reason.as_deref() {
+                telemetry = telemetry.with_finish(map_stop_reason(raw));
+            }
+            if let Some(usage) = extra.usage {
+                if let Some(n) = usage.output_tokens {
+                    telemetry = telemetry.with_completion_tokens(n);
+                }
+                if let Some(n) = usage.input_tokens {
+                    telemetry = telemetry.with_prompt_tokens(n);
+                }
+            }
+        }
+        telemetry = telemetry.with_reasoning(match reasoning {
+            ReasoningControl::Disabled => ReasoningState::Unsupported {
+                backend: "anthropic".to_string(),
+            },
+            ReasoningControl::Default => ReasoningState::NotMeasured,
+        });
+
+        Ok(Completion::new(text).with_telemetry(telemetry))
     }
 
     /// Maps an HTTP status code and response body to the appropriate
