@@ -134,6 +134,7 @@ impl OpenAiResponse {
             .next()
             .ok_or(ProviderError::ResponseContract {
                 reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
             })?;
         let OpenAiChoice {
             message,
@@ -447,6 +448,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
         let parsed: OpenAiResponse =
             serde_json::from_str(&response_body).map_err(|_| ProviderError::ResponseContract {
                 reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
             })?;
         parsed.into_completion(config.max_tokens, config.reasoning_trace, config.reasoning)
     }
@@ -806,7 +808,8 @@ mod tests {
             matches!(
                 err,
                 ProviderError::ResponseContract {
-                    reason: ResponseContractCause::NoMessage
+                    reason: ResponseContractCause::NoMessage,
+                    ..
                 }
             ),
             "valid JSON that does not carry what the contract promises: {err:?}"

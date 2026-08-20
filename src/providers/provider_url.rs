@@ -415,6 +415,7 @@ impl ProviderResponse {
         // a second try, because the same endpoint can answer differently.
         String::from_utf8(acc).map_err(|_| ProviderError::ResponseContract {
             reason: crate::error::ResponseContractCause::Unreadable,
+            detail: String::new(),
         })
     }
 

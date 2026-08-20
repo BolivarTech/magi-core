@@ -2836,6 +2836,7 @@ mod tests {
         // from the other two mages, which is precisely the defect this milestone exists to fix.
         let contract = ProviderError::ResponseContract {
             reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
         };
         match provider_err_outcome(contract) {
             ModelOutcome::MageLocal { kind, .. } => {
@@ -2885,6 +2886,7 @@ mod tests {
         for err in [
             ProviderError::ResponseContract {
                 reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
             },
             ProviderError::EmptyCompletion {
                 finish: None,

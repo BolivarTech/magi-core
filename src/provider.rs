@@ -910,7 +910,7 @@ fn is_retryable(error: &ProviderError) -> bool {
         // something different. It can for a body that arrived unreadable — a cut connection, a
         // proxy that clipped the response — and it cannot for a body that parsed fine and
         // deliberately carried no message.
-        ProviderError::ResponseContract { reason } => match reason {
+        ProviderError::ResponseContract { reason, .. } => match reason {
             ResponseContractCause::Unreadable => true,
             // Neither of these changes on a second try: one carried no message on purpose, and
             // the other follows the same redirect chain to the same refusal.
@@ -1015,6 +1015,10 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
         // statuses. The message still names which of the two causes applied.
         ProviderError::ResponseContract {
             reason: ResponseContractCause::RedirectRefused,
+            // The composed message, which names the operation and the REDACTED endpoint. This is
+            // the one routed-here case whose whole diagnostic value is which endpoint refused,
+            // and it is why the variant carries a detail at all.
+            detail: message,
         }
     } else {
         ProviderError::Network { message }
@@ -1394,6 +1398,7 @@ mod tests {
         }));
         assert!(!is_retryable(&ProviderError::ResponseContract {
             reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
         }));
 
         // The one that IS retryable, and the reason it differs: an unreadable body can be a
@@ -1402,6 +1407,7 @@ mod tests {
         // budget, same answer.
         assert!(is_retryable(&ProviderError::ResponseContract {
             reason: ResponseContractCause::Unreadable,
+            detail: String::new(),
         }));
     }
 
@@ -1413,6 +1419,7 @@ mod tests {
         let classes = [
             classify(&ProviderError::ResponseContract {
                 reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
             }),
             classify(&ProviderError::EmptyCompletion {
                 finish: None,
@@ -2651,6 +2658,7 @@ mod tests {
         // misconfigured redirect chain on one seat.
         let e = ProviderError::ResponseContract {
             reason: ResponseContractCause::RedirectRefused,
+            detail: String::new(),
         };
         assert!(!is_retryable(&e));
         // Same chain, same failure, every time: retrying only spends budget.

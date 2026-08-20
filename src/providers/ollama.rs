@@ -282,6 +282,7 @@ impl LlmProvider for OllamaProvider {
         let native: NativeResponse =
             serde_json::from_str(&body).map_err(|_| ProviderError::ResponseContract {
                 reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
             })?;
         native.into_completion(config.max_tokens, config.reasoning_trace)
     }

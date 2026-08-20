@@ -322,12 +322,24 @@ impl NativeResponse {
             });
         }
 
+        // A MEASURED zero, not `NotMeasured`, and the asymmetry with the compat path is
+        // deliberate. On THIS wire the crate did look at a channel it knows how to read: the
+        // field appears whenever there is reasoning to report (fixture `native-N2`) and is
+        // omitted when there is none (`native-N1`, `N3`, `N4`). So its absence means the model
+        // did not reason — a real zero — rather than "nobody could tell".
+        //
+        // The compat path keeps `NotMeasured` for the same reason read the other way: that wire
+        // is spoken by backends that differ on whether they report the channel at all, so
+        // absence there is genuinely ambiguous and must not be reported as a measurement.
         let reasoning = match thinking {
             Some(s) => ReasoningState::Measured {
                 chars: s.chars().count(),
                 text: trace.then_some(s),
             },
-            None => ReasoningState::NotMeasured,
+            None => ReasoningState::Measured {
+                chars: 0,
+                text: None,
+            },
         };
         let mut telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
         if let Some(f) = done_reason {
@@ -632,9 +644,17 @@ mod tests {
         assert_eq!(c.telemetry.finish, Some(FinishReason::Stop));
         assert_eq!(c.telemetry.completion_tokens, Some(6800));
         assert_eq!(c.telemetry.prompt_tokens, Some(63_924));
-        // N1 carries no `thinking` field at all, so nothing was measured — NOT
-        // `Measured { chars: 0 }`, which would assert a look that never happened.
-        assert_eq!(c.telemetry.reasoning, ReasoningState::NotMeasured);
+        // N1 carries no `thinking` field, and on THIS wire that is a measured zero rather than
+        // an absence of measurement: the field appears whenever there is reasoning to report
+        // (see `N2` below), so its absence says the model did not reason. The compat path keeps
+        // `NotMeasured`, because there the same absence is genuinely ambiguous.
+        assert_eq!(
+            c.telemetry.reasoning,
+            ReasoningState::Measured {
+                chars: 0,
+                text: None
+            }
+        );
     }
 
     #[test]

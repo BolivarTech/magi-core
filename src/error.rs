@@ -192,11 +192,25 @@ pub enum ProviderError {
     /// zero — a contract failure wearing an HTTP error's clothes, which is how it inherited
     /// run-wide semantics it was never entitled to. There is no synthetic status any more, and
     /// `Http.status` now only ever holds a real one.
-    #[error("response contract violated: {reason}")]
+    #[error("response contract violated: {reason}{}", crate::error::suffix(.detail))]
     #[non_exhaustive]
     ResponseContract {
         /// Which part of the contract was not met.
         reason: ResponseContractCause,
+        /// Which operation and endpoint it happened on, redacted, when the caller knew.
+        ///
+        /// Empty when there is nothing to add: a body that parsed and carried no message
+        /// describes itself, and the seat is already named where the failure is reported.
+        ///
+        /// It exists because the variant that replaced the synthetic HTTP status inherited none
+        /// of its `body`, and one of the cases routed here is a redirect-policy failure — where
+        /// the whole diagnostic value is WHICH endpoint refused. `3.1.0` spent a milestone
+        /// establishing that a redacted URL must still say which endpoint failed; dropping it
+        /// here would have taken that back for one path without anyone deciding to.
+        ///
+        /// Composed by [`crate::provider::to_provider_error`], which is the only place in the
+        /// crate that renders an endpoint at all, so it is redacted by construction.
+        detail: String,
     },
 
     /// The model produced no usable content.
@@ -253,6 +267,19 @@ pub enum ProviderError {
         /// The termination reason observed, when the backend reported one.
         done_reason: Option<crate::provider::FinishReason>,
     },
+}
+
+/// Renders an optional diagnostic tail, so an empty one adds no punctuation.
+///
+/// A free function rather than an `Option<String>` field: the empty case is common and an
+/// `Option` would make every construction site write `None` for it, which reads as a decision
+/// where there was none.
+pub(crate) fn suffix(detail: &str) -> String {
+    if detail.is_empty() {
+        String::new()
+    } else {
+        format!(" ({detail})")
+    }
 }
 
 /// Which part of a provider's response contract was not met.
@@ -604,9 +631,11 @@ mod tests {
         // that: one of the 3.1.0 defects was a nested match that stole the outer one's state.
         let a = ProviderError::ResponseContract {
             reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
         };
         let b = ProviderError::ResponseContract {
             reason: ResponseContractCause::Unreadable,
+            detail: String::new(),
         };
         assert_eq!(
             std::mem::discriminant(&a),
@@ -1059,6 +1088,31 @@ mod tests {
     }
 
     #[test]
+    fn a_contract_failure_can_still_say_which_endpoint_it_happened_on() {
+        // The property `3.1.0` spent a milestone establishing: a redacted URL must still name the
+        // endpoint that failed. Deleting the synthetic HTTP status took its `body` with it, and
+        // one of the cases routed to the replacement is a redirect-policy failure — where WHICH
+        // endpoint refused is the entire diagnostic. Review caught it going silently missing.
+        let with = ProviderError::ResponseContract {
+            reason: ResponseContractCause::RedirectRefused,
+            detail: "POST https://api.example.com/v1?key=[REDACTED]: too many redirects".into(),
+        };
+        let rendered = with.to_string();
+        assert!(rendered.contains("api.example.com"), "{rendered}");
+        assert!(rendered.contains("redirect"), "{rendered}");
+
+        // And a cause that describes itself adds no punctuation for a detail it does not have.
+        let without = ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
+        };
+        assert!(
+            !without.to_string().contains("()"),
+            "an empty detail must not render as empty parentheses: {without}"
+        );
+    }
+
+    #[test]
     fn the_shipped_messages_carry_no_space_runs_from_a_joined_source_line() {
         // A run of interior spaces is the fingerprint of a source string that was
         // wrapped across lines and re-joined without the indentation being stripped:
@@ -1082,6 +1136,7 @@ mod tests {
             .to_string(),
             ProviderError::ResponseContract {
                 reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
             }
             .to_string(),
         ];

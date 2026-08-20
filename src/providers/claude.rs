@@ -257,6 +257,7 @@ impl ClaudeProvider {
         // — which half of the contract was not met — is in the variant.
         serde_json::from_str(body).map_err(|_| ProviderError::ResponseContract {
             reason: ResponseContractCause::Unreadable,
+            detail: String::new(),
         })
     }
 
@@ -268,6 +269,7 @@ impl ClaudeProvider {
             .and_then(|block| block.text)
             .ok_or(ProviderError::ResponseContract {
                 reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
             })
     }
 

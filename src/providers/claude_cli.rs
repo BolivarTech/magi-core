@@ -162,6 +162,12 @@ struct CliOutput {
 /// [`crate::provider::FinishReason`]. [`parse_completion`] leaves `finish` at
 /// `None`, which says "this backend does not say" rather than inventing
 /// [`crate::provider::FinishReason::Stop`].
+/// # It carries no OUTPUT count either, and that is verified rather than assumed
+///
+/// The envelope's `usage` object reports `input_tokens` and nothing equivalent for the
+/// completion side, so [`parse_completion`] leaves `completion_tokens` at `None`. That is the
+/// same statement `finish` makes: this backend does not say. Inventing a zero would report a
+/// measurement that never happened.
 #[derive(Debug, Default, Deserialize)]
 struct CliUsage {
     #[serde(default)]
