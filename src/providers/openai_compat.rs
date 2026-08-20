@@ -402,8 +402,17 @@ impl LlmProvider for OpenAiCompatibleProvider {
     ///   default, or the value passed to [`Self::with_timeout`]) — it fires even
     ///   when the server returns headers and then hangs on the body.
     /// - `Network` on connection failures (and on a malformed `base_url`/client).
-    /// - `Auth` on 401/403; `Http` on other non-2xx; `Http { status: 0 }` on a
-    ///   malformed response body.
+    /// - `Auth` on 401/403; `Http` on any other non-2xx — and `Http` now carries
+    ///   **only real HTTP statuses**. The synthetic `Http { status: 0 }` this method
+    ///   used to return for a malformed body is gone: a contract failure wearing an
+    ///   HTTP error's clothes inherited run-wide lineage condemnation, which is the
+    ///   defect `4.0.0` is named for.
+    /// - [`ProviderError::ResponseContract`] when the endpoint answered but the body
+    ///   is not the shape the contract promises — `Unreadable` for a body serde
+    ///   cannot parse, `NoMessage` when no choice carries a message.
+    /// - [`ProviderError::EmptyCompletion`] when the model produced no usable content,
+    ///   carrying the termination reason and the budget that was in force. Both are
+    ///   **mage-local**: the endpoint answered, so no lineage is condemned run-wide.
     async fn complete(
         &self,
         system_prompt: &str,

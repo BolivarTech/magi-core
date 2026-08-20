@@ -482,18 +482,22 @@ With no rotations the text output is unchanged from the pre-rotation format.
 
 ### Ollama probe (feature `ollama`)
 
-Enable the `ollama` feature to use `OllamaProvider`, which provides OpenAI-compatible completions plus a native probe:
+Enable the `ollama` feature to use `OllamaProvider`, which completes over Ollama's **native**
+`/api/chat` endpoint and adds a native probe:
 
 ```rust
-// Either spelling works: the OpenAI-compatible endpoint, or the daemon root.
-let ollama = OllamaProvider::new("http://localhost:11434/v1", "qwen3:8b")?;
+// Either spelling works: the daemon root, or the legacy `/v1` suffix.
+let ollama = OllamaProvider::new("http://localhost:11434", "qwen3:8b")?;
 ```
 
-`OllamaProvider` accepts **either** `http://localhost:11434/v1` (the OpenAI-compatible endpoint,
-the same shape `OpenAiCompatibleProvider` takes) **or** `http://localhost:11434` (the daemon
-root). Ollama serves `/v1` and `/api` as siblings, so giving one is enough to find the other.
-A reverse-proxy prefix is preserved either way: `https://gw.example.com/ollama/v1` probes
-`https://gw.example.com/ollama/api/*`.
+`OllamaProvider` accepts **either** `http://localhost:11434` (the daemon root) **or**
+`http://localhost:11434/v1`, which is **normalised away** rather than used: since `4.0.0` both
+completions and probes speak the native `/api/*` API, and nothing addresses `/v1`. The suffix is
+still accepted so an existing configuration keeps working. A reverse-proxy prefix is preserved
+either way: `https://gw.example.com/ollama/v1` reaches `https://gw.example.com/ollama/api/*`.
+
+If you route or log by path, that is the one thing to repoint — `docs/migration-v4.0.md` §4 has
+the checklist.
 
 The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
 
@@ -543,7 +547,7 @@ is retried, and how far the condemnation reaches). A complete implementation is 
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
 | `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
-| `ollama`         | off     | `OllamaProvider` (enables `openai-compat`) — OpenAI-compatible completions **plus** the native `ProviderProbe` (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
+| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe` (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
 | `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with

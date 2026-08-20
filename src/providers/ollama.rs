@@ -66,9 +66,9 @@ impl OllamaProvider {
     /// Creates a provider for an Ollama daemon. Keyless — Ollama needs no bearer token.
     ///
     /// # Parameters
-    /// - `base_url`: **either** the OpenAI-compatible endpoint (`http://localhost:11434/v1`)
-    ///   **or** the daemon root (`http://localhost:11434`). Both are accepted and both produce
-    ///   the same endpoints.
+    /// - `base_url`: **either** the daemon root (`http://localhost:11434`) **or** the same URL
+    ///   with the legacy `/v1` suffix. Both are accepted and both produce the same native
+    ///   `/api/*` endpoints; nothing this provider sends addresses `/v1`.
     /// - `model`: the model tag, passed through unchanged.
     ///
     /// # Errors
@@ -76,9 +76,11 @@ impl OllamaProvider {
     ///
     /// # Why both spellings are accepted
     ///
-    /// Ollama serves its OpenAI-compatible API under `/v1` and its native API under `/api`, and
-    /// this provider needs both — the second is what measures the context window and the weights
-    /// digest. Only one of the two has to be given, since they are siblings.
+    /// Ollama serves its OpenAI-compatible API under `/v1` and its native API under `/api`. Since
+    /// `4.0.0` this provider uses **only** the native one — for completions as well as for the
+    /// window and digest measurements — so a `/v1` suffix is **normalised away** rather than
+    /// used. It is still accepted because an existing configuration should keep working, and
+    /// because the sibling [`OpenAiCompatibleProvider`] does take its URL that way.
     ///
     /// Earlier versions took the daemon root only, and that surprised people: the sibling
     /// [`OpenAiCompatibleProvider`] takes its URL **with** `/v1`, so the same-looking parameter
@@ -226,6 +228,21 @@ const OPENAI_COMPAT_PREFIX: &str = "v1";
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
+    /// Completes over Ollama's **native** `POST {base}/api/chat`, always.
+    ///
+    /// # Errors
+    /// - [`ProviderError::Timeout`] if the request exceeds the total client timeout.
+    /// - [`ProviderError::Network`] on connection failures.
+    /// - [`ProviderError::Http`] on a non-2xx response, carrying the **real** status —
+    ///   a missing model answers `404` with `{"error": "..."}`, which is nothing like the
+    ///   OpenAI-compatible error shape.
+    /// - [`ProviderError::ResponseContract`] when the daemon answered but the body is not
+    ///   the shape the contract promises, and [`ProviderError::EmptyCompletion`] when the
+    ///   model produced no usable content. Both are **mage-local**.
+    /// - [`ProviderError::NoGeneration`] when the daemon accepted the request, generated
+    ///   nothing, and returned **no token counters at all**. That footprint is a defect of
+    ///   THIS crate rather than a failure of the model, so the orchestrator raises it and
+    ///   aborts the run instead of rotating — rotating would reproduce it at every seat.
     async fn complete(
         &self,
         system_prompt: &str,

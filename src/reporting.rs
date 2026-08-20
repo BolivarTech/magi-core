@@ -3484,7 +3484,7 @@ mod tests {
     }
 
     #[test]
-    fn a_clean_report_carries_no_completions_key_at_all() {
+    fn a_report_with_no_completions_at_all_carries_no_key() {
         // `skip_serializing_if` is for the REAL case — zero completions — not for
         // "no cuts": with every completion recorded the map is never empty in a
         // normal run, so the old claim that a clean report gains no bytes is false

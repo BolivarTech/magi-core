@@ -299,6 +299,20 @@ impl FinishReason {
 /// A typed state, not an `Option`: `None` would be ambiguous between "the backend
 /// cannot do this" and "it can and the model did not reason", and a consumer who
 /// needs to branch would be left matching on text.
+///
+/// # The variants are constructible on purpose, and that has a price
+///
+/// The enum carries `#[non_exhaustive]` but its **variants deliberately do not**, unlike every
+/// struct-like variant of [`ProviderError`]. The attribute would forbid construction from
+/// another crate, and an external [`LlmProvider`] has to be able to report what it measured —
+/// which is the whole reason `complete` returns a [`Completion`] rather than a `String`. Closing
+/// them would re-create, one level down, the `E0639` trap that left `ProviderError`
+/// unconstructible from outside this crate for two releases before a consumer reported it.
+///
+/// The price is real and is stated rather than hidden: **adding a field to a variant here is a
+/// breaking change**, where adding one to a `ProviderError` variant is not. `4.0.0` already paid
+/// it once — `Unsupported` gained `chars` and `text` mid-milestone — so treat the shape as not
+/// yet settled, and prefer a new variant over a new field where the two would serve equally.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ReasoningState {

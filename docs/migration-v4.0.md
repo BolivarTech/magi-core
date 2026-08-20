@@ -133,7 +133,10 @@ match err {
 ```
 
 **What you do:** match the contract variants. `ResponseContractCause` is exported from the
-prelude, and every variant is `#[non_exhaustive]`, so match with `..`.
+prelude; its own variants are plain unit variants, and it is the enum that carries
+`#[non_exhaustive]`. The `..` in the example above belongs to `ProviderError`'s variants, which
+are each `#[non_exhaustive]` — so match those with `..` and keep a `_` arm for causes added
+later.
 
 **One of them is now retried where the old sentinel was not.** `Http { status: 0 }` was
 explicitly non-retryable; `ResponseContractCause::Unreadable` **is** retryable, because a body can

@@ -383,7 +383,11 @@ impl LlmProvider for ClaudeProvider {
     /// - `ProviderError::Timeout` if the request times out.
     /// - `ProviderError::Network` on connection failures.
     /// - `ProviderError::Auth` on 401/403 responses.
-    /// - `ProviderError::Http` on other non-2xx responses.
+    /// - `ProviderError::Http` on other non-2xx responses — and since `4.0.0` `Http`
+    ///   carries **only real HTTP statuses**.
+    /// - [`ProviderError::ResponseContract`] when the endpoint answered but the body is
+    ///   not the shape the contract promises. It is **mage-local**: the endpoint
+    ///   answered, so no lineage is condemned run-wide.
     async fn complete(
         &self,
         system_prompt: &str,
