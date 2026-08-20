@@ -31,6 +31,166 @@ impl Default for CompletionConfig {
     }
 }
 
+/// Maximum number of **characters** kept in [`FinishReason::Other`].
+///
+/// Characters, not bytes: the cut lands on a character boundary so a multi-byte
+/// value cannot panic or produce invalid UTF-8.
+const MAX_FINISH_REASON_CHARS: usize = 64;
+
+/// Why the model stopped generating.
+///
+/// `#[non_exhaustive]` **and** carrying [`FinishReason::Other`]: the captured
+/// corpus observed three values — `stop`, `length` and `load` — and `load`
+/// appeared in no documentation the project had, so the space is not closed. A
+/// plain `String` would force consumers to compare text; a closed enum would
+/// break on the next value a backend invents.
+///
+/// # Wire format
+///
+/// Serialized as a plain string and deserialized through [`FinishReason::from_wire`],
+/// so a report round-trip and a wire parse take the same code path and cannot
+/// drift.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FinishReason {
+    /// The model finished on its own.
+    Stop,
+    /// The output budget ran out before the model finished.
+    Length,
+    /// The backend answered without generating, while loading the model.
+    Load,
+    /// A value this crate does not know, kept verbatim up to
+    /// [`MAX_FINISH_REASON_CHARS`] characters.
+    Other(String),
+}
+
+// Serde is written by hand, and this is not gold-plating: a plain
+// `#[derive(Deserialize)]` would be wrong in a way that only shows up on the
+// wire. With `rename_all`, the unit variants read `"stop"` fine, but the newtype
+// variant would expect `{"Other": "brand_new"}`. A bare unknown string — exactly
+// the case `Other` exists for, since the capture campaign found `load` in no
+// documentation the project had — would FAIL to deserialize instead of landing
+// in `Other`.
+impl serde::Serialize for FinishReason {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(match self {
+            Self::Stop => "stop",
+            Self::Length => "length",
+            Self::Load => "load",
+            Self::Other(o) => o,
+        })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for FinishReason {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Ok(Self::from_wire(&raw))
+    }
+}
+
+impl FinishReason {
+    /// Maps a wire value to a reason.
+    ///
+    /// # Parameters
+    ///
+    /// * `raw` — the value the backend sent, in either wire format.
+    ///
+    /// # Returns
+    ///
+    /// The matching known variant, or [`FinishReason::Other`] holding `raw`
+    /// **truncated at [`MAX_FINISH_REASON_CHARS`] characters** — characters, not
+    /// bytes, cut on a character boundary, so it never panics on multi-byte
+    /// input.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the length of `raw`, single pass, no allocation for a known
+    /// value.
+    ///
+    /// # Why capped at all, and why 64
+    ///
+    /// This is text **from the wire** landing in public, serialized telemetry,
+    /// and this crate caps everything else that comes from outside. 64 is
+    /// generous for any real label — the three known ones are 4 to 6 characters —
+    /// and far below what a hostile backend could send.
+    ///
+    /// # Why truncating is right here and wrong for a reasoning trace
+    ///
+    /// A clipped label still identifies the reason; a clipped trace loses its
+    /// END, which is exactly where convergence shows. Same operation, opposite
+    /// verdict, because what survives the cut is different.
+    ///
+    /// # What a consumer sees
+    ///
+    /// A truncated value is **not marked**: adding an ellipsis would make the
+    /// string differ from the wire's for reasons of ours. A consumer comparing
+    /// against a known label of 64 characters or fewer is unaffected.
+    ///
+    /// # Errors
+    ///
+    /// None — the mapping is total.
+    ///
+    /// ```
+    /// # use magi_core::provider::FinishReason;
+    /// assert_eq!(FinishReason::from_wire("length"), FinishReason::Length);
+    /// assert_eq!(
+    ///     FinishReason::from_wire("brand_new"),
+    ///     FinishReason::Other("brand_new".to_string())
+    /// );
+    /// ```
+    pub fn from_wire(raw: &str) -> Self {
+        match raw {
+            "stop" => Self::Stop,
+            "length" => Self::Length,
+            "load" => Self::Load,
+            other => {
+                let cut = other
+                    .char_indices()
+                    .nth(MAX_FINISH_REASON_CHARS)
+                    .map_or(other.len(), |(i, _)| i);
+                Self::Other(other[..cut].to_string())
+            }
+        }
+    }
+}
+
+/// Whether the provider could honour the reasoning control, and what it measured.
+///
+/// A typed state, not an `Option`: `None` would be ambiguous between "the backend
+/// cannot do this" and "it can and the model did not reason", and a consumer who
+/// needs to branch would be left matching on text.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ReasoningState {
+    /// **Nobody measured.** NOT `Measured { chars: 0 }`, which would assert that
+    /// something looked and saw zero. It is the same criterion that makes the
+    /// completion counters `Option`, and that made input telemetry an `Option`
+    /// instead of a struct of zeros — a zero meaning "could not measure" is
+    /// indistinguishable from a real zero.
+    NotMeasured,
+    /// The backend cannot honour the reasoning control at all, and says so
+    /// instead of ignoring it in silence.
+    ///
+    /// `String`, **not `&'static str`** — and the reason is mechanical, not
+    /// stylistic: this type travels inside the serialized report, which is
+    /// **deserialized**, and no `Deserialize` impl can produce a `&'static str`
+    /// from borrowed input.
+    Unsupported {
+        /// The backend that cannot honour it, so a human reading the report knows
+        /// which seat is unaffected by the control it set.
+        backend: String,
+    },
+    /// The backend honoured the control and measured the reasoning channel.
+    Measured {
+        /// Length of the reasoning trace in characters. Zero here is a real zero:
+        /// the backend looked and the model did not reason.
+        chars: usize,
+        /// The trace itself, present only when the consumer opted in.
+        text: Option<String>,
+    },
+}
+
 /// Abstraction for LLM backends.
 ///
 /// Any LLM provider (Claude, Gemini, OpenAI, local models) implements this
