@@ -459,3 +459,97 @@ async fn truncated_content_still_lands_on_the_mage_local_path_via_unterminated()
         "a cut block is a CONTENT failure, never a transport one"
     );
 }
+
+/// B-5 — a defect of OUR OWN aborts the run and is named as such.
+///
+/// The argument is a cost already paid: in `magi-claude` a bug in Caspar masqueraded as a
+/// provider error and took a long time to identify as local. `failed_agents` is where model
+/// failures land EVERY DAY, so a defect of ours filed there is invisible in the noise of the
+/// normal and the operator goes to look at the model.
+#[tokio::test]
+async fn a_defect_of_our_own_aborts_the_run_and_is_named_as_such() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(
+                    ScriptProvider::new("glm", vec![Beh::Ok]),
+                    Lineage::new("zhipu"),
+                )
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run; it does not degrade it");
+
+    assert!(
+        matches!(err, MagiError::CrateDefect { .. }),
+        "the category has to be legible, or the bug hides in the noise of ordinary model \
+         failures: {err}"
+    );
+    // And the abort is not a mystery: the message carries what was OBSERVED, and separately the
+    // hypothesis, so a reader can tell a measurement from an inference drawn from one case.
+    let rendered = err.to_string();
+    assert!(rendered.contains("no generation"));
+    assert!(rendered.contains("magi-core"));
+}
+
+/// It must not rotate, and the reason is structural rather than a policy choice: rotating would
+/// reproduce OUR OWN bad request against every seat in turn, spending the whole chain to arrive
+/// at the same place.
+#[tokio::test]
+async fn a_crate_defect_does_not_rotate_because_rotating_reproduces_it() {
+    let fallback = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let watch = Arc::clone(&fallback);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let _ = magi.analyze(&Mode::CodeReview, "content long enough").await;
+
+    assert_eq!(
+        watch.calls(),
+        0,
+        "the fallback must never have been asked: rotating reproduces our own request"
+    );
+}
