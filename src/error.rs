@@ -279,6 +279,26 @@ pub enum ResponseContractCause {
     /// saying "malformed" would be false for this half of the family. And `choices` is OpenAI's
     /// vocabulary, while this type is public and this crate is provider-agnostic.
     NoMessage,
+
+    /// The endpoint answered with a redirect chain this crate would not follow.
+    ///
+    /// Not retryable: the same request follows the same chain and fails the same way, so a retry
+    /// only spends budget.
+    ///
+    /// # Why it lives among the contract causes and not on its own
+    ///
+    /// The unit of separation in [`ProviderError`] is the **consequence**, and this shares its
+    /// consequence exactly with [`Self::NoMessage`] — mage-local, never retried. A sibling error
+    /// variant would force the orchestrator's classifier to reach the same answer through a
+    /// second arm, and this crate has already paid for a classifier that grew one match too many.
+    ///
+    /// # What it must never be
+    ///
+    /// [`ProviderError::Network`], whose connection class feeds the endpoint-down latch: two of
+    /// these would abort a whole run over a misconfigured redirect chain seen by one seat. Until
+    /// `4.0.0` this case borrowed the synthetic zero status for exactly that reason, which is how
+    /// a routing decision ended up encoded in a number that was never an HTTP status.
+    RedirectRefused,
 }
 
 impl fmt::Display for ResponseContractCause {
@@ -286,6 +306,7 @@ impl fmt::Display for ResponseContractCause {
         f.write_str(match self {
             Self::Unreadable => "the response body could not be read",
             Self::NoMessage => "the response carried no message",
+            Self::RedirectRefused => "the response was a redirect chain this crate will not follow",
         })
     }
 }

@@ -291,8 +291,10 @@ done
 #   * pattern 1 forbids interpolating an error at all in production provider code;
 #   * pattern 1c forbids the `From` impl, so `?` cannot convert a client error implicitly;
 #   * pattern 1d forbids constructing a transport variant, so the mapper is the ONLY way to make one;
-#   * `describe_parse_error` accepts only a serde error, so the safe case cannot be handed a
-#     network error by mistake.
+#   * the one safe case that used to need naming — a serde failure rendered into text — no longer
+#     exists: `4.0.0` gave it a TYPED cause (`ResponseContractCause::Unreadable`), so there is no
+#     error to interpolate at all. A rule with one fewer exception is a rule with one fewer way to
+#     be applied wrongly.
 # Together those make "the message was composed elsewhere" a property of the type system rather than
 # of a regex.
 

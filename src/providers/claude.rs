@@ -2,10 +2,10 @@
 // Version: 1.0.0
 // Date: 2026-04-05
 
-use crate::error::ProviderError;
+use crate::error::{ProviderError, ResponseContractCause};
 use crate::provider::{
     Completion, CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, FinishReason,
-    LlmProvider, PARSE_FAILURE_STATUS, ReasoningControl, ReasoningState, resolve_claude_alias,
+    LlmProvider, ReasoningControl, ReasoningState, resolve_claude_alias,
 };
 use crate::providers::provider_url::ProviderUrl;
 use reqwest::Client;
@@ -251,14 +251,12 @@ impl ClaudeProvider {
     /// derived from `max_tokens`, so "parse it twice" is not free: it is one extra pass over up
     /// to a megabyte, on every completion, of every seat, of every rotation hop.
     fn deserialize_body(body: &str) -> Result<ClaudeResponse, ProviderError> {
-        serde_json::from_str(body).map_err(|e| ProviderError::Http {
-            status: PARSE_FAILURE_STATUS,
-            body: format!(
-                "failed to parse response: {}",
-                crate::provider::describe_parse_error(&e)
-            ),
-            retry_after_raw: vec![],
-            received_at: None,
+        // The serde detail is dropped rather than rendered into text. It used to go through a
+        // helper whose whole job was making a parse message safe to embed; with the cause TYPED,
+        // that text became a second and untyped statement of the same fact. What a reader needs
+        // — which half of the contract was not met — is in the variant.
+        serde_json::from_str(body).map_err(|_| ProviderError::ResponseContract {
+            reason: ResponseContractCause::Unreadable,
         })
     }
 
@@ -268,11 +266,8 @@ impl ClaudeProvider {
             .into_iter()
             .find(|block| block.type_ == "text")
             .and_then(|block| block.text)
-            .ok_or_else(|| ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: "no text content block in response".to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
+            .ok_or(ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
             })
     }
 

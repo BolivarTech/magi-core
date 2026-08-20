@@ -410,13 +410,11 @@ impl ProviderResponse {
         // what was an encoding fault, which is exactly the misattribution this crate's telemetry
         // was rebuilt to avoid.
         //
-        // The zero status is the standing sentinel for "a response arrived and is unusable":
-        // non-retryable and mage-local, the same treatment a body that will not parse receives.
-        String::from_utf8(acc).map_err(|_| ProviderError::Http {
-            status: crate::provider::PARSE_FAILURE_STATUS,
-            body: "response body was not valid UTF-8".to_string(),
-            retry_after_raw: vec![],
-            received_at: None,
+        // A body that is not valid UTF-8 is a body this crate cannot read, which is exactly
+        // `Unreadable` — and, like a body clipped in transit, it is the one contract cause worth
+        // a second try, because the same endpoint can answer differently.
+        String::from_utf8(acc).map_err(|_| ProviderError::ResponseContract {
+            reason: crate::error::ResponseContractCause::Unreadable,
         })
     }
 

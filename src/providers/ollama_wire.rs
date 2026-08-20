@@ -347,9 +347,8 @@ impl NativeResponse {
 /// # This does not build a [`ProviderError`] itself
 ///
 /// A real HTTP status (`404` included) maps to
-/// [`ProviderError::Http`](crate::error::ProviderError::Http) — after
-/// `PARSE_FAILURE_STATUS` is removed, `Http` transports only real statuses,
-/// and a `404` is one. That mapping needs the response's status code and
+/// [`ProviderError::Http`](crate::error::ProviderError::Http), which since
+/// `4.0.0` transports only real statuses — a `404` is one. That mapping needs the response's status code and
 /// headers, which this type deliberately does not hold: it exists only to
 /// give the caller a typed read of the body, once the caller already knows
 /// the response was not a success.
@@ -381,8 +380,8 @@ pub(crate) struct NativeError {
 ///
 /// `Auth` on `401`/`403`, mirroring the OpenAI-compatible path's
 /// `map_status_to_error` for the same statuses. Every other status becomes
-/// `Http { status, .. }` — after `PARSE_FAILURE_STATUS` is removed, `Http`
-/// carries only real statuses, and this one is real (B-3). The body attached
+/// `Http { status, .. }`, which since `4.0.0` carries only real statuses —
+/// and this one is real (B-3). The body attached
 /// prefers the single `error` key from [`NativeError`] when the body parses
 /// as one — the shape captured for a model-not-found `404` — and falls back
 /// to the raw text otherwise, so a body this crate cannot parse still reaches

@@ -6040,23 +6040,19 @@ mod tests {
         // Splitting on the module opener, not on a bare `#[cfg(test)]` — this file has an
         // earlier one on a `#[cfg(test)]` accessor, and splitting there put production code in
         // the "test" half and made the assertion pass while guarding nothing.
-        let src = include_str!("orchestrator.rs");
-        let production = src
-            .split(
-                "#[cfg(test)]
-mod tests {",
-            )
-            .next()
-            .unwrap_or(src);
+        // Line endings NORMALISED first, and this is not defensive tidying: the repo checks out
+        // with CRLF on Windows, so an LF-anchored search over `include_str!` finds nothing and
+        // the test fails for a reason unrelated to what it guards. It passed only because these
+        // files happened to have been rewritten with LF in place.
+        let src = include_str!("orchestrator.rs").replace("\r\n", "\n");
+        let opener = concat!("#[cfg(test)]", "\n", "mod tests {");
+        let production = src.split(opener).next().unwrap_or(&src);
         let helper_start = production
             .find("fn record_attempt(")
             .expect("the single recording site must exist");
+        let closer = concat!("\n", "}", "\n");
         let helper_end = production[helper_start..]
-            .find(
-                "
-}
-",
-            )
+            .find(closer)
             .map(|i| helper_start + i)
             .expect("the helper must be a complete function");
         let outside = format!(

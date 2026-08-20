@@ -912,7 +912,9 @@ fn is_retryable(error: &ProviderError) -> bool {
         // deliberately carried no message.
         ProviderError::ResponseContract { reason } => match reason {
             ResponseContractCause::Unreadable => true,
-            ResponseContractCause::NoMessage => false,
+            // Neither of these changes on a second try: one carried no message on purpose, and
+            // the other follows the same redirect chain to the same refusal.
+            ResponseContractCause::NoMessage | ResponseContractCause::RedirectRefused => false,
         },
     }
 }
@@ -976,21 +978,6 @@ pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
     parts.join(": ")
 }
 
-/// Describes a deserialization failure.
-///
-/// Typed on purpose: it accepts **only** a serde error, so it is structurally impossible to feed it
-/// a network error whose text embeds a URL. That is what lets the CI check forbid interpolating an
-/// error inside provider code without carving out an exception — the safe case has a name.
-///
-/// Gated on `claude-api` ALONE since `4.0.0`: the compat path stopped rendering a parse failure as
-/// text when it started naming it as a contract cause, so that feature no longer has a caller. The
-/// wider gate would leave this dead for anyone building `openai-compat` on its own — a supported
-/// configuration that neither of the gate's two feature sets compiles.
-#[cfg(feature = "claude-api")]
-pub(crate) fn describe_parse_error(e: &serde_json::Error) -> String {
-    e.to_string()
-}
-
 /// Builds the error for a client that could not be constructed.
 ///
 /// Separate from [`to_provider_error`] because no request exists yet — there is no URL to redact
@@ -1022,30 +1009,17 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
         // chain. It is also not transient — the same request follows the same chain and fails the
         // same way — so retrying only spends budget.
         //
-        // The zero status is this crate's existing sentinel for "a response arrived and is
-        // unusable": never a real HTTP status, non-retryable, and mage-local in scope. All three
-        // are what this needs, and the message says plainly which of its two causes applies.
-        ProviderError::Http {
-            status: PARSE_FAILURE_STATUS,
-            body: message,
-            retry_after_raw: vec![],
-            received_at: None,
+        // It used to borrow the synthetic zero status for three properties — never a real HTTP
+        // status, non-retryable, mage-local — of which only the first came from the zero itself.
+        // With the disguise gone it says what it is, and `Http.status` is left holding only real
+        // statuses. The message still names which of the two causes applied.
+        ProviderError::ResponseContract {
+            reason: ResponseContractCause::RedirectRefused,
         }
     } else {
         ProviderError::Network { message }
     }
 }
-
-/// Sentinel status for a response that arrived and cannot be used.
-///
-/// Never a real HTTP status, so it cannot collide with one; non-retryable per [`is_retryable`];
-/// and outside the connection class, so it never reaches the endpoint-down latch. Used for a
-/// response whose body cannot be parsed, and for a redirect chain that exceeded its policy.
-///
-/// Gated with the HTTP providers, its only users: with no HTTP provider compiled in there is no
-/// response to fail on.
-#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
-pub(crate) const PARSE_FAILURE_STATUS: u16 = 0;
 
 /// HTTP statuses considered transient (worth retrying).
 const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504];
@@ -2638,9 +2612,14 @@ mod tests {
 
     #[test]
     fn no_synthetic_http_status_survives_anywhere_in_the_crate() {
-        // B-1/B-3, as a MECHANICAL check rather than a reading. `PARSE_FAILURE_STATUS` was a
-        // contract failure wearing an HTTP error's clothes, and that disguise is the root cause
-        // of this whole milestone: it inherited run-wide semantics by carrying the wrong type.
+        // B-1/B-3, as a MECHANICAL check rather than a reading. The sentinel this looks for was
+        // a contract failure wearing an HTTP error's clothes, and that disguise is the root
+        // cause of the whole milestone: it inherited run-wide semantics by carrying the wrong
+        // type.
+        //
+        // The needle is BUILT from parts, so this test's own source does not contain it. The
+        // same self-reference already made a sibling check pass while guarding nothing.
+        let needle = concat!("PARSE_", "FAILURE_STATUS");
         //
         // With it gone, `Http.status` only ever holds a real status — which makes lineage
         // condemnation honest BY CONSTRUCTION rather than by comment.
@@ -2654,7 +2633,7 @@ mod tests {
             ("providers/claude.rs", include_str!("providers/claude.rs")),
         ] {
             assert!(
-                !src.contains("PARSE_FAILURE_STATUS"),
+                !src.contains(needle),
                 "the disguise is still alive in {file}"
             );
         }
