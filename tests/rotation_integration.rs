@@ -507,7 +507,7 @@ async fn a_defect_of_our_own_aborts_the_run_without_any_fallback_pool() {
 
     let MagiError::CrateDefect {
         agent,
-        responded,
+        joined_before_abort,
         observation,
         ..
     } = &err
@@ -523,8 +523,8 @@ async fn a_defect_of_our_own_aborts_the_run_without_any_fallback_pool() {
     // The seat that hit it is excluded -- it already travels as `agent`, and counting it twice
     // would make the field disagree with its own documentation.
     assert!(
-        !responded.contains(&AgentName::Caspar),
-        "the defective seat must not appear among the joined ones: {responded:?}"
+        !joined_before_abort.contains(&AgentName::Caspar),
+        "the defective seat must not appear among the joined ones: {joined_before_abort:?}"
     );
 }
 
@@ -656,7 +656,7 @@ async fn an_oversized_body_reports_its_own_kind_with_no_behaviour_change() {
     assert!(hop.kind().is_mage_local());
 
     // The no-behaviour-change half, ASSERTED rather than merely claimed: the other two seats
-    // answered, so the lineage was never taken away from them.
+    // joined, so the lineage was never taken away from them.
     assert!(!report.degraded);
     assert_eq!(report.agents.len(), 3);
     // And the prefix that carried the precision while the enum was frozen is gone: with the
@@ -745,12 +745,14 @@ async fn a_crate_defect_aborts_even_with_no_fallback_pool_declared() {
     // did.
     match err {
         MagiError::CrateDefect {
-            agent, responded, ..
+            agent,
+            joined_before_abort,
+            ..
         } => {
             assert_eq!(agent, AgentName::Caspar);
             assert!(
-                !responded.contains(&AgentName::Caspar),
-                "the seat that hit it is not one of the seats that answered: {responded:?}"
+                !joined_before_abort.contains(&AgentName::Caspar),
+                "the seat that hit it is not one of the seats that joined: {joined_before_abort:?}"
             );
         }
         other => panic!("without a pool the defect used to degrade instead of aborting: {other}"),

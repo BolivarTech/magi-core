@@ -235,6 +235,12 @@ pub enum ProviderError {
         /// The termination reason the backend reported, when it reported one.
         finish: Option<crate::provider::FinishReason>,
         /// The output budget in force for the completion that came back empty.
+        ///
+        /// It exists so the MESSAGE can name the number the operator has to change. It is not
+        /// the source of [`crate::reporting::CompletionRecord::cap`], which is set by the caller
+        /// for the same reason stated there — a provider does not know what it was given, so a
+        /// record that read the budget off a response would be reporting the provider's opinion
+        /// of it. The two are the same number by construction, and the caller owns it.
         cap: u32,
     },
 
@@ -559,13 +565,20 @@ pub enum MagiError {
         agent: crate::schema::AgentName,
         /// The model in force when it happened.
         model: String,
-        /// The seats that had ALREADY answered when the run was aborted.
+        /// The seats that had already been **joined** when the abort was reached.
         ///
-        /// Cheap to keep and diagnostic: it answers *did this hit every seat, or one?* without
-        /// turning an error into a report. Empty means none had answered yet — which is the
-        /// common case, because the discriminant is that no generation happened, so the backend
-        /// answers in fractions of a second rather than after a model has reasoned.
-        responded: Vec<crate::schema::AgentName>,
+        /// # It is a hint, not a census — and the distinction is why it is named this way
+        ///
+        /// Membership is decided by dispatch and join ORDER, not by who answered: a seat that
+        /// had produced its verdict but had not yet been joined is absent from this list. So it
+        /// cannot be read as *did this hit every seat, or one?* — an earlier version of this
+        /// documentation claimed exactly that, and the code never supported it.
+        ///
+        /// What it is good for is the opposite direction: a NON-empty list proves other seats
+        /// got that far, which is what tells you the defect is not simply "the run never
+        /// started". Empty is the common case, because the discriminant is that no generation
+        /// happened, so the backend answers in fractions of a second.
+        joined_before_abort: Vec<crate::schema::AgentName>,
     },
 
     /// A resolvable system prompt violates the verdict-marker contract.
@@ -692,7 +705,7 @@ mod tests {
             agent: crate::schema::AgentName::Caspar,
             model: "glm-5.2:cloud".to_string(),
             // Empty is the honest value here: nothing had answered when a scripted defect fires.
-            responded: Vec::new(),
+            joined_before_abort: Vec::new(),
         };
         let rendered = e.to_string();
         assert!(rendered.contains("no generation - token counters absent"));

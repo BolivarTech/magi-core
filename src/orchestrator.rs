@@ -1141,7 +1141,7 @@ impl Magi {
             // Checked INSIDE the loop, on the same beat as the rotating path consults its
             // latch. Draining every handle first made `AbortGuard` inert here — nothing was left
             // in flight to cancel — and made the error's own documentation false, since
-            // `responded` would then always list every seat.
+            // `joined_before_abort` would then always list every seat.
             if let Some(d) = crate_defect.take() {
                 return Err(MagiError::CrateDefect {
                     observation: d.observation,
@@ -1152,7 +1152,7 @@ impl Magi {
                     // succeeded or failed, minus the seat that hit the defect — which already
                     // travels as `agent`. An earlier version counted successes only and its
                     // comment claimed symmetry it did not have.
-                    responded: successful
+                    joined_before_abort: successful
                         .iter()
                         .map(|o| o.agent)
                         .chain(failed.keys().copied())
@@ -1393,9 +1393,9 @@ impl Magi {
                     // The SAME resolution the normal arm uses. It used to consult only the
                     // endpoint-down latch and then `continue`, so a crate defect latched by a
                     // concurrent seat was skipped on every panicked join.
-                    let answered = answered_so_far(&successful, &failed);
+                    let joined = joined_so_far(&successful, &failed);
                     if let Some(err) =
-                        resolve_abnormal_exit(name, &join_err, &registry, &answered).await
+                        resolve_abnormal_exit(name, &join_err, &registry, &joined).await
                     {
                         return Err(err);
                     }
@@ -1405,8 +1405,8 @@ impl Magi {
             // Normal outcome: a concurrent mage may still have tripped either latch.
             // `AbortGuard` cancels whatever is still in flight when this returns — the existing
             // mechanism doing its job, not a new one.
-            let answered = answered_so_far(&successful, &failed);
-            if let Some(err) = resolve_run_abort(&registry, &answered).await {
+            let joined = joined_so_far(&successful, &failed);
+            if let Some(err) = resolve_run_abort(&registry, &joined).await {
                 return Err(err);
             }
         }
@@ -1818,7 +1818,7 @@ fn warn_on_probe_disagreement(targets: &[(String, Arc<dyn ProviderProbe>)]) {
 /// **Only [`ProviderError::Network`]** (connection refused / host unreachable /
 /// DNS) counts as connection evidence. An `Http` (incl. 5xx), a `Timeout`, or a
 /// `RetryAbandoned` condemns the lineage run-wide but is **not** connection
-/// evidence — someone answered, or the model is merely slow.
+/// evidence — someone joined, or the model is merely slow.
 ///
 /// The exclusion of [`ProviderError::RetryAbandoned`] is deliberate and is NOT a
 /// bug: a truly-down endpoint yields **fast** connection-refused `Network` errors
@@ -2127,7 +2127,7 @@ async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
 /// The name says `joined`, not `answered`, and the distinction is load-bearing — membership is
 /// decided by dispatch and join ORDER, so a seat that answered while this was being built is
 /// absent. It is a diagnostic hint, never a census.
-fn answered_so_far(
+fn joined_so_far(
     successful: &[AgentOutput],
     failed: &BTreeMap<AgentName, String>,
 ) -> BTreeMap<AgentName, ()> {
@@ -2155,9 +2155,9 @@ fn answered_so_far(
 /// panic arm consulted one latch and skipped the other entirely.
 async fn resolve_run_abort(
     reg: &LineageRegistry,
-    responded: &BTreeMap<AgentName, ()>,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    if let Some(err) = resolve_crate_defect(reg, responded).await {
+    if let Some(err) = resolve_crate_defect(reg, joined_before_abort).await {
         return Some(err);
     }
     resolve_endpoint_down(reg).await
@@ -2168,7 +2168,7 @@ async fn resolve_run_abort(
 /// # Parameters
 ///
 /// * `reg` — the run's registry, where the seat that hit it left the record.
-/// * `responded` — the seats that had already been joined when the abort was reached. Known
+/// * `joined_before_abort` — the seats that had already been joined when the abort was reached. Known
 ///   only here: the registry never learns it, which is why the record does not carry it.
 ///
 /// # Returns
@@ -2184,7 +2184,7 @@ async fn resolve_run_abort(
 /// and the other seats have barely started.
 async fn resolve_crate_defect(
     reg: &LineageRegistry,
-    responded: &BTreeMap<AgentName, ()>,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
     reg.crate_defect().await.map(|d| MagiError::CrateDefect {
         observation: d.observation,
@@ -2195,7 +2195,7 @@ async fn resolve_crate_defect(
         // would make the field disagree with its own documentation, which says empty is the
         // common case. It is: the discriminant is that no generation happened, so the backend
         // answers in fractions of a second and the other seats have barely started.
-        responded: responded
+        joined_before_abort: joined_before_abort
             .keys()
             .copied()
             .filter(|a| *a != d.agent)
@@ -2215,9 +2215,9 @@ pub(crate) async fn resolve_abnormal_exit(
     agent: AgentName,
     err: &tokio::task::JoinError,
     reg: &LineageRegistry,
-    responded: &BTreeMap<AgentName, ()>,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    let decision = resolve_run_abort(reg, responded).await;
+    let decision = resolve_run_abort(reg, joined_before_abort).await;
     if decision.is_some() {
         tracing::warn!(
             agent = agent.display_name(),
@@ -2372,7 +2372,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     .await;
                 // The seat's own error channel is a `String` (see `ModelOutcome::Unexpected`).
                 // It is filled anyway rather than left blank: if the abort were ever bypassed,
-                // a blank seat would be worse than a named one. `responded` is empty HERE
+                // a blank seat would be worse than a named one. `joined_before_abort` is empty HERE
                 // because this task cannot know it — the abort path fills it from the map the
                 // join loop already holds.
                 return (
@@ -2381,7 +2381,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                         hypothesis,
                         agent: agent_name,
                         model: current_provider.model().to_string(),
-                        responded: Vec::new(),
+                        joined_before_abort: Vec::new(),
                     }
                     .to_string()),
                     state.to_rotation(),
@@ -2913,7 +2913,7 @@ mod tests {
         }
 
         // The SIGNAL, not a MagiError: the classifier does not know which seats had already
-        // answered, and filling that with an empty vector would read as "none" when it means
+        // joined, and filling that with an empty vector would read as "none" when it means
         // "not yet".
         let defect = ProviderError::NoGeneration {
             done_reason: Some(crate::provider::FinishReason::Load),
@@ -6264,29 +6264,55 @@ mod tests {
         // with CRLF on Windows, so an LF-anchored search over `include_str!` finds nothing and
         // the test fails for a reason unrelated to what it guards. It passed only because these
         // files happened to have been rewritten with LF in place.
-        let src = include_str!("orchestrator.rs").replace("\r\n", "\n");
+        // The invariant is CRATE-WIDE, so the scan must be too. It used to read one file while
+        // asserting something about all of them: a production construction site added to
+        // `reporting.rs` -- where the type lives, so the natural place for one -- would have
+        // gone unnoticed by a guard that never looked there.
+        //
+        // Test modules are stripped from EVERY file, because the type's own tests and doc
+        // examples construct records legitimately and must not trip the guard.
+        let files: [(&str, &str); 4] = [
+            ("orchestrator.rs", include_str!("orchestrator.rs")),
+            ("reporting.rs", include_str!("reporting.rs")),
+            ("rotation.rs", include_str!("rotation.rs")),
+            ("provider.rs", include_str!("provider.rs")),
+        ];
         let opener = concat!("#[cfg(test)]", "\n", "mod tests {");
-        let production = src.split(opener).next().unwrap_or(&src);
-        let helper_start = production
-            .find("fn record_attempt(")
-            .expect("the single recording site must exist");
-        let closer = concat!("\n", "}", "\n");
-        let helper_end = production[helper_start..]
-            .find(closer)
-            .map(|i| helper_start + i)
-            .expect("the helper must be a complete function");
-        let outside = format!(
-            "{}{}",
-            &production[..helper_start],
-            &production[helper_end..]
-        );
-        assert!(
-            !outside.contains("CompletionRecord::"),
-            "only `record_attempt` may build a record; found a second site"
-        );
-        // And it is really in there, so the assertion above cannot pass by the helper having
-        // been renamed away.
-        assert!(production[helper_start..helper_end].contains("CompletionRecord::from_telemetry"));
+        for (name, raw) in files {
+            let src = raw.replace("\r\n", "\n");
+            let production = src.split(opener).next().unwrap_or(&src).to_string();
+            let outside = if name == "orchestrator.rs" {
+                let helper_start = production
+                    .find("fn record_attempt(")
+                    .expect("the single recording site must exist");
+                let closer = concat!("\n", "}", "\n");
+                let helper_end = production[helper_start..]
+                    .find(closer)
+                    .map(|i| helper_start + i)
+                    .expect("the helper must be a complete function");
+                assert!(
+                    production[helper_start..helper_end]
+                        .contains("CompletionRecord::from_telemetry"),
+                    "the carve-out must contain the site, or it excludes nothing"
+                );
+                format!(
+                    "{}{}",
+                    &production[..helper_start],
+                    &production[helper_end..]
+                )
+            } else {
+                // A doc EXAMPLE is prose that happens to compile, and constructs on purpose.
+                production
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with("///"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            assert!(
+                !outside.contains("CompletionRecord::"),
+                "only `record_attempt` may build a record; found a second site in {name}"
+            );
+        }
     }
 
     /// Acceptance criterion 1, observed from the REGISTRY — which is what the criterion asks for
