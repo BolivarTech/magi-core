@@ -1282,6 +1282,66 @@ mod message_composition_tests {
 #[cfg(test)]
 mod tests {
 
+    #[tokio::test]
+    async fn the_retry_wrapper_passes_the_inner_telemetry_through_untouched() {
+        // The contract is NON-ENRICHMENT. Telemetry belongs to the provider that spoke to the
+        // backend; a wrapper that added anything would be asserting it measured what only the
+        // inner one could see, and a wrapper that dropped anything would hide it. Both are
+        // failures of the same kind, so the value is pinned on BOTH sides rather than checking
+        // that "something" came back.
+        //
+        // This never had a Red: the property was already true when the break changed the
+        // signature, so it is a PIN against regression, not a cycle. Verified by mutation
+        // instead — rebuilding the returned value as `Completion::new(response.text)` turns it
+        // red, which is what says the assertions can fail at all.
+        struct MeasuringProvider;
+
+        #[async_trait::async_trait]
+        impl LlmProvider for MeasuringProvider {
+            async fn complete(
+                &self,
+                _s: &str,
+                _u: &str,
+                _c: &CompletionConfig,
+            ) -> Result<Completion, ProviderError> {
+                Ok(Completion::new("inner".to_string()).with_telemetry(
+                    CompletionTelemetry::unmeasured()
+                        .with_finish(FinishReason::Length)
+                        .with_completion_tokens(4096)
+                        .with_prompt_tokens(11)
+                        .with_reasoning(ReasoningState::Measured {
+                            chars: 15_409,
+                            text: None,
+                        }),
+                ))
+            }
+            fn name(&self) -> &str {
+                "measuring"
+            }
+            fn model(&self) -> &str {
+                "m"
+            }
+        }
+
+        let retry = RetryProvider::new(Arc::new(MeasuringProvider));
+        let out = retry
+            .complete("sys", "usr", &CompletionConfig::default())
+            .await
+            .expect("the inner provider always succeeds");
+
+        assert_eq!(out.text, "inner");
+        assert_eq!(out.telemetry.finish, Some(FinishReason::Length));
+        assert_eq!(out.telemetry.completion_tokens, Some(4096));
+        assert_eq!(out.telemetry.prompt_tokens, Some(11));
+        assert_eq!(
+            out.telemetry.reasoning,
+            ReasoningState::Measured {
+                chars: 15_409,
+                text: None
+            }
+        );
+    }
+
     // ---- Task 3b: retryability of the three contract variants ----
 
     #[test]
