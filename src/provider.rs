@@ -8,6 +8,29 @@ use crate::schema::Mode;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// What the caller wants done with a backend's separate reasoning channel.
+///
+/// `#[non_exhaustive]` because a token budget for that channel is the obvious
+/// next variant, and it must not cost another major.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReasoningControl {
+    /// Say nothing on the wire — the backend's own default applies.
+    ///
+    /// This must mean exactly that, never "send `think: true`": a crate that
+    /// started asserting a control nobody asked for would change behaviour for
+    /// every existing consumer who never mentioned reasoning.
+    #[default]
+    Default,
+    /// Ask the backend to skip its reasoning channel.
+    ///
+    /// **Measured inert on the OpenAI-compatible endpoint** (evidence run G:
+    /// accepted with HTTP 200, no effect) and effective on the native one. That
+    /// asymmetry is why `OllamaProvider` completes on the native path
+    /// unconditionally rather than shipping a knob that appears to work.
+    Disabled,
+}
+
 /// Configuration for LLM completion requests.
 ///
 /// Controls parameters like token limits and sampling temperature.
@@ -20,6 +43,23 @@ pub struct CompletionConfig {
     pub max_tokens: u32,
     /// Sampling temperature (0.0 = deterministic).
     pub temperature: f64,
+    /// What to do with the backend's reasoning channel, if it has one.
+    ///
+    /// Defaults to [`ReasoningControl::Default`] — say nothing on the wire.
+    pub reasoning: ReasoningControl,
+    /// Whether the report should carry the reasoning trace's TEXT, not just its
+    /// length.
+    ///
+    /// Opt-in, `false` by default. **Additive, never a replacement**: with
+    /// `false` the report still carries the trace's length; `true` adds the text
+    /// on top. The length never disappears, so no consumer loses information by
+    /// leaving this off — and no report grows by surprise, since the default
+    /// changes nothing.
+    ///
+    /// What activating this accepts — the model's own text, unvalidated,
+    /// unredacted, and of unbounded size under rotation — is documented where
+    /// the report field it feeds is defined, not here.
+    pub reasoning_trace: bool,
 }
 
 impl Default for CompletionConfig {
@@ -27,7 +67,43 @@ impl Default for CompletionConfig {
         Self {
             max_tokens: 4096,
             temperature: 0.0,
+            reasoning: ReasoningControl::default(),
+            reasoning_trace: false,
         }
+    }
+}
+
+impl CompletionConfig {
+    /// Sets how the backend's reasoning channel should be handled.
+    ///
+    /// # Parameters
+    ///
+    /// * `r` — the control to request.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain. A builder because [`CompletionConfig`] is
+    /// `#[non_exhaustive]` and cannot be constructed with a struct literal from
+    /// outside this crate.
+    pub fn with_reasoning(mut self, r: ReasoningControl) -> Self {
+        self.reasoning = r;
+        self
+    }
+
+    /// Opts into carrying the reasoning trace's text in the report, in addition
+    /// to its length.
+    ///
+    /// # Parameters
+    ///
+    /// * `on` — `true` to include the text; `false` (the default) to keep only
+    ///   the length.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_reasoning_trace(mut self, on: bool) -> Self {
+        self.reasoning_trace = on;
+        self
     }
 }
 
