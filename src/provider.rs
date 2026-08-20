@@ -2536,4 +2536,66 @@ mod tests {
         // the reporter's own first hypothesis, which they measured until it broke.
         assert_eq!(CompletionConfig::default().max_tokens, 16_384);
     }
+    // ---------------------------------------------------------------------
+    // Task 16 — `reasoning_trace`: the four things activating it accepts.
+    // ---------------------------------------------------------------------
+
+    /// The four warnings A-9 makes a REQUIREMENT of this flag, each keyed by a phrase that
+    /// cannot survive a rewrite that drops the point.
+    ///
+    /// Guarded mechanically because the promise already broke once: the flag's own rustdoc said
+    /// the four were "documented where the report field it feeds is defined", and that field's
+    /// rustdoc did not carry them. A pointer to a document that does not say the thing is worse
+    /// than no pointer — the reader follows it and comes back believing they read the warning.
+    const TRACE_WARNINGS: [(&str, &str); 4] = [
+        ("whose text it is", "model"),
+        ("it skips the Validator", "Validator"),
+        ("it is not redacted", "redact"),
+        ("how big it can get", "max_rotations"),
+    ];
+
+    #[test]
+    fn the_trace_flag_names_everything_activating_it_accepts() {
+        // A flag that transfers responsibility without naming it does not transfer it: whoever
+        // turns it on without knowing what it drags along did not choose, they inherited.
+        let src = include_str!("provider.rs");
+        let start = src
+            .find("pub reasoning_trace: bool,")
+            .expect("the flag must exist");
+        // The rustdoc sits ABOVE the field, so read back to the previous field's declaration.
+        let doc_start = src[..start]
+            .rfind("pub reasoning: ReasoningControl,")
+            .expect("the preceding field anchors the block");
+        let doc = &src[doc_start..start];
+        for (what, needle) in TRACE_WARNINGS {
+            assert!(
+                doc.contains(needle),
+                "the rustdoc must say {what} (looked for {needle:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_provider_trace_and_the_verdict_reasoning_are_different_fields() {
+        // T-5.2. `AgentOutput::reasoning` is one of the seven verdict keys and exists ALWAYS;
+        // this flag captures the PROVIDER's channel, which is another thing entirely. Naming
+        // this one `reasoning` would have put two different things under one name in the same
+        // output — which is why it is `reasoning_trace`.
+        //
+        // Asserted on the TYPES rather than on a run: what must never happen is one field
+        // overwriting the other, and that is a structural property, not a runtime one.
+        let cfg = CompletionConfig::default().with_reasoning_trace(true);
+        assert!(cfg.reasoning_trace);
+        // The verdict's own field is untouched by the flag, and carries text of its own.
+        let out = crate::schema::AgentOutput {
+            agent: crate::schema::AgentName::Caspar,
+            verdict: crate::schema::Verdict::Approve,
+            confidence: 0.9,
+            summary: "s".to_string(),
+            reasoning: "the model's own reasoning, inside the verdict".to_string(),
+            findings: Vec::new(),
+            recommendation: "go".to_string(),
+        };
+        assert!(!out.reasoning.is_empty());
+    }
 }
