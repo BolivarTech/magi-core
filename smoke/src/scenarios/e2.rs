@@ -157,6 +157,11 @@ fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
 const NAME_LARGE_OBSERVED: &str = "the large-payload run reached the wire and was recorded";
 const NAME_NO_SEAT_LOST: &str = "no seat was lost to an empty completion on the large payload";
 const NAME_NOT_DEGRADED: &str = "the large-payload run is not degraded";
+const NAME_OVER_OLD_DEFAULT: &str = "some completion spent more than the old 4096-token default";
+
+/// The budget this release raised away from. Named rather than inlined because the assertion
+/// below is ABOUT this number: what it certifies is that the raise mattered on this payload.
+const OLD_DEFAULT_MAX_TOKENS: u32 = 4_096;
 
 /// `S10` — the raised output budget stops the 62 k bundle from costing a seat
 /// (`sbtdd/smoke-harness-spec.md`, "S10").
@@ -183,7 +188,8 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
         return vec![
             Assertion::skip(NAME_LARGE_OBSERVED, reason.clone()),
             Assertion::skip(NAME_NO_SEAT_LOST, reason.clone()),
-            Assertion::skip(NAME_NOT_DEGRADED, reason),
+            Assertion::skip(NAME_NOT_DEGRADED, reason.clone()),
+            Assertion::skip(NAME_OVER_OLD_DEFAULT, reason),
         ];
     };
 
@@ -207,7 +213,19 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
 
     let not_degraded = assert_that(NAME_NOT_DEGRADED, !report.degraded);
 
-    vec![observed, no_seat_lost, not_degraded]
+    // Without this the scenario ALSO passes on a tree where the raise never happened: three
+    // healthy seats on a large payload satisfy every assertion above whether the budget was
+    // 4 096 or 16 384. What makes it about the raise is evidence that something spent more than
+    // the old default would have allowed — a completion that the old number would have cut.
+    let over_old_default = assert_that(
+        NAME_OVER_OLD_DEFAULT,
+        report.completions.values().flatten().any(|c| {
+            c.completion_tokens
+                .is_some_and(|n| n > OLD_DEFAULT_MAX_TOKENS)
+        }),
+    );
+
+    vec![observed, no_seat_lost, not_degraded, over_old_default]
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +510,79 @@ fn s9b_the_footprint_still_matches_the_live_backend(ctx: &RunContext<'_>) -> Vec
     vec![counters_absent, reason_load, content_empty]
 }
 
+// ---------------------------------------------------------------------------
+// S12 — a mixed trio: one honours, one declares, nobody breaks
+// ---------------------------------------------------------------------------
+
+const NAME_RUN_SURVIVES: &str = "the mixed trio completes without breaking or degrading";
+const NAME_SOMEONE_DECLARES: &str =
+    "the seat that cannot honour the control declares it, naming its backend";
+const NAME_DISTINGUISHABLE: &str =
+    "the declaration is distinguishable from a measured absence of reasoning";
+
+/// `S12` — one seat honours the reasoning control, another cannot, and the run survives
+/// (`sbtdd/smoke-harness-spec.md`, "S12").
+///
+/// # Why this needs a heterogeneous trio and could not be split into two runs
+///
+/// The control is set ONCE, for the whole run. A homogeneous trio can only ever show one half of
+/// the contract, and two runs would show the halves separately — while what has to hold is that
+/// the two **coexist**. Failing the run when a provider cannot honour the control was the obvious
+/// first design, and it is exactly what this scenario exists to prove was not shipped: a consumer
+/// who wants reasoning off *where it can be* would get a broken run instead.
+///
+/// # What it does NOT assert
+///
+/// It does not require that the honouring seat measured zero reasoning. A model may simply not
+/// have reasoned, and demanding otherwise would be asserting a property of the model rather than
+/// of the crate.
+fn s12_a_mixed_trio_honours_and_declares(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_RUN_SURVIVES, reason.clone()),
+            Assertion::skip(NAME_SOMEONE_DECLARES, reason.clone()),
+            Assertion::skip(NAME_DISTINGUISHABLE, reason),
+        ];
+    };
+
+    // The half that the "fail loudly" design would have broken.
+    let survives = assert_that(
+        NAME_RUN_SURVIVES,
+        !report.degraded && report.agents.len() == 3,
+    );
+
+    let states: Vec<&ReasoningState> = report
+        .completions
+        .values()
+        .flatten()
+        .map(|r| &r.reasoning)
+        .collect();
+
+    // Non-empty, or both assertions below quantify over nothing and certify a run they never saw.
+    let declares = assert_that(
+        NAME_SOMEONE_DECLARES,
+        states
+            .iter()
+            .any(|s| matches!(s, ReasoningState::Unsupported { backend } if !backend.is_empty())),
+    );
+
+    // The point of a typed state rather than an `Option`: "this backend cannot do it" must not
+    // read as "it can and the model did not reason". Both appear in this very run.
+    let distinguishable = assert_that(
+        NAME_DISTINGUISHABLE,
+        !states.is_empty()
+            && states
+                .iter()
+                .any(|s| !matches!(s, ReasoningState::Unsupported { .. })),
+    );
+
+    vec![survives, declares, distinguishable]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -543,6 +634,13 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             assert_fn: s11_the_trace_flag_adds_the_text,
         },
         Scenario {
+            id: "S12",
+            // Its own run, because the trio itself is the fixture: no other run mixes providers.
+            source: Source::Run(RunId::MixedTrio),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s12_a_mixed_trio_honours_and_declares,
+        },
+        Scenario {
             id: "S13",
             // Same run as S8, and for the same reason: recording is a property of every
             // completion, so the cheap run observes it as well as the expensive one would.
@@ -567,7 +665,10 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S3", "S9", "S9b", "S10", "S11", "S13"]);
+        assert_eq!(
+            ids,
+            vec!["S8", "S3", "S9", "S9b", "S10", "S11", "S12", "S13"]
+        );
     }
 
     #[test]
@@ -902,6 +1003,100 @@ mod tests {
         // reader to look at a backend nobody asked.
         let ctx = RunContext::blank(RunId::HappySmall);
         for a in s9b_the_footprint_still_matches_the_live_backend(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, got {:?}",
+                a.name,
+                a.state
+            );
+        }
+    }
+    // -- S12 --
+
+    /// A three-seat report whose completions carry exactly `reasoning_json` per seat, in order.
+    fn report_with_reasoning_states(states: [&str; 3]) -> MagiReport {
+        let [a, b, c] = states;
+        report_from(&format!(
+            r#"{{
+              "agents": [
+                {{"agent":"melchior","verdict":"approve","confidence":0.9,"summary":"s","reasoning":"r","findings":[],"recommendation":"go"}},
+                {{"agent":"balthasar","verdict":"approve","confidence":0.9,"summary":"s","reasoning":"r","findings":[],"recommendation":"go"}},
+                {{"agent":"caspar","verdict":"approve","confidence":0.9,"summary":"s","reasoning":"r","findings":[],"recommendation":"go"}}
+              ],
+              "consensus": {{
+                "consensus":"STRONG GO","consensus_verdict":"approve","confidence":0.95,"score":1.0,
+                "agent_count":3,"votes":{{}},"majority_summary":"","dissent":[],"findings":[],"conditions":[],"recommendations":{{}}
+              }},
+              "banner":"","report":"","degraded":false,"failed_agents":{{}},
+              "completions": {{
+                "melchior":[{{"model":"m","cap":16384,"reasoning":{a}}}],
+                "balthasar":[{{"model":"b","cap":16384,"reasoning":{b}}}],
+                "caspar":[{{"model":"c","cap":16384,"reasoning":{c}}}]
+              }}
+            }}"#
+        ))
+    }
+
+    /// What a seat on a backend that cannot honour the control reports.
+    const UNSUPPORTED: &str = r#"{"Unsupported":{"backend":"openai-compatible"}}"#;
+    /// What a seat that CAN honour it reports when the model did not reason.
+    const MEASURED_ZERO: &str = r#"{"Measured":{"chars":0,"text":null}}"#;
+
+    #[test]
+    fn s12_passes_on_a_genuinely_mixed_trio() {
+        let report = report_with_reasoning_states([MEASURED_ZERO, MEASURED_ZERO, UNSUPPORTED]);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::MixedTrio)
+        };
+        for a in s12_a_mixed_trio_honours_and_declares(&ctx) {
+            assert_eq!(a.state, ScenarioState::Pass, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s12_fails_when_nobody_declared_the_control_unsupported() {
+        // The silent no-op: every seat reports as if the control took, so a consumer who set it
+        // once believes all three honoured it. That is the failure C-8 exists to prevent, and
+        // it is invisible to every other scenario.
+        let report = report_with_reasoning_states([MEASURED_ZERO, MEASURED_ZERO, MEASURED_ZERO]);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::MixedTrio)
+        };
+        let states: Vec<_> = s12_a_mixed_trio_honours_and_declares(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_SOMEONE_DECLARES, ScenarioState::Fail)),
+            "{states:?}"
+        );
+    }
+
+    #[test]
+    fn s12_fails_when_the_declaration_is_indistinguishable_from_a_measurement() {
+        // Every seat unsupported is not a mixed trio: the run would prove nothing about the two
+        // states coexisting, which is the entire property.
+        let report = report_with_reasoning_states([UNSUPPORTED, UNSUPPORTED, UNSUPPORTED]);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::MixedTrio)
+        };
+        let states: Vec<_> = s12_a_mixed_trio_honours_and_declares(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_DISTINGUISHABLE, ScenarioState::Fail)),
+            "{states:?}"
+        );
+    }
+
+    #[test]
+    fn s12_skips_rather_than_fails_when_the_run_produced_no_report() {
+        let ctx = RunContext::blank(RunId::MixedTrio);
+        for a in s12_a_mixed_trio_honours_and_declares(&ctx) {
             assert!(
                 matches!(a.state, ScenarioState::Skip(_)),
                 "{} must skip, got {:?}",

@@ -28,6 +28,7 @@ use crate::alias::magi_core::error::MagiError;
 use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder};
 use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider, ReasoningControl};
 use crate::alias::magi_core::providers::ollama::OllamaProvider;
+use crate::alias::magi_core::providers::openai_compat::OpenAiCompatibleProvider;
 use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::{FallbackPool, Lineage};
 use crate::alias::magi_core::schema::{AgentName, Mode};
@@ -335,6 +336,14 @@ pub enum ProviderKind {
     /// The outside implementation in `external.rs`. Used by the run whose
     /// failure comes from the provider rather than from the wire.
     ExternalStub,
+    /// A genuinely HETEROGENEOUS trio: every seat but the last on `OllamaProvider`, the last on
+    /// `OpenAiCompatibleProvider`.
+    ///
+    /// The property it exists for cannot be observed any other way. The reasoning control is set
+    /// ONCE, for the whole run, and one of these providers can honour it while the other cannot
+    /// — so a homogeneous trio can only ever show one half of the contract. Two runs would not
+    /// do either: what must hold is that the two coexist in the SAME run without breaking it.
+    Mixed,
 }
 
 /// One shared run's configuration.
@@ -533,6 +542,41 @@ pub fn build_magi_against(
                 .build()
                 .map_err(|e| e.to_string())
         }
+        ProviderKind::Mixed => {
+            // Every seat but the last speaks the native path; the last one speaks the
+            // OpenAI-compatible one, which cannot honour a reasoning control and must therefore
+            // DECLARE that rather than ignore it.
+            let default =
+                Arc::new(OllamaProvider::new(base_url, &first.model).map_err(|e| e.to_string())?);
+            let mut builder = MagiBuilder::new(Arc::clone(&default) as Arc<dyn LlmProvider>);
+            let last = seats.len().saturating_sub(1);
+            for (i, seat) in seats.iter().enumerate() {
+                let name = seat.agent_name().map_err(|e| e.to_string())?;
+                let lineage = Lineage::new(seat.lineage.clone());
+                if i == last {
+                    // `with_agent`, not `with_probing_agent`: this provider is no `ProviderProbe`,
+                    // and that asymmetry is the point — a consumer really does mix them.
+                    let compat = Arc::new(
+                        OpenAiCompatibleProvider::new(format!("{base_url}/v1"), &seat.model, None)
+                            .map_err(|e| e.to_string())?,
+                    );
+                    builder = builder.with_agent(name, compat as Arc<dyn LlmProvider>, lineage);
+                } else {
+                    let provider = Arc::new(
+                        OllamaProvider::new(base_url, &seat.model).map_err(|e| e.to_string())?,
+                    );
+                    builder = builder.with_probing_agent(name, provider, lineage);
+                }
+            }
+            builder
+                .with_completion_config(
+                    CompletionConfig::default()
+                        .with_reasoning(reasoning)
+                        .with_reasoning_trace(trace),
+                )
+                .build()
+                .map_err(|e| e.to_string())
+        }
         ProviderKind::ExternalStub => {
             // No probe, deliberately: the outside provider declares none, and the
             // run that uses it feeds no scenario that reads one.
@@ -579,6 +623,7 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::HappySmall,
         RunId::Rotation,
         RunId::Degradation,
+        RunId::MixedTrio,
         RunId::Large62k,
         RunId::CrateDefect,
         RunId::NoBackend,
@@ -652,6 +697,7 @@ impl RunSpec {
             .unwrap_or_default();
         let injected_seat_defect = injected_seat.clone();
         let small_for_defect = small.clone();
+        let small_for_mixed = small.clone();
         Ok(vec![
             RunSpec {
                 id: RunId::HappySmall,
@@ -693,6 +739,20 @@ impl RunSpec {
                 }),
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            RunSpec {
+                id: RunId::MixedTrio,
+                seats: cfg.seats.clone(),
+                // No pool: a rotation would replace the seat whose declaration this run exists
+                // to read, and the scenario would then be reading a different provider's answer.
+                fallbacks: Vec::new(),
+                payload: small_for_mixed,
+                injection: None,
+                providers: ProviderKind::Mixed,
+                // Asked ONCE, for the whole run. One seat honours it and one cannot, which is
+                // the entire property.
+                reasoning: ReasoningControl::Disabled,
                 trace: false,
             },
             RunSpec {

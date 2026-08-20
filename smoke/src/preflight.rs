@@ -1816,6 +1816,7 @@ mod tests {
             RunId::Rotation,
             RunId::Degradation,
             RunId::CrateDefect,
+            RunId::MixedTrio,
             RunId::NoBackend,
         ];
         for id in all {
@@ -1825,6 +1826,7 @@ mod tests {
                 | RunId::Rotation
                 | RunId::Degradation
                 | RunId::CrateDefect
+                | RunId::MixedTrio
                 | RunId::NoBackend => {}
             }
         }
@@ -1988,6 +1990,7 @@ mod tests {
             Err("skip"),
             Err("timed out"),
             Err("aborted"),
+            Err("skip again"),
             Ok("pass"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");
