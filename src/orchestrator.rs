@@ -5711,4 +5711,193 @@ mod tests {
             );
         }
     }
+    // ---------------------------------------------------------------------
+    // Task 13b — populating `completions`: success AND failure, one entry per
+    // ATTEMPT. Recording only the cut ones is the very blindness this release
+    // exists to end, so the clean run is the first test, not an afterthought.
+    // ---------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_run_with_no_cuts_still_records_one_entry_per_completion() {
+        // BD-5: ALL of them. Without this the consumer is blind until the first
+        // cut — and 4096 did not fail all at once, it had been scraping by.
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("a clean run");
+        assert!(!report.degraded, "nothing went wrong in this run");
+        assert_eq!(
+            report.completions.values().map(Vec::len).sum::<usize>(),
+            3,
+            "one entry per completion, on a run where nothing was cut"
+        );
+        assert!(
+            report.extraction_failures.values().all(Vec::is_empty),
+            "a recorded completion is not an extraction failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_recorded_model_and_cap_come_from_the_caller_not_the_response() {
+        // Neither is readable off a response: a provider does not know which budget
+        // it was handed nor which seat it served. Both come from the orchestrator,
+        // and that is what makes the record actionable under rotation.
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("a clean run");
+        let recs: Vec<_> = report.completions.values().flatten().collect();
+        assert!(!recs.is_empty());
+        assert!(recs.iter().all(|r| r.model == "test-model"));
+        assert!(
+            recs.iter()
+                .all(|r| r.cap == CompletionConfig::default().max_tokens)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_completion_that_FAILED_is_recorded_too() {
+        // The most diagnostic attempt of all is the one that produced no verdict,
+        // and it is exactly the one that is lost if recording hangs off the happy
+        // path.
+        let melchior = Arc::new(MockProvider::success(
+            "mock",
+            "test-model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        let balthasar = Arc::new(MockProvider::success(
+            "mock",
+            "test-model",
+            vec![mock_agent_json("balthasar", "approve", 0.85)],
+        ));
+        let caspar = Arc::new(MockProvider::mixed(
+            "mock",
+            "cut-model",
+            vec![Err(ProviderError::EmptyCompletion {
+                finish: Some(FinishReason::Length),
+                cap: 4096,
+            })],
+        ));
+        let magi = MagiBuilder::new(melchior as Arc<dyn LlmProvider>)
+            .with_agent(
+                AgentName::Balthasar,
+                balthasar as Arc<dyn LlmProvider>,
+                Lineage::new("b"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                caspar as Arc<dyn LlmProvider>,
+                Lineage::new("c"),
+            )
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("two seats still answer");
+
+        let recs = &report.completions[&AgentName::Caspar];
+        assert_eq!(recs.len(), 1, "the failed attempt is still an attempt");
+        assert_eq!(recs[0].model, "cut-model");
+        // Only `EmptyCompletion` knows anything past the model and the cap, and
+        // what it knows is the termination.
+        assert_eq!(recs[0].finish, Some(FinishReason::Length));
+        // Absence is declared, never filled with zeros that read as a measurement.
+        assert_eq!(recs[0].completion_tokens, None);
+        assert_eq!(recs[0].reasoning, ReasoningState::NotMeasured);
+        // Disjoint sets: nothing failed EXTRACTION here, there was nothing to extract.
+        assert!(
+            report
+                .extraction_failures
+                .get(&AgentName::Caspar)
+                .is_none_or(Vec::is_empty)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_schema_retry_leaves_TWO_entries_with_the_SAME_model() {
+        // `21-ter` in its workable form: two calls by the ORCHESTRATOR, both
+        // visible, against the same model. It is what pins that the record is per
+        // ATTEMPT and not per model. (A transport retry is invisible here by
+        // construction: it happens inside `RetryProvider`, which hands back one
+        // result.)
+        let caspar = Arc::new(MockProvider::success(
+            "mock",
+            "retry-model",
+            vec![
+                "no markers at all".to_string(),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ));
+        let magi = MagiBuilder::new(trio())
+            .with_agent(
+                AgentName::Caspar,
+                caspar as Arc<dyn LlmProvider>,
+                Lineage::new("c"),
+            )
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("the corrective retry recovers the seat");
+
+        let models: Vec<_> = report.completions[&AgentName::Caspar]
+            .iter()
+            .map(|r| r.model.as_str())
+            .collect();
+        assert_eq!(models.len(), 2, "two attempts, two records");
+        assert_eq!(models[0], models[1], "same model, corrected prompt");
+    }
+
+    #[test]
+    fn a_crate_defect_records_nothing_because_its_report_will_not_exist() {
+        // Recording an attempt whose run is invalidated would assert there was
+        // something to measure. The guard is the CALLER's, so that the other ten
+        // cases are not complicated by an `Option` return for the sake of one.
+        let mut records = Vec::new();
+        record_attempt(
+            &mut records,
+            "m",
+            4096,
+            &Ok(Err(ProviderError::NoGeneration {
+                done_reason: Some(FinishReason::Load),
+            })),
+        );
+        assert!(records.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_attempt_is_recorded_with_nothing_measured() {
+        // An attempt that timed out is still an attempt. Nothing came back, so
+        // nothing is claimed — but the model and the cap are known regardless,
+        // because the caller set them.
+        let mut records = Vec::new();
+        let timed_out = tokio::time::timeout(Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            Ok(Completion::new(String::new()))
+        })
+        .await;
+        record_attempt(&mut records, "slow-model", 16_384, &timed_out);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].model, "slow-model");
+        assert_eq!(records[0].cap, 16_384);
+        assert_eq!(records[0].finish, None);
+        assert_eq!(records[0].reasoning, ReasoningState::NotMeasured);
+    }
+
+    #[test]
+    fn a_completion_record_is_built_in_exactly_one_place() {
+        // A second construction site is how an attempt stops being recorded, or
+        // starts being recorded differently, without anything failing.
+        let src = include_str!("orchestrator.rs");
+        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
+        assert_eq!(
+            production.matches("CompletionRecord::").count(),
+            2,
+            "only `record_attempt` builds one: `new` for a failure, `from_telemetry` for a success"
+        );
+    }
 }

@@ -338,3 +338,53 @@ async fn an_oversized_response_is_mage_local_and_the_run_completes() {
         );
     }
 }
+
+/// A seat that rotated leaves one entry PER MODEL — records, not counters.
+///
+/// With rotation, *which* model was cut is the question that decides what leaves
+/// the pool, and a count erases exactly that attribution. This is also the half of
+/// `21-ter` that the corrective-retry test cannot cover: there the two entries share
+/// a model, here they must differ.
+#[tokio::test]
+async fn a_seat_that_rotated_leaves_one_entry_per_model() {
+    let caspar_primary = retry0(ScriptProvider::new("deepseek", vec![Beh::Network]));
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    assert!(!report.degraded, "the rotation recovered the seat");
+    let models: Vec<&str> = report.completions[&AgentName::Caspar]
+        .iter()
+        .map(|r| r.model.as_str())
+        .collect();
+    assert_eq!(
+        models,
+        vec!["deepseek", "glm"],
+        "one entry per model, in the order the seat tried them"
+    );
+    // The seat that never rotated still records its single completion: recording
+    // only the interesting seats is the same blindness one level up.
+    assert_eq!(report.completions[&AgentName::Melchior].len(), 1);
+}
