@@ -50,6 +50,11 @@ const DIAGNOSTIC_CAP: usize = 8 * 1024;
 /// takes several chunks, so the reader crosses the limit mid-stream instead of on its first read —
 /// which is the branch a `Content-Length` body never reaches. A larger number would still pass the
 /// test while quietly stopping it from testing that.
+///
+/// Gated with the only branch that reads it: chunked framing is exercised through the native probe
+/// path, which is `ollama`-only. Without the gate this file does not build under `openai-compat`
+/// alone — a supported configuration that neither of the gate's two feature sets ever compiles.
+#[cfg(feature = "ollama")]
 const CHUNK_BYTES: usize = 64 * 1024;
 
 /// How the body is framed, which decides WHICH branch of the reader runs.
