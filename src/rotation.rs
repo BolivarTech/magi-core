@@ -366,25 +366,61 @@ impl LineageRegistry {
 /// Maximum length, in Unicode scalar values, of a [`RotationEvent`]'s `detail`.
 const MAX_ROTATION_DETAIL_CHARS: usize = 256;
 
-/// Why a mage left a model — the cause that triggered a rotation hop. Connection
-/// and HTTP failures both normalize to `Transport`.
+/// Why a mage left a model — the cause that triggered a rotation hop.
+///
+/// Each variant is either **run-wide** (the lineage is condemned for every
+/// mage in the pool) or **mage-local** (only the reporting mage stops using
+/// it) — each variant's doc says which. `#[non_exhaustive]` so a future cause
+/// gains its own variant instead of riding a `detail` string prefix, the way
+/// `3.1.0` had to smuggle `OversizedResponse`/`ExternalFailure` into
+/// `Transport`'s `detail` before this type had room for them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RotationKind {
-    /// Transport failure (connection refused, HTTP error, `RetryProvider` exhausted).
+    /// Connection refused, an HTTP transport error, or `RetryProvider`
+    /// exhausted. **Run-wide**: a transport fault says nothing about which
+    /// lineage misbehaved, so every mage avoids it for the rest of the run.
     Transport,
-    /// The model's response failed the verdict schema (after the corrective retry).
-    Schema,
-    /// The attempt timed out.
+    /// The attempt timed out. **Run-wide**, for the same reason as
+    /// `Transport`: the crate cannot tell whether a slow endpoint is bad for
+    /// only this mage's request.
     Timeout,
+    /// The model's response failed the verdict schema (after the corrective
+    /// retry). **Mage-local**: the model answered — just not in the right
+    /// shape — which says nothing about a DIFFERENT mage's completion from
+    /// the same lineage.
+    Schema,
+    /// The response body exceeded the configured size cap. **Mage-local**:
+    /// the endpoint answered; only this mage's request was too large for it.
+    OversizedResponse,
+    /// A third-party [`crate::provider::LlmProvider`] implementation reported
+    /// its own failure via `ProviderError::external`. **Mage-local**: this
+    /// crate cannot know whether an external provider's failure says anything
+    /// about the lineages the OTHER seats are using.
+    ExternalFailure,
+    /// The completion returned no usable content — commonly, the model spent
+    /// its entire output budget reasoning and emitted nothing. **Mage-local**:
+    /// the endpoint answered with HTTP 200; the model simply produced no
+    /// output for this mage's request.
+    EmptyCompletion,
+    /// The response violated the provider's response contract (an unreadable
+    /// body, or a message the contract requires that never arrived).
+    /// **Mage-local**: it is this mage's request/response shape that is
+    /// broken, not a signal about the lineage itself.
+    ResponseContract,
 }
 
 impl fmt::Display for RotationKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             RotationKind::Transport => "transport",
-            RotationKind::Schema => "schema",
             RotationKind::Timeout => "timeout",
+            RotationKind::Schema => "schema",
+            RotationKind::OversizedResponse => "oversized_response",
+            RotationKind::ExternalFailure => "external_failure",
+            RotationKind::EmptyCompletion => "empty_completion",
+            RotationKind::ResponseContract => "response_contract",
         })
     }
 }
@@ -1075,9 +1111,8 @@ mod tests {
                 break;
             }
         }
-        let end_idx = end_idx.unwrap_or_else(|| {
-            panic!("extract_item: `{needle}` has no matching closing brace")
-        });
+        let end_idx = end_idx
+            .unwrap_or_else(|| panic!("extract_item: `{needle}` has no matching closing brace"));
 
         lines[start_idx..=end_idx].join("\n")
     }
