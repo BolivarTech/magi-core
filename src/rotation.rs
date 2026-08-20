@@ -1028,6 +1028,60 @@ pub(crate) struct RotationConfig {
 mod tests {
     use super::*;
 
+    /// Extracts the source text of a single item declaration (e.g.
+    /// `"enum RotationKind"`) from a file's full source: from any attribute
+    /// lines immediately above the declaration line, through the declaration's
+    /// matching closing brace.
+    ///
+    /// Used only by text-based tests that need to assert something the type
+    /// system cannot observe from *inside* the defining crate — e.g. that an
+    /// enum carries `#[non_exhaustive]`, whose only effect is on a
+    /// **downstream** crate's exhaustive `match`.
+    ///
+    /// # Panics
+    /// Panics if `needle` is not found in `src`, or if the declaration's
+    /// opening brace has no matching close. This is deliberate: a search that
+    /// finds nothing must NEVER fall back to the whole file or an empty
+    /// string, either of which would let a caller's `.contains(..)` assertion
+    /// pass without having found the declaration it claims to check.
+    fn extract_item(src: &str, needle: &str) -> String {
+        let lines: Vec<&str> = src.lines().collect();
+        let decl_idx = lines
+            .iter()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("extract_item: `{needle}` not found in source"));
+
+        let mut start_idx = decl_idx;
+        while start_idx > 0 && lines[start_idx - 1].trim_start().starts_with('#') {
+            start_idx -= 1;
+        }
+
+        let mut depth: i32 = 0;
+        let mut seen_open = false;
+        let mut end_idx = None;
+        for (offset, line) in lines[decl_idx..].iter().enumerate() {
+            for ch in line.chars() {
+                match ch {
+                    '{' => {
+                        depth += 1;
+                        seen_open = true;
+                    }
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if seen_open && depth == 0 {
+                end_idx = Some(decl_idx + offset);
+                break;
+            }
+        }
+        let end_idx = end_idx.unwrap_or_else(|| {
+            panic!("extract_item: `{needle}` has no matching closing brace")
+        });
+
+        lines[start_idx..=end_idx].join("\n")
+    }
+
     #[test]
     fn test_lineage_equality_and_display() {
         assert_eq!(Lineage::new("alibaba"), Lineage::from("alibaba"));
@@ -1681,6 +1735,91 @@ mod tests {
         assert_eq!(RotationKind::Transport.to_string(), "transport");
         assert_eq!(RotationKind::Schema.to_string(), "schema");
         assert_eq!(RotationKind::Timeout.to_string(), "timeout");
+        assert_eq!(
+            RotationKind::OversizedResponse.to_string(),
+            "oversized_response"
+        );
+        assert_eq!(
+            RotationKind::ExternalFailure.to_string(),
+            "external_failure"
+        );
+        assert_eq!(
+            RotationKind::EmptyCompletion.to_string(),
+            "empty_completion"
+        );
+        assert_eq!(
+            RotationKind::ResponseContract.to_string(),
+            "response_contract"
+        );
+    }
+
+    // ---- Task 23: RotationKind gains its variants ----
+
+    #[test]
+    fn the_enum_becomes_non_exhaustive_so_the_next_cause_needs_no_further_major() {
+        // The same move ADR 007 made for ProviderError in 2.0.0. Today RotationKind is
+        // pub, in the prelude and NOT non_exhaustive, so a new variant breaks every
+        // consumer's exhaustive match — which is precisely why 3.1.0 had to smuggle
+        // the distinction into a `detail` string.
+        let src = include_str!("rotation.rs");
+        let decl = extract_item(src, "enum RotationKind");
+        assert!(decl.contains("#[non_exhaustive]"));
+    }
+
+    #[test]
+    fn each_cause_has_its_own_variant_instead_of_riding_a_detail_prefix() {
+        // THIS TASK CANNOT USE `is_mage_local()`: Task 24 adds it, so a test that
+        // called it here would never reach Green — the Red/Green cycle of this task
+        // would end up depending on the next one. What THIS task introduces is the
+        // VARIANTS, proved by an EXHAUSTIVE match with no `_ =>`: if someone collapsed
+        // two causes into one, or added one without deciding its consequence, this
+        // stops compiling. Same property `provider_err_outcome` keeps, same reason.
+        let all = [
+            RotationKind::Transport,
+            RotationKind::Timeout,
+            RotationKind::Schema,
+            RotationKind::OversizedResponse,
+            RotationKind::ExternalFailure,
+            RotationKind::EmptyCompletion,
+            RotationKind::ResponseContract,
+        ];
+        assert_eq!(
+            all.len(),
+            7,
+            "SEVEN causes, not six: family 1 is mage-local too"
+        );
+        for k in all {
+            match k {
+                RotationKind::Transport | RotationKind::Timeout => {}
+                RotationKind::Schema
+                | RotationKind::OversizedResponse
+                | RotationKind::ExternalFailure
+                | RotationKind::EmptyCompletion
+                | RotationKind::ResponseContract => {}
+            }
+        }
+    }
+
+    #[test]
+    fn rotation_kind_serializes_to_snake_case_for_every_variant() {
+        // Pins the wire form of ALL SEVEN variants — including the three that
+        // predate this milestone — as exact strings. This is what guarantees a
+        // future `rename_all` change cannot silently alter an existing variant's
+        // serialized form: `lowercase` and `snake_case` agree on
+        // Transport/Schema/Timeout (single words) and diverge only on the
+        // multi-word variants added here.
+        let cases = [
+            (RotationKind::Transport, "\"transport\""),
+            (RotationKind::Timeout, "\"timeout\""),
+            (RotationKind::Schema, "\"schema\""),
+            (RotationKind::OversizedResponse, "\"oversized_response\""),
+            (RotationKind::ExternalFailure, "\"external_failure\""),
+            (RotationKind::EmptyCompletion, "\"empty_completion\""),
+            (RotationKind::ResponseContract, "\"response_contract\""),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), expected);
+        }
     }
 
     #[test]
