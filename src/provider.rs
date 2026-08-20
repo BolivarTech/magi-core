@@ -71,18 +71,52 @@ pub struct CompletionConfig {
     ///
     /// Defaults to [`ReasoningControl::Default`] — say nothing on the wire.
     pub reasoning: ReasoningControl,
-    /// Whether the report should carry the reasoning trace's TEXT, not just its
-    /// length.
+    /// Whether the report should carry the reasoning trace's TEXT, not just its length.
     ///
-    /// Opt-in, `false` by default. **Additive, never a replacement**: with
-    /// `false` the report still carries the trace's length; `true` adds the text
-    /// on top. The length never disappears, so no consumer loses information by
-    /// leaving this off — and no report grows by surprise, since the default
-    /// changes nothing.
+    /// Opt-in, `false` by default. **Additive, never a replacement**: with `false` the report
+    /// still carries the trace's length; `true` adds the text on top. The length never
+    /// disappears, so no consumer loses information by leaving this off — and no report grows by
+    /// surprise, since the default changes nothing.
     ///
-    /// What activating this accepts — the model's own text, unvalidated,
-    /// unredacted, and of unbounded size under rotation — is documented where
-    /// the report field it feeds is defined, not here.
+    /// Named `reasoning_trace` and not `reasoning`, because
+    /// [`AgentOutput::reasoning`](crate::schema::AgentOutput::reasoning) is one of the seven
+    /// verdict keys and is **always** present. That is the model reasoning *inside* its verdict;
+    /// this is the provider's own channel, *before* it. Two different things under one name in
+    /// the same output would be a defect, not a shortcut.
+    ///
+    /// # Turning this on accepts four things, and they are named here rather than pointed at
+    ///
+    /// 1. **The text is the model's**, not this crate's. Nothing here authored it and nothing
+    ///    here vouches for it.
+    /// 2. **It does not pass the `Validator`.** The verdict and the findings do — length limits,
+    ///    invisible-codepoint stripping, NaN rejection. This does not.
+    /// 3. **It is not redacted.** It is a third channel of the open backlog item *"text this
+    ///    crate did not author is NOT redacted"*, alongside an external provider's message and a
+    ///    server's echoed error body. A secret a model repeats back lands in the report verbatim.
+    /// 4. **It has no cap, and how big it gets is a formula, not a number.** Every completion is
+    ///    recorded, so a seat that rotates accumulates one trace per model: worst case
+    ///    `(1 + max_rotations) x calls_per_model` traces **per agent**, times three agents —
+    ///    **up to 18 per run** with the shipped defaults. Traces of **~141 000 characters per
+    ///    agent** have been measured, which is a **measured reference and not a ceiling**:
+    ///    another model reasons more and the number grows.
+    ///
+    /// The absence of a cap is deliberate. A truncated trace reads as a complete shorter one,
+    /// and whoever turns this on to find out why a model spent its budget needs the **end** of
+    /// it, which is where convergence shows. Truncating would hand over the half that does not
+    /// help. If a cap is ever needed it is additive and costs no major.
+    ///
+    /// # Which providers can fill it
+    ///
+    /// | provider | trace channel |
+    /// |---|---|
+    /// | [`OllamaProvider`](crate::providers::ollama::OllamaProvider) | `message.thinking` |
+    /// | [`OpenAiCompatibleProvider`](crate::providers::openai_compat::OpenAiCompatibleProvider) | `message.reasoning` |
+    /// | the Claude providers | none — they report [`ReasoningState::NotMeasured`] |
+    ///
+    /// `NotMeasured` there, never `Measured { chars: 0 }`, which would claim a look that never
+    /// happened. It is also a different question from [`ReasoningState::Unsupported`], which is
+    /// about the [`ReasoningControl`] — a backend can be unable to switch reasoning off and
+    /// still report how long it was, or the reverse.
     pub reasoning_trace: bool,
 }
 

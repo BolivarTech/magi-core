@@ -9,6 +9,7 @@
 //! away — which is the `3.0.2` failure wearing different clothes. Written after, the property
 //! ships uncertified. Written alongside, the scenario IS the test.
 
+use crate::alias::magi_core::prelude::ReasoningState;
 use crate::config::RunId;
 use crate::proxy::RequestRecord;
 use crate::runner::{
@@ -69,6 +70,7 @@ fn s8_completions_are_native_only(ctx: &RunContext<'_>) -> Vec<Assertion> {
 const NAME_ONE_PER_SEAT: &str = "every seat that answered left a completion record";
 const NAME_MODEL_AND_CAP: &str = "every record names its model and the budget it ran under";
 const NAME_TERMINATION: &str = "every record carries the termination reason the backend reported";
+const NAME_TRACE_LENGTH_ONLY: &str = "with the flag off, no record carries the trace text";
 
 /// `S13` — a clean run still records one entry per completion
 /// (`sbtdd/smoke-harness-spec.md`, "S13").
@@ -97,7 +99,8 @@ fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
         return vec![
             Assertion::skip(NAME_ONE_PER_SEAT, reason.clone()),
             Assertion::skip(NAME_MODEL_AND_CAP, reason.clone()),
-            Assertion::skip(NAME_TERMINATION, reason),
+            Assertion::skip(NAME_TERMINATION, reason.clone()),
+            Assertion::skip(NAME_TRACE_LENGTH_ONLY, reason),
         ];
     };
 
@@ -126,7 +129,25 @@ fn s13_every_completion_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
         !records.is_empty() && records.iter().all(|r| r.finish.is_some()),
     );
 
-    vec![one_per_seat, model_and_cap, termination]
+    // The OFF half of `S11`'s comparison. This run uses the default, so a trace that came back
+    // must report its LENGTH and withhold its TEXT — additive means the flag adds the text, not
+    // that it decides whether anything is measured at all.
+    let trace_is_length_only = assert_that(
+        NAME_TRACE_LENGTH_ONLY,
+        // Non-empty for the same reason as its three siblings: `all` over an empty set is true,
+        // so without it a report that recorded nothing would certify the flag it never observed.
+        !records.is_empty()
+            && records
+                .iter()
+                .all(|r| !matches!(r.reasoning, ReasoningState::Measured { text: Some(_), .. })),
+    );
+
+    vec![
+        one_per_seat,
+        model_and_cap,
+        termination,
+        trace_is_length_only,
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +210,69 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![observed, no_seat_lost, not_degraded]
 }
 
+// ---------------------------------------------------------------------------
+// S11 — `reasoning_trace` ADDS the text; the length is there either way
+// ---------------------------------------------------------------------------
+
+const NAME_TRACE_MEASURED: &str = "a reasoning trace was measured on the large-payload run";
+const NAME_TRACE_TEXT: &str = "with the flag on, the trace carries its text as well as its length";
+
+/// `S11` — the opt-in flag is ADDITIVE (`sbtdd/smoke-harness-spec.md`, "S11").
+///
+/// # The comparison is split across two scenarios, on purpose
+///
+/// A scenario reads ONE run, and the property is a comparison: length-only with the flag off,
+/// length-and-text with it on. So this one certifies the **on** half against the large-payload
+/// run — the only run that asks for the text — and `S13` certifies the **off** half against the
+/// small happy run, which uses the default. Each asserts what its own run actually observed
+/// rather than one of them speaking for a run it never saw.
+///
+/// # Why the large run is where the text is worth having
+///
+/// A model burning a large budget is the case somebody turns this flag on to understand. On a
+/// small payload the assertion would only show the field is not empty.
+fn s11_the_trace_flag_adds_the_text(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_TRACE_MEASURED, reason.clone()),
+            Assertion::skip(NAME_TRACE_TEXT, reason),
+        ];
+    };
+
+    let measured: Vec<(usize, bool)> = report
+        .completions
+        .values()
+        .flatten()
+        .filter_map(|r| match &r.reasoning {
+            ReasoningState::Measured { chars, text } => Some((*chars, text.is_some())),
+            _ => None,
+        })
+        .collect();
+
+    // Without a measured trace the assertion below is vacuous, and a green meaning "no model
+    // reasoned, so nothing contradicted us" certifies nothing about the flag.
+    let any_measured = assert_that(
+        NAME_TRACE_MEASURED,
+        measured.iter().any(|(chars, _)| *chars > 0),
+    );
+
+    // Additive, never substitutive: every measured trace carries its length AND, because this
+    // run asked for it, its text.
+    let carries_text = assert_that(
+        NAME_TRACE_TEXT,
+        !measured.is_empty()
+            && measured
+                .iter()
+                .all(|(chars, has_text)| *chars > 0 && *has_text),
+    );
+
+    vec![any_measured, carries_text]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -207,6 +291,14 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::Large62k),
             backend_tag: BackendNeed::Required,
             assert_fn: s10_the_large_payload_costs_no_seat,
+        },
+        Scenario {
+            id: "S11",
+            // The only run that asks for the trace text; `S13` reads the off half against the
+            // small run, which uses the default.
+            source: Source::Run(RunId::Large62k),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s11_the_trace_flag_adds_the_text,
         },
         Scenario {
             id: "S13",
@@ -232,7 +324,7 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S10", "S13"]);
+        assert_eq!(ids, vec!["S8", "S10", "S11", "S13"]);
     }
 
     #[test]

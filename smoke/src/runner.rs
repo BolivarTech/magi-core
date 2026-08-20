@@ -350,6 +350,12 @@ pub struct RunSpec {
     /// same payload against the same model converges with the channel off and burns its whole
     /// budget with it on. A single global setting could only ever show one side of that.
     pub reasoning: ReasoningControl,
+    /// Whether this run asks for the reasoning trace's TEXT, not just its length.
+    ///
+    /// Per RUN for the same reason as [`RunSpec::reasoning`]: the property is a COMPARISON
+    /// — with the flag off the report carries the length alone, with it on it carries both
+    /// — and a single global setting shows one side of that and calls it certified.
+    pub trace: bool,
 }
 
 /// Everything one shared run produced.
@@ -467,6 +473,7 @@ pub fn build_magi_against(
     fallbacks: &[Fallback],
     kind: ProviderKind,
     reasoning: ReasoningControl,
+    trace: bool,
 ) -> Result<Magi, String> {
     let first = seats.first().ok_or("no seats configured")?;
     // The dispatch is on the BUILDER call, not on an erased Arc, because the two
@@ -507,7 +514,11 @@ pub fn build_magi_against(
                 // disabled and does not set it would still converge often enough to look
                 // configured, which is why the run declares it and the scenario reads what came
                 // back rather than what was asked for.
-                .with_completion_config(CompletionConfig::default().with_reasoning(reasoning))
+                .with_completion_config(
+                    CompletionConfig::default()
+                        .with_reasoning(reasoning)
+                        .with_reasoning_trace(trace),
+                )
                 .build()
                 .map_err(|e| e.to_string())
         }
@@ -608,6 +619,7 @@ impl RunSpec {
             injection: None,
             providers: ProviderKind::ExternalStub,
             reasoning: ReasoningControl::Default,
+            trace: false,
         };
         if no_backend {
             return Ok(vec![no_backend_spec]);
@@ -626,6 +638,7 @@ impl RunSpec {
                 injection: None,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                trace: false,
             },
             RunSpec {
                 id: RunId::Rotation,
@@ -638,6 +651,7 @@ impl RunSpec {
                 }),
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                trace: false,
             },
             RunSpec {
                 id: RunId::Degradation,
@@ -656,6 +670,7 @@ impl RunSpec {
                 }),
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                trace: false,
             },
             RunSpec {
                 id: RunId::Large62k,
@@ -668,6 +683,10 @@ impl RunSpec {
                 injection: None,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                // The ONE run that asks for the trace text, and the one where it is worth
+                // having: a model burning a large budget is the case somebody turns this on
+                // to understand. On a small run it would only show the field is not empty.
+                trace: true,
             },
             no_backend_spec,
         ])
@@ -869,6 +888,7 @@ impl Runner {
             &spec.fallbacks,
             spec.providers,
             spec.reasoning,
+            spec.trace,
         ) {
             Ok(m) => m,
             // A build failure is a CONFIG fault of ours, not a verdict: it must
