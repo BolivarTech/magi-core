@@ -1850,4 +1850,40 @@ mod tests {
             "claude-opus-4-6"
         );
     }
+
+    #[test]
+    fn finish_reason_keeps_an_unknown_wire_value_instead_of_dropping_it() {
+        // The capture campaign returned THREE observed values — stop, length and
+        // `load` — and `load` appeared in no documentation the project had. The
+        // space of wire values is NOT closed.
+        let r = FinishReason::from_wire("something_new_2027");
+        assert_eq!(r, FinishReason::Other("something_new_2027".into()));
+    }
+
+    #[test]
+    fn finish_reason_other_is_capped_at_64_chars_on_a_char_boundary() {
+        // Wire text entering PUBLIC, SERIALIZED telemetry. The crate caps
+        // everything else that comes from outside; a reason is a word.
+        let long = "á".repeat(200);
+        let FinishReason::Other(s) = FinishReason::from_wire(&long) else {
+            panic!("an unknown value must land in Other")
+        };
+        assert!(s.chars().count() <= 64);
+    }
+
+    #[test]
+    fn unsupported_is_distinguishable_from_measured_zero() {
+        // Three states, not two: "the backend cannot", "it can and the model did
+        // not reason", "it can and it reasoned". An Option would collapse the
+        // first two.
+        assert_ne!(
+            ReasoningState::Unsupported {
+                backend: "anthropic".into()
+            },
+            ReasoningState::Measured {
+                chars: 0,
+                text: None
+            }
+        );
+    }
 }
