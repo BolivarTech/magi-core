@@ -553,3 +553,88 @@ async fn a_crate_defect_does_not_rotate_because_rotating_reproduces_it() {
         "the fallback must never have been asked: rotating reproduces our own request"
     );
 }
+
+/// D-2 — an oversized body reports its OWN kind, with no behaviour change.
+///
+/// It was already mage-local: it inserts into `state.failed_lineages` and never calls
+/// `register_transport_failure`. What it could not do was SAY so, because `RotationKind` was
+/// public and not `#[non_exhaustive]`, making a new variant a SemVer break — so the precision
+/// rode in the `detail` text instead. For this case the major is a pure telemetry rename.
+#[tokio::test]
+async fn an_oversized_body_reports_its_own_kind_with_no_behaviour_change() {
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::Oversized]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let hop = &report.rotations[&AgentName::Caspar].chain[0];
+    assert_eq!(hop.kind(), RotationKind::OversizedResponse);
+    assert!(hop.kind().is_mage_local());
+
+    // The no-behaviour-change half, ASSERTED rather than merely claimed: the other two seats
+    // answered, so the lineage was never taken away from them.
+    assert!(!report.degraded);
+    assert_eq!(report.agents.len(), 3);
+    // And the prefix that carried the precision while the enum was frozen is gone: with the
+    // right type it is duplicated information that can contradict the type.
+    assert!(!hop.detail().starts_with("mage-local:"));
+}
+
+/// The mirror of the above for a failure reported by a provider implemented outside this crate.
+#[tokio::test]
+async fn an_external_failure_reports_its_own_kind_with_no_behaviour_change() {
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::External]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let hop = &report.rotations[&AgentName::Caspar].chain[0];
+    assert_eq!(hop.kind(), RotationKind::ExternalFailure);
+    assert!(hop.kind().is_mage_local());
+    assert!(!report.degraded);
+    assert!(!hop.detail().starts_with("mage-local:"));
+}
