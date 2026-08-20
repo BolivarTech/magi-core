@@ -15,9 +15,9 @@
 //! Feature-gated behind `openai-compat`; pulls in `reqwest` as an optional
 //! dependency (shared with `claude-api`).
 
-use crate::error::ProviderError;
+use crate::error::{ProviderError, ResponseContractCause};
 use crate::provider::{
-    CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, PARSE_FAILURE_STATUS,
+    Completion, CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, FinishReason,
     ReasoningControl, ReasoningState,
 };
 use crate::providers::provider_url::ProviderUrl;
@@ -47,33 +47,148 @@ pub(crate) struct OpenAiMessage {
 }
 
 /// Top-level response from the OpenAI Chat Completions endpoint.
+///
+/// Every field a backend may omit is `#[serde(default)]`: this wire format is spoken by OpenAI
+/// cloud, LocalAI, vLLM, LM Studio and llama.cpp-server, and they do not agree on which optional
+/// members they send. A server that omits one must still parse.
 #[derive(Debug, Deserialize)]
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
 }
 
 /// A single completion choice returned by the endpoint.
 #[derive(Debug, Deserialize)]
 struct OpenAiChoice {
     message: OpenAiRespMessage,
+    /// Why the model stopped. Until `4.0.0` this field was **not deserialized at all**, and that
+    /// single omission is the head of the causal chain this release exists for: without it, "the
+    /// model burned its whole budget reasoning" and "the server sent nothing" are the same opaque
+    /// error, and the operator goes looking at a network that answered HTTP 200 perfectly.
+    #[serde(default)]
+    finish_reason: Option<FinishReason>,
 }
 
 /// The assistant message inside a completion choice.
 ///
 /// `content` is optional so that an **absent** or **null** field deserializes instead of failing
 /// the whole parse with an opaque message: those cases mean "the server sent no content", which is
-/// a schema failure worth naming, not a malformed document.
+/// a contract failure worth naming, not a malformed document.
 #[derive(Debug, Deserialize)]
 struct OpenAiRespMessage {
     #[serde(default)]
     content: Option<String>,
+    /// The provider-side reasoning channel, under either spelling in the wild.
+    ///
+    /// `Option<String>`, not `String`: absent and empty are different claims, and collapsing them
+    /// would report that the model did not reason when the backend simply did not say.
+    #[serde(default, alias = "reasoning_content")]
+    reasoning: Option<String>,
 }
 
-/// Body text when the server sent no usable content.
-const EMPTY_CONTENT_BODY: &str = "response content was empty or absent";
+/// The token counters, when the backend keeps them.
+///
+/// Both `Option`: a compatible server that reports a partial `usage` object must not force a zero,
+/// and a zero meaning "nobody counted" is indistinguishable from a real one.
+#[derive(Debug, Deserialize, Default)]
+struct OpenAiUsage {
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+}
 
-/// Body text when the response carried no choices at all.
-const NO_CHOICES_BODY: &str = "no choices in response";
+impl OpenAiResponse {
+    /// Converts a parsed response into a [`Completion`], or into the contract failure it turned
+    /// out to be.
+    ///
+    /// # Parameters
+    ///
+    /// - `cap` — the output budget in force, carried into the error so an empty completion names
+    ///   the number that cut it instead of leaving the caller to guess.
+    /// - `trace` — whether the consumer opted in to carrying the reasoning text itself. The
+    ///   **length** travels either way; the flag is additive, never substitutive.
+    /// - `control` — the reasoning control the consumer asked for. This wire has no way to honour
+    ///   `Disabled`, so it is **declared**, never silently ignored.
+    ///
+    /// # Errors
+    ///
+    /// - [`ProviderError::ResponseContract`] with [`ResponseContractCause::NoMessage`] when the
+    ///   body parsed but carried no choice to read.
+    /// - [`ProviderError::EmptyCompletion`] when the choice carried no usable content.
+    ///
+    /// # Complexity
+    ///
+    /// O(n) in the length of the reasoning trace, which is counted once for its character length.
+    fn into_completion(
+        self,
+        cap: u32,
+        trace: bool,
+        control: ReasoningControl,
+    ) -> Result<Completion, ProviderError> {
+        let usage = self.usage.unwrap_or_default();
+        let choice = self
+            .choices
+            .into_iter()
+            .next()
+            .ok_or(ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+            })?;
+        let OpenAiChoice {
+            message,
+            finish_reason,
+        } = choice;
+        let OpenAiRespMessage { content, reasoning } = message;
+        let content = content.unwrap_or_default();
+
+        if content.trim().is_empty() {
+            // Absent, null, empty and blank all mean the same thing: the server sent no content.
+            //
+            // `NoGeneration` is deliberately NOT considered here. Its discriminant is a set of
+            // NATIVE wire fields that do not exist in this format, so there is no way to assert
+            // the defect is ours — and this crate takes the reversible route when it cannot tell.
+            // Aborting a run on a guess is the failure this release exists to stop making.
+            return Err(ProviderError::EmptyCompletion {
+                finish: finish_reason,
+                cap,
+            });
+        }
+
+        // ORDER MATTERS: the CONTROL resolves before the trace. A provider that was asked for
+        // `Disabled` and cannot honour it declares `Unsupported` even when the body carries
+        // `reasoning` — in fact ESPECIALLY then, because reasoning coming back is the proof the
+        // control had no effect. Resolving it the other way round overwrote that declaration in
+        // silence, which is the whole failure mode C-8 exists to prevent.
+        let reasoning = match (control, reasoning) {
+            (ReasoningControl::Disabled, _) => ReasoningState::Unsupported {
+                backend: COMPAT_BACKEND_NAME.to_string(),
+            },
+            (ReasoningControl::Default, Some(s)) => ReasoningState::Measured {
+                chars: s.chars().count(),
+                text: trace.then_some(s),
+            },
+            // Nothing came back on the channel, so nothing was measured — NOT
+            // `Measured { chars: 0 }`, which would assert a look that did happen and saw zero.
+            (ReasoningControl::Default, None) => ReasoningState::NotMeasured,
+        };
+
+        let mut telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
+        if let Some(f) = finish_reason {
+            telemetry = telemetry.with_finish(f);
+        }
+        if let Some(n) = usage.completion_tokens {
+            telemetry = telemetry.with_completion_tokens(n);
+        }
+        if let Some(n) = usage.prompt_tokens {
+            telemetry = telemetry.with_prompt_tokens(n);
+        }
+        Ok(Completion::new(content).with_telemetry(telemetry))
+    }
+}
+
+/// The backend name this provider reports when it cannot honour a reasoning control.
+const COMPAT_BACKEND_NAME: &str = "openai-compatible";
 
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
 /// format.
@@ -212,47 +327,6 @@ impl OpenAiCompatibleProvider {
             .map(|k| ("Authorization", format!("Bearer {k}")))
     }
 
-    /// Extracts `choices[0].message.content` from the raw response body.
-    ///
-    /// A serde failure or an empty `choices` array maps to
-    /// `ProviderError::Http { status: 0, .. }` — a deliberate sentinel:
-    /// `status: 0` is never a real HTTP status, marks a parse/contract failure,
-    /// and is non-retryable per `is_retryable`.
-    pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
-        let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
-            status: PARSE_FAILURE_STATUS,
-            body: format!(
-                "failed to parse response: {}",
-                crate::provider::describe_parse_error(&e)
-            ),
-            retry_after_raw: vec![],
-            received_at: None,
-        })?;
-        let choice = resp
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: NO_CHOICES_BODY.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
-            })?;
-        match choice.message.content.as_deref() {
-            // Absent, null and empty all mean the same thing: the server sent no content. The
-            // condition is written EXPLICITLY rather than letting the empty case fall through
-            // some other path — otherwise the next refactor of this match breaks it in silence
-            // and no test notices.
-            None | Some("") => Err(ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: EMPTY_CONTENT_BODY.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
-            }),
-            Some(text) => Ok(text.to_owned()),
-        }
-    }
-
     /// Maps an HTTP status code to a [`ProviderError`].
     ///
     /// 401 / 403 → [`ProviderError::Auth`]; all other codes →
@@ -309,7 +383,7 @@ impl OpenAiCompatibleProvider {
     }
 }
 
-use crate::provider::{Completion, LlmProvider};
+use crate::provider::LlmProvider;
 
 #[async_trait::async_trait]
 impl LlmProvider for OpenAiCompatibleProvider {
@@ -367,23 +441,14 @@ impl LlmProvider for OpenAiCompatibleProvider {
         // The total timeout can also fire while reading (headers arrive, then the server hangs);
         // the shared mapper classifies that as `Timeout`, not `Network`.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
-        let text = Self::parse_response(&response_body)?;
-
-        // C-8: this wire has no way to skip its reasoning channel — `think: false`
-        // was measured accepted-with-HTTP-200-and-no-effect here (evidence run G),
-        // so `Disabled` is DECLARED rather than silently ignored. Reading
-        // `finish_reason`/`usage` from a real response is Task 12's, not this
-        // one's: this provider's telemetry stays otherwise `unmeasured()`.
-        let reasoning = match config.reasoning {
-            ReasoningControl::Disabled => ReasoningState::Unsupported {
-                backend: "openai-compatible".to_string(),
-            },
-            // Nothing was asked, so nothing is declared either — and there is no
-            // trace channel read here regardless, so this is NOT a measured zero.
-            ReasoningControl::Default => ReasoningState::NotMeasured,
-        };
-        let telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
-        Ok(Completion::new(text).with_telemetry(telemetry))
+        // One parse, one place that decides. The conversion owns the whole reading of this wire —
+        // the termination reason, the counters and the reasoning channel — so that nothing is
+        // decided twice in two spots that can drift apart.
+        let parsed: OpenAiResponse =
+            serde_json::from_str(&response_body).map_err(|_| ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+            })?;
+        parsed.into_completion(config.max_tokens, config.reasoning_trace, config.reasoning)
     }
 
     fn name(&self) -> &str {
@@ -513,33 +578,41 @@ mod tests {
         assert_eq!(p.auth_header(), None);
     }
 
+    // The reading of this wire moved out of a `parse_response` that returned a bare `String` and
+    // into `OpenAiResponse::into_completion`, which returns the telemetry with it. The tests below
+    // moved with it rather than being dropped: what they pin — first choice wins, text comes back
+    // whole, an unusable body names its own cause — is unchanged, only the door is.
+
     #[test]
-    fn absent_null_and_empty_content_are_all_a_named_schema_failure() {
+    fn the_named_cause_travels_with_an_unusable_body() {
         for body in [
             r#"{"choices":[{"message":{}}]}"#,
             r#"{"choices":[{"message":{"content":null}}]}"#,
             r#"{"choices":[{"message":{"content":""}}]}"#,
         ] {
-            let err = OpenAiCompatibleProvider::parse_response(body)
+            let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+            let err = r
+                .into_completion(4096, false, ReasoningControl::Default)
                 .expect_err("no content is a failure");
             assert!(
-                matches!(err, ProviderError::Http { status: 0, .. }),
-                "same sentinel as other unusable responses: {err:?}"
+                err.to_string().contains("no content"),
+                "it says WHAT was wrong, not 'failed to parse': {err}"
             );
             assert!(
-                err.to_string().contains("empty or absent"),
-                "and it says WHAT was wrong, not 'failed to parse': {err}"
+                err.to_string().contains("4096"),
+                "and it names the budget in force, which is the actionable half: {err}"
             );
         }
     }
 
     #[test]
     fn content_with_text_is_returned() {
-        let body = r#"{"choices":[{"message":{"content":"hello"}}]}"#;
-        assert_eq!(
-            OpenAiCompatibleProvider::parse_response(body).expect("parses"),
-            "hello"
-        );
+        let body = r#"{"choices":[{"message":{"role":"assistant","content":"hello"}}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("parses");
+        assert_eq!(c.text, "hello");
     }
 
     // Endpoint construction moved to the URL authority, and its coverage GREW rather than
@@ -549,35 +622,13 @@ mod tests {
     // See `provider_url::tests::join_path_*`.
 
     #[test]
-    fn test_parse_response_extracts_content() {
-        let json = r#"{"choices":[{"message":{"role":"assistant","content":"hola"}}]}"#;
-        assert_eq!(
-            OpenAiCompatibleProvider::parse_response(json).unwrap(),
-            "hola"
-        );
-    }
-
-    #[test]
-    fn test_parse_response_takes_first_choice() {
+    fn the_first_choice_is_the_one_that_is_read() {
         let json = r#"{"choices":[{"message":{"content":"a"}},{"message":{"content":"b"}}]}"#;
-        assert_eq!(OpenAiCompatibleProvider::parse_response(json).unwrap(), "a");
-    }
-
-    #[test]
-    fn test_parse_response_empty_choices_is_http_zero() {
-        let json = r#"{"choices":[]}"#;
-        assert!(matches!(
-            OpenAiCompatibleProvider::parse_response(json),
-            Err(ProviderError::Http { status: 0, .. })
-        ));
-    }
-
-    #[test]
-    fn test_parse_response_bad_json_is_http_zero() {
-        assert!(matches!(
-            OpenAiCompatibleProvider::parse_response("not json"),
-            Err(ProviderError::Http { status: 0, .. })
-        ));
+        let r: OpenAiResponse = serde_json::from_str(json).expect("valid JSON");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("parses");
+        assert_eq!(c.text, "a");
     }
 
     #[test]

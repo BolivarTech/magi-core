@@ -13,6 +13,7 @@
 // Error types
 pub use crate::error::{
     AbandonReason, ExternalErrorKind, MAX_EXTERNAL_MESSAGE_BYTES, MagiError, ProviderError,
+    ResponseContractCause,
 };
 
 // Backoff / retry policy
