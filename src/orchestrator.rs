@@ -1543,8 +1543,15 @@ pub(crate) async fn dispatch_one_agent(
     }
 
     // Single-shot retry with corrective feedback prompt.
-    let retry_prompt =
-        build_retry_prompt(&user_prompt, first_err.cause, &first_err.error.to_string());
+    let retry_prompt = build_retry_prompt(
+        &user_prompt,
+        first_err.cause,
+        &first_err.error.to_string(),
+        // What the FIRST attempt's backend said about why it stopped. The crate has it in
+        // hand here, and it is the difference between telling a model not to stop and
+        // telling it the budget stopped it.
+        first_raw.telemetry.finish.clone(),
+    );
     let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
     record_attempt(&mut records, &model, config.max_tokens, &second_result);
     let second_raw = match second_result {
@@ -1935,8 +1942,12 @@ async fn attempt_model(
 
     // Single corrective retry on the SAME model.
     *was_retried = true;
-    let retry_prompt =
-        build_retry_prompt(user_prompt, first_err.cause, &first_err.error.to_string());
+    let retry_prompt = build_retry_prompt(
+        user_prompt,
+        first_err.cause,
+        &first_err.error.to_string(),
+        first_raw.telemetry.finish.clone(),
+    );
     let second =
         tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
     record_attempt(records, provider.model(), config.max_tokens, &second);
