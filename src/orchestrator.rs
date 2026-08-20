@@ -1144,6 +1144,9 @@ impl Magi {
                 hypothesis: d.hypothesis,
                 agent: d.agent,
                 model: d.model,
+                // Only the seats that ANSWERED, which on this path already excludes the one
+                // that hit the defect: it is in `failed`, not in `successful`. Kept symmetric
+                // with the rotating path, which filters it out explicitly.
                 responded: successful.iter().map(|o| o.agent).collect(),
             });
         }
@@ -2135,7 +2138,15 @@ async fn resolve_crate_defect(
         hypothesis: d.hypothesis,
         agent: d.agent,
         model: d.model,
-        responded: responded.keys().copied().collect(),
+        // The seat that HIT it is excluded: it already travels as `agent`, and counting it here
+        // would make the field disagree with its own documentation, which says empty is the
+        // common case. It is: the discriminant is that no generation happened, so the backend
+        // answers in fractions of a second and the other seats have barely started.
+        responded: responded
+            .keys()
+            .copied()
+            .filter(|a| *a != d.agent)
+            .collect(),
     })
 }
 
