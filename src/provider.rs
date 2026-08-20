@@ -923,7 +923,12 @@ pub(crate) fn cause_chain(e: &dyn std::error::Error) -> String {
 /// Typed on purpose: it accepts **only** a serde error, so it is structurally impossible to feed it
 /// a network error whose text embeds a URL. That is what lets the CI check forbid interpolating an
 /// error inside provider code without carving out an exception — the safe case has a name.
-#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+///
+/// Gated on `claude-api` ALONE since `4.0.0`: the compat path stopped rendering a parse failure as
+/// text when it started naming it as a contract cause, so that feature no longer has a caller. The
+/// wider gate would leave this dead for anyone building `openai-compat` on its own — a supported
+/// configuration that neither of the gate's two feature sets compiles.
+#[cfg(feature = "claude-api")]
 pub(crate) fn describe_parse_error(e: &serde_json::Error) -> String {
     e.to_string()
 }
