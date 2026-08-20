@@ -273,6 +273,90 @@ fn s11_the_trace_flag_adds_the_text(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![any_measured, carries_text]
 }
 
+// ---------------------------------------------------------------------------
+// S3 — the large payload, which is the case EC would have caught
+// ---------------------------------------------------------------------------
+
+const NAME_NO_EMPTY_MISCLASSIFIED: &str =
+    "no seat was lost to an empty completion classified as transport";
+const NAME_CUT_NAMES_BUDGET: &str = "a completion cut by the budget names the budget in its error";
+const NAME_NO_RUN_WIDE: &str = "no content failure condemned a lineage run-wide";
+
+/// `S3` — the failure this release is named for, observed from the outside
+/// (`sbtdd/smoke-harness-spec.md`, "S3").
+///
+/// # Three assertions, because three separate things had to be true and only one was
+///
+/// The chain was: an empty completion became a synthetic `Http { status: 0 }`, which became
+/// `Transport`, which condemned the lineage **run-wide** — taking it away from the other two
+/// seats over what one seat observed. Each assertion below reads one link, so a red row says
+/// which one came back rather than "the large payload is unhappy".
+///
+/// # Why the rotation telemetry is where the run-wide claim is read
+///
+/// A run-wide condemnation is not directly visible in a report field; what IS visible is the
+/// **kind** each rotation event reports. `Transport` is the kind that means the run was
+/// condemned, so a content failure reporting it is the mislabelling this milestone deleted.
+fn s3_the_large_payload_loses_no_seat_to_misclassification(ctx: &RunContext<'_>) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_NO_EMPTY_MISCLASSIFIED, reason.clone()),
+            Assertion::skip(NAME_CUT_NAMES_BUDGET, reason.clone()),
+            Assertion::skip(NAME_NO_RUN_WIDE, reason),
+        ];
+    };
+
+    // A seat lost to an empty completion shows up in `failed_agents`, and until `4.0.0` its
+    // reason read as a transport fault — sending the operator to look at a network that had
+    // answered HTTP 200 perfectly.
+    let no_misclassified = assert_that(
+        NAME_NO_EMPTY_MISCLASSIFIED,
+        !report
+            .failed_agents
+            .values()
+            .any(|r| r.contains("empty completion") && r.contains("transport")),
+    );
+
+    // Only checkable when something WAS cut, so it certifies the shape of the message rather
+    // than the absence of the case: a run where nothing was cut satisfies it trivially and
+    // truthfully, because there was no error to name a budget in.
+    let cut_names_budget = assert_that(
+        NAME_CUT_NAMES_BUDGET,
+        report
+            .failed_agents
+            .values()
+            .filter(|r| r.contains("empty completion"))
+            .all(|r| r.contains("output budget")),
+    );
+
+    // The link that matters most, and the one nothing else in this harness reads: a content
+    // failure must never report the kind that means the whole run was condemned.
+    let no_run_wide = assert_that(
+        NAME_NO_RUN_WIDE,
+        report
+            .rotations
+            .values()
+            .flat_map(|r| r.chain.iter())
+            .all(|hop| hop.kind().is_mage_local() || !content_failure_detail(hop.detail())),
+    );
+
+    vec![no_misclassified, cut_names_budget, no_run_wide]
+}
+
+/// Whether a rotation hop's detail describes a CONTENT failure rather than a transport one.
+///
+/// Reads the text because that is all a hop carries besides its kind, and the whole point of the
+/// assertion is to catch a hop whose kind and detail disagree. It is deliberately narrow: it
+/// looks for the two phrases this crate's own content errors render, not for a general notion of
+/// content, so a transport hop cannot match by accident.
+fn content_failure_detail(detail: &str) -> bool {
+    detail.contains("empty completion") || detail.contains("response contract")
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -283,6 +367,14 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::HappySmall),
             backend_tag: BackendNeed::Required,
             assert_fn: s8_completions_are_native_only,
+        },
+        Scenario {
+            id: "S3",
+            // The large payload, for the same reason as `S10`: the misclassification this
+            // scenario reads needs a model that can actually exhaust its budget.
+            source: Source::Run(RunId::Large62k),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s3_the_large_payload_loses_no_seat_to_misclassification,
         },
         Scenario {
             id: "S10",
@@ -324,7 +416,7 @@ mod tests {
     #[test]
     fn the_table_carries_exactly_the_scenarios_this_stage_implements() {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
-        assert_eq!(ids, vec!["S8", "S10", "S11", "S13"]);
+        assert_eq!(ids, vec!["S8", "S3", "S10", "S11", "S13"]);
     }
 
     #[test]
@@ -422,6 +514,114 @@ mod tests {
         // point an operator at code that was never reached.
         let ctx = RunContext::blank(RunId::HappySmall);
         for a in s13_every_completion_is_recorded(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, got {:?}",
+                a.name,
+                a.state
+            );
+        }
+    }
+    // -- S3 --
+
+    /// A report carrying ONE rotation hop for Caspar, whose `chain` is exactly `chain_json`, and
+    /// whose `failed_agents` is exactly `failed_json`.
+    ///
+    /// Shared by the three tests below so each differs only in the thing it is about, never in
+    /// the surrounding shape — the same discipline `S4`'s fixture follows in `e1`.
+    fn report_with_chain_and_failures(chain_json: &str, failed_json: &str) -> MagiReport {
+        report_from(&format!(
+            r#"{{
+              "agents": [],
+              "consensus": {{
+                "consensus":"GO","consensus_verdict":"approve","confidence":0.5,"score":0.5,
+                "agent_count":0,"votes":{{}},"majority_summary":"","dissent":[],"findings":[],"conditions":[],"recommendations":{{}}
+              }},
+              "banner":"","report":"","degraded":false,
+              "failed_agents": {failed_json},
+              "rotations": {{
+                "caspar": {{
+                  "model_configured":"glm-5.2:cloud","model_used":"deepseek-v4-pro:cloud",
+                  "chain": {chain_json},
+                  "ran_unmeasured": false
+                }}
+              }}
+            }}"#
+        ))
+    }
+
+    #[test]
+    fn s3_passes_when_a_content_failure_reports_a_mage_local_kind() {
+        // The shape `4.0.0` produces: a completion the budget cut, rotated away from with the
+        // kind that says so, and a failure reason that names the budget.
+        let report = report_with_chain_and_failures(
+            r#"[{"from":"zhipu","to":"deepseek","model_resolved":"deepseek-v4-pro:cloud","kind":"empty_completion","detail":"empty completion: the model returned no content. The output budget in force was 16384 tokens"}]"#,
+            "{}",
+        );
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::Large62k)
+        };
+        for a in s3_the_large_payload_loses_no_seat_to_misclassification(&ctx) {
+            assert_eq!(a.state, ScenarioState::Pass, "{}", a.name);
+        }
+    }
+
+    #[test]
+    fn s3_fails_when_a_content_failure_still_reports_the_run_wide_kind() {
+        // The exact defect: an empty completion riding `transport`, which everywhere else in
+        // this system means the run was condemned. It is what took a healthy lineage away from
+        // the other two seats.
+        let report = report_with_chain_and_failures(
+            r#"[{"from":"zhipu","to":"deepseek","model_resolved":"deepseek-v4-pro:cloud","kind":"transport","detail":"empty completion: the model returned no content"}]"#,
+            "{}",
+        );
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::Large62k)
+        };
+        let states: Vec<_> = s3_the_large_payload_loses_no_seat_to_misclassification(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_NO_RUN_WIDE, ScenarioState::Fail)),
+            "the run-wide row must be the one that goes red: {states:?}"
+        );
+    }
+
+    #[test]
+    fn s3_fails_when_a_lost_seat_reads_as_a_transport_fault() {
+        // The operator-facing half of the same defect: the seat is gone and the reason sends
+        // them to look at a network that answered HTTP 200 perfectly.
+        let report = report_with_chain_and_failures(
+            "[]",
+            r#"{"caspar":"transport: empty completion after rotation"}"#,
+        );
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::Large62k)
+        };
+        let states: Vec<_> = s3_the_large_payload_loses_no_seat_to_misclassification(&ctx)
+            .into_iter()
+            .map(|a| (a.name, a.state))
+            .collect();
+        assert!(
+            states.contains(&(NAME_NO_EMPTY_MISCLASSIFIED, ScenarioState::Fail)),
+            "{states:?}"
+        );
+        // And the budget row too: a lost seat whose message names no budget is exactly the
+        // error that used to read "http error 0".
+        assert!(
+            states.contains(&(NAME_CUT_NAMES_BUDGET, ScenarioState::Fail)),
+            "{states:?}"
+        );
+    }
+
+    #[test]
+    fn s3_skips_rather_than_fails_when_the_run_produced_no_report() {
+        let ctx = RunContext::blank(RunId::Large62k);
+        for a in s3_the_large_payload_loses_no_seat_to_misclassification(&ctx) {
             assert!(
                 matches!(a.state, ScenarioState::Skip(_)),
                 "{} must skip, got {:?}",
