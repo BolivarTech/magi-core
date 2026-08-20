@@ -3215,4 +3215,151 @@ mod tests {
             "removing the section must restore the untouched report exactly"
         );
     }
+    // ---------------------------------------------------------------------
+    // Task 13 — `CompletionRecord` and the `completions` field.
+    //
+    // The type and the field only. What POPULATES them is Task 13b, so the
+    // assertions here are about honesty of construction and about the shape of
+    // the serialized document, never about a run.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_fresh_record_measures_nothing_and_says_so() {
+        // `new` takes only what is ALWAYS known — the model and the cap, both set
+        // by the caller, neither read off the response. Everything measurable
+        // starts absent, because a zero meaning "nobody counted" is
+        // indistinguishable from a real zero.
+        let r = CompletionRecord::new("glm-5.2".to_string(), 16_384);
+        assert_eq!(r.model, "glm-5.2");
+        assert_eq!(r.cap, 16_384);
+        assert_eq!(r.finish, None);
+        assert_eq!(r.completion_tokens, None);
+        assert_eq!(r.prompt_tokens, None);
+        assert_eq!(r.reasoning, ReasoningState::NotMeasured);
+    }
+
+    #[test]
+    fn from_telemetry_invents_nothing_when_nothing_was_measured() {
+        let r = CompletionRecord::from_telemetry(
+            "m".to_string(),
+            4096,
+            &CompletionTelemetry::unmeasured(),
+        );
+        assert_eq!(r.finish, None);
+        assert_eq!(r.completion_tokens, None);
+        assert_eq!(r.prompt_tokens, None);
+        assert_eq!(r.reasoning, ReasoningState::NotMeasured);
+        // The two the provider never knows still come from the caller.
+        assert_eq!(r.model, "m");
+        assert_eq!(r.cap, 4096);
+    }
+
+    #[test]
+    fn from_telemetry_copies_every_measurement_across() {
+        // The ONE conversion from what the provider measured to what the report
+        // keeps. Written once because two places building this record is how the
+        // two start disagreeing about what "not measured" means.
+        let t = CompletionTelemetry::unmeasured()
+            .with_finish(FinishReason::Length)
+            .with_completion_tokens(4096)
+            .with_prompt_tokens(63_926)
+            .with_reasoning(ReasoningState::Measured {
+                chars: 15_409,
+                text: None,
+            });
+        let r = CompletionRecord::from_telemetry("deepseek-v4-pro".to_string(), 4096, &t);
+        assert_eq!(r.finish, Some(FinishReason::Length));
+        assert_eq!(r.completion_tokens, Some(4096));
+        assert_eq!(r.prompt_tokens, Some(63_926));
+        assert_eq!(
+            r.reasoning,
+            ReasoningState::Measured {
+                chars: 15_409,
+                text: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_unsupported_declaration_survives_the_conversion() {
+        // C-8's declaration is only worth anything if it reaches the report. A
+        // conversion that flattened it to `NotMeasured` would turn "this backend
+        // cannot do it" back into "nobody looked" — the exact ambiguity the typed
+        // state exists to remove.
+        let t = CompletionTelemetry::unmeasured().with_reasoning(ReasoningState::Unsupported {
+            backend: "openai-compatible".to_string(),
+        });
+        let r = CompletionRecord::from_telemetry("m".to_string(), 4096, &t);
+        assert_eq!(
+            r.reasoning,
+            ReasoningState::Unsupported {
+                backend: "openai-compatible".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn a_clean_report_carries_no_completions_key_at_all() {
+        // `skip_serializing_if` is for the REAL case — zero completions — not for
+        // "no cuts": with every completion recorded the map is never empty in a
+        // normal run, so the old claim that a clean report gains no bytes is false
+        // and is not repeated here.
+        let report = report_with_no_telemetry();
+        let json = serde_json::to_string(&report).expect("serializes");
+        assert!(!json.contains("completions"));
+    }
+
+    #[test]
+    fn the_completions_field_round_trips_with_its_records() {
+        let mut report = report_with_no_telemetry();
+        report.completions.insert(
+            AgentName::Caspar,
+            vec![
+                CompletionRecord::new("glm-5.2".to_string(), 16_384)
+                    .with_finish(FinishReason::Length)
+                    .with_completion_tokens(16_384),
+                CompletionRecord::new("kimi-k2.6".to_string(), 16_384)
+                    .with_finish(FinishReason::Stop),
+            ],
+        );
+        let json = serde_json::to_string(&report).expect("serializes");
+        let back: MagiReport = serde_json::from_str(&json).expect("round-trips");
+        let recs = &back.completions[&AgentName::Caspar];
+        // Records, not counters: with rotation, WHICH model was cut is the question
+        // that decides what leaves the pool, and a count erases exactly that.
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].model, "glm-5.2");
+        assert_eq!(recs[0].finish, Some(FinishReason::Length));
+        assert_eq!(recs[1].model, "kimi-k2.6");
+        assert_eq!(recs[1].finish, Some(FinishReason::Stop));
+    }
+
+    #[test]
+    fn an_older_report_without_the_field_still_deserializes() {
+        // `#[serde(default)]`: a document produced before this version has no
+        // `completions` key, and refusing to read it would break every stored
+        // report the moment this field shipped.
+        let report = report_with_no_telemetry();
+        let mut doc: serde_json::Value =
+            serde_json::to_value(&report).expect("serializes to a value");
+        doc.as_object_mut()
+            .expect("an object")
+            .remove("completions");
+        let back: MagiReport = serde_json::from_value(doc).expect("parses without the field");
+        assert!(back.completions.is_empty());
+    }
+
+    #[test]
+    fn a_recorded_cut_is_not_an_extraction_failure() {
+        // Disjoint sets. Putting a cut in `extraction_failures` would ASSERT a
+        // failure that did not happen, and a consumer counting that list to gate a
+        // run would start seeing failures where extraction went perfectly.
+        let mut report = report_with_no_telemetry();
+        report.completions.insert(
+            AgentName::Caspar,
+            vec![CompletionRecord::new("m".to_string(), 16_384).with_finish(FinishReason::Length)],
+        );
+        assert_eq!(report.completions[&AgentName::Caspar].len(), 1);
+        assert!(report.extraction_failures.is_empty());
+    }
 }
