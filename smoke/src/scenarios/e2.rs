@@ -175,9 +175,10 @@ const RAISED_MAX_TOKENS: u32 = 16_384;
 /// `payload_target_bytes` and `config` refuses anything under
 /// [`crate::config::MIN_PAYLOAD_TARGET_BYTES`]. But the failure this stage reproduces is a
 /// function of TOKENS — evidence run H passes on the same model and the same budget that run C
-/// fails, and the only difference is how much the model had to read. Four scenarios (`S3`,
-/// `S8b`, `S10`, `S11`) read `RunId::Large62k` and **none of them would notice a payload that
-/// silently shrank**, because none of them looks at size at all.
+/// fails, and the only difference is how much the model had to read. Three scenarios (`S3`,
+/// `S10`, `S11`) read `RunId::Large62k`, and a fourth (`S8b`) reads `RunId::Large62kNoReasoning`,
+/// sized from the same `payload_target_bytes`. **Not one of them would notice a payload that
+/// silently shrank**, because not one of them looks at size at all.
 ///
 /// This guard was specified with E1 and left unimplemented, because until `A-5` there was
 /// nothing on the report to read: the backend's own `prompt_eval_count` now arrives as
@@ -188,10 +189,11 @@ const RAISED_MAX_TOKENS: u32 = 16_384;
 ///
 /// A fixed floor would be wrong for a legally configured smaller payload: the default target is
 /// 250 000 bytes (~63 900 tokens measured) but the accepted MINIMUM is 100 000. So the bound is
-/// derived from that minimum at **twice** the crate's own `chars/4` estimate — a lower bound on
-/// a lower bound, deliberately loose, because tokenisers vary and this asserts that the payload
-/// ARRIVED large, not that any particular ratio holds. It still discriminates by ~24x: the
-/// small-run payload is 2 048 bytes, which measured 569 prompt tokens.
+/// derived from that minimum at **half** the crate's own `chars/4` estimate — 8 chars per token
+/// rather than 4 — so it is a lower bound on a lower bound, deliberately loose, because
+/// tokenisers vary and this asserts that the payload ARRIVED large, not that any particular
+/// ratio holds. It still discriminates by ~22x: the small-run payload is 2 048 bytes, which
+/// measured 569 prompt tokens.
 fn r17_the_prompt_is_large_in_tokens(records: &[&CompletionRecord]) -> Assertion {
     const FLOOR_TOKENS: usize = crate::config::MIN_PAYLOAD_TARGET_BYTES / 8;
 
@@ -823,7 +825,7 @@ pub fn e2_scenarios() -> Vec<Scenario> {
         },
         Scenario {
             id: "S10",
-            // The ONLY scenario that reads the large-payload run, and the reason that run
+            // The scenario that SIZES the large-payload run, and the reason that run
             // exists: the property is invisible at small sizes.
             source: Source::Run(RunId::Large62k),
             backend_tag: BackendNeed::Required,
@@ -1078,6 +1080,20 @@ mod tests {
         // without its non-empty companion goes green precisely when it learned nothing —
         // reproducing, inside the guard, the defect the guard was added to prevent.
         let recs = [rec(None), rec(None)];
+        let refs: Vec<&CompletionRecord> = recs.iter().collect();
+        assert_eq!(
+            r17_the_prompt_is_large_in_tokens(&refs).state,
+            ScenarioState::Fail
+        );
+    }
+
+    #[test]
+    fn r17_fails_when_only_some_completions_saw_the_large_payload() {
+        // THE case that separates `all` from `any`, and without it the quantifier is not
+        // tested at all: in every other fixture here the two agree, so `.all(` -> `.any(`
+        // survived the whole set. A run where one seat read the 62 k bundle and another read
+        // something tiny would have passed under the weaker guard with nothing to notice.
+        let recs = [rec(Some(63_924)), rec(Some(569))];
         let refs: Vec<&CompletionRecord> = recs.iter().collect();
         assert_eq!(
             r17_the_prompt_is_large_in_tokens(&refs).state,
