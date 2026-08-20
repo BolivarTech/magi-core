@@ -45,13 +45,13 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787263399.942235,
-    "ast_hash": "b3da9980316bc605aac03e338bbd4f4e",
+    "mtime": 1787264985.6722531,
+    "ast_hash": "91ccace29068e2c1ffad6cd1ffc49681",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787263361.825819,
-    "ast_hash": "00ca07d027b2b2d28e6ac384c9e15fd3",
+    "mtime": 1787264985.6702542,
+    "ast_hash": "f62542e774695c3ca295dba6d6ac68d5",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
-    "mtime": 1787263187.991654,
-    "ast_hash": "61cab04e30258668c7c7fa6bd05bdb17",
+    "mtime": 1787264985.6702542,
+    "ast_hash": "2e48f8c1d984d0ae042c13d7a260feae",
     "semantic_hash": ""
   },
   "src/reporting.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1787263272.518979,
-    "ast_hash": "7292e997c9cf8cdaac88332eba4047a7",
+    "mtime": 1787264985.6732526,
+    "ast_hash": "8bc2912cc87171b60e698e1f1ae7d335",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
@@ -205,8 +205,8 @@
     "semantic_hash": ""
   },
   "src/providers/ollama.rs": {
-    "mtime": 1787263399.9440677,
-    "ast_hash": "dcc912cf14134f22f66beebefb3920ca",
+    "mtime": 1787264961.2618608,
+    "ast_hash": "4a9ae358014b0f773cdaa62876c55124",
     "semantic_hash": ""
   },
   "src/verdict_markers.rs": {
@@ -875,8 +875,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e2.rs": {
-    "mtime": 1787263141.332277,
-    "ast_hash": "f0c0037ff15610944601c5f9cbdc1408",
+    "mtime": 1787265418.653321,
+    "ast_hash": "6642ce5fe9afabd138ae3c36bddeface",
     "semantic_hash": ""
   },
   "tests/openai_compat_reasoning.rs": {
