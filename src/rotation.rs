@@ -404,10 +404,14 @@ pub enum RotationKind {
     /// the endpoint answered with HTTP 200; the model simply produced no
     /// output for this mage's request.
     EmptyCompletion,
-    /// The response violated the provider's response contract (an unreadable
-    /// body, or a message the contract requires that never arrived).
-    /// **Mage-local**: it is this mage's request/response shape that is
-    /// broken, not a signal about the lineage itself.
+    /// The endpoint's response violated the response contract — an unreadable
+    /// body, or a message the contract requires that never arrived.
+    /// **Mage-local**, and the reason is that a lineage is not an endpoint: in
+    /// the usual deployment all three mages reach the SAME backend with
+    /// DIFFERENT lineages, so condemning one lineage run-wide would not shield
+    /// the others from a misbehaving endpoint. It would pay the cost of the
+    /// condemnation without buying its protection. Where the scope of a fault
+    /// is in doubt, this crate condemns mage-local.
     ResponseContract,
 }
 
