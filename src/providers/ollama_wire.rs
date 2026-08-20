@@ -32,6 +32,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::time::Instant;
+
 use crate::error::ProviderError;
 use crate::provider::{
     Completion, CompletionTelemetry, FinishReason, ReasoningControl, ReasoningState,
@@ -381,7 +383,9 @@ pub(crate) struct NativeError {
 /// `Auth` on `401`/`403`, mirroring the OpenAI-compatible path's
 /// `map_status_to_error` for the same statuses. Every other status becomes
 /// `Http { status, .. }`, which since `4.0.0` carries only real statuses —
-/// and this one is real (B-3). The body attached
+/// and this one is real (B-3). The `Retry-After` header and the receipt
+/// instant are carried through, so a rate-limited native call honours the
+/// delay the server asked for instead of guessing at one. The body attached
 /// prefers the single `error` key from [`NativeError`] when the body parses
 /// as one — the shape captured for a model-not-found `404` — and falls back
 /// to the raw text otherwise, so a body this crate cannot parse still reaches
@@ -395,8 +399,15 @@ pub(crate) struct NativeError {
 /// documented to send `Retry-After`, so this is not a currently-known gap —
 /// but a caller that later needs it must capture both **before** reading the
 /// body, the same way the OpenAI-compatible path does.
-pub(crate) fn native_error(status: u16, body: &str) -> ProviderError {
+pub(crate) fn native_error(
+    status: u16,
+    body: &str,
+    retry_after_raw: Vec<String>,
+    received_at: Instant,
+) -> ProviderError {
     match status {
+        // No header carried: this is not a rate-limit path, and the compat sibling's
+        // `map_status_to_error` makes the same call for the same reason.
         401 | 403 => ProviderError::Auth {
             message: body.to_string(),
         },
@@ -407,8 +418,11 @@ pub(crate) fn native_error(status: u16, body: &str) -> ProviderError {
             ProviderError::Http {
                 status,
                 body: message,
-                retry_after_raw: vec![],
-                received_at: None,
+                // Passed THROUGH, not discarded. A `429` from a cloud gateway says how long to
+                // wait, and this path used to throw that away and fall back to blind exponential
+                // backoff — which is worse than the header for the server AND for the caller.
+                retry_after_raw,
+                received_at: Some(received_at),
             }
         }
     }
@@ -704,7 +718,7 @@ mod tests {
 
     #[test]
     fn native_error_maps_a_404_with_a_parseable_body_to_http_carrying_the_message() {
-        match native_error(404, FIX_E_404) {
+        match native_error(404, FIX_E_404, vec![], Instant::now()) {
             ProviderError::Http { status, body, .. } => {
                 assert_eq!(status, 404);
                 assert!(body.contains("not found"));
@@ -717,7 +731,7 @@ mod tests {
     fn native_error_falls_back_to_the_raw_body_when_it_does_not_parse_as_native_error() {
         // A reverse proxy in front of Ollama can answer with an HTML error page, not
         // the {"error": "..."} shape. The raw text must still reach the caller.
-        match native_error(502, "<html>bad gateway</html>") {
+        match native_error(502, "<html>bad gateway</html>", vec![], Instant::now()) {
             ProviderError::Http { status, body, .. } => {
                 assert_eq!(status, 502);
                 assert_eq!(body, "<html>bad gateway</html>");
@@ -729,11 +743,11 @@ mod tests {
     #[test]
     fn native_error_maps_401_and_403_to_auth() {
         assert!(matches!(
-            native_error(401, "unauthorized"),
+            native_error(401, "unauthorized", vec![], Instant::now()),
             ProviderError::Auth { .. }
         ));
         assert!(matches!(
-            native_error(403, "forbidden"),
+            native_error(403, "forbidden", vec![], Instant::now()),
             ProviderError::Auth { .. }
         ));
     }

@@ -258,8 +258,8 @@ measured. That figure is a measured reference, not a ceiling.
 
 ## 7. The time defaults change
 
-<!-- PENDING: MS2 F-2 — the seven time values. This marker is grepped by the release checklist;
-     the release cannot be tagged while it is here. -->
+<!-- PENDING: MS2 F-2 — the seven time values. Enforced by ci/check_pending.sh, which the
+     release workflow runs: the tag cannot be cut while this marker is here. -->
 
 `MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
 covers the retry chain's worst case and an exhausted budget is reported as a **typed** abandonment

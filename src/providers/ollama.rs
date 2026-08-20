@@ -40,7 +40,7 @@
 //! surfaces a [`ProviderError`]. HTTP-thin, no new dependencies (`reqwest` is
 //! already pulled by the `openai-compat` feature this one enables).
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
@@ -109,7 +109,7 @@ impl OllamaProvider {
     ///
     /// | Channel | What happens |
     /// |---|---|
-    /// | **Completions** | 404 → the native error form, which is mage-local since `4.0.0` — the seat rotates and the OTHER seats keep the lineage. **Still the loud one**, just no longer run-wide. |
+    /// | **Completions** | 404 → `ProviderError::Http { status: 404 }`, which is **run-wide**: the lineage is condemned for every seat, not just this one. That did NOT change in `4.0.0` — a real HTTP status still means transport. Only the CONTRACT failures became mage-local. **This is the loud one.** |
     /// | **Probe** | 404 → `Ok(None)`, by design. It is fail-open: an unmeasurable window is a valid result, so nothing refuses here. |
     ///
     /// The probe's silence surfaces only as the report's *estimated window* note — a disclosure,
@@ -257,15 +257,28 @@ impl LlmProvider for OllamaProvider {
             .send()
             .await?;
 
+        // Captured on the SAME beat as the status and BEFORE the body is read, exactly as the
+        // compat sibling does: `send` resolves on the headers, so this is the moment the
+        // response arrived. Review found this path was dropping both, which silently turned a
+        // gateway's `429` with a `Retry-After` into blind exponential backoff — a live
+        // regression for anyone moving from `/v1` to native against a cloud tag.
+        let received_at = Instant::now();
         let status = response.status();
-        // The body is read through the SHARED reader whether the status was a success or not, so
-        // the cap derived from `max_tokens` applies to both. An error body from a backend is
-        // still a body a hostile endpoint controls.
-        let body = response.read_verdict_body(config.max_tokens).await?;
+        let retry_after_raw = response.retry_after_raw();
 
         if !(200..300).contains(&status) {
-            return Err(native_error(status, &body));
+            // The error branch reads a DIAGNOSTIC body, which truncates. Reading it through the
+            // verdict reader instead made an oversized error page fail as `ResponseTooLarge` —
+            // mage-local and non-retryable — losing the status entirely, so a `503` behind a
+            // chatty proxy stopped looking like transport.
+            let body = response.read_diagnostic_body().await;
+            return Err(native_error(status, &body, retry_after_raw, received_at));
         }
+
+        // The success branch keeps the verdict reader: over the cap it FAILS rather than
+        // truncating, because a cut body loses its closing marker and the parser would blame the
+        // model for a cut this reader made.
+        let body = response.read_verdict_body(config.max_tokens).await?;
         let native: NativeResponse =
             serde_json::from_str(&body).map_err(|_| ProviderError::ResponseContract {
                 reason: ResponseContractCause::Unreadable,

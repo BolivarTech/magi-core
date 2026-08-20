@@ -337,6 +337,26 @@ fn s3_the_large_payload_loses_no_seat_to_misclassification(ctx: &RunContext<'_>)
         ];
     };
 
+    // NON-VACUITY FIRST, and it is what review found missing. All three assertions below are
+    // `!any(...)` or `all(filter(...))`, so every one of them is satisfied by a run that
+    // observed nothing at all — and this is the row that would be cited as evidence the fix
+    // works. Its siblings `S8`, `S8b` and `S10` all pair with a non-empty check; this one was
+    // the outlier.
+    //
+    // The precondition is the RECORD SET, not the presence of a cut: what has to have happened
+    // for these to mean anything is that completions were observed. A run where nothing was cut
+    // then satisfies the message-shape row truthfully, and the two condemnation rows are read
+    // over rotations that actually exist.
+    if report.completions.values().flatten().count() == 0 {
+        let why = "the run recorded no completion at all, so there was nothing to classify — a \
+                   green here would certify a run this scenario never saw";
+        return vec![
+            Assertion::skip(NAME_NO_EMPTY_MISCLASSIFIED, why),
+            Assertion::skip(NAME_CUT_NAMES_BUDGET, why),
+            Assertion::skip(NAME_NO_RUN_WIDE, why),
+        ];
+    }
+
     // A seat lost to an empty completion shows up in `failed_agents`, and until `4.0.0` its
     // reason read as a transport fault — sending the operator to look at a network that had
     // answered HTTP 200 perfectly.
@@ -348,9 +368,10 @@ fn s3_the_large_payload_loses_no_seat_to_misclassification(ctx: &RunContext<'_>)
             .any(|r| r.contains("empty completion") && r.contains("transport")),
     );
 
-    // Only checkable when something WAS cut, so it certifies the shape of the message rather
-    // than the absence of the case: a run where nothing was cut satisfies it trivially and
-    // truthfully, because there was no error to name a budget in.
+    // Quantified over the cuts that HAPPENED, so it certifies the shape of the message rather
+    // than the absence of the case. A run where nothing was cut satisfies it truthfully —
+    // there was no error to name a budget in — and the guard above is what makes that
+    // truthfulness rest on an observed run rather than on an empty one.
     let cut_names_budget = assert_that(
         NAME_CUT_NAMES_BUDGET,
         report
@@ -908,6 +929,10 @@ mod tests {
     ///
     /// Shared by the three tests below so each differs only in the thing it is about, never in
     /// the surrounding shape — the same discipline `S4`'s fixture follows in `e1`.
+    ///
+    /// It carries a completion record because `S3`'s non-vacuity guard requires one: a report
+    /// that recorded nothing is SKIPPED, and these fixtures exist to exercise the assertions
+    /// themselves rather than the guard in front of them.
     fn report_with_chain_and_failures(chain_json: &str, failed_json: &str) -> MagiReport {
         report_from(&format!(
             r#"{{
@@ -918,6 +943,7 @@ mod tests {
               }},
               "banner":"","report":"","degraded":false,
               "failed_agents": {failed_json},
+              "completions": {{"caspar":[{{"model":"glm-5.2","cap":16384,"reasoning":"NotMeasured"}}]}},
               "rotations": {{
                 "caspar": {{
                   "model_configured":"glm-5.2:cloud","model_used":"deepseek-v4-pro:cloud",
@@ -995,6 +1021,27 @@ mod tests {
             states.contains(&(NAME_CUT_NAMES_BUDGET, ScenarioState::Fail)),
             "{states:?}"
         );
+    }
+
+    #[test]
+    fn s3_skips_on_a_report_that_recorded_no_completion_at_all() {
+        // The non-vacuity guard, exercised. Every assertion in this scenario is satisfied by a
+        // run that observed nothing — and this is the row that would be cited as evidence the
+        // milestone's headline fix works, so a green meaning "nothing was looked at" is the
+        // worst possible outcome here.
+        let report = report_from(NO_RECORDS_AT_ALL);
+        let ctx = RunContext {
+            report: Some(&report),
+            ..RunContext::blank(RunId::Large62k)
+        };
+        for a in s3_the_large_payload_loses_no_seat_to_misclassification(&ctx) {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip over an empty record set, got {:?}",
+                a.name,
+                a.state
+            );
+        }
     }
 
     #[test]

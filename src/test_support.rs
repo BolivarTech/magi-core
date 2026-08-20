@@ -220,6 +220,14 @@ pub enum Beh {
     /// consequence is the whole RUN rather than one seat, and reading that from a report
     /// field is impossible — the run produces no report at all.
     NoGeneration,
+    /// Surface `ProviderError::EmptyCompletion` — the model returned no content because it
+    /// spent the whole output budget before producing any.
+    ///
+    /// The headline failure of `4.0.0`, and the one whose CONSEQUENCE changed: it is
+    /// mage-local, so the seat rotates and the lineage stays available to the other two.
+    /// Scripted because that consequence can only be observed by watching the registry
+    /// across a real rotation, not by classifying an error in isolation.
+    EmptyCompletion,
     /// Surface `ProviderError::ResponseTooLarge`.
     ///
     /// A CONTENT failure that looks superficially like transport: the server answered fine, it
@@ -284,6 +292,10 @@ impl LlmProvider for ScriptProvider {
             Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
             Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
             Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
+            Beh::EmptyCompletion => Err(ProviderError::EmptyCompletion {
+                finish: Some(crate::provider::FinishReason::Length),
+                cap: 16_384,
+            }),
             Beh::NoGeneration => Err(ProviderError::NoGeneration {
                 // The value the one captured case carried. Named rather than `None` so the
                 // scripted footprint matches the real one it stands for.
