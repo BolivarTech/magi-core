@@ -267,6 +267,26 @@ struct RegistryInner {
     run_failed: BTreeSet<Lineage>,
     connection_failed: BTreeSet<Lineage>,
     endpoint_down_signalled: bool,
+    crate_defect: Option<CrateDefectRecord>,
+}
+
+/// What the registry keeps about a defect of THIS crate, so the run can be aborted from the
+/// join loop rather than from inside one agent's task.
+///
+/// It does **not** carry `responded`: the registry does not know which seats answered — the
+/// ORCHESTRATOR does, because it is the one joining them. Filling that here would mean writing
+/// an empty vector meaning "not yet" into a field that reads as "none", which is the class of
+/// lie this milestone exists to remove.
+#[derive(Clone, Debug)]
+pub(crate) struct CrateDefectRecord {
+    /// What was measured, with no causal claim attached.
+    pub observation: String,
+    /// The known cause, offered as a hypothesis. This crate's text, never the wire's.
+    pub hypothesis: &'static str,
+    /// The seat that hit it.
+    pub agent: AgentName,
+    /// The model in force when it happened.
+    pub model: String,
 }
 
 /// Shared run-wide rotation state behind **a single** `tokio::sync::Mutex`.
@@ -292,6 +312,7 @@ impl LineageRegistry {
                 run_failed: BTreeSet::new(),
                 connection_failed: BTreeSet::new(),
                 endpoint_down_signalled: false,
+                crate_defect: None,
             }),
         }
     }
@@ -360,6 +381,32 @@ impl LineageRegistry {
     /// `true` iff endpoint-down was already signalled (for lost-signal recovery).
     pub async fn endpoint_down_signalled(&self) -> bool {
         self.lock.lock().await.endpoint_down_signalled
+    }
+
+    /// Records a defect of this crate, so the join loop can abort the run.
+    ///
+    /// # Set-once, and idempotent
+    ///
+    /// If two seats hit it concurrently the result is **the same abort**, not two: the first to
+    /// take the lock wins and the others find the latch already set. No state depends on which
+    /// arrived first, which is what makes "it aborts" a complete answer rather than one that
+    /// leaves the concurrent case open.
+    ///
+    /// # Returns
+    ///
+    /// `true` when THIS call set it, so a test can observe that the second caller did not.
+    pub async fn latch_crate_defect(&self, record: CrateDefectRecord) -> bool {
+        let mut inner = self.lock.lock().await;
+        if inner.crate_defect.is_some() {
+            return false;
+        }
+        inner.crate_defect = Some(record);
+        true
+    }
+
+    /// The latched defect, if one was recorded.
+    pub async fn crate_defect(&self) -> Option<CrateDefectRecord> {
+        self.lock.lock().await.crate_defect.clone()
     }
 }
 

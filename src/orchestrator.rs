@@ -18,9 +18,10 @@ use crate::reporting::{
     TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 use crate::rotation::{
-    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
-    LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
-    RotationPolicy, digest_collision, run_preflight, strict_guard_is_inert,
+    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, CrateDefectRecord,
+    FallbackPool, Lineage, LineageRegistry, ModelCapability, ProviderProbe, RotationConfig,
+    RotationEvent, RotationKind, RotationPolicy, digest_collision, run_preflight,
+    strict_guard_is_inert,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
@@ -1360,8 +1361,21 @@ impl Magi {
                     continue;
                 }
             }
-            // Normal outcome: a concurrent mage may still have tripped the latch.
+            // Normal outcome: a concurrent mage may still have tripped either latch.
             if let Some(err) = resolve_endpoint_down(&registry).await {
+                return Err(err);
+            }
+            // A defect of OURS invalidates the run, so it is checked on the same beat as
+            // endpoint-down and with the same consequence. `AbortGuard` cancels whatever is
+            // still in flight when this returns — the existing mechanism doing its job, not a
+            // new one. The seats already joined travel with the error, which is what tells a
+            // reader whether this hit one seat or all of them.
+            let answered: BTreeMap<AgentName, ()> = successful
+                .iter()
+                .map(|o| (o.agent, ()))
+                .chain(failed.keys().map(|n| (*n, ())))
+                .collect();
+            if let Some(err) = resolve_crate_defect(&registry, &answered).await {
                 return Err(err);
             }
         }
@@ -2057,6 +2071,38 @@ async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
     }
 }
 
+/// Raises a latched defect of THIS crate into the run-aborting error.
+///
+/// # Parameters
+///
+/// * `reg` — the run's registry, where the seat that hit it left the record.
+/// * `responded` — the seats that had already been joined when the abort was reached. Known
+///   only here: the registry never learns it, which is why the record does not carry it.
+///
+/// # Returns
+///
+/// `Some` when a defect was latched, in which case the caller must return it and abandon the
+/// run. `None` otherwise.
+///
+/// # Why it aborts rather than degrading the seat
+///
+/// `failed_agents` is where model failures land every day, so a bug of ours filed there is
+/// invisible in the noise of the normal. The cost of aborting is bounded by construction: the
+/// discriminant is that NO generation happened, so the backend answers in fractions of a second
+/// and the other seats have barely started.
+async fn resolve_crate_defect(
+    reg: &LineageRegistry,
+    responded: &BTreeMap<AgentName, ()>,
+) -> Option<MagiError> {
+    reg.crate_defect().await.map(|d| MagiError::CrateDefect {
+        observation: d.observation,
+        hypothesis: d.hypothesis,
+        agent: d.agent,
+        model: d.model,
+        responded: responded.keys().copied().collect(),
+    })
+}
+
 /// Lost-signal recovery for an ABNORMAL agent exit (panic / `JoinError`), factored
 /// out for race-free unit testing.
 ///
@@ -2211,17 +2257,30 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // failures land every day and a bug of ours would be invisible in the noise.
                 registry.release(agent_name).await;
                 guard.mark_released();
-                // The seat's error channel is a `String` (see `ModelOutcome::Unexpected`), so the
-                // typed error is BUILT here and rendered on the way out. Raising it to the run —
-                // the latch that turns this into an abort instead of one failed seat — is the
-                // task that owns the latch; what this arm guarantees today is the property that
-                // cannot wait: it does NOT rotate.
+                // LATCHED, so the join loop can abort the whole run. The registry deliberately
+                // does not learn WHICH seats answered — only the orchestrator knows that, and
+                // filling it here would write an empty vector meaning "not yet" into a field
+                // that reads as "none".
+                registry
+                    .latch_crate_defect(CrateDefectRecord {
+                        observation: observation.clone(),
+                        hypothesis,
+                        agent: agent_name,
+                        model: current_provider.model().to_string(),
+                    })
+                    .await;
+                // The seat's own error channel is a `String` (see `ModelOutcome::Unexpected`).
+                // It is filled anyway rather than left blank: if the abort were ever bypassed,
+                // a blank seat would be worse than a named one. `responded` is empty HERE
+                // because this task cannot know it — the abort path fills it from the map the
+                // join loop already holds.
                 return (
                     Err(MagiError::CrateDefect {
                         observation,
                         hypothesis,
                         agent: agent_name,
                         model: current_provider.model().to_string(),
+                        responded: Vec::new(),
                     }
                     .to_string()),
                     state.to_rotation(),

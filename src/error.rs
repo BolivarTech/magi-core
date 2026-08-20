@@ -532,6 +532,13 @@ pub enum MagiError {
         agent: crate::schema::AgentName,
         /// The model in force when it happened.
         model: String,
+        /// The seats that had ALREADY answered when the run was aborted.
+        ///
+        /// Cheap to keep and diagnostic: it answers *did this hit every seat, or one?* without
+        /// turning an error into a report. Empty means none had answered yet — which is the
+        /// common case, because the discriminant is that no generation happened, so the backend
+        /// answers in fractions of a second rather than after a model has reasoned.
+        responded: Vec<crate::schema::AgentName>,
     },
 
     /// A resolvable system prompt violates the verdict-marker contract.
@@ -655,6 +662,8 @@ mod tests {
             hypothesis: "the known cause is a request without `messages`",
             agent: crate::schema::AgentName::Caspar,
             model: "glm-5.2:cloud".to_string(),
+            // Empty is the honest value here: nothing had answered when a scripted defect fires.
+            responded: Vec::new(),
         };
         let rendered = e.to_string();
         assert!(rendered.contains("no generation - token counters absent"));

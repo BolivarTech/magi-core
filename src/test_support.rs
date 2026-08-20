@@ -213,6 +213,13 @@ pub enum Beh {
     /// The JSON inside is complete on purpose: only the closing marker is missing, so the
     /// failure is the sentinel's unterminated arm and not the nearer `InvalidJson` one.
     Truncated,
+    /// Surface `ProviderError::NoGeneration` — the footprint of a request THIS CRATE built
+    /// wrongly, which the backend accepted and did not generate from.
+    ///
+    /// Scripted so the abort can be observed end to end. It is the one behaviour here whose
+    /// consequence is the whole RUN rather than one seat, and reading that from a report
+    /// field is impossible — the run produces no report at all.
+    NoGeneration,
     /// Surface `ProviderError::ResponseTooLarge`.
     ///
     /// A CONTENT failure that looks superficially like transport: the server answered fine, it
@@ -277,6 +284,11 @@ impl LlmProvider for ScriptProvider {
             Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
             Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
             Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
+            Beh::NoGeneration => Err(ProviderError::NoGeneration {
+                // The value the one captured case carried. Named rather than `None` so the
+                // scripted footprint matches the real one it stands for.
+                done_reason: Some(crate::provider::FinishReason::Load),
+            }),
             Beh::Network => Err(ProviderError::Network {
                 message: "connection refused".into(),
             }),
