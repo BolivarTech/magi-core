@@ -2157,10 +2157,10 @@ async fn resolve_run_abort(
     reg: &LineageRegistry,
     responded: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    if let Some(err) = resolve_endpoint_down(reg).await {
+    if let Some(err) = resolve_crate_defect(reg, responded).await {
         return Some(err);
     }
-    resolve_crate_defect(reg, responded).await
+    resolve_endpoint_down(reg).await
 }
 
 /// Raises a latched defect of THIS crate into the run-aborting error.
