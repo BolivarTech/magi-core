@@ -983,4 +983,79 @@ mod tests {
         let err = ProviderError::external("nope", ExternalErrorKind::Auth);
         assert!(err.to_string().contains("Auth"), "{err}");
     }
+    // ---------------------------------------------------------------------
+    // Task 14 — the empty-completion error names the budget that cut it.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn the_empty_completion_error_carries_its_own_fix() {
+        // A-4. Until `4.0.0` an operator saw "transport" here and went to look at a
+        // network that had answered HTTP 200 perfectly. The message has to name the
+        // number that cut the completion AND say that the number is theirs to change,
+        // or it diagnoses without being actionable.
+        let e = ProviderError::EmptyCompletion {
+            finish: Some(crate::provider::FinishReason::Length),
+            cap: 16_384,
+        };
+        let s = e.to_string();
+        assert!(s.contains("16384"), "it must name the cap that cut it: {s}");
+        assert!(
+            s.contains("max_tokens"),
+            "and that the cap is configurable: {s}"
+        );
+        assert!(
+            !s.to_lowercase().contains("http"),
+            "it is not an HTTP failure, and saying so would send the reader to the wrong place: {s}"
+        );
+    }
+
+    #[test]
+    fn a_genuine_empty_and_a_budget_empty_read_differently() {
+        // The two need opposite remedies — raise the budget, or look at the model —
+        // so a message that renders them identically has diagnosed nothing.
+        let a = ProviderError::EmptyCompletion {
+            finish: Some(crate::provider::FinishReason::Stop),
+            cap: 16_384,
+        };
+        let b = ProviderError::EmptyCompletion {
+            finish: Some(crate::provider::FinishReason::Length),
+            cap: 16_384,
+        };
+        assert_ne!(a.to_string(), b.to_string());
+    }
+
+    #[test]
+    fn the_shipped_messages_carry_no_space_runs_from_a_joined_source_line() {
+        // A run of interior spaces is the fingerprint of a source string that was
+        // wrapped across lines and re-joined without the indentation being stripped:
+        // the SOURCE reads fine and the RENDERED message does not. These strings reach
+        // `failed_agents` and the serialized report — the most-shared, least-inspected
+        // channel this crate has — so the defect ships even though nothing fails.
+        //
+        // Asserted over the rendered text of the variants this milestone added rather
+        // than by scanning the source: a scan would have to reproduce Rust's literal
+        // rules to avoid flagging ordinary indentation, and a check that is harder to
+        // read than the thing it guards is the one that gets deleted.
+        let rendered = [
+            ProviderError::EmptyCompletion {
+                finish: Some(crate::provider::FinishReason::Length),
+                cap: 16_384,
+            }
+            .to_string(),
+            ProviderError::NoGeneration {
+                done_reason: Some(crate::provider::FinishReason::Load),
+            }
+            .to_string(),
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+            }
+            .to_string(),
+        ];
+        for s in rendered {
+            assert!(
+                !s.contains("   "),
+                "a rendered message must not carry a run of spaces: {s:?}"
+            );
+        }
+    }
 }
