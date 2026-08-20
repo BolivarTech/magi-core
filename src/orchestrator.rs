@@ -12,9 +12,9 @@ use std::sync::Mutex;
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
 use crate::error::{ExternalErrorKind, MagiError, ProviderError};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::reporting::{
-    ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
+    CompletionRecord, ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
     TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 use crate::rotation::{
@@ -776,6 +776,10 @@ type DispatchOutcome = (
     // MS3 — per-agent rejected outputs, seeded for every dispatched agent so a clean
     // seat certifies itself with an empty Vec. Read joined with the rotations above.
     BTreeMap<AgentName, Vec<ExtractionFailure>>,
+    // 4.0.0 — one record per completion ATTEMPT, in the order the seat made them. NOT
+    // seeded: an absent entry means the seat made no attempt at all, which is a different
+    // claim from an empty one.
+    BTreeMap<AgentName, Vec<CompletionRecord>>,
 );
 
 struct AbortGuard(Vec<AbortHandle>);
@@ -951,8 +955,14 @@ impl Magi {
 
         // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
         //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
-        let (successful, failed_agents, retried_agents, rotations, extraction_failures) =
-            self.dispatch_with_retry(agents, &prompt).await?;
+        let (
+            successful,
+            failed_agents,
+            retried_agents,
+            rotations,
+            extraction_failures,
+            completions,
+        ) = self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
@@ -989,7 +999,7 @@ impl Magi {
             rotations,
             extraction_failures,
             input_size: Some(input_size),
-            completions: BTreeMap::new(),
+            completions,
         })
     }
 
@@ -1082,25 +1092,31 @@ impl Magi {
         let mut retried = std::collections::BTreeSet::new();
         // SEEDED for every dispatched agent, so a clean seat says so with an empty Vec
         // instead of vanishing from the report. See `MagiReport::extraction_failures`.
+        // `completions` is NOT seeded: unlike the extraction certificate, an absent entry
+        // here means the seat produced no attempt at all, which is a different claim from
+        // an empty one and worth being able to tell apart.
+        let mut completions: BTreeMap<AgentName, Vec<CompletionRecord>> = BTreeMap::new();
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> = agent_models
             .keys()
             .map(|name| (*name, Vec::new()))
             .collect();
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), was_retried, failures)) => {
+                Ok((Ok(output), was_retried, failures, records)) => {
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                 }
-                Ok((Err(reason), was_retried, failures)) => {
+                Ok((Err(reason), was_retried, failures, records)) => {
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                 }
                 Err(join_err) => {
                     // A panicked task loses its in-flight records; the pre-seeded empty
@@ -1119,7 +1135,14 @@ impl Magi {
         }
 
         let rotations = default_rotations(agent_models);
-        Ok((successful, failed, retried, rotations, extraction_failures))
+        Ok((
+            successful,
+            failed,
+            retried,
+            rotations,
+            extraction_failures,
+            completions,
+        ))
     }
 
     /// The rotation dispatch path. Seeds a per-run [`LineageRegistry`] from the
@@ -1239,6 +1262,9 @@ impl Magi {
         // clean, and it keeps this map joinable with the rotations map on the same key.
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> =
             rotations.keys().map(|name| (*name, Vec::new())).collect();
+        // Not seeded, unlike the certificate above: an absent entry here means the seat made
+        // no attempt at all, which is a different claim from an empty one.
+        let mut completions: BTreeMap<AgentName, Vec<CompletionRecord>> = BTreeMap::new();
 
         let mut handles = Vec::new();
         let mut abort_handles = Vec::new();
@@ -1303,17 +1329,19 @@ impl Magi {
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), agent_rotation, was_retried, failures)) => {
+                Ok((Ok(output), agent_rotation, was_retried, failures, records)) => {
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                 }
-                Ok((Err(reason), agent_rotation, was_retried, failures)) => {
+                Ok((Err(reason), agent_rotation, was_retried, failures, records)) => {
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
@@ -1346,7 +1374,14 @@ impl Magi {
             });
         }
 
-        Ok((successful, failed, retried, rotations, extraction_failures))
+        Ok((
+            successful,
+            failed,
+            retried,
+            rotations,
+            extraction_failures,
+            completions,
+        ))
     }
 
     /// Returns the custom prompt overrides map for inspection in tests.
@@ -1356,6 +1391,62 @@ impl Magi {
     #[cfg(test)]
     pub(crate) fn overrides(&self) -> &BTreeMap<(AgentName, Option<Mode>), String> {
         &self.overrides
+    }
+}
+
+/// Records ONE completion attempt, whatever it turned into.
+///
+/// # THE single place that decides what a record says
+///
+/// Success and failure both land here, in the one place that still knows the agent's model and
+/// the budget it was given. A second construction site is how an attempt stops being recorded —
+/// or starts being recorded differently — without anything failing.
+///
+/// # Parameters
+///
+/// - `records` — the seat's accumulator, in attempt order.
+/// - `model` / `cap` — from the CALLER. A provider knows neither which budget it was handed nor
+///   which seat it served, so neither is readable off a response.
+/// - `outcome` — exactly what the timed call returned, before it is destructured.
+///
+/// # What a failed attempt records
+///
+/// Only [`ProviderError::EmptyCompletion`] knows anything past the model and the cap, and what it
+/// knows is the termination reason. Everything else declares absence: `None` and
+/// [`ReasoningState::NotMeasured`], never zeros, because a zero meaning "nobody counted" is
+/// indistinguishable from a real one.
+///
+/// # What it deliberately does NOT record
+///
+/// [`ProviderError::NoGeneration`] is a defect in this crate: the run aborts and its report will
+/// not exist, so a record for that attempt would assert there was something to measure. The guard
+/// lives here rather than in the caller's match so the decision is not split in two.
+///
+/// # Complexity
+///
+/// O(n) in the length of a carried reasoning trace; O(1) otherwise.
+fn record_attempt(
+    records: &mut Vec<CompletionRecord>,
+    model: &str,
+    cap: u32,
+    outcome: &Result<Result<Completion, ProviderError>, tokio::time::error::Elapsed>,
+) {
+    match outcome {
+        Ok(Ok(completion)) => records.push(CompletionRecord::from_telemetry(
+            model.to_string(),
+            cap,
+            &completion.telemetry,
+        )),
+        // The run is invalidated; see above.
+        Ok(Err(ProviderError::NoGeneration { .. })) => {}
+        Ok(Err(ProviderError::EmptyCompletion {
+            finish: Some(reason),
+            ..
+        })) => {
+            records.push(CompletionRecord::new(model.to_string(), cap).with_finish(reason.clone()))
+        }
+        // Every other failure, and a timeout: the attempt happened and nothing was measured.
+        Ok(Err(_)) | Err(_) => records.push(CompletionRecord::new(model.to_string(), cap)),
     }
 }
 
@@ -1385,13 +1476,20 @@ pub(crate) async fn dispatch_one_agent(
     validator: Arc<Validator>,
     timeout: Duration,
     retry_enabled: bool,
-) -> (Result<AgentOutput, String>, bool, Vec<ExtractionFailure>) {
+) -> (
+    Result<AgentOutput, String>,
+    bool,
+    Vec<ExtractionFailure>,
+    Vec<CompletionRecord>,
+) {
     // Attribution is STRUCTURAL here: the model is the one whose provider actually ran,
     // so a failure can never be credited to a model that had not executed yet (E23c).
     let model = agent.provider_model().to_string();
     let mut failures: Vec<ExtractionFailure> = Vec::new();
+    let mut records: Vec<CompletionRecord> = Vec::new();
     // First attempt.
     let first_result = tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
+    record_attempt(&mut records, &model, config.max_tokens, &first_result);
     let first_raw = match first_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
@@ -1399,6 +1497,7 @@ pub(crate) async fn dispatch_one_agent(
                 Err(MagiError::Provider(provider_err).to_string()),
                 false,
                 failures,
+                records,
             );
         }
         Err(_elapsed) => {
@@ -1406,13 +1505,14 @@ pub(crate) async fn dispatch_one_agent(
                 Err(format!("timeout: agent timed out after {timeout:?}")),
                 false,
                 failures,
+                records,
             );
         }
     };
 
     // Parse + validate first response. Success exits here.
     let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), &validator) {
-        Ok(output) => return (Ok(output), false, failures),
+        Ok(output) => return (Ok(output), false, failures, records),
         Err(f) => f,
     };
     failures.push(ExtractionFailure {
@@ -1439,13 +1539,14 @@ pub(crate) async fn dispatch_one_agent(
             MagiError::Validation(_) | MagiError::Deserialization(_)
         );
     if !should_retry {
-        return (Err(first_err.error.to_string()), false, failures);
+        return (Err(first_err.error.to_string()), false, failures, records);
     }
 
     // Single-shot retry with corrective feedback prompt.
     let retry_prompt =
         build_retry_prompt(&user_prompt, first_err.cause, &first_err.error.to_string());
     let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
+    record_attempt(&mut records, &model, config.max_tokens, &second_result);
     let second_raw = match second_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
@@ -1456,6 +1557,7 @@ pub(crate) async fn dispatch_one_agent(
                 )),
                 true,
                 failures,
+                records,
             );
         }
         Err(_elapsed) => {
@@ -1463,12 +1565,13 @@ pub(crate) async fn dispatch_one_agent(
                 Err(format!("retry-failed: timeout after {timeout:?}")),
                 true,
                 failures,
+                records,
             );
         }
     };
 
     match parse_validate_and_check(&second_raw.text, agent.name(), &validator) {
-        Ok(output) => (Ok(output), true, failures),
+        Ok(output) => (Ok(output), true, failures, records),
         Err(f) => {
             // `attempt: 2` — the corrective retry, on the SAME model. The counter is
             // per-model by construction, so it restarts at 1 if a rotation happens later
@@ -1478,7 +1581,12 @@ pub(crate) async fn dispatch_one_agent(
                 attempt: 2,
                 cause: f.cause,
             });
-            (Err(format!("retry-failed: {}", f.error)), true, failures)
+            (
+                Err(format!("retry-failed: {}", f.error)),
+                true,
+                failures,
+                records,
+            )
         }
     }
 }
@@ -1765,10 +1873,12 @@ async fn attempt_model(
     retry_enabled: bool,
     was_retried: &mut bool,
     failures: &mut Vec<ExtractionFailure>,
+    records: &mut Vec<CompletionRecord>,
 ) -> ModelOutcome {
     // First attempt.
     let first =
         tokio::time::timeout(timeout, agent.execute_with(provider, user_prompt, config)).await;
+    record_attempt(records, provider.model(), config.max_tokens, &first);
     let first_raw = match first {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
@@ -1829,6 +1939,7 @@ async fn attempt_model(
         build_retry_prompt(user_prompt, first_err.cause, &first_err.error.to_string());
     let second =
         tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
+    record_attempt(records, provider.model(), config.max_tokens, &second);
     let second_raw = match second {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
@@ -1993,6 +2104,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
     AgentRotation,
     bool,
     Vec<ExtractionFailure>,
+    Vec<CompletionRecord>,
 ) {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
@@ -2023,6 +2135,9 @@ pub(crate) async fn dispatch_one_agent_rotating(
     // records, so the sequence reads as the seat's full history and ttempt restarts
     // at 1 per model (E23c).
     let mut failures: Vec<ExtractionFailure> = Vec::new();
+    // Same shape and the same reason: the seat's completion records accumulate ACROSS
+    // rotations, so the sequence reads as its full history, one entry per attempt.
+    let mut records: Vec<CompletionRecord> = Vec::new();
 
     loop {
         let outcome = attempt_model(
@@ -2035,6 +2150,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
             retry_enabled,
             &mut was_retried,
             &mut failures,
+            &mut records,
         )
         .await;
 
@@ -2050,12 +2166,24 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     .and_then(|c| c.window)
                     .is_none();
                 guard.mark_succeeded();
-                return (Ok(output), state.to_rotation(), was_retried, failures);
+                return (
+                    Ok(output),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                    records,
+                );
             }
             ModelOutcome::Unexpected(detail) => {
                 registry.release(agent_name).await;
                 guard.mark_released();
-                return (Err(detail), state.to_rotation(), was_retried, failures);
+                return (
+                    Err(detail),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                    records,
+                );
             }
             ModelOutcome::MageLocal { detail, kind } => {
                 // Mage-local, exactly like `Schema`: this seat gives up on this lineage and the
@@ -2088,6 +2216,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     state.to_rotation(),
                     was_retried,
                     failures,
+                    records,
                 );
             }
             ModelOutcome::OversizedResponse { limit } => {
@@ -2163,6 +2292,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     state.to_rotation(),
                     was_retried,
                     failures,
+                    records,
                 );
             }
         }
@@ -2571,6 +2701,7 @@ mod input_threshold_tests {
 
 #[cfg(test)]
 mod tests {
+    use crate::provider::{FinishReason, ReasoningState};
 
     // ---- Task 3b: the arms are proved HERE, not seventeen tasks later ----
 
@@ -4375,7 +4506,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4403,7 +4534,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4433,7 +4564,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "MODE: design\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4465,7 +4596,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4496,7 +4627,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4527,7 +4658,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4552,7 +4683,7 @@ mod tests {
         let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4575,7 +4706,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4600,7 +4731,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4630,7 +4761,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "MODE: x\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4663,7 +4794,7 @@ mod tests {
         let cfg = CompletionConfig::default();
 
         // retry_enabled=false
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -5758,7 +5889,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_completion_that_FAILED_is_recorded_too() {
+    async fn a_completion_that_failed_is_recorded_too() {
         // The most diagnostic attempt of all is the one that produced no verdict,
         // and it is exactly the one that is lost if recording hangs off the happy
         // path.
@@ -5817,7 +5948,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_schema_retry_leaves_TWO_entries_with_the_SAME_model() {
+    async fn the_schema_retry_leaves_two_entries_with_the_same_model() {
         // `21-ter` in its workable form: two calls by the ORCHESTRATOR, both
         // visible, against the same model. It is what pins that the record is per
         // ATTEMPT and not per model. (A transport retry is invisible here by
@@ -5890,14 +6021,44 @@ mod tests {
 
     #[test]
     fn a_completion_record_is_built_in_exactly_one_place() {
-        // A second construction site is how an attempt stops being recorded, or
-        // starts being recorded differently, without anything failing.
+        // A second construction site is how an attempt stops being recorded, or starts being
+        // recorded differently, without anything failing.
+        //
+        // Stated as the invariant rather than as a count: a magic number would have to be
+        // edited every time an arm is added, and editing it is how the check stops checking.
+        // Splitting on the module opener, not on a bare `#[cfg(test)]` — this file has an
+        // earlier one on a `#[cfg(test)]` accessor, and splitting there put production code in
+        // the "test" half and made the assertion pass while guarding nothing.
         let src = include_str!("orchestrator.rs");
-        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
-        assert_eq!(
-            production.matches("CompletionRecord::").count(),
-            2,
-            "only `record_attempt` builds one: `new` for a failure, `from_telemetry` for a success"
+        let production = src
+            .split(
+                "#[cfg(test)]
+mod tests {",
+            )
+            .next()
+            .unwrap_or(src);
+        let helper_start = production
+            .find("fn record_attempt(")
+            .expect("the single recording site must exist");
+        let helper_end = production[helper_start..]
+            .find(
+                "
+}
+",
+            )
+            .map(|i| helper_start + i)
+            .expect("the helper must be a complete function");
+        let outside = format!(
+            "{}{}",
+            &production[..helper_start],
+            &production[helper_end..]
         );
+        assert!(
+            !outside.contains("CompletionRecord::"),
+            "only `record_attempt` may build a record; found a second site"
+        );
+        // And it is really in there, so the assertion above cannot pass by the helper having
+        // been renamed away.
+        assert!(production[helper_start..helper_end].contains("CompletionRecord::from_telemetry"));
     }
 }
