@@ -191,6 +191,178 @@ pub enum ReasoningState {
     },
 }
 
+/// One completion, with whatever the provider could measure about producing it.
+///
+/// Returned instead of a bare `String` because a completion's diagnosis does not
+/// fit in its text: how the model stopped, what it spent, and whether the
+/// reasoning channel was even observable are all facts a caller needs and a
+/// `String` throws away.
+///
+/// `#[non_exhaustive]` plus a builder, not a fixed-arity constructor: the
+/// attribute forbids literal construction from another crate, so a `new` taking
+/// every field would break every external implementor the first time a field is
+/// added — which is the trap the builder exists to avoid.
+///
+/// ```
+/// # use magi_core::provider::Completion;
+/// // The one-line migration for an external provider that measures nothing.
+/// let c: Completion = "verdict text".to_string().into();
+/// assert_eq!(c.telemetry.completion_tokens, None);
+/// ```
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct Completion {
+    /// The text the model produced.
+    pub text: String,
+    /// What the provider could measure. See [`CompletionTelemetry::unmeasured`]
+    /// for the honest default.
+    pub telemetry: CompletionTelemetry,
+}
+
+impl Completion {
+    /// Builds a completion from its text alone, with telemetry set to
+    /// **unmeasured**.
+    ///
+    /// # Parameters
+    ///
+    /// * `text` — the completion text.
+    ///
+    /// # Returns
+    ///
+    /// A completion whose telemetry asserts nothing, since nothing was measured.
+    /// Add measurements with [`Completion::with_telemetry`].
+    pub fn new(text: String) -> Self {
+        Self {
+            text,
+            telemetry: CompletionTelemetry::unmeasured(),
+        }
+    }
+
+    /// Attaches measured telemetry, replacing whatever was there.
+    ///
+    /// # Parameters
+    ///
+    /// * `t` — the telemetry the provider measured.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_telemetry(mut self, t: CompletionTelemetry) -> Self {
+        self.telemetry = t;
+        self
+    }
+}
+
+impl From<String> for Completion {
+    /// The one-line migration path for an external provider: `Ok(text.into())`.
+    ///
+    /// Equivalent to [`Completion::new`] — telemetry says **not measured**, never
+    /// zeros.
+    fn from(t: String) -> Self {
+        Self::new(t)
+    }
+}
+
+/// What a provider could measure about one completion.
+///
+/// Every field is optional or a typed state, and that is the point: a `0` meaning
+/// "could not measure" is indistinguishable from a real zero, so this type never
+/// reports one. An external provider that measures nothing produces
+/// [`CompletionTelemetry::unmeasured`], which says exactly that.
+///
+/// `#[non_exhaustive]` plus builders, for the same reason as [`Completion`]: a
+/// constructor taking every field would break external implementors the first
+/// time one is added, leaving them unable to report telemetry they hold.
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct CompletionTelemetry {
+    /// Why the model stopped, when the backend said.
+    pub finish: Option<FinishReason>,
+    /// Tokens the completion itself consumed, when the backend counted them.
+    pub completion_tokens: Option<u32>,
+    /// Tokens the prompt consumed, when the backend counted them.
+    pub prompt_tokens: Option<u32>,
+    /// Whether the reasoning control was honoured, and what was measured.
+    pub reasoning: ReasoningState,
+}
+
+impl CompletionTelemetry {
+    /// The honest starting point: **nothing was measured**.
+    ///
+    /// # Returns
+    ///
+    /// Telemetry whose every field declares absence of measurement, including the
+    /// reasoning one. Putting `Measured { chars: 0 }` there would have made the
+    /// one type that exists to distinguish the three reasoning states report the
+    /// wrong one by default.
+    pub fn unmeasured() -> Self {
+        Self {
+            finish: None,
+            completion_tokens: None,
+            prompt_tokens: None,
+            reasoning: ReasoningState::NotMeasured,
+        }
+    }
+
+    /// Records why the model stopped.
+    ///
+    /// # Parameters
+    ///
+    /// * `r` — the reason the backend reported.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_finish(mut self, r: FinishReason) -> Self {
+        self.finish = Some(r);
+        self
+    }
+
+    /// Records the tokens the completion consumed.
+    ///
+    /// # Parameters
+    ///
+    /// * `n` — the count the backend reported.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_completion_tokens(mut self, n: u32) -> Self {
+        self.completion_tokens = Some(n);
+        self
+    }
+
+    /// Records the tokens the prompt consumed.
+    ///
+    /// # Parameters
+    ///
+    /// * `n` — the count the backend reported.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_prompt_tokens(mut self, n: u32) -> Self {
+        self.prompt_tokens = Some(n);
+        self
+    }
+
+    /// Records what happened to the reasoning channel.
+    ///
+    /// # Parameters
+    ///
+    /// * `s` — the state observed, including
+    ///   [`ReasoningState::Unsupported`] when the backend cannot honour the
+    ///   control at all.
+    ///
+    /// # Returns
+    ///
+    /// `self`, so calls chain.
+    pub fn with_reasoning(mut self, s: ReasoningState) -> Self {
+        self.reasoning = s;
+        self
+    }
+}
+
 /// Abstraction for LLM backends.
 ///
 /// Any LLM provider (Claude, Gemini, OpenAI, local models) implements this
