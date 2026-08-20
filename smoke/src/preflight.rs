@@ -533,10 +533,10 @@ pub fn check_lock_is_tracked(repo: &Path) -> Result<(), String> {
 /// ask a question only a busy backend answers slowly.
 const REACHABILITY_PATH: &str = "/api/tags";
 
-/// The path [`try_once`] hits: the OpenAI-compatible completions endpoint
-/// `OllamaProvider` itself speaks in `3.2.0`, so the probe queues behind the
-/// same work the run is about to do rather than behind a different subsystem.
-const COMPLETIONS_PATH: &str = "/v1/chat/completions";
+/// The path [`try_once`] hits: the completions endpoint `OllamaProvider` itself speaks, so the
+/// probe queues behind the same work the run is about to do rather than behind a different
+/// subsystem. **Imported, not redefined** — a private copy is how this drifted to a dead path.
+use crate::runner::COMPLETIONS_PATH;
 
 /// The output bound on the probe's completion (R27: `max_tokens: 1`).
 ///
@@ -823,10 +823,18 @@ async fn try_once(cfg: &Config, window: Duration) -> Result<Probe, String> {
         .timeout(window)
         .build()
         .map_err(|e| format!("probe: {e}"))?;
+    // The NATIVE request shape, because that is what the endpoint above now is. An
+    // OpenAI-shaped body would still get a 200 out of some backends while exercising a code path
+    // the crate no longer takes — a probe that queues behind the wrong work and reports success.
+    //
+    // `stream: false` is explicit for the same reason the provider sets it: `/api/chat` streams
+    // by DEFAULT when the field is absent, and a streamed answer would make this probe measure
+    // time-to-first-chunk instead of time-to-completion.
     let body = serde_json::json!({
         "model": cfg.probe_model(),
-        "max_tokens": PROBE_MAX_TOKENS,
         "messages": [{ "role": "user", "content": PROBE_PROMPT }],
+        "stream": false,
+        "options": { "num_predict": PROBE_MAX_TOKENS },
     });
     let resp = client
         .post(format!("{}{COMPLETIONS_PATH}", cfg.endpoint))
@@ -2252,12 +2260,20 @@ mod tests {
             "a listing is a GET; a completion is not"
         );
         assert_eq!(
-            req.path, "/v1/chat/completions",
+            req.path, "/api/chat",
             "the probe must hit the path the crate's own provider completes on"
         );
+        // `num_predict`, not `max_tokens`: the native endpoint's own name for the same bound.
+        // The property asserted is unchanged — one token of output — and only the vocabulary
+        // moved, which is the translation the provider does at its edge.
         assert!(
-            req.body.contains("\"max_tokens\":1"),
+            req.body.contains("\"num_predict\":1"),
             "the probe must bound its output to one token: {}",
+            req.body
+        );
+        assert!(
+            req.body.contains("\"stream\":false"),
+            "an omitted stream field means TRUE on this endpoint, and a streamed probe would              measure time-to-first-chunk instead of time-to-completion: {}",
             req.body
         );
         // "a model from the config" is R27's own wording, and asserting THAT

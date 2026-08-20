@@ -10,8 +10,10 @@
 //! has a sibling to land in without reshaping this file.
 
 mod e1;
+mod e2;
 
 pub use e1::e1_scenarios;
+pub use e2::e2_scenarios;
 
 #[cfg(test)]
 mod tests {

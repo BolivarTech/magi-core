@@ -241,7 +241,11 @@ async fn main() -> std::process::ExitCode {
     // a run that had no exit. Only temps whose PID has no live process go.
     preflight::sweep_stale_temps(&std::env::temp_dir());
 
-    let scenarios = scenarios::e1_scenarios();
+    // E1 and E2 run as ONE table. Keeping them separate would let a stage be registered and
+    // never executed, which is a scenario that reports nothing while looking implemented — the
+    // failure this harness exists to catch, committed by the harness itself.
+    let mut scenarios = scenarios::e1_scenarios();
+    scenarios.extend(scenarios::e2_scenarios());
 
     // 1. Config, printed BEFORE anything runs: a run whose configuration is
     //    unstated cannot be read afterwards.

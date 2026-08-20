@@ -625,11 +625,12 @@ pub(crate) const INJECTED_FAILURE_STATUS: u16 = 500;
 ///
 /// # One copy is still outside this seam, and it is named rather than implied
 ///
-/// `preflight.rs` keeps a private constant of its own for the probe it sends
-/// before any run. It is not imported from here yet because that module belongs
-/// to another change in flight; until it is, the two can still drift, and the
-/// symptom would be a probe aimed at a path no scenario reads.
-pub(crate) const COMPLETIONS_PATH: &str = "/v1/chat/completions";
+/// `preflight.rs` now imports THIS constant instead of keeping its own. It used to keep a
+/// private copy, and the note here predicted the failure exactly: *"the two can still drift,
+/// and the symptom would be a probe aimed at a path no scenario reads"*. That is what happened
+/// when the crate moved to the native endpoint — both copies were left pointing at a path
+/// nothing calls any more. One definition removes the drift rather than describing it.
+pub(crate) const COMPLETIONS_PATH: &str = "/api/chat";
 
 /// What the transparency probe left behind.
 ///
