@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use crate::alias::magi_core::error::MagiError;
 use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder};
-use crate::alias::magi_core::provider::LlmProvider;
+use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider, ReasoningControl};
 use crate::alias::magi_core::providers::ollama::OllamaProvider;
 use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::{FallbackPool, Lineage};
@@ -311,6 +311,12 @@ pub struct RunSpec {
     pub fallbacks: Vec<Fallback>,
     /// Which provider backs the seats.
     pub providers: ProviderKind,
+    /// What this run asks the backend to do with its reasoning channel.
+    ///
+    /// Per RUN and not per harness, because the property worth measuring is a COMPARISON: the
+    /// same payload against the same model converges with the channel off and burns its whole
+    /// budget with it on. A single global setting could only ever show one side of that.
+    pub reasoning: ReasoningControl,
 }
 
 /// Everything one shared run produced.
@@ -427,6 +433,7 @@ pub fn build_magi_against(
     seats: &[Seat],
     fallbacks: &[Fallback],
     kind: ProviderKind,
+    reasoning: ReasoningControl,
 ) -> Result<Magi, String> {
     let first = seats.first().ok_or("no seats configured")?;
     // The dispatch is on the BUILDER call, not on an erased Arc, because the two
@@ -463,6 +470,11 @@ pub fn build_magi_against(
             }
             builder
                 .with_fallback_pool(pool.build())
+                // The control reaches the seats ONLY through here. A run that wants reasoning
+                // disabled and does not set it would still converge often enough to look
+                // configured, which is why the run declares it and the scenario reads what came
+                // back rather than what was asked for.
+                .with_completion_config(CompletionConfig::default().with_reasoning(reasoning))
                 .build()
                 .map_err(|e| e.to_string())
         }
@@ -553,6 +565,7 @@ impl RunSpec {
             payload: small.clone(),
             injection: None,
             providers: ProviderKind::ExternalStub,
+            reasoning: ReasoningControl::Default,
         };
         if no_backend {
             return Ok(vec![no_backend_spec]);
@@ -570,6 +583,7 @@ impl RunSpec {
                 payload: small.clone(),
                 injection: None,
                 providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
             },
             RunSpec {
                 id: RunId::Rotation,
@@ -581,6 +595,7 @@ impl RunSpec {
                     status: INJECTED_FAILURE_STATUS,
                 }),
                 providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
             },
             RunSpec {
                 id: RunId::Degradation,
@@ -598,6 +613,7 @@ impl RunSpec {
                     status: INJECTED_FAILURE_STATUS,
                 }),
                 providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
             },
             no_backend_spec,
         ])
@@ -798,6 +814,7 @@ impl Runner {
             &spec.seats,
             &spec.fallbacks,
             spec.providers,
+            spec.reasoning,
         ) {
             Ok(m) => m,
             // A build failure is a CONFIG fault of ours, not a verdict: it must
