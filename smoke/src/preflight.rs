@@ -1119,10 +1119,20 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
 /// The target size in bytes: `payload_target_bytes` for the large-payload run,
 /// `run_payload_bytes` for every other.
 fn payload_bytes_for(cfg: &Config, run: RunId) -> usize {
-    match run {
-        RunId::Large62k => cfg.payload_target_bytes,
-        _ => cfg.run_payload_bytes,
+    if is_large_payload(run) {
+        cfg.payload_target_bytes
+    } else {
+        cfg.run_payload_bytes
     }
+}
+
+/// Whether a run analyses the large payload.
+///
+/// One predicate rather than a `RunId::Large62k` comparison at each site: there are two
+/// large-payload runs now — one with the reasoning channel left alone, one with it switched off —
+/// and a comparison against a single id silently prices the second as a small run.
+pub(crate) fn is_large_payload(run: RunId) -> bool {
+    matches!(run, RunId::Large62k | RunId::Large62kNoReasoning)
 }
 
 /// R31, both halves: the estimate printed BEFORE the runs, and the real cost
@@ -1507,16 +1517,28 @@ mod tests {
         let seats = cfg.seats.len();
         let small = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
         let large = (cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
-        let small_runs = stage_e1_run_ids(false)
+        // Counted, not written down, and counted SEPARATELY per size: there are two
+        // large-payload runs now, and a formula that assumed one would price the second as a
+        // small run — understating the bill by two orders of magnitude for the member that
+        // dominates it.
+        let backend_runs: Vec<RunId> = stage_e1_run_ids(false)
             .into_iter()
-            .filter(|r| r.uses_backend() && *r != RunId::Large62k)
+            .filter(|r| r.uses_backend())
+            .collect();
+        let large_runs = backend_runs
+            .iter()
+            .filter(|r| is_large_payload(**r))
             .count();
+        let small_runs = backend_runs.len() - large_runs;
         assert!(
-            announced.contains(&format!("~{} input tokens", small * small_runs + large)),
-            "the small runs plus the large one, each priced from its own payload: {announced}"
+            announced.contains(&format!(
+                "~{} input tokens",
+                small * small_runs + large * large_runs
+            )),
+            "each run priced from its own payload: {announced}"
         );
         assert!(
-            !announced.contains(&format!("~{} input tokens", small * (small_runs + 1))),
+            !announced.contains(&format!("~{} input tokens", small * backend_runs.len())),
             "and never all of them small, which is what one figure multiplied out would say: \
              {announced}"
         );
@@ -1817,6 +1839,7 @@ mod tests {
             RunId::Degradation,
             RunId::CrateDefect,
             RunId::MixedTrio,
+            RunId::Large62kNoReasoning,
             RunId::NoBackend,
         ];
         for id in all {
@@ -1827,6 +1850,7 @@ mod tests {
                 | RunId::Degradation
                 | RunId::CrateDefect
                 | RunId::MixedTrio
+                | RunId::Large62kNoReasoning
                 | RunId::NoBackend => {}
             }
         }
@@ -1991,6 +2015,7 @@ mod tests {
             Err("timed out"),
             Err("aborted"),
             Err("skip again"),
+            Err("cannot test twice"),
             Ok("pass"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");

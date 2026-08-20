@@ -274,6 +274,7 @@ pub enum RunId {
     Degradation,
     CrateDefect,
     MixedTrio,
+    Large62kNoReasoning,
     NoBackend,
 }
 
@@ -288,6 +289,7 @@ impl RunId {
             Self::Degradation => "degradation",
             Self::CrateDefect => "crate_defect",
             Self::MixedTrio => "mixed_trio",
+            Self::Large62kNoReasoning => "large_62k_no_reasoning",
             Self::NoBackend => "no_backend",
         }
     }
@@ -304,7 +306,8 @@ impl RunId {
             | Self::Rotation
             | Self::Degradation
             | Self::CrateDefect
-            | Self::MixedTrio => true,
+            | Self::MixedTrio
+            | Self::Large62kNoReasoning => true,
             Self::NoBackend => false,
         }
     }
@@ -475,7 +478,7 @@ impl Config {
     pub fn budget(&self, run: RunId) -> Duration {
         let secs = match run {
             RunId::HappySmall => self.budgets.happy_secs,
-            RunId::Large62k => self.budgets.large_payload_secs,
+            RunId::Large62k | RunId::Large62kNoReasoning => self.budgets.large_payload_secs,
             RunId::Rotation | RunId::Degradation | RunId::CrateDefect | RunId::MixedTrio => {
                 self.budgets.injected_secs
             }

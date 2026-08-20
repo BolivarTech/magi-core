@@ -583,6 +583,85 @@ fn s12_a_mixed_trio_honours_and_declares(ctx: &RunContext<'_>) -> Vec<Assertion>
     vec![survives, declares, distinguishable]
 }
 
+// ---------------------------------------------------------------------------
+// S8b — switching the reasoning channel off TAKES EFFECT on the 62k payload
+// ---------------------------------------------------------------------------
+
+const NAME_CONVERGES: &str = "every seat produced a verdict on the large payload";
+const NAME_NOT_REASONING: &str = "no seat spent the run reasoning";
+const NAME_BUDGET_INTACT: &str = "and no completion came near the output budget";
+
+/// The budget a converging completion must stay well under for the control to have taken effect.
+///
+/// Not the cap itself: a completion at the cap is one that was CUT, and this scenario is about a
+/// completion that finished early because it did not reason. Run F spent 602 tokens where run G
+/// spent 32 768 — the gap is orders of magnitude, so the threshold does not need to be tight.
+const CONVERGED_TOKEN_CEILING: u32 = 8_000;
+
+/// `S8b` — the reproduction of the one measurement that proves the C axis works.
+///
+/// # Why this cannot be a fixture, and why it needed its own run
+///
+/// A captured body proves that something happened **once**; it cannot show that the control
+/// **causes** the change. That needs a live backend, the same payload, and the flag switched.
+///
+/// It also could not share the other large-payload run. That one needs the reasoning channel
+/// **on** — `S10` reads a completion that spent more than the old default, `S11` reads a trace —
+/// and this one needs it **off**. Two opposite properties on the same payload, so the payload is
+/// paid for twice. Naming that cost is better than quietly weakening one of them.
+///
+/// # A sibling of `S8` rather than a new id
+///
+/// `S8` certifies that completions go to the native endpoint; this certifies that the control
+/// only that endpoint honours actually works. Same axis, one measurement apart — the same
+/// relationship `S9b` has with `S9`.
+fn s8b_disabling_reasoning_makes_the_large_payload_converge(
+    ctx: &RunContext<'_>,
+) -> Vec<Assertion> {
+    let Some(report) = ctx.report else {
+        let reason = ctx
+            .error
+            .map(str::to_string)
+            .unwrap_or_else(|| "the run never happened".to_string());
+        return vec![
+            Assertion::skip(NAME_CONVERGES, reason.clone()),
+            Assertion::skip(NAME_NOT_REASONING, reason.clone()),
+            Assertion::skip(NAME_BUDGET_INTACT, reason),
+        ];
+    };
+
+    // The point of the whole axis: with the channel off, the payload that used to cost a seat
+    // produces a verdict.
+    let converges = assert_that(NAME_CONVERGES, !report.degraded && report.agents.len() == 3);
+
+    let records: Vec<_> = report.completions.values().flatten().collect();
+
+    // The control took effect, read from what came BACK rather than from what was asked. A seat
+    // whose provider cannot honour it declares `Unsupported`, which is honest and also not this
+    // run: every seat here is on the native path.
+    let not_reasoning = assert_that(
+        NAME_NOT_REASONING,
+        !records.is_empty()
+            && records.iter().all(
+                |r| !matches!(r.reasoning, ReasoningState::Measured { chars, .. } if chars > 0),
+            ),
+    );
+
+    // And the budget survived it. Without this the scenario passes on a run where every seat
+    // burned its whole allowance and happened to emit a verdict anyway — which is the outcome
+    // the control exists to prevent, not the one it produces.
+    let budget_intact = assert_that(
+        NAME_BUDGET_INTACT,
+        !records.is_empty()
+            && records.iter().all(|r| {
+                r.completion_tokens
+                    .is_none_or(|n| n < CONVERGED_TOKEN_CEILING)
+            }),
+    );
+
+    vec![converges, not_reasoning, budget_intact]
+}
+
 /// The E2 scenario table.
 pub fn e2_scenarios() -> Vec<Scenario> {
     vec![
@@ -593,6 +672,14 @@ pub fn e2_scenarios() -> Vec<Scenario> {
             source: Source::Run(RunId::HappySmall),
             backend_tag: BackendNeed::Required,
             assert_fn: s8_completions_are_native_only,
+        },
+        Scenario {
+            id: "S8b",
+            // Its own large-payload run, with the reasoning channel OFF. It cannot share the
+            // other one, which needs it on.
+            source: Source::Run(RunId::Large62kNoReasoning),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s8b_disabling_reasoning_makes_the_large_payload_converge,
         },
         Scenario {
             id: "S3",
@@ -667,7 +754,7 @@ mod tests {
         let ids: Vec<&str> = e2_scenarios().iter().map(|s| s.id).collect();
         assert_eq!(
             ids,
-            vec!["S8", "S3", "S9", "S9b", "S10", "S11", "S12", "S13"]
+            vec!["S8", "S8b", "S3", "S9", "S9b", "S10", "S11", "S12", "S13"]
         );
     }
 

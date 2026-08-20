@@ -623,6 +623,7 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::HappySmall,
         RunId::Rotation,
         RunId::Degradation,
+        RunId::Large62kNoReasoning,
         RunId::MixedTrio,
         RunId::Large62k,
         RunId::CrateDefect,
@@ -698,6 +699,7 @@ impl RunSpec {
         let injected_seat_defect = injected_seat.clone();
         let small_for_defect = small.clone();
         let small_for_mixed = small.clone();
+        let large_no_reasoning = payload::generate(repo_root, cfg.payload_target_bytes)?;
         Ok(vec![
             RunSpec {
                 id: RunId::HappySmall,
@@ -739,6 +741,21 @@ impl RunSpec {
                 }),
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            RunSpec {
+                id: RunId::Large62kNoReasoning,
+                seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
+                payload: large_no_reasoning,
+                injection: None,
+                providers: ProviderKind::Ollama,
+                // The reproduction of the one run that proves the C axis works. It cannot share
+                // the other large run: that one needs the channel ON — `S10` reads a completion
+                // spending more than the old default, and `S11` reads a trace — and this one
+                // needs it OFF. The two properties are opposites on the same payload, so the
+                // payload is paid for twice.
+                reasoning: ReasoningControl::Disabled,
                 trace: false,
             },
             RunSpec {
