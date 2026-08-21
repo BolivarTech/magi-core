@@ -424,6 +424,19 @@ pub struct RequestRecord {
     /// **Compare with [`RequestRecord::is_completion`], never with `==` against a bare path**:
     /// equality against `"/api/chat"` silently stops matching the moment a target carries
     /// parameters, and it only holds today because nothing this harness drives appends any.
+    ///
+    /// # It retains a credential ON PURPOSE, so the boundary is stated rather than discovered
+    ///
+    /// A query-authenticated backend carries its key here, and keeping it is the point: the
+    /// crate redacts query VALUES precisely because that is where they live, and a spy that
+    /// stripped them could not watch the thing it exists to watch.
+    ///
+    /// The consequence is that this field may hold a secret **verbatim**, and nothing redacts
+    /// it. VERIFIED at the time of writing: no assertion message interpolates a record path and
+    /// the certificate renders scenario names and states only, so nothing here reaches a
+    /// committed file. That is a property of the current readers, not of the type — so anything
+    /// that starts rendering a path must redact it first. The crate's own rule applies: state
+    /// the boundary, because a limitation nobody wrote down is one somebody walks past.
     pub path: String,
     /// **Computed over the FULL body, whatever the recording cap says.** If it
     /// were computed over a capped prefix, `S2b` — which compares transparency

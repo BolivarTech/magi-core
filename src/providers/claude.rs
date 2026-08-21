@@ -346,12 +346,35 @@ impl ClaudeProvider {
         // claim that this wire exposed none was simply wrong.
         // The kinds present, for the diagnostic below. Collected before `content` is consumed.
         let block_types: Vec<String> = response.content.iter().map(|b| b.type_.clone()).collect();
-        let thought_text: String = response
+        // Three states, kept apart, because collapsing any two of them is the conflation this
+        // whole release exists to remove:
+        //
+        //   * a payload we could READ, even an empty one -> a measurement (`Some`, maybe "")
+        //   * a payload we could NOT read -- `redacted_thinking`, or a `thinking` block with no
+        //     payload -- so the channel fired and its size is UNKNOWN
+        //   * no thinking block at all -> nothing to measure
+        //
+        // The first two were merged by testing emptiness, which made `thinking: ""` report as
+        // "nobody looked" while the compat wire called the same body a measured zero. The two
+        // wires then contradicted each other, each with a test pinning its own answer.
+        //
+        // An unreadable block ALONGSIDE a readable one still makes the total unknown: counting
+        // only what parsed would report a partial read as the channel's full size.
+        let thinking_blocks = response
             .content
             .iter()
-            .filter(|b| b.type_ == "thinking")
-            .filter_map(|b| b.thinking.as_deref())
-            .collect();
+            .filter(|b| b.type_ == "thinking" || b.type_ == "redacted_thinking");
+        let mut any_unreadable = false;
+        let mut readable_text = String::new();
+        let mut any_block = false;
+        for b in thinking_blocks {
+            any_block = true;
+            match b.thinking.as_deref() {
+                Some(t) => readable_text.push_str(t),
+                None => any_unreadable = true,
+            }
+        }
+        let thought_text = readable_text;
         // READABLE is the condition, not merely PRESENT. A `redacted_thinking` block, or a
         // `thinking` block whose payload is absent, proves the channel fired but carries
         // nothing to count -- and reporting `Measured { chars: 0 }` for it would claim a look
@@ -360,7 +383,8 @@ impl ClaudeProvider {
         //
         // ONE value, not a flag beside a string: a separate `saw_thinking` boolean let `chars`
         // and `text` be decided independently, and they promptly disagreed.
-        let readable: Option<&str> = (!thought_text.is_empty()).then_some(thought_text.as_str());
+        let readable: Option<&str> =
+            (any_block && !any_unreadable).then_some(thought_text.as_str());
         let text = Self::text_of(response.content);
         telemetry = telemetry.with_reasoning(match (reasoning, readable) {
             // The control cannot be honoured here: this provider sends no switch that turns
@@ -407,6 +431,13 @@ impl ClaudeProvider {
         // termination reason makes that legitimate.
         match text {
             Some(t) if !t.trim().is_empty() => Ok(Completion::new(t).with_telemetry(telemetry)),
+            // ASYMMETRIC with the compat wire ON PURPOSE, and it is not half a sweep: there,
+            // `content: ""` means the model produced nothing and the budget is the only
+            // explanation worth naming. Here a response can carry `tool_use` or
+            // `redacted_thinking` blocks — content that is not text and was never cut — so the
+            // termination reason is the only thing that separates a budget cut from a shape
+            // this arm has no business calling one.
+            //
             // NARROWED to a termination the budget could actually explain. Widened to "any
             // content with no text block", this arm told an operator to raise `max_tokens`
             // for a `tool_use` or `redacted_thinking` response the budget never cut -- which
@@ -766,6 +797,59 @@ mod tests {
     /// which discarded the telemetry — rendering it identically to a literally empty
     /// `content: []`. Discarding telemetry on an error path is precisely the defect this release
     /// fixed for `EmptyCompletion`, re-created by the fix for it.
+    /// The two wires must give the SAME answer for a present-but-empty reasoning payload.
+    ///
+    /// They did not: testing emptiness made `thinking: ""` report as "nobody looked" here while
+    /// the compat wire called the identical body a measured zero — two wires contradicting each
+    /// other, each with a test pinning its own answer. `""` is a payload that was READ and was
+    /// empty, which is exactly what `Some(0)` means and exactly what `NotMeasured` does not.
+    #[test]
+    fn a_present_but_empty_thinking_payload_is_a_measured_zero_like_the_other_wire() {
+        let json = r#"{"content":[{"type":"thinking","thinking":""},
+                                  {"type":"text","text":"a"}]}"#;
+        let out = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        )
+        .expect("parses");
+        assert!(
+            matches!(
+                out.telemetry.reasoning,
+                crate::provider::ReasoningState::Measured { chars: 0, .. }
+            ),
+            "an empty payload was READ and was empty, got {:?}",
+            out.telemetry.reasoning
+        );
+    }
+
+    /// An unreadable block beside a readable one makes the channel's size UNKNOWN.
+    ///
+    /// Counting only what parsed would report a partial read as the channel's full size — a
+    /// number that looks like a measurement of the whole and is a measurement of a part.
+    #[test]
+    fn a_redacted_block_beside_a_readable_one_is_not_a_complete_measurement() {
+        let json = r#"{"content":[{"type":"thinking","thinking":"abc"},
+                                  {"type":"redacted_thinking","data":"enc"},
+                                  {"type":"text","text":"a"}]}"#;
+        let out = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        )
+        .expect("parses");
+        assert!(
+            matches!(
+                out.telemetry.reasoning,
+                crate::provider::ReasoningState::NotMeasured
+            ),
+            "a partial read is not the channel's size, got {:?}",
+            out.telemetry.reasoning
+        );
+    }
+
     #[test]
     fn a_non_text_contract_failure_names_the_shape_it_saw() {
         let json = r#"{"content":[{"type":"tool_use","id":"t1"}],"stop_reason":"tool_use"}"#;
