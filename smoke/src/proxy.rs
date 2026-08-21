@@ -521,12 +521,6 @@ impl RequestRecord {
 /// else streams through untouched.
 const RECORDED_RESPONSE_PATHS: [&str; 2] = ["/api/show", "/api/tags"];
 
-/// The endpoint a completion goes to, and therefore the only one an injection may answer.
-///
-/// Compared against the ROUTING path, which never carries a query — the forward and the record
-/// use the full target instead, so this comparison stays about the endpoint.
-const COMPLETIONS_PATH: &str = "/api/chat";
-
 #[derive(Clone)]
 pub struct SpyProxy {
     base_url: String,
@@ -1129,7 +1123,11 @@ impl SpyProxy {
         // CAPABILITY PROBE, not a completion. The scenario asking for a failed completion got a
         // seat with no measured window as well, and a test that passes through a different
         // failure path than the one it names is passing for the wrong reason.
-        if path != COMPLETIONS_PATH {
+        //
+        // BOTH completions paths, not just the native one: a mixed trio carries an
+        // OpenAI-compatible seat, which speaks `/v1/chat/completions`. Scoping to `/api/chat`
+        // alone left the harness's own second wire walking past the guard.
+        if !crate::runner::COMPLETION_PATHS.contains(&path) {
             return None;
         }
         let guard = match self.injection.lock() {
@@ -1332,7 +1330,11 @@ mod tests {
         let body = serde_json::json!({ "model": "m" });
 
         let completion = client
-            .post(format!("{}{COMPLETIONS_PATH}", proxy.base_url()))
+            .post(format!(
+                "{}{}",
+                proxy.base_url(),
+                crate::runner::COMPLETIONS_PATH
+            ))
             .json(&body)
             .send()
             .await
@@ -1353,6 +1355,25 @@ mod tests {
             probe.status().as_u16(),
             503,
             "the capability probe names the same model and must NOT be injected"
+        );
+
+        // The OTHER completions wire, which a mixed trio's OpenAI-compatible seat speaks.
+        // Scoping to the native path alone left this one walking past the guard, so a scenario
+        // injecting for such a seat would have got a silently un-injected run.
+        let compat = client
+            .post(format!(
+                "{}{}",
+                proxy.base_url(),
+                crate::runner::COMPAT_COMPLETIONS_PATH
+            ))
+            .json(&body)
+            .send()
+            .await
+            .expect("proxy answers");
+        assert_eq!(
+            compat.status().as_u16(),
+            503,
+            "the compatibility completions path is a completion too"
         );
     }
 

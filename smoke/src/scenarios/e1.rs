@@ -665,18 +665,28 @@ fn why_the_forced_failure_cannot_be_read(ctx: &RunContext<'_>) -> Option<String>
 /// the crate CANNOT tell mage-local from run-wide, which stopped being true, and that name is
 /// copied verbatim into the release certificate.
 ///
-/// With the variants typed, the property is asserted the strong way round: the injected failure
-/// is a real HTTP `503`, which is transport, so the rotation must NOT be reported as mage-local.
-/// Going through `is_mage_local()` exercises the accessor the major added for exactly this --
-/// matching the variant by hand would mean keeping a list, which is the drift that accessor
-/// exists to prevent.
+/// With the variants typed, the assertion names the cause the injection actually produces: a
+/// real HTTP failure (`INJECTED_FAILURE_STATUS`) is transport, so `Transport` is the whole
+/// property.
+///
+/// It briefly also carried `&& !hop.kind().is_mage_local()`, described as a strengthening, and
+/// that conjunct was **vacuous**: for `Transport` the accessor returns `false` by definition, so
+/// the clause is implied by the first one and gutting the accessor to a constant leaves this row
+/// green. Whether the accessor answers correctly is a property OF THE CRATE, pinned there in
+/// both directions by `the_consumer_does_not_have_to_memorise_which_variant_is_which`. Asserting
+/// it again from out here proved nothing and read as though it did — which is the exact shape
+/// this harness refuses, committed while claiming to prevent it.
 fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_WIRE: &str =
         "the injected failure reached a completion request over the wire, not a coincidence";
     const NAME_ROTATED: &str =
         "the injected agent rotated to a second, differently-lineaged candidate";
+    // NOT spelled out: the status is `INJECTED_FAILURE_STATUS`, and writing the number here
+    // stated one the run never sends -- it injects `500`, and the name said `503`. A scenario
+    // name is copied verbatim into the release certificate, so it must not carry a number that
+    // can drift from the constant it describes.
     const NAME_CAUSE: &str =
-        "the injected 503 rotates as run-wide Transport, never as a mage-local cause";
+        "the injected HTTP failure rotates as run-wide Transport, not as a mage-local cause";
 
     if ctx.proxy_degraded {
         let reason = "the proxy registry degraded during this run";
@@ -737,9 +747,7 @@ fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
     );
     let cause = assert_that(
         NAME_CAUSE,
-        first_hop.is_some_and(|hop| {
-            hop.kind() == RotationKind::Transport && !hop.kind().is_mage_local()
-        }),
+        first_hop.is_some_and(|hop| hop.kind() == RotationKind::Transport),
     );
 
     vec![wire, rotated, cause]

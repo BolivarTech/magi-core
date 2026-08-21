@@ -259,6 +259,16 @@ pub async fn run(
         let listed = reachable(&cfg.endpoint, cfg.probe_timeout())
             .await
             .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?; // backend
+                                                                           // ANNOUNCED when it cannot run, because failing open in silence is how a check stops
+                                                                           // guarding without anyone noticing. `listed` is `None` when the listing could not be
+                                                                           // read WHOLE -- one malformed entry is enough, deliberately, since an absence "proven"
+                                                                           // over a partial reading is not proven. Refusing on that would reject a healthy config;
+                                                                           // saying nothing would let the operator believe the seats were verified.
+        if listed.is_none() {
+            eprintln!(
+                "preflight: the backend's model listing could not be read in full, so the                  seat-model check was SKIPPED rather than refused — a model the backend does                  not hold will surface later as a failing seat instead of here."
+            );
+        }
         check_seat_models(cfg, listed.as_deref())
             .map_err(|m| PreflightError::cannot_test(Stage::Backend, m))?;
 
@@ -869,6 +879,14 @@ async fn try_once(cfg: &Config, window: Duration) -> Result<Probe, String> {
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(Probe::Inconclusive(Inconclusive::NotFound));
     }
+    // Any other UNSUCCESSFUL status is its own answer: the body will not show generation, and
+    // reporting it as "answered successfully but generated nothing" would tell an operator
+    // something demonstrably false about a backend that is returning errors.
+    if !resp.status().is_success() {
+        return Ok(Probe::Inconclusive(Inconclusive::UnsuccessfulStatus(
+            resp.status().as_u16(),
+        )));
+    }
     // GENERATION must be established, not inferred from a status. `Served` claims the request
     // went through the inference queue -- that is what its own rustdoc says -- and a status
     // cannot support that claim: this crate captured a real `200` carrying
@@ -1003,6 +1021,13 @@ fn probe_inconclusive_message(cfg: &Config, observed: Inconclusive) -> String {
             "answered with 404, so the request was rejected outright. Two causes are possible and the harness cannot tell them apart: the backend does not hold that model, or it does not serve that path",
             "Pull the model, or point the endpoint at a backend that serves this path.",
         ),
+        Inconclusive::UnsuccessfulStatus(code) => {
+            return format!(
+                "cannot test: the endpoint at {} answered the contention probe with HTTP {code}                  at {COMPLETIONS_PATH} for model {:?}. Nothing was generated, so it never                  entered the inference queue and NOTHING was established about contention. Fix                  what the status reports; a backend returning errors cannot be probed for load.",
+                cfg.endpoint,
+                cfg.probe_model()
+            );
+        }
         Inconclusive::NoGeneration => (
             "answered successfully but reported NO generation - no termination reason, a `load` one, or no completion tokens. The backend replied without ever queueing work",
             "Check that the model is loaded and able to generate; a warm-up request often resolves it.",
@@ -1025,7 +1050,16 @@ fn probe_inconclusive_message(cfg: &Config, observed: Inconclusive) -> String {
 enum Inconclusive {
     /// The request was refused outright.
     NotFound,
-    /// The backend answered, and reported nothing generated.
+    /// The backend answered with a status that is not a success, so nothing was generated and
+    /// the reason is the status itself.
+    ///
+    /// Split from `NoGeneration` because that variant's message says "answered successfully",
+    /// and it was reached by EVERY non-404 -- a `500`, a `429`, an HTML error page from a proxy
+    /// in front. Telling an operator their backend answered successfully while it was returning
+    /// 500s is the same mistake the `404` sentence made before it was typed, committed inside
+    /// the fix for it.
+    UnsuccessfulStatus(u16),
+    /// The backend answered SUCCESSFULLY, and reported nothing generated.
     NoGeneration,
 }
 
@@ -1542,6 +1576,31 @@ fn pid_is_alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The message must not tell an operator their failing backend answered successfully.
+    ///
+    /// Every non-404 used to reach `NoGeneration`, whose sentence opens "answered successfully
+    /// but reported NO generation" — so a backend returning `500`s was described as healthy but
+    /// idle. That is the same mistake the `404` sentence made before it was typed, committed
+    /// inside the fix for it.
+    #[test]
+    fn an_unsuccessful_status_is_not_described_as_a_successful_answer() {
+        let cfg = Config::default();
+        let msg = probe_inconclusive_message(&cfg, Inconclusive::UnsuccessfulStatus(500));
+        assert!(msg.contains("HTTP 500"), "{msg}");
+        assert!(
+            !msg.contains("answered successfully"),
+            "a 500 is not a successful answer: {msg}"
+        );
+
+        // And the successful-but-idle case keeps its own wording, so this is not a wall.
+        let idle = probe_inconclusive_message(&cfg, Inconclusive::NoGeneration);
+        assert!(idle.contains("answered successfully"), "{idle}");
+
+        // The refusal keeps naming the status it is about.
+        let missing = probe_inconclusive_message(&cfg, Inconclusive::NotFound);
+        assert!(missing.contains("404"), "{missing}");
+    }
 
     /// A listing that could not be read WHOLE is not a listing.
     ///

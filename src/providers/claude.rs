@@ -344,6 +344,8 @@ impl ClaudeProvider {
         // Counted BEFORE the content is consumed, and counted at all because Anthropic does
         // have a reasoning channel: extended thinking returns `thinking` blocks. The earlier
         // claim that this wire exposed none was simply wrong.
+        // The kinds present, for the diagnostic below. Collected before `content` is consumed.
+        let block_types: Vec<String> = response.content.iter().map(|b| b.type_.clone()).collect();
         let thought_text: String = response
             .content
             .iter()
@@ -351,7 +353,12 @@ impl ClaudeProvider {
             .filter_map(|b| b.thinking.as_deref())
             .collect();
         let thought = thought_text.chars().count();
-        let saw_thinking = response.content.iter().any(|b| b.type_ == "thinking");
+        // READABLE is the condition, not merely PRESENT. A `redacted_thinking` block, or a
+        // `thinking` block whose payload is absent, proves the channel fired but carries
+        // nothing to count -- and reporting `Measured { chars: 0 }` for it would claim a look
+        // that found nothing where the truth is a look that could not read. `NotMeasured` is
+        // what the crate uses for exactly that, everywhere else.
+        let saw_thinking = !thought_text.is_empty();
         let text = Self::text_of(response.content);
         telemetry = telemetry.with_reasoning(match reasoning {
             // The control cannot be honoured here: this provider sends no switch that turns
@@ -397,10 +404,22 @@ impl ClaudeProvider {
             {
                 Err(ProviderError::EmptyCompletion { telemetry, cap })
             }
-            _ => Err(crate::error::ProviderError::ResponseContract {
-                reason: crate::error::ResponseContractCause::NoMessage,
-                detail: String::new(),
-            }),
+            // The observed SHAPE travels, because this arm now receives a class the narrowing
+            // moved into it — a `tool_use` or redacted response — and rendering that
+            // identically to a literally empty `content: []` throws away the only thing that
+            // tells the two apart. Discarding telemetry on an error path is the defect this
+            // release fixed for `EmptyCompletion`; the fix for THAT re-created it here.
+            //
+            // Through the bounding constructor, so the text is capped like every other
+            // outside-influenced string that reaches the serialized report.
+            _ => Err(ProviderError::response_contract(
+                crate::error::ResponseContractCause::NoMessage,
+                format!(
+                    "no text block; termination {:?}, blocks [{}]",
+                    telemetry.finish,
+                    block_types.join(", ")
+                ),
+            )),
         }
     }
 
@@ -722,6 +741,73 @@ mod tests {
                 (*chars, text.clone())
             }
             other => panic!("expected a measured shape, got {other:?}"),
+        }
+    }
+
+    /// A non-text response says WHAT it was, so it is not confused with an empty one.
+    ///
+    /// The narrowing that stopped calling a `tool_use` a budget cut sent it to the contract arm,
+    /// which discarded the telemetry — rendering it identically to a literally empty
+    /// `content: []`. Discarding telemetry on an error path is precisely the defect this release
+    /// fixed for `EmptyCompletion`, re-created by the fix for it.
+    #[test]
+    fn a_non_text_contract_failure_names_the_shape_it_saw() {
+        let json = r#"{"content":[{"type":"tool_use","id":"t1"}],"stop_reason":"tool_use"}"#;
+        let err = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        )
+        .expect_err("a response with no text is a failure");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("tool_use"),
+            "the block kind must survive: {msg}"
+        );
+
+        // The genuinely empty case is DIFFERENT, which is the whole point.
+        let empty = super::ClaudeProvider::parse_completion(
+            r#"{"content":[],"stop_reason":"end_turn"}"#,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        )
+        .expect_err("an empty content array is a failure");
+        assert_ne!(
+            msg,
+            empty.to_string(),
+            "a tool_use response and an empty one must not render identically"
+        );
+    }
+
+    /// A thinking channel that fired but could not be READ is not a measured zero.
+    ///
+    /// `redacted_thinking`, and a `thinking` block whose payload is absent, both prove the
+    /// channel ran and carry nothing to count. Reporting `Measured { chars: 0 }` would claim a
+    /// look that found nothing where the truth is a look that could not read.
+    #[test]
+    fn an_unreadable_thinking_block_is_not_reported_as_a_measured_zero() {
+        for blocks in [
+            r#"{"type":"redacted_thinking","data":"enc"}"#,
+            r#"{"type":"thinking"}"#,
+        ] {
+            let json = format!(r#"{{"content":[{blocks},{{"type":"text","text":"a"}}]}}"#);
+            let out = super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Default,
+                4096,
+                false,
+            )
+            .expect("the text block makes this a success");
+            assert!(
+                matches!(
+                    out.telemetry.reasoning,
+                    crate::provider::ReasoningState::NotMeasured
+                ),
+                "{blocks}: expected NotMeasured, got {:?}",
+                out.telemetry.reasoning
+            );
         }
     }
 

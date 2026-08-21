@@ -857,6 +857,19 @@ pub(crate) const INJECTED_FAILURE_STATUS: u16 = 500;
 /// nothing calls any more. One definition removes the drift rather than describing it.
 pub(crate) const COMPLETIONS_PATH: &str = "/api/chat";
 
+/// The OpenAI-compatible completions path, which `4.0.0` removed from `OllamaProvider` but which
+/// an `OpenAiCompatibleProvider` seat still speaks — the mixed trio has one.
+pub(crate) const COMPAT_COMPLETIONS_PATH: &str = "/v1/chat/completions";
+
+/// Every path that carries a COMPLETION, as opposed to a capability probe.
+///
+/// Enumerated rather than inferred by excluding the probe paths, because the two directions fail
+/// differently: a completions path missing from this list means an injection silently does not
+/// apply, and the scenario asserting the injected failure reached the wire then FAILS loudly. A
+/// probe path leaking in would inject the crate's own window measurement and be diagnosed as a
+/// model fault — which is the defect this list exists to prevent.
+pub(crate) const COMPLETION_PATHS: [&str; 2] = [COMPLETIONS_PATH, COMPAT_COMPLETIONS_PATH];
+
 /// What the erosion probe left behind.
 ///
 /// Separate from [`TransparencyProbe`] because it answers a different question against a
