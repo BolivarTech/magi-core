@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787307051.5393,
-    "ast_hash": "2a335ad85215e13c1b002be015856eae",
+    "mtime": 1787308762.2312021,
+    "ast_hash": "725293f4206da3fa16946edc2b9ec465",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787306923.5425892,
-    "ast_hash": "5c14ee5f8d9b2f4bb4ea0784ded060a5",
+    "mtime": 1787308627.8717682,
+    "ast_hash": "2d1c4e06b4ff6305eaf221a541af7b45",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
@@ -800,8 +800,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787306923.8740158,
-    "ast_hash": "1cff6700dbea30fc8d8a640a40b86289",
+    "mtime": 1787308525.732835,
+    "ast_hash": "8c5711cd5c65f53f0db5b631296348d0",
     "semantic_hash": ""
   },
   "smoke/README.md": {
@@ -870,8 +870,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e2.rs": {
-    "mtime": 1787265418.653321,
-    "ast_hash": "6642ce5fe9afabd138ae3c36bddeface",
+    "mtime": 1787308628.5903544,
+    "ast_hash": "7518590241f71a4904b9f412ecfc5da9",
     "semantic_hash": ""
   },
   "tests/openai_compat_reasoning.rs": {
