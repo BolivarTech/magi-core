@@ -254,6 +254,18 @@ pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
+### `ClaudeProvider::parse_response` joins every text block
+
+**Before:** it returned the first `text` block's payload.
+
+**After:** it joins them all, in order.
+
+**What you do:** nothing, unless you relied on the truncation. Anthropic interleaves text with
+`thinking` and `tool_use` blocks, so a reply split across two text blocks used to come back cut
+at the first — and a first block carrying `null` or `""` used to discard the rest entirely,
+which the completion path then reported as an exhausted output budget. The old behaviour lost
+content; this is the fix, not a change of policy.
+
 ### One field inside it is an `Option`, and the reason is the release's own thesis
 
 `ReasoningState::Unsupported` carries `chars: Option<usize>`, not `usize`. All three providers

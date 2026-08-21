@@ -282,10 +282,23 @@ impl ClaudeProvider {
     /// back carrying only a thinking block. The caller decides which it is, and it needs the
     /// telemetry to tell -- which is why this no longer throws that decision away.
     fn text_of(content: Vec<ContentBlock>) -> Option<String> {
-        content
-            .into_iter()
-            .find(|block| block.type_ == "text")
-            .and_then(|block| block.text)
+        // EVERY text block, not the first one's payload. `find` took the first block of that
+        // type and then read its `text`, so a first block carrying `null` -- or an empty string
+        // -- DISCARDED a verdict sitting in a later one, and the empty case additionally told
+        // the operator to raise a budget that had cut nothing. Anthropic interleaves text with
+        // thinking and tool_use blocks, so "the first one" was never the whole answer.
+        let mut seen_text_block = false;
+        let mut out = String::new();
+        for block in content {
+            if block.type_ != "text" {
+                continue;
+            }
+            seen_text_block = true;
+            if let Some(t) = block.text {
+                out.push_str(&t);
+            }
+        }
+        seen_text_block.then_some(out)
     }
 
     /// Parses a Claude Messages API response body into a [`Completion`],
@@ -346,6 +359,10 @@ impl ClaudeProvider {
         // claim that this wire exposed none was simply wrong.
         // The kinds present, for the diagnostic below. Collected before `content` is consumed.
         let block_types: Vec<String> = response.content.iter().map(|b| b.type_.clone()).collect();
+        // Whether the turn produced anything OTHER than text. It is what separates "the model
+        // returned nothing", which the compat wire also sees, from "the model did something
+        // else", which only this wire can express.
+        let had_non_text = response.content.iter().any(|b| b.type_ != "text");
         // Three states, kept apart, because collapsing any two of them is the conflation this
         // whole release exists to remove:
         //
@@ -457,12 +474,16 @@ impl ClaudeProvider {
             // is the misdiagnosis this whole release exists to end, re-created one level
             // down by the fix for it. An absent reason still qualifies: unknown is not the
             // same as known-to-be-something-else.
-            // A text block that EXISTS and is empty is the compat wire's case exactly: the
-            // contract shape came back and the content is empty, so the model returned nothing
-            // and the termination reason does not change that. Routing it through the narrowing
-            // made the two wires classify one shape they can BOTH receive differently -- the
-            // cross-wire disagreement this delta closed one level up, surviving one level down.
-            Some(_) => Err(ProviderError::EmptyCompletion { telemetry, cap }),
+            // ONLY-text content that came back empty is the compat wire's case exactly: the
+            // contract shape arrived and carried nothing, so the model returned nothing and the
+            // termination reason does not change that.
+            //
+            // "Only text" is the discriminator, and the previous version lacked it: `Some(_)`
+            // alone preempted the narrowing, so a `tool_use` turn that also carried an empty
+            // text block went back to being reported as a budget cut -- the misdiagnosis the
+            // narrowing exists to prevent, re-opened by the fix for a different shape of the
+            // same arm.
+            Some(_) if !had_non_text => Err(ProviderError::EmptyCompletion { telemetry, cap }),
             // NO text block at all is the case the narrowing is for: `tool_use` or
             // `redacted_thinking` content that was never cut, which only a `Length` (or
             // unknown) termination lets us call a budget cut.
@@ -673,13 +694,17 @@ mod tests {
         assert_eq!(result.unwrap(), "response text");
     }
 
-    /// parse_response handles multiple content blocks, extracting first text block.
+    /// `parse_response` joins EVERY text block, because the message is the sequence of them.
+    ///
+    /// It used to return the first one and this test pinned that, which made the data loss look
+    /// deliberate. Anthropic interleaves text with thinking and tool_use blocks, so a reply
+    /// split across two text blocks came back truncated at the first — and with a `null` or
+    /// empty first block, came back as nothing at all.
     #[test]
-    fn test_parse_response_extracts_first_text_block() {
-        let json = r#"{"content": [{"type": "text", "text": "first"}, {"type": "text", "text": "second"}], "id": "msg_1", "model": "m", "role": "assistant"}"#;
+    fn test_parse_response_joins_every_text_block() {
+        let json = r#"{"content": [{"type": "text", "text": "first"}, {"type": "text", "text": " second"}], "id": "msg_1", "model": "m", "role": "assistant"}"#;
         let result = super::ClaudeProvider::parse_response(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "first");
+        assert_eq!(result.expect("parses"), "first second");
     }
 
     /// parse_response returns error when no text content block found.
@@ -691,6 +716,51 @@ mod tests {
     }
 
     /// parse_response returns error on invalid JSON.
+    /// A verdict in a LATER text block is not lost to an earlier empty or null one.
+    ///
+    /// `text_of` took the first block of type `text` and then read its payload, so a first block
+    /// carrying `null` — or `""` — discarded real content sitting behind it. The empty case was
+    /// worse than losing the answer: it reported a budget cut, telling the operator to raise a
+    /// ceiling that had cut nothing while the verdict was right there.
+    #[test]
+    fn a_verdict_in_a_later_text_block_survives_an_empty_or_null_earlier_one() {
+        for first in [r#"{"type":"text","text":""}"#, r#"{"type":"text"}"#] {
+            let json = format!(
+                r#"{{"content":[{first},{{"type":"text","text":"the verdict"}}],
+                     "stop_reason":"end_turn"}}"#
+            );
+            let out = super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Default,
+                4096,
+                false,
+            )
+            .unwrap_or_else(|e| panic!("{first}: the verdict is there, got {e:?}"));
+            assert_eq!(out.text, "the verdict", "{first}");
+        }
+    }
+
+    /// A `tool_use` turn carrying an empty text block is still NOT a budget cut.
+    ///
+    /// Aligning the empty-text case with the compat wire preempted the narrowing: any empty
+    /// text answered `EmptyCompletion` before the check for a non-text block ran, so the
+    /// misdiagnosis the narrowing exists to prevent came back through the fix for a different
+    /// shape of the same arm.
+    #[test]
+    fn an_empty_text_block_beside_a_tool_use_is_not_a_budget_cut() {
+        let json = r#"{"content":[{"type":"tool_use","id":"t"},{"type":"text","text":""}],
+                       "stop_reason":"tool_use"}"#;
+        match super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        ) {
+            Err(crate::error::ProviderError::ResponseContract { .. }) => {}
+            other => panic!("the turn produced a tool call, not an exhausted budget: {other:?}"),
+        }
+    }
+
     #[test]
     fn test_parse_response_error_on_invalid_json() {
         let result = super::ClaudeProvider::parse_response("not json");
