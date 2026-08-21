@@ -763,6 +763,10 @@ mod tests {
         // present ones left that branch unasserted: deleting `None |` from the guard kept every
         // row green, which is a table that certifies an axis it does not cover.
         let absent = r#""id":"msg_1""#;
+        // The FOURTH value, and the one the table was still silent about. `map_stop_reason`
+        // funnels every unrecognised Anthropic reason into `Other`, so a refusal or a
+        // `pause_turn` lands here — a reason the backend NAMED, and it is not the budget.
+        let named_other = r#""stop_reason":"refusal""#;
         // A BLANK payload, not merely an empty one. The compat wire trims before deciding, so
         // "all empty" is really "all blank" and only half of it was asserted.
         let text_blank = r#"{"type":"text","text":"     "}"#;
@@ -771,7 +775,7 @@ mod tests {
         let tool = r#"{"type":"tool_use","id":"t"}"#;
 
         // (blocks, termination, expect_empty_completion)
-        let table: [(&str, &str, bool); 11] = [
+        let table: [(&str, &str, bool); 15] = [
             // nothing was sent at all -> contract, whatever ended the turn
             ("", cut, false),
             // only text, and it came back empty -> the compat wire's `content: ""`, exactly
@@ -791,6 +795,15 @@ mod tests {
             (thinking, absent, true),
             // ---- blank, not merely empty: the compat wire trims before deciding ----
             (text_blank, ended, true),
+            // ---- a reason the backend named, and it is not the budget ----
+            // Text-only stays `EmptyCompletion`: the observation is that the reply was
+            // empty, which is true whatever ended the turn, and that variant is the one
+            // carrying the telemetry that names the refusal. What must not follow is the
+            // PRESCRIPTION, and that is pinned in `error.rs`, not here.
+            (text_empty, named_other, true),
+            (thinking, named_other, false),
+            (&format!("{thinking},{text_empty}"), named_other, false),
+            ("", named_other, false),
         ];
 
         for (blocks, stop, expect_empty) in table {
