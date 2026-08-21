@@ -274,6 +274,18 @@ async fn main() -> std::process::ExitCode {
     //    zero scenarios as passed — but it still evaluates the scenarios whose
     //    whole property IS what the preflight did.
     let live: Vec<&str> = scenarios.iter().map(|s| s.id).collect();
+    // Taken BEFORE anything runs, and that now includes the PREFLIGHT. The no-trace scenario
+    // asks what the harness ADDED, so anything created between the baseline and the final
+    // check is invisible to it -- the check would report success over exactly the artifacts it
+    // exists to notice.
+    //
+    // It already sat ahead of the feature matrix for that reason, and the preflight was left
+    // in front of it because nothing there writes to the tree. That is true today and it is
+    // not a property anyone declared: it is one that happens to hold, which makes the check
+    // depend on every future preflight step remembering. Ahead of everything, the ordering is
+    // the guarantee rather than the observation.
+    let status_before = repo_status();
+
     let mut ready = match preflight::run(&cfg, &live, cli.break_proxy, cli.no_backend).await {
         Ok(r) => r,
         Err(e) => {
@@ -287,15 +299,6 @@ async fn main() -> std::process::ExitCode {
     };
     // Announced BEFORE the runs, so a reader knows what it is about to spend.
     eprintln!("{}", ready.cost_announcement);
-
-    // Taken BEFORE anything runs — and BEFORE the feature matrix in particular.
-    // The no-trace scenario asks what the harness ADDED, so anything created
-    // between the baseline and the final check is invisible to it. Taking the
-    // baseline after the matrix grandfathered the matrix's own build directories
-    // into it: the check would have reported success over exactly the artifacts
-    // it exists to notice. They happen to be gitignored today, so nothing leaked
-    // — but the ordering is the thing the check depends on, not the ignore file.
-    let status_before = repo_status();
 
     // 3. The feature matrix, only when asked: four `cargo check` runs are slow,
     //    so the scenario reading it SKIPs unless the flag was passed.
@@ -1066,6 +1069,13 @@ fn git_commit() -> Option<String> {
         .current_dir(paths::repo_root())
         .output()
         .ok()
+        // The EXIT STATUS is what says the answer is an answer. `.output()` succeeds whenever
+        // the process ran at all, so without this the stdout of a FAILED `git` is read as a
+        // commit -- and `rev-parse` is a command that prints on failure. What that would put in
+        // the certificate is not a missing field the refusal catches, but a plausible-looking
+        // value the document then certifies. An emptiness check is not a substitute: it happens
+        // to catch this repository's failure shape and not the general one.
+        .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
 }

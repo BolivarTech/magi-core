@@ -855,7 +855,20 @@ impl SpyProxy {
         upstream: String,
     ) -> Result<hyper::Response<ProxyBody>, std::convert::Infallible> {
         let (parts, body) = req.into_parts();
+        // The path for ROUTING, which is compared against known endpoints, and the path WITH
+        // its query for forwarding and recording, which is what the client actually sent.
+        //
+        // Both were `path()`, so the query string was dropped on the way upstream AND absent
+        // from the record -- so nothing could observe that it had been dropped. In this crate
+        // that is not a cosmetic gap: the whole redaction axis exists because the query is the
+        // channel that carries credentials for query-authenticated APIs, and a spy that cannot
+        // see it cannot observe the one thing it was built to watch. A test asserting no
+        // credential appeared would pass because the credential never reached the record.
         let path = parts.uri.path().to_string();
+        let target = parts
+            .uri
+            .path_and_query()
+            .map_or_else(|| path.clone(), |pq| pq.as_str().to_string());
         let method = parts.method.to_string();
         let bytes = match body.collect().await {
             Ok(c) => c.to_bytes(),
@@ -898,7 +911,7 @@ impl SpyProxy {
                     .unwrap_or_else(|_| build_failed(LOCAL_BUILD_FAILED_STATUS)));
             }
         };
-        let rec = RequestRecord::record_of(&bytes, &path);
+        let rec = RequestRecord::record_of(&bytes, &target);
 
         // ONE push per request, AFTER the answer exists, so both halves land
         // in the same record. This connection owns `rec` until then — no
@@ -933,7 +946,7 @@ impl SpyProxy {
         //     the empty body as "the response was empty".
         if RECORDED_RESPONSE_PATHS.contains(&path.as_str()) {
             let (status, up_headers, out) = self
-                .forward_buffered(&method, &path, parts.headers, bytes, &upstream)
+                .forward_buffered(&method, &target, parts.headers, bytes, &upstream)
                 .await;
             // `None` means the body read failed. Two independent things follow
             // from it, and only the first of them used to.
@@ -994,7 +1007,7 @@ impl SpyProxy {
                 .unwrap_or_else(|_| build_failed(RELAY_BUILD_FAILED_STATUS)));
         }
         let resp = self
-            .forward(&method, &path, parts.headers, bytes, &upstream)
+            .forward(&method, &target, parts.headers, bytes, &upstream)
             .await;
         self.push(rec.with_status_only(resp.status().as_u16()));
         Ok(resp)
@@ -1281,6 +1294,38 @@ fn response_chunk_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The query string reaches the upstream AND the record.
+    ///
+    /// Both were built from `uri.path()`, so a `?key=...` was dropped on the way out and absent
+    /// from the record — which meant nothing could observe that it had been dropped. In this
+    /// crate that matters more than it looks: the query is the channel query-authenticated
+    /// backends carry credentials in, and it is the reason the crate redacts query VALUES at
+    /// all. A spy that cannot see it cannot watch the one thing it was built to watch, and a
+    /// test asserting "no credential appeared" would pass for the wrong reason.
+    #[tokio::test]
+    async fn the_query_string_survives_the_forward_and_the_record() {
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
+            .await
+            .expect("proxy starts");
+
+        let client = reqwest::Client::new();
+        let _ = client
+            .post(format!("{}/api/chat?key=SECRET&b=2", proxy.base_url()))
+            .json(&serde_json::json!({"model": "m"}))
+            .send()
+            .await;
+
+        let records = proxy.records();
+        let rec = records.last().expect("the proxy recorded the request");
+        assert!(
+            rec.path.contains("key=SECRET"),
+            "the record must carry what the client actually sent: {:?}",
+            rec.path
+        );
+        assert!(rec.path.starts_with("/api/chat"), "{:?}", rec.path);
+    }
 
     /// An end-to-end response header the fixture upstream below sets, chosen so
     /// that only a relayed copy can explain its presence: `hyper` and `reqwest`
