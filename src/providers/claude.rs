@@ -146,7 +146,7 @@ struct ClaudeUsage {
 /// # Every value Anthropic documents is translated, and that is the point
 ///
 /// What lands in [`FinishReason::Other`] decides what the empty-completion message
-/// is allowed to claim: an untranslated reason means "cannot be told", so a reason
+/// is allowed to claim: an untranslated reason means crate::error::REMEDY_UNKNOWN, so a reason
 /// left there by oversight turns a knowable case into an unknowable one. Three
 /// values used to fall through here and each was a live defect:
 ///
@@ -178,7 +178,10 @@ struct ClaudeUsage {
 /// programmatically, the answer is a dedicated variant, not un-folding this one.
 fn map_stop_reason(raw: &str) -> FinishReason {
     match raw {
-        "end_turn" | "stop_sequence" | "tool_use" | "refusal" | "pause_turn" => FinishReason::Stop,
+        // Only where Anthropic DIFFERS from the shared table. Its not-the-budget words --
+        // `end_turn`, `stop_sequence`, `tool_use`, `refusal`, `pause_turn` -- live in
+        // `from_wire` beside the compat wire's, so that `Other` means "no vendor publishes
+        // this" on both wires rather than per-wire, which is what four rustdocs claim.
         "max_tokens" | "model_context_window_exceeded" => FinishReason::Length,
         other => FinishReason::from_wire(other),
     }
@@ -548,11 +551,16 @@ impl ClaudeProvider {
                 // 15 000-character thinking block and no text is a different problem from one
                 // that produced nothing at all, and the shape list alone does not say which.
                 format!(
-                    "no usable text; termination {:?}, blocks [{}], completion_tokens {:?}, reasoning {:?}",
+                    "no usable text; termination {:?}, blocks [{}], completion_tokens {:?}, reasoning {}",
                     telemetry.finish,
                     block_types.join(", "),
                     telemetry.completion_tokens,
-                    telemetry.reasoning
+                    // The MEASUREMENT, never the trace. `{:?}` on the state would have
+                    // embedded the opt-in reasoning TEXT -- model-authored, never through the
+                    // `Validator`, never redacted -- into a field whose own rustdoc says it
+                    // carries none of that. The fix for a leak is not to cap it, it is not to
+                    // open the channel.
+                    telemetry.reasoning.measurement()
                 ),
             )),
         }
@@ -807,15 +815,6 @@ mod tests {
         }
     }
 
-    /// A `tool_use` turn carrying an empty text block is still NOT a budget cut.
-    ///
-    /// Aligning the empty-text case with the compat wire preempted the narrowing: any empty
-    /// text answered `EmptyCompletion` before the check for a non-text block ran, so the
-    /// misdiagnosis the narrowing exists to prevent came back through the fix for a different
-    /// shape of the same arm.
-    /// THE WHOLE TABLE, enumerated, because splitting it into ordered arms was wrong twice in
-    /// opposite directions and each fix reopened the one before it.
-    ///
     #[test]
     fn the_budget_question_is_asked_in_exactly_one_place_in_this_file() {
         // The claim that guard and message share ONE implementation is what makes the
@@ -837,10 +836,46 @@ mod tests {
             1,
             "the budget rule is consulted from ONE place in this file -- `budget_routes_here`. A second caller is a second decision site even when it calls the same function, because the next edit only has to change one of them."
         );
+        // `.finish` and not `telemetry.finish`: binding the telemetry to any other name --
+        // `let t = &telemetry; t.finish` -- walked straight past the narrower spelling. The
+        // `.finish(` subtraction is the `Debug` builder's method, which is not a read of the
+        // field and must not be counted as one.
+        let field_reads = body.matches(".finish").count() - body.matches(".finish(").count();
         assert_eq!(
-            body.matches("telemetry.finish").count(),
-            1,
+            field_reads, 1,
             "`telemetry.finish` is read once outside the tests, to render the observed reason into the contract detail. A second read is how the budget question gets re-decided locally, which is the drift that took this decision to a fourth round."
+        );
+    }
+
+    #[test]
+    fn the_contract_detail_carries_the_measurement_and_never_the_trace() {
+        // The detail gained the token counts and the reasoning state so an operator could
+        // tell "reasoned 15 000 characters and emitted nothing" from "produced nothing at
+        // all". Rendering the STATE with `{:?}` would have carried the opt-in trace with it
+        // -- model-authored text, never through the `Validator`, never redacted -- into a
+        // field whose rustdoc promises none of that. The measurement is the whole point;
+        // the text is the leak.
+        let secret = "deliberating about something private";
+        let body = format!(
+            r#"{{"content":[{{"type":"thinking","thinking":"{secret}"}},{{"type":"tool_use","id":"t"}}],"stop_reason":"end_turn"}}"#
+        );
+        let detail = match super::ClaudeProvider::parse_completion(
+            &body,
+            crate::provider::ReasoningControl::Default,
+            16_384,
+            // trace ON: the consumer opted in, which is exactly when the leak is possible
+            true,
+        ) {
+            Err(crate::error::ProviderError::ResponseContract { detail, .. }) => detail,
+            other => panic!("a tool_use turn with no text is a contract failure: {other:?}"),
+        };
+        assert!(
+            detail.contains("chars"),
+            "the measurement is why the field was widened: {detail}"
+        );
+        assert!(
+            !detail.contains(secret),
+            "the reasoning TRACE reached the contract detail: {detail}"
         );
     }
 
@@ -854,24 +889,44 @@ mod tests {
         //
         // The shape is text-only-and-empty on purpose: it reaches `EmptyCompletion` for
         // every termination, so what the message says is decided by the termination alone.
-        let cases: [(&str, &str); 8] = [
+        let cases: [(&str, &str); 10] = [
             // the budget may be the explanation -> the message carries its own fix
-            (r#""stop_reason":"max_tokens""#, "configurable via"),
+            (
+                r#""stop_reason":"max_tokens""#,
+                crate::error::REMEDY_PRESCRIBES,
+            ),
             // Anthropic's out-of-room value. It is `Length` because it IS running out of
             // room; the hedge in that sentence is what keeps the advice honest for it.
             (
                 r#""stop_reason":"model_context_window_exceeded""#,
-                "configurable via",
+                crate::error::REMEDY_PRESCRIBES,
             ),
             // absent: unknown is not evidence that the budget was untouched
-            (r#""id":"msg_1""#, "configurable via"),
+            (r#""id":"msg_1""#, crate::error::REMEDY_PRESCRIBES),
             // reasons the backend named, none of them the budget
-            (r#""stop_reason":"end_turn""#, "does not address"),
-            (r#""stop_reason":"refusal""#, "does not address"),
-            (r#""stop_reason":"pause_turn""#, "does not address"),
-            (r#""stop_reason":"load""#, "does not address"),
+            (
+                r#""stop_reason":"end_turn""#,
+                crate::error::REMEDY_RULED_OUT,
+            ),
+            (
+                r#""stop_reason":"stop_sequence""#,
+                crate::error::REMEDY_RULED_OUT,
+            ),
+            (
+                r#""stop_reason":"tool_use""#,
+                crate::error::REMEDY_RULED_OUT,
+            ),
+            (r#""stop_reason":"refusal""#, crate::error::REMEDY_RULED_OUT),
+            (
+                r#""stop_reason":"pause_turn""#,
+                crate::error::REMEDY_RULED_OUT,
+            ),
+            (r#""stop_reason":"load""#, crate::error::REMEDY_RULED_OUT),
             // a value no vendor publishes: neither direction is supportable
-            (r#""stop_reason":"brand_new_reason""#, "cannot be told"),
+            (
+                r#""stop_reason":"brand_new_reason""#,
+                crate::error::REMEDY_UNKNOWN,
+            ),
         ];
 
         for (stop, expected) in cases {

@@ -47,6 +47,21 @@ pub enum AbandonReason {
     },
 }
 
+/// The phrase that marks the branch where the cap IS the fix.
+///
+/// A constant rather than a literal repeated in three files, because the wording is
+/// declared non-contractual in the migration guide and was nonetheless pinned by raw
+/// substrings in the tests of two providers -- so rewording it for clarity broke tests
+/// that were meant to assert the BRANCH, not the sentence. The message is composed from
+/// these and the tests assert these, which is what makes the pin structural.
+pub(crate) const REMEDY_PRESCRIBES: &str = "configurable via";
+
+/// The phrase that marks the branch where the backend named a reason and it is not the budget.
+pub(crate) const REMEDY_RULED_OUT: &str = "does not address";
+
+/// The phrase that marks the branch where neither direction is supportable.
+pub(crate) const REMEDY_UNKNOWN: &str = "cannot be told";
+
 /// The half of the empty-completion message that depends on what stopped the model.
 ///
 /// The cap is stated either way, because "what budget was in force" is an
@@ -88,10 +103,16 @@ fn empty_completion_remedy(
                 Some(n) => format!("The prompt measured {n} tokens: if that is"),
                 None => "The prompt was not measured; if it is".to_string(),
             };
-            format!(", configurable via `CompletionConfig::max_tokens`. {measured} already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them.")
+            format!(
+                ", {REMEDY_PRESCRIBES} `CompletionConfig::max_tokens`. {measured} already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them."
+            )
         }
-        B::RuledOut => ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this.".to_string(),
-        B::Unknown => ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached cannot be told from it.".to_string(),
+        B::RuledOut => format!(
+            ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` {REMEDY_RULED_OUT} this."
+        ),
+        B::Unknown => format!(
+            ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached {REMEDY_UNKNOWN} from it."
+        ),
     }
 }
 
@@ -870,11 +891,11 @@ mod tests {
                 "the sentence names the prompt as the other cause, so it must say whether                  the prompt was measured: {s}"
             );
             assert!(
-                s.contains("configurable via"),
+                s.contains(REMEDY_PRESCRIBES),
                 "the budget can explain this, so the message must carry its own fix: {s}"
             );
-            assert!(!s.contains("does not address"), "{s}");
-            assert!(!s.contains("cannot be told"), "{s}");
+            assert!(!s.contains(REMEDY_RULED_OUT), "{s}");
+            assert!(!s.contains(REMEDY_UNKNOWN), "{s}");
         }
 
         // Reasons this crate INTERPRETS, and neither of them is the budget.
@@ -885,28 +906,29 @@ mod tests {
                 "the budget in force stays an observation: {s}"
             );
             assert!(
-                s.contains("does not address"),
+                s.contains(REMEDY_RULED_OUT),
                 "prescribing the cap for a reason the backend named is a misdiagnosis: {s}"
             );
             assert!(
-                !s.contains("configurable via"),
+                !s.contains(REMEDY_PRESCRIBES),
                 "prescription survived a termination that rules it out: {s}"
             );
         }
 
-        // A reason this crate does NOT interpret. `model_context_window_exceeded` is a real
-        // Anthropic value that lands here and IS about running out of room, so claiming the
-        // budget was not involved would be inventing evidence in the other direction.
+        // A reason this crate does NOT interpret -- one no vendor publishes, which is what
+        // this branch is for now that both published vocabularies are translated. It could
+        // be anything, a new way of saying the room ran out included, so claiming the budget
+        // was not involved would be inventing evidence in the other direction.
         let s = render(Some(FinishReason::Other(
-            "model_context_window_exceeded".to_string(),
+            "a_reason_invented_after_this_was_written".to_string(),
         )));
         assert!(s.contains("16384"), "{s}");
         assert!(
-            s.contains("cannot be told"),
+            s.contains(REMEDY_UNKNOWN),
             "an uninterpreted reason supports neither direction: {s}"
         );
-        assert!(!s.contains("configurable via"), "{s}");
-        assert!(!s.contains("does not address"), "{s}");
+        assert!(!s.contains(REMEDY_PRESCRIBES), "{s}");
+        assert!(!s.contains(REMEDY_RULED_OUT), "{s}");
 
         // The number is PRINTED when it exists. Naming `prompt_tokens` as the thing to
         // compare while withholding it is advice the reader cannot act on.

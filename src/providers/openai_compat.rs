@@ -541,7 +541,18 @@ mod tests {
     /// otherwise make the file "contain" the needle it is checking for.
     #[test]
     fn the_openai_compatible_provider_never_acquires_native_routing() {
-        let src = include_str!("openai_compat.rs");
+        // Line endings NORMALIZED before splitting, and this is not defensive
+        // programming: `core.autocrlf` is on for this repo, so a Windows checkout has
+        // CRLF on disk. `include_str!` embeds those bytes verbatim while rustc
+        // normalizes the multi-line literal below to LF -- so the split silently found
+        // nothing, `production` became the WHOLE file including this module, and the
+        // guard failed on its own message. It could as easily have failed the other
+        // way on a needle that only lives in the test half.
+        let src = include_str!("openai_compat.rs").replace(
+            "
+", "
+",
+        );
         let production = src
             .split(
                 "
@@ -549,7 +560,7 @@ mod tests {
 mod ",
             )
             .next()
-            .unwrap_or(src);
+            .unwrap_or(&src);
         // BOTH spellings, because the crate does not use the one this guard used to check.
         // `OllamaProvider` addresses the native endpoint as a SEGMENT LIST -- `&["api",
         // "chat"]` (ollama.rs) -- so the literal `/api/chat` never appears in routing code and
@@ -827,11 +838,11 @@ mod ",
                 other => panic!("{raw} with empty content must be an empty completion: {other:?}"),
             };
             assert!(
-                rendered.contains("does not address"),
+                rendered.contains(crate::error::REMEDY_RULED_OUT),
                 "{raw} is a reason the vendor named and it is not the budget: {rendered}"
             );
             assert!(
-                !rendered.contains("cannot be told"),
+                !rendered.contains(crate::error::REMEDY_UNKNOWN),
                 "{raw} is published; claiming it is uninterpretable is the defect: {rendered}"
             );
         }
@@ -883,7 +894,18 @@ mod ",
         // Scans only the PRODUCTION half, split at the `#[cfg(test)]` that opens
         // this module: `include_str!` embeds the test source too, so this literal
         // would otherwise make the file "contain" the needle it checks for.
-        let src = include_str!("openai_compat.rs");
+        // Line endings NORMALIZED before splitting, and this is not defensive
+        // programming: `core.autocrlf` is on for this repo, so a Windows checkout has
+        // CRLF on disk. `include_str!` embeds those bytes verbatim while rustc
+        // normalizes the multi-line literal below to LF -- so the split silently found
+        // nothing, `production` became the WHOLE file including this module, and the
+        // guard failed on its own message. It could as easily have failed the other
+        // way on a needle that only lives in the test half.
+        let src = include_str!("openai_compat.rs").replace(
+            "
+", "
+",
+        );
         let production = src
             .split(
                 "
@@ -891,7 +913,7 @@ mod ",
 mod ",
             )
             .next()
-            .unwrap_or(src);
+            .unwrap_or(&src);
         for needle in [
             "pub struct OpenAiResponse",
             "pub struct OpenAiChoice",

@@ -302,18 +302,15 @@ impl FinishReason {
     /// ```
     pub fn from_wire(raw: &str) -> Self {
         match raw {
-            // `content_filter`, `tool_calls` and `function_call` are documented
-            // OpenAI terminations, and none of them is the output budget. Left
-            // untranslated they reached `Other`, where the empty-completion message
-            // says the budget "cannot be told" -- an unknown claimed about a value
-            // the vendor publishes. `Other` is for what no vendor has published.
-            //
-            // This table is SHARED: the Anthropic provider falls through to it for
-            // values its own list does not name, so an OpenAI word reaching that wire
-            // would be translated there too. Accepted deliberately -- every value here
-            // carries the same budget bearing on every wire, so the bleed cannot
-            // change an answer, only reach a correct one by a route nobody planned.
-            "stop" | "content_filter" | "tool_calls" | "function_call" => Self::Stop,
+            // The union of both wires' published not-the-budget vocabularies. It is ONE
+            // table on purpose: `Other` is documented in four places as "a value no vendor
+            // publishes", and that was only true per-wire while each provider kept half the
+            // list -- an Anthropic word arriving on the compat wire fell through to `Other`
+            // and the message then claimed the budget could not be told. The bleed cannot
+            // change an answer, because every word here carries the same bearing on every
+            // wire; it can only reach a correct answer by a route nobody planned.
+            "stop" | "content_filter" | "tool_calls" | "function_call" | "end_turn"
+            | "stop_sequence" | "tool_use" | "refusal" | "pause_turn" => Self::Stop,
             "length" => Self::Length,
             "load" => Self::Load,
             other => {
@@ -583,9 +580,13 @@ impl CompletionTelemetry {
     /// this returned a `bool`, which forced every reason the crate does not
     /// recognise onto the "not the budget" side -- asserting a negative from an
     /// uninterpreted string. That is the same defect as the message it was written
-    /// to fix, with the sign flipped: `model_context_window_exceeded` is a real
-    /// Anthropic value that lands in [`FinishReason::Other`] and *is* about running
-    /// out of room.
+    /// to fix, with the sign flipped. A value neither vendor publishes could be
+    /// anything at all, a new way of saying the room ran out included, and the crate
+    /// has no basis to rule that out. *(The example that first showed this was
+    /// `model_context_window_exceeded`, which used to fall through untranslated. It
+    /// no longer does -- the published vocabularies were completed, which shrank this
+    /// branch to what genuinely belongs in it. The branch is still needed: the
+    /// vocabularies grow without asking us.)*
     ///
     /// The `match` is exhaustive on purpose rather than a `matches!`: a variant
     /// added to [`FinishReason`] later must not be able to join a branch silently,
@@ -602,6 +603,32 @@ impl CompletionTelemetry {
             None | Some(FinishReason::Length) => BudgetBearing::MayExplain,
             Some(FinishReason::Stop) | Some(FinishReason::Load) => BudgetBearing::RuledOut,
             Some(FinishReason::Other(_)) => BudgetBearing::Unknown,
+        }
+    }
+}
+
+impl ReasoningState {
+    /// The state rendered as a MEASUREMENT, with the trace text left out.
+    ///
+    /// `Debug` on this type prints the trace when a consumer opted into carrying it, so
+    /// any diagnostic composed with `{:?}` would copy model-authored text -- text that
+    /// never passes the `Validator` and is never redacted -- into whatever it composes.
+    /// One such diagnostic reached [`crate::error::ProviderError::ResponseContract`],
+    /// whose own rustdoc promises the opposite. Composing from this instead makes the
+    /// promise structural: there is nothing to leak because the text is not rendered.
+    ///
+    /// # Returns
+    ///
+    /// A short description naming the state and, where one exists, the length -- never
+    /// the trace itself.
+    pub(crate) fn measurement(&self) -> String {
+        match self {
+            Self::NotMeasured => "not measured".to_string(),
+            Self::Unsupported { backend, chars, .. } => match chars {
+                Some(n) => format!("unsupported by {backend}, {n} chars"),
+                None => format!("unsupported by {backend}, unmeasured"),
+            },
+            Self::Measured { chars, .. } => format!("{chars} chars"),
         }
     }
 }
@@ -2691,6 +2718,62 @@ mod tests {
         ("it is not redacted", "redact"),
         ("how big it can get", "max_rotations"),
     ];
+
+    #[test]
+    fn the_published_wire_vocabularies_are_translated_and_nothing_else_is() {
+        // Lives HERE, next to `from_wire`, and NOT only in the provider that motivated it:
+        // `openai_compat.rs` is feature-gated, so the per-commit run on the default feature
+        // set never compiled the assertion that guards these literals. Deleting them left
+        // that gate green -- which is the same shape as every other round of this decision.
+        //
+        // What lands in `Other` decides what the empty-completion message may claim: an
+        // untranslated reason renders as "cannot be told", so a value a vendor publishes
+        // that falls through here turns a knowable case into an unknowable one.
+        let published_and_not_the_budget = [
+            // OpenAI-compatible
+            "stop",
+            "content_filter",
+            "tool_calls",
+            "function_call",
+            // Anthropic
+            "end_turn",
+            "stop_sequence",
+            "tool_use",
+            "refusal",
+            "pause_turn",
+        ];
+        for raw in published_and_not_the_budget {
+            assert_eq!(
+                FinishReason::from_wire(raw),
+                FinishReason::Stop,
+                "{raw} is published and is not the output budget"
+            );
+            assert_eq!(
+                CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::from_wire(raw))
+                    .budget_bearing(),
+                BudgetBearing::RuledOut,
+                "{raw} must rule the budget out, not leave it undecided"
+            );
+        }
+
+        assert_eq!(FinishReason::from_wire("length"), FinishReason::Length);
+        assert_eq!(FinishReason::from_wire("load"), FinishReason::Load);
+
+        // And the complement: `Other` is what no vendor publishes, on either wire.
+        for raw in ["brand_new_reason", "another_unpublished_one"] {
+            assert_eq!(
+                FinishReason::from_wire(raw),
+                FinishReason::Other(raw.to_string())
+            );
+            assert_eq!(
+                CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::from_wire(raw))
+                    .budget_bearing(),
+                BudgetBearing::Unknown
+            );
+        }
+    }
 
     #[test]
     fn the_trace_flag_names_everything_activating_it_accepts() {
