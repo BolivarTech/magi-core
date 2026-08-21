@@ -800,8 +800,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787231456.7820015,
-    "ast_hash": "c269e56bf59b896d155fd90b6530d395",
+    "mtime": 1787303465.7581117,
+    "ast_hash": "68d5214fac948e022d3e51a74091dc76",
     "semantic_hash": ""
   },
   "smoke/README.md": {
