@@ -542,6 +542,27 @@ impl CompletionTelemetry {
         self.reasoning = s;
         self
     }
+
+    /// Whether the output budget could be what left the completion empty.
+    ///
+    /// The predicate is deliberately the same one the Anthropic provider branches
+    /// on, and for the same reason: an ABSENT termination is not evidence that the
+    /// budget was untouched, while any termination the backend did name — a normal
+    /// stop, a load, or a value this crate does not recognise — is. `map_stop_reason`
+    /// turns `max_tokens` into [`FinishReason::Length`] and everything else into
+    /// something that is not it, so a named reason other than `Length` says the
+    /// budget is not the explanation.
+    ///
+    /// It exists so an error message can name the cap as the FIX only where the fix
+    /// applies. Prescribing "raise `max_tokens`" for a refusal is the misdiagnosis
+    /// this release was written to end, wearing different clothes.
+    ///
+    /// # Returns
+    ///
+    /// `true` when the termination is unknown or was the budget running out.
+    pub(crate) fn budget_may_explain_empty(&self) -> bool {
+        matches!(self.finish, None | Some(FinishReason::Length))
+    }
 }
 
 /// Abstraction for LLM backends.

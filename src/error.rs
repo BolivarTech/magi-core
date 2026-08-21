@@ -47,6 +47,29 @@ pub enum AbandonReason {
     },
 }
 
+/// The half of the empty-completion message that depends on what stopped the model.
+///
+/// The cap is stated either way, because "what budget was in force" is an
+/// observation. What is conditional is the PRESCRIPTION: telling an operator to
+/// raise `max_tokens` when the backend said it refused, or ended normally, sends
+/// them to change a number that had nothing to do with it -- the same shape of
+/// misdiagnosis as the `http error 0` this release removed, one layer in.
+///
+/// # Parameters
+///
+/// * `budget_may_explain` -- `CompletionTelemetry::budget_may_explain_empty`.
+///
+/// # Returns
+///
+/// The sentence tail, already carrying its leading punctuation.
+fn empty_completion_remedy(budget_may_explain: bool) -> &'static str {
+    if budget_may_explain {
+        ", configurable via `CompletionConfig::max_tokens`."
+    } else {
+        ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this."
+    }
+}
+
 /// Errors originating from LLM provider implementations.
 ///
 /// Each variant represents a distinct failure mode that providers
@@ -239,9 +262,9 @@ pub enum ProviderError {
     /// measured, not assumed.
     #[error(
         "empty completion: the model returned no content (termination: {:?}). \
-         The output budget in force was {cap} tokens, configurable via \
-         `CompletionConfig::max_tokens`.",
-        .telemetry.finish
+         The output budget in force was {cap} tokens{}",
+        .telemetry.finish,
+        empty_completion_remedy(.telemetry.budget_may_explain_empty())
     )]
     #[non_exhaustive]
     EmptyCompletion {
@@ -790,6 +813,59 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_completion_prescribes_the_cap_only_where_the_cap_is_the_fix() {
+        // BOTH messages state the budget in force, because "what was the budget" is an
+        // observation. What must not survive a refusal is the PRESCRIPTION: sending an
+        // operator to raise `max_tokens` when the backend said it refused is the same shape
+        // of misdiagnosis as the `http error 0` this release removed, one layer down -- and
+        // it reached here through the one lane the termination narrowing does not cover, a
+        // text-only response that came back blank.
+        let render = |f: Option<FinishReason>| {
+            let mut t = crate::provider::CompletionTelemetry::unmeasured();
+            if let Some(f) = f {
+                t = t.with_finish(f);
+            }
+            ProviderError::EmptyCompletion {
+                telemetry: t,
+                cap: 16_384,
+            }
+            .to_string()
+        };
+
+        // Unknown is NOT evidence that the budget was untouched, so it prescribes too.
+        for may in [None, Some(FinishReason::Length)] {
+            let s = render(may);
+            assert!(s.contains("16384"), "{s}");
+            assert!(
+                s.contains("configurable via"),
+                "the budget can explain this, so the message must carry its own fix: {s}"
+            );
+            assert!(!s.contains("does not address"), "{s}");
+        }
+
+        // Every reason the backend actually NAMED, and none of them is the budget.
+        for named in [
+            FinishReason::Stop,
+            FinishReason::Load,
+            FinishReason::Other("refusal".to_string()),
+        ] {
+            let s = render(Some(named));
+            assert!(
+                s.contains("16384"),
+                "the budget in force stays an observation: {s}"
+            );
+            assert!(
+                s.contains("does not address"),
+                "prescribing the cap for a reason the backend named is a misdiagnosis: {s}"
+            );
+            assert!(
+                !s.contains("configurable via"),
+                "prescription survived a termination that rules it out: {s}"
+            );
+        }
+    }
+
+    #[test]
     fn a_crate_defect_keeps_the_observation_apart_from_the_hypothesis() {
         // Separate FIELDS, not two halves of one sentence, so the distinction survives however
         // the text is later formatted. The attribution rests on a single captured case; whoever
@@ -812,6 +888,7 @@ mod tests {
         );
     }
     use super::*;
+    use crate::provider::FinishReason;
 
     // -- MS2: EndpointDown variant --
 
