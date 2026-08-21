@@ -1143,22 +1143,9 @@ impl Magi {
             // in flight to cancel — and made the error's own documentation false, since
             // `joined_before_abort` would then always list every seat.
             if let Some(d) = crate_defect.take() {
-                return Err(MagiError::CrateDefect {
-                    observation: d.observation,
-                    hypothesis: d.hypothesis,
-                    agent: d.agent,
-                    model: d.model,
-                    // The SAME set the rotating path builds: everything joined so far, whether it
-                    // succeeded or failed, minus the seat that hit the defect — which already
-                    // travels as `agent`. An earlier version counted successes only and its
-                    // comment claimed symmetry it did not have.
-                    joined_before_abort: successful
-                        .iter()
-                        .map(|o| o.agent)
-                        .chain(failed.keys().copied())
-                        .filter(|a| *a != d.agent)
-                        .collect(),
-                });
+                // The SAME two functions the rotating path uses. Written out inline here once,
+                // and the copies diverged in ORDER while a comment claimed they were symmetric.
+                return Err(crate_defect_error(d, &joined_so_far(&successful, &failed)));
             }
         }
 
@@ -2138,6 +2125,25 @@ fn joined_so_far(
         .collect()
 }
 
+/// Builds the run-aborting error from a latched defect.
+///
+/// # Why the EXCLUSION lives here and not at the two call sites
+///
+/// The seat that hit the defect is dropped, because it already travels as `agent` and counting
+/// it would make the field disagree with its own documentation. That rule was written out twice,
+/// and the two copies differed: one produced a sorted set and the other produced whatever order
+/// the successes happened to be in. Neither was wrong, but a field whose contents depend on
+/// which dispatcher ran is a field nobody can reason about.
+fn crate_defect_error(d: CrateDefectRecord, joined: &BTreeMap<AgentName, ()>) -> MagiError {
+    MagiError::CrateDefect {
+        observation: d.observation,
+        hypothesis: d.hypothesis,
+        agent: d.agent,
+        model: d.model,
+        joined_before_abort: joined.keys().copied().filter(|a| *a != d.agent).collect(),
+    }
+}
+
 /// Resolves whether the run must abort, and in WHICH order the two reasons are considered.
 ///
 /// # The order is the invariant, not an implementation detail
@@ -2186,21 +2192,9 @@ async fn resolve_crate_defect(
     reg: &LineageRegistry,
     joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    reg.crate_defect().await.map(|d| MagiError::CrateDefect {
-        observation: d.observation,
-        hypothesis: d.hypothesis,
-        agent: d.agent,
-        model: d.model,
-        // The seat that HIT it is excluded: it already travels as `agent`, and counting it here
-        // would make the field disagree with its own documentation, which says empty is the
-        // common case. It is: the discriminant is that no generation happened, so the backend
-        // answers in fractions of a second and the other seats have barely started.
-        joined_before_abort: joined_before_abort
-            .keys()
-            .copied()
-            .filter(|a| *a != d.agent)
-            .collect(),
-    })
+    reg.crate_defect()
+        .await
+        .map(|d| crate_defect_error(d, joined_before_abort))
 }
 
 /// Lost-signal recovery for an ABNORMAL agent exit (panic / `JoinError`), factored
@@ -6308,9 +6302,34 @@ mod tests {
                     .collect::<Vec<_>>()
                     .join("\n")
             };
+            // BOTH construction forms. `#[non_exhaustive]` blocks the struct literal from
+            // OTHER crates only, so inside this one `CompletionRecord { .. }` compiles and the
+            // path-form check would not have seen it. Checking only the form the code happens
+            // to use today is how a guard reports success while guarding half its surface.
             assert!(
                 !outside.contains("CompletionRecord::"),
-                "only `record_attempt` may build a record; found a second site in {name}"
+                "only `record_attempt` may build a record; found a path-form site in {name}"
+            );
+            // The STRUCT-LITERAL form too. `#[non_exhaustive]` blocks it from OTHER crates
+            // only, so inside this one `CompletionRecord { .. }` compiles and the path-form
+            // check above would not have seen it -- a guard reporting success over half its
+            // surface, which is the class this milestone keeps paying for.
+            //
+            // Line-based, because `struct CompletionRecord {` and `impl CompletionRecord {`
+            // contain the same three tokens and are DECLARATIONS, not construction. Matching
+            // the raw substring reported both, and the tempting fix was to loosen the check
+            // rather than to narrow it.
+            let literal = concat!("CompletionRecord", " {");
+            let smuggled = outside.lines().find(|l| {
+                let t = l.trim_start();
+                l.contains(literal)
+                    && !t.starts_with("struct ")
+                    && !t.starts_with("pub struct ")
+                    && !t.starts_with("impl ")
+            });
+            assert!(
+                smuggled.is_none(),
+                "only `record_attempt` may build a record; a struct-literal site in {name}: {smuggled:?}"
             );
         }
     }
