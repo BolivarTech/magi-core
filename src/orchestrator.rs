@@ -1469,7 +1469,11 @@ fn record_attempt(
             cap,
             &completion.telemetry,
         )),
-        // The run is invalidated; see above.
+        // Recorded NOWHERE, and this is CONTINGENT on the caller aborting: the run ends with
+        // `Err`, so no `MagiReport` is ever built and a record here would die in a local
+        // `Vec`. If that consequence is ever softened — a defect of ours degrading the seat
+        // instead of ending the run — this arm silently starts DROPPING attempts that would
+        // then have somewhere to go. Change the two together.
         Ok(Err(ProviderError::NoGeneration { .. })) => {}
         Ok(Err(ProviderError::EmptyCompletion {
             finish: Some(reason),
