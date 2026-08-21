@@ -293,8 +293,15 @@ pub async fn spawn_echo_server() -> EchoServer {
                             // proxy tests check — they read the PROXY's
                             // record, not this server's reply.
                             let _ = http_body_util::BodyExt::collect(req.into_body()).await;
+                            // Answers like a backend that GENERATED, because that is the role
+                            // it plays: in the broken-proxy test the upstream is the healthy
+                            // half. It used to reply `ok`, which is not even JSON, and that
+                            // reached the proxy step only while the contention probe judged
+                            // from the HTTP status alone.
                             Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"ok")),
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(
+                                    GENERATED_BODY,
+                                )),
                             ))
                         }
                     },
@@ -615,7 +622,9 @@ pub async fn stub_that_records_requests() -> RecordingStub {
                                 l.push(SeenRequest { method, path, body });
                             }
                             Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(
+                                    GENERATED_BODY,
+                                )),
                             ))
                         }
                     },
@@ -665,6 +674,17 @@ const SLOW_ONCE_DELAY: Duration = Duration::from_millis(300);
 /// Panics if the ephemeral port cannot be bound. Acceptable here: this is
 /// `#[cfg(test)]`-only fixture setup, and a setup failure should stop the
 /// test immediately rather than run against a stub with nothing behind it.
+/// What a backend that ACTUALLY generated answers with, in the native wire's shape.
+///
+/// The stubs used to answer `{}`, which no real backend returns: it carries no termination
+/// reason and no token counters, so it is indistinguishable from a backend that answered
+/// without ever queueing work. That went unnoticed while the contention probe judged from the
+/// HTTP status alone; the moment the probe started requiring EVIDENCE of generation, three
+/// tests went red and the doubles turned out to be the reason. A double that fakes something no
+/// real backend produces is a test believing a fiction.
+const GENERATED_BODY: &[u8] =
+    br#"{"model":"m","done":true,"done_reason":"stop","eval_count":1,"prompt_eval_count":4,"message":{"role":"assistant","content":"ok"}}"#;
+
 pub async fn stub_that_is_slow_on_first_request_only() -> SlowOnceStub {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -690,7 +710,9 @@ pub async fn stub_that_is_slow_on_first_request_only() -> SlowOnceStub {
                                 tokio::time::sleep(SLOW_ONCE_DELAY).await;
                             }
                             Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                                http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                                http_body_util::Full::new(hyper::body::Bytes::from_static(
+                                    GENERATED_BODY,
+                                )),
                             ))
                         }
                     },
@@ -750,7 +772,9 @@ pub async fn stub_that_is_always_slow() -> AlwaysSlowStub {
                         let _ = http_body_util::BodyExt::collect(req.into_body()).await;
                         tokio::time::sleep(ALWAYS_SLOW_DELAY).await;
                         Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                            http_body_util::Full::new(hyper::body::Bytes::from_static(b"{}")),
+                            http_body_util::Full::new(hyper::body::Bytes::from_static(
+                                GENERATED_BODY,
+                            )),
                         ))
                     },
                 );
@@ -816,7 +840,15 @@ pub async fn stub_that_lists_models(models: &[&str]) -> ListingStub {
                         async move {
                             let tags = req.uri().path() == "/api/tags";
                             let _ = http_body_util::BodyExt::collect(req.into_body()).await;
-                            let body = if tags { listing } else { "{}".to_string() };
+                            // The non-tags branch answers the CONTENTION PROBE, so it must
+                            // look like a backend that generated. `{}` carried no termination
+                            // reason and no counters -- a shape no real backend returns -- and
+                            // it passed only while the probe judged from the HTTP status alone.
+                            let body = if tags {
+                                listing
+                            } else {
+                                String::from_utf8_lossy(GENERATED_BODY).into_owned()
+                            };
                             Ok::<_, std::convert::Infallible>(hyper::Response::new(
                                 http_body_util::Full::new(hyper::body::Bytes::from(body)),
                             ))

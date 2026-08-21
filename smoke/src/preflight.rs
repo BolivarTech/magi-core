@@ -701,6 +701,27 @@ async fn reachable(endpoint: &str, window: Duration) -> Result<Option<Vec<String
 ///
 /// `O((s + f) * m)` over the three seats, the `f` rotation candidates and the
 /// models listed.
+/// Whether a listed model IS the declared one, allowing for the implicit default tag.
+///
+/// Exact equality refuses a config on an absence that was never proven: a model pulled without a
+/// tag is LISTED as `name:latest`, so a config naming `name` looked missing from a backend that
+/// holds it — and this check's own contract is that only a PROVEN absence refuses. Verified
+/// against a real listing, which carries entries of both shapes side by side.
+///
+/// The widening is deliberately one-directional and minimal: `latest` is the only tag a backend
+/// supplies on its own, so matching any other tag would accept a model the operator did not ask
+/// for -- which is the mistake this check exists to catch.
+///
+/// # Complexity
+///
+/// `O(n)` in the shorter of the two names.
+fn holds(listed: &str, declared: &str) -> bool {
+    listed == declared
+        || listed
+            .strip_suffix(":latest")
+            .is_some_and(|bare| bare == declared)
+}
+
 pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), String> {
     let Some(listed) = listed else {
         return Ok(());
@@ -711,7 +732,7 @@ pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), 
         .map(|s| (s.agent.as_str(), s.model.as_str()))
         .chain(cfg.fallbacks.iter().map(|f| ("rotation", f.model.as_str())));
     let absent: Vec<String> = declared
-        .filter(|(_, model)| !listed.iter().any(|held| held == model))
+        .filter(|(_, model)| !listed.iter().any(|held| holds(held, model)))
         .map(|(who, model)| format!("{who} declares {model:?}"))
         .collect();
     if absent.is_empty() {
@@ -760,17 +781,20 @@ pub fn check_seat_models(cfg: &Config, listed: Option<&[String]>) -> Result<(), 
 fn listed_models(body: &[u8]) -> Option<Vec<String>> {
     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
     let models = v.get("models")?.as_array()?;
-    let names: Vec<String> = models
-        .iter()
-        .filter_map(|m| {
-            m.get("name")
-                .or_else(|| m.get("model"))
-                .and_then(|n| n.as_str())
-                .map(str::to_string)
-        })
-        .collect();
-    if names.is_empty() && !models.is_empty() {
-        return None;
+    // EVERY entry must be readable, not merely one of them. `filter_map` silently dropped the
+    // unreadable ones and the guard below only caught the case where ALL of them were, so a
+    // listing half of which did not parse came back looking complete. That is load-bearing:
+    // the only thing this listing is used for is claiming an absence is PROVEN, and an absence
+    // proven over a partial reading is not proven -- it refuses a healthy config for a model
+    // the backend actually holds. Failing to read is "I do not know", which is what `None`
+    // means here, and the caller already fails open on it.
+    let mut names = Vec::with_capacity(models.len());
+    for m in models {
+        let name = m
+            .get("name")
+            .or_else(|| m.get("model"))
+            .and_then(|n| n.as_str())?;
+        names.push(name.to_string());
     }
     Some(names)
 }
@@ -843,9 +867,54 @@ async fn try_once(cfg: &Config, window: Duration) -> Result<Probe, String> {
         .await
         .map_err(|e| format!("probe: {e}"))?;
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(Probe::Inconclusive);
+        return Ok(Probe::Inconclusive(Inconclusive::NotFound));
     }
-    Ok(Probe::Served)
+    // GENERATION must be established, not inferred from a status. `Served` claims the request
+    // went through the inference queue -- that is what its own rustdoc says -- and a status
+    // cannot support that claim: this crate captured a real `200` carrying
+    // `done_reason: "load"`, empty content and ABSENT counters, which is a backend answering
+    // without ever queueing work. Read from the status alone it passed as clear, so the probe
+    // certified a queue it never touched, and every contention judgement downstream rested on
+    // it. The fixture that pins this is `native-E-malformed.json`.
+    //
+    // Absent counters are the discriminant, so `as_u64()` returning `None` must NOT be read as
+    // zero: a missing field and a measured zero are different facts, and conflating them is the
+    // mistake the crate itself spent this milestone removing.
+    let body = resp.text().await.map_err(|e| format!("probe: {e}"))?;
+    Ok(classify_probe_body(&body))
+}
+
+/// Whether a native completion body is EVIDENCE that the inference queue ran.
+///
+/// Split out of [`try_once`] so it can be pinned against the captured corpus: the caller does a
+/// real HTTP round trip, and a decision reachable only through one is a decision nothing tests.
+///
+/// # Returns
+///
+/// [`Probe::Served`] only when the backend reports a termination that is not `load` AND a
+/// positive completion-token count. Anything else is [`Probe::Inconclusive`].
+///
+/// # Why absent is not zero
+///
+/// The discriminant of a non-generating answer is that the counters are **absent**, not that
+/// they are zero. Reading a missing field as `0` would collapse "the backend never counted" into
+/// "the backend counted nothing" — the same conflation the crate spent this milestone removing
+/// from its own telemetry.
+///
+/// # Complexity
+///
+/// `O(n)` in the body length: one parse.
+fn classify_probe_body(body: &str) -> Probe {
+    let parsed: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+    let done_reason = parsed
+        .get("done_reason")
+        .and_then(serde_json::Value::as_str);
+    let eval_count = parsed.get("eval_count").and_then(serde_json::Value::as_u64);
+    match (done_reason, eval_count) {
+        // `load` is the backend saying it spent the turn loading rather than generating.
+        (Some(reason), Some(count)) if reason != "load" && count > 0 => Probe::Served,
+        _ => Probe::Inconclusive(Inconclusive::NoGeneration),
+    }
 }
 
 /// What one probe attempt established about the backend's queue.
@@ -861,7 +930,9 @@ enum Probe {
     /// The backend answered without generating anything, so the queue was
     /// never exercised and NOTHING was learned about contention. Never
     /// reported as clear: see [`probe`].
-    Inconclusive,
+    ///
+    /// **Carries WHY**, so the operator's message describes what was observed.
+    Inconclusive(Inconclusive),
 }
 
 /// One trivial completion, retried ONCE with a widened window. The retry is
@@ -893,7 +964,7 @@ enum Probe {
 pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
     match try_once(cfg, window).await {
         Ok(Probe::Served) => return Ok(()),
-        Ok(Probe::Inconclusive) => return Err(probe_inconclusive_message(cfg)),
+        Ok(Probe::Inconclusive(why)) => return Err(probe_inconclusive_message(cfg, why)),
         Err(_) => {}
     }
     // `Duration * u32`, NOT the other way round: `Mul<u32> for Duration`
@@ -901,7 +972,7 @@ pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
     // choice.
     match try_once(cfg, window * PROBE_RETRY_FACTOR).await {
         Ok(Probe::Served) => Ok(()),
-        Ok(Probe::Inconclusive) => Err(probe_inconclusive_message(cfg)),
+        Ok(Probe::Inconclusive(why)) => Err(probe_inconclusive_message(cfg, why)),
         Err(_) => Err(probe_failure_message()),
     }
 }
@@ -926,18 +997,36 @@ pub async fn probe(cfg: &Config, window: Duration) -> Result<(), String> {
 /// # Parameters
 ///
 /// * `cfg` — the configuration, for the model and endpoint to name.
-fn probe_inconclusive_message(cfg: &Config) -> String {
+fn probe_inconclusive_message(cfg: &Config, observed: Inconclusive) -> String {
+    let (what, remedy) = match observed {
+        Inconclusive::NotFound => (
+            "answered with 404, so the request was rejected outright. Two causes are possible and the harness cannot tell them apart: the backend does not hold that model, or it does not serve that path",
+            "Pull the model, or point the endpoint at a backend that serves this path.",
+        ),
+        Inconclusive::NoGeneration => (
+            "answered successfully but reported NO generation - no termination reason, a `load` one, or no completion tokens. The backend replied without ever queueing work",
+            "Check that the model is loaded and able to generate; a warm-up request often resolves it.",
+        ),
+    };
     format!(
-        "cannot test: the endpoint at {} answered the contention probe with 404 at \
-         {COMPLETIONS_PATH} for model {:?}. Two causes are possible and the harness cannot \
-         tell them apart: the backend does not hold that model, or it does not serve that \
-         path. Either way the request was rejected without generating, so it never entered \
-         the inference queue and NOTHING was established about contention — a saturated \
-         backend answers it just as fast as an idle one. Pull the model, or point the \
-         endpoint at a backend that serves this path.",
+        "cannot test: the endpoint at {} {what} at {COMPLETIONS_PATH} for model {:?}. Either way it never entered the inference queue, so NOTHING was established about contention - a saturated backend answers just as fast as an idle one. {remedy}",
         cfg.endpoint,
         cfg.probe_model()
     )
+}
+
+/// WHY the probe established nothing, so the message states the OBSERVATION instead of
+/// asserting the only cause that existed when it was written.
+///
+/// The sentence named `404` categorically, and that was true while a rejected request was the
+/// only route to [`Probe::Inconclusive`]. Requiring evidence of generation added a second route
+/// and left the message claiming a status that had not occurred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Inconclusive {
+    /// The request was refused outright.
+    NotFound,
+    /// The backend answered, and reported nothing generated.
+    NoGeneration,
 }
 
 /// One trivial request. If it does not answer in time, the run reports
@@ -1453,6 +1542,107 @@ fn pid_is_alive(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A listing that could not be read WHOLE is not a listing.
+    ///
+    /// `filter_map` dropped unreadable entries in silence and the old guard only caught the
+    /// case where every entry was unreadable, so a half-parsed listing came back looking
+    /// complete. The only thing it is used for is claiming an absence is PROVEN, and an
+    /// absence proven over a partial reading refuses a healthy config for a model the backend
+    /// actually holds.
+    #[test]
+    fn a_partially_unreadable_listing_is_unknown_rather_than_complete() {
+        let partial = br#"{"models":[{"name":"a"},{"nope":1},{"name":"c"}]}"#;
+        assert_eq!(
+            listed_models(partial),
+            None,
+            "one unreadable entry makes the whole listing unknown"
+        );
+        // The readable case still reads, so the fix is not a wall.
+        let whole = br#"{"models":[{"name":"a"},{"model":"b"}]}"#;
+        assert_eq!(
+            listed_models(whole),
+            Some(vec!["a".to_string(), "b".to_string()])
+        );
+    }
+
+    /// An absence must be PROVEN, and the implicit default tag is not an absence.
+    ///
+    /// A model pulled without a tag is listed as `name:latest`, so exact equality refused a
+    /// config naming `name` against a backend that holds it. Verified against a real listing,
+    /// which carries both shapes side by side.
+    #[test]
+    fn a_bare_declared_name_matches_the_implicit_latest_tag() {
+        assert!(holds("qwen3:latest", "qwen3"));
+        assert!(holds("qwen3:latest", "qwen3:latest"));
+        assert!(holds("qwen3:14b", "qwen3:14b"));
+        // And the widening stops where it should: another tag is a DIFFERENT model, which is
+        // the mistake this check exists to catch.
+        assert!(!holds("qwen3:14b", "qwen3"));
+        assert!(!holds("qwen3:latest", "qwen4"));
+    }
+
+    /// The captured shape of a backend that answered WITHOUT generating.
+    ///
+    /// The same artifact `runner.rs` uses for the crate-defect scenario: a real `200` carrying
+    /// `done_reason: "load"`, empty content and ABSENT token counters.
+    const FIX_NO_GENERATION: &str = include_str!("../../tests/fixtures/ec/native-E-malformed.json");
+    /// A real native success, for the other side of the boundary.
+    const FIX_GENERATED: &str = include_str!("../../tests/fixtures/ec/native-N1.json");
+
+    /// The probe must not certify a queue it never touched.
+    ///
+    /// It used to answer from the STATUS alone -- anything but a `404` was `Served` -- so this
+    /// captured `200` passed as "the backend is clear". Every contention judgement downstream
+    /// rested on that, and the shape is not hypothetical: it is in this repository's own
+    /// evidence corpus, captured from a live daemon.
+    #[test]
+    fn a_backend_that_answered_without_generating_is_not_served() {
+        assert_eq!(
+            classify_probe_body(FIX_NO_GENERATION),
+            Probe::Inconclusive(Inconclusive::NoGeneration),
+            "a 200 that generated nothing says NOTHING about contention"
+        );
+    }
+
+    /// And the boundary holds in the other direction, so the fix is not simply a wall.
+    #[test]
+    fn a_backend_that_actually_generated_is_served() {
+        assert_eq!(classify_probe_body(FIX_GENERATED), Probe::Served);
+    }
+
+    /// ABSENT counters and a counted zero are different facts.
+    ///
+    /// Reading a missing `eval_count` as `0` would work here by accident -- both end up
+    /// inconclusive -- but it is the conflation this milestone removed from the crate's own
+    /// telemetry, and asserting both shapes keeps a later "simplification" from reintroducing
+    /// it where it does matter.
+    #[test]
+    fn an_absent_counter_and_a_zero_counter_are_both_refused() {
+        let absent = r#"{"done_reason":"stop","message":{"content":"x"}}"#;
+        let zero = r#"{"done_reason":"stop","eval_count":0,"message":{"content":"x"}}"#;
+        assert_eq!(
+            classify_probe_body(absent),
+            Probe::Inconclusive(Inconclusive::NoGeneration)
+        );
+        assert_eq!(
+            classify_probe_body(zero),
+            Probe::Inconclusive(Inconclusive::NoGeneration)
+        );
+    }
+
+    /// An unparseable body is inconclusive, never served.
+    #[test]
+    fn a_body_that_does_not_parse_establishes_nothing() {
+        assert_eq!(
+            classify_probe_body("<html>gateway</html>"),
+            Probe::Inconclusive(Inconclusive::NoGeneration)
+        );
+        assert_eq!(
+            classify_probe_body(""),
+            Probe::Inconclusive(Inconclusive::NoGeneration)
+        );
+    }
     use crate::config::Seat;
     use crate::testkit::{
         repo_where_the_negation_was_removed, run_against_an_unreachable_backend,
@@ -2091,7 +2281,7 @@ mod tests {
         // and the harness has exactly the same status either way. An operator
         // sent to pull a model they already hold spends the round on the wrong
         // half of their configuration.
-        let msg = probe_inconclusive_message(&Config::default());
+        let msg = probe_inconclusive_message(&Config::default(), Inconclusive::NotFound);
         assert!(
             msg.contains("model") && msg.contains("path"),
             "both causes must be named, the way the slow-probe refusal names its two: {msg}"
