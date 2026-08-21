@@ -913,5 +913,10 @@
     "mtime": 1787288289.8573396,
     "ast_hash": "1294781ade5018bd5875e6a45a8fb5cc",
     "semantic_hash": ""
+  },
+  "docs/test/smoke-certificate.md": {
+    "mtime": 1787346398.8688815,
+    "ast_hash": "e952c61951cc2449d97ed8092fd33dae",
+    "semantic_hash": ""
   }
 }
