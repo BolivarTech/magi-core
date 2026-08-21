@@ -69,6 +69,11 @@ impl OllamaProvider {
     /// - `base_url`: **either** the daemon root (`http://localhost:11434`) **or** the same URL
     ///   with the legacy `/v1` suffix. Both are accepted and both produce the same native
     ///   `/api/*` endpoints; nothing this provider sends addresses `/v1`.
+    ///
+    ///   That concerns the URL you CONFIGURE, not what the endpoint serves. A gateway exposing
+    ///   only the OpenAI-compatible surface has no `/api/chat` to answer and stops working with
+    ///   this provider; point `OpenAiCompatibleProvider` at it instead, which is the documented
+    ///   path for that shape.
     /// - `model`: the model tag, passed through unchanged.
     ///
     /// # Errors

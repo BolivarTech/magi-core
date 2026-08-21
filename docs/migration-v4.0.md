@@ -126,11 +126,24 @@ use magi_core::prelude::{ProviderError, ResponseContractCause};
 match err {
     ProviderError::ResponseContract { reason: ResponseContractCause::Unreadable, .. } => …,
     ProviderError::ResponseContract { reason: ResponseContractCause::NoMessage, .. } => …,
-    ProviderError::EmptyCompletion { finish, cap, .. } => …,
+    ProviderError::EmptyCompletion { telemetry, cap, .. } => …,
     ProviderError::NoGeneration { .. } => …,
     _ => …,
 }
 ```
+
+`EmptyCompletion` carries a `CompletionTelemetry`, not a bare termination reason: the
+termination is `telemetry.finish`, and alongside it travel the token counts and the reasoning
+measurement. That is deliberate — an empty completion is usually a model that spent its whole
+budget reasoning, and reporting the cut without the number that explains it is the blindness
+this release exists to end.
+
+**One behaviour change inside this one, if you use the Anthropic provider with extended
+thinking.** A response that exhausts `max_tokens` comes back carrying a thinking block and no
+text block. That used to surface as `ResponseContract { NoMessage }` — a broken contract — and
+now surfaces as `EmptyCompletion`, naming the budget that cut it. A genuinely empty `content`
+array is still `NoMessage`: nothing was sent at all, and no termination reason makes that
+legitimate.
 
 **What you do:** match the contract variants. `ResponseContractCause` is exported from the
 prelude; its own variants are plain unit variants, and it is the enum that carries

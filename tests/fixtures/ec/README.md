@@ -24,6 +24,8 @@ shape of each read off the artifact rather than remembered.
 | `native-unload-empty-messages.json` | native | `unload` | empty content, counters absent |
 | `resp-C.json` | compat | `length` | **empty content** — the defect this milestone classifies |
 | `resp-H.json` | compat | `stop` | `message.reasoning` present, content 1898 chars |
+| `native-think-false-nonthinking-local.json` | native | `stop` | `think:false` on a model with NO thinking capability, **local** |
+| `native-think-false-nonthinking-cloud.json` | native | `stop` | the same, **cloud-routed** |
 
 `native-N2.json` is a **truncated** success rather than a plain one — its `done_reason` is
 `length`. Worth stating, because a test reaching for "a native success carrying thinking" would
@@ -59,3 +61,18 @@ satisfies **two of the three** conditions — counters absent, content empty —
 and empty content", a caller passing `keep_alive: 0` would have been read as a crate defect and
 **aborted the run**. Anyone relaxing the trigger to two conditions should make it fail against
 this artifact first.
+
+## The two `think: false` captures, and what they are evidence FOR
+
+They exist because a review round raised, as its only `[CRITICAL]`, that sending `think: false`
+to a model without a thinking capability might be rejected — turning a control that is supposed
+to DECLARE it cannot be honoured into a run-wide lineage condemnation. The objection was sound
+and the remedy asked for was the right one: capture it rather than reason about it.
+
+**The measurement refuted it.** Both return HTTP **200**, `done_reason: "stop"`, content present,
+counters present and `message.thinking` absent — the field is accepted and simply has nothing to
+do. Both deployment shapes were captured because this project has already been bitten by `/v1`
+and native behaving differently, and cloud routing is not local routing.
+
+They are kept as fixtures rather than as a note in a review log for the reason every other file
+here is kept: a guarantee that depends on a live backend is a guarantee that stops being checked.

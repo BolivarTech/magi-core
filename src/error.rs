@@ -215,9 +215,13 @@ pub enum ProviderError {
         /// this crate has already identified as its most-shared and least-inspected channel, and
         /// every other outside-authored text that gets there is capped.
         ///
-        /// The bound is a property of the TYPE, not of whoever wrote a call site: this variant is
-        /// built inside the crate through one bounding constructor, and `#[non_exhaustive]` stops
-        /// anyone outside from writing the literal.
+        /// Where the bound actually comes from, stated precisely because the obvious phrasing
+        /// is wrong: `#[non_exhaustive]` stops only ANOTHER crate from writing the literal.
+        /// Inside this one it does not, and most sites do write it — with an **empty** detail,
+        /// because their cause is already typed and free text would restate it untyped. An
+        /// empty string needs no bound. Every site that passes real text goes through the
+        /// crate-private `response_contract` constructor, which is what caps it. (Named, not
+        /// linked: it is `pub(crate)`, and public docs cannot link to a private item.)
         detail: String,
     },
 

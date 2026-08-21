@@ -498,10 +498,27 @@ mod tests {
     #[test]
     fn the_openai_compatible_provider_never_acquires_native_routing() {
         let src = include_str!("openai_compat.rs");
-        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let production = src
+            .split(
+                "
+#[cfg(test)]
+mod ",
+            )
+            .next()
+            .unwrap_or(src);
+        // BOTH spellings, because the crate does not use the one this guard used to check.
+        // `OllamaProvider` addresses the native endpoint as a SEGMENT LIST -- `&["api",
+        // "chat"]` (ollama.rs) -- so the literal `/api/chat` never appears in routing code and
+        // a copy of that idiom into this file would have walked straight past the assertion.
+        // A guard that reports success while guarding nothing is the defect class this
+        // milestone has already paid for nine times.
         assert!(
             !production.contains("/api/chat"),
             "the compat provider must keep speaking the OpenAI wire format only"
+        );
+        assert!(
+            !production.contains("\"api\""),
+            "no native path segment may appear here: the crate routes with segment lists,              so this is the spelling a real regression would wear"
         );
     }
 
@@ -748,7 +765,14 @@ mod tests {
         // this module: `include_str!` embeds the test source too, so this literal
         // would otherwise make the file "contain" the needle it checks for.
         let src = include_str!("openai_compat.rs");
-        let production = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let production = src
+            .split(
+                "
+#[cfg(test)]
+mod ",
+            )
+            .next()
+            .unwrap_or(src);
         for needle in [
             "pub struct OpenAiResponse",
             "pub struct OpenAiChoice",

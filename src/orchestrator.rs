@@ -2062,6 +2062,23 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
             connection,
             kind: RotationKind::Timeout,
         },
+        // A REAL HTTP status, and every one of them keeps the run-wide route -- including the
+        // per-candidate-looking ones. `404 model not found` and `400` are the tempting
+        // exceptions: they say something about ONE candidate, so condemning its whole lineage
+        // costs the other two seats a model that may be fine.
+        //
+        // They stay here on purpose, and the reason is the one this crate already applies in
+        // the other direction. Mage-local is the safe default when the crate CANNOT tell what a
+        // failure implies; here it can tell far less than the status suggests. A `404` from a
+        // gateway, a proxy, or a load balancer says nothing about a model — and this crate
+        // cannot distinguish those from a daemon that genuinely lacks the tag, because they are
+        // the same status on the same wire. Splitting on the number would claim a diagnosis
+        // nobody made.
+        //
+        // What makes leaving it acceptable is that it is NOT new and NOT what this release is
+        // about: `3.2.0` routed these identically through the compat provider, so nothing
+        // regresses. Narrowing it needs its own evidence, the way `think: false` got measured
+        // rather than assumed.
         ProviderError::Http { .. }
         | ProviderError::Network { .. }
         | ProviderError::Auth { .. }

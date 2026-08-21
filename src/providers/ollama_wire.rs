@@ -314,6 +314,12 @@ impl NativeResponse {
         // omitted when there is none (`native-N1`, `N3`, `N4`). So its absence means the model
         // did not reason — a real zero — rather than "nobody could tell".
         //
+        // Stated as a CONTRACT this crate depends on, not as a fact about the world: it was
+        // read off one daemon's captures (Ollama 0.32.13). A version that stopped emitting
+        // `thinking` for a model that did reason would make this report a measured zero for
+        // something never measured — the one thing `NotMeasured` exists to prevent. The
+        // fixtures are what pin it: if the shape changes, they are what has to change first.
+        //
         // The compat path keeps `NotMeasured` for the same reason read the other way: that wire
         // is spoken by backends that differ on whether they report the channel at all, so
         // absence there is genuinely ambiguous and must not be reported as a measurement.
@@ -684,6 +690,24 @@ mod tests {
             c.telemetry.reasoning,
             ReasoningState::Measured { text: Some(t), .. } if t == "reasoning text"
         ));
+    }
+
+    #[test]
+    fn an_overlong_done_reason_is_capped_as_it_is_deserialized() {
+        // The cap was only ever proven by calling `FinishReason::from_wire` directly, which
+        // says nothing about whether this wire reaches it: swap `done_reason` to a plain
+        // `String` and that test stays green while unbounded wire text walks into public
+        // telemetry. This asserts the bound where it actually has to hold -- on the way in.
+        let long = "z".repeat(200);
+        let r: NativeResponse = serde_json::from_str(&done_reason_body(&long)).unwrap();
+        match r.done_reason {
+            Some(FinishReason::Other(s)) => assert_eq!(
+                s.chars().count(),
+                64,
+                "wire-sourced text must be capped as it is deserialized"
+            ),
+            other => panic!("expected a capped Other, got {other:?}"),
+        }
     }
 
     #[test]
