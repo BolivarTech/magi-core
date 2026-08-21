@@ -201,12 +201,15 @@ pub enum FinishReason {
     Stop,
     /// The output budget ran out before the model finished.
     ///
-    /// **A declared boundary: on the OpenAI-compatible wire this value conflates
-    /// two causes.** `finish_reason: "length"` is what that API reports both for
-    /// hitting `max_tokens` and for running past the model's context window, and it
-    /// carries nothing that separates them. This crate does not guess between the
-    /// two -- it reports what the backend said -- so a completion cut by an oversized
-    /// PROMPT arrives here indistinguishable from one cut by an undersized budget.
+    /// **A declared boundary: this value covers two causes with opposite remedies.**
+    /// The OpenAI-compatible wire reports `finish_reason: "length"` both for hitting
+    /// `max_tokens` and for running past the model's context window, carrying nothing
+    /// that separates them. The Anthropic wire *does* separate them, and its
+    /// `model_context_window_exceeded` is mapped here **on purpose**, so that one
+    /// condition does not read as two different things depending on which backend
+    /// answered. This crate does not guess between the two -- it reports what the
+    /// backend said -- so a completion cut by an oversized PROMPT arrives here
+    /// indistinguishable from one cut by an undersized budget.
     /// The remedies differ (shrink the input versus raise the cap), and telling them
     /// apart needs `prompt_tokens` against the measured window, which
     /// [`crate::reporting::CompletionRecord`] carries for exactly that comparison.
@@ -304,6 +307,12 @@ impl FinishReason {
             // untranslated they reached `Other`, where the empty-completion message
             // says the budget "cannot be told" -- an unknown claimed about a value
             // the vendor publishes. `Other` is for what no vendor has published.
+            //
+            // This table is SHARED: the Anthropic provider falls through to it for
+            // values its own list does not name, so an OpenAI word reaching that wire
+            // would be translated there too. Accepted deliberately -- every value here
+            // carries the same budget bearing on every wire, so the bleed cannot
+            // change an answer, only reach a correct one by a route nobody planned.
             "stop" | "content_filter" | "tool_calls" | "function_call" => Self::Stop,
             "length" => Self::Length,
             "load" => Self::Load,
