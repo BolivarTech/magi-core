@@ -488,6 +488,48 @@ impl LlmProvider for OpenAiCompatibleProvider {
 mod tests {
     use super::*;
 
+    /// `chars` and `text` cannot disagree on this wire either.
+    ///
+    /// The Anthropic provider let them diverge because a boolean decided one and a string the
+    /// other; the fix made both come from a single value. This wire already had that shape —
+    /// both derive from `seen` — but "already correct" and "verified" are different claims, and
+    /// a reviewer asking which one this was is asking the right question.
+    #[test]
+    fn the_two_reasoning_fields_cannot_disagree_on_the_compat_wire() {
+        // `seen` present-and-empty: BOTH say present-and-empty.
+        let body = r#"{"choices":[{"message":{"content":"x","reasoning":""},
+                                   "finish_reason":"stop"}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(body).expect("parses");
+        let out = r
+            .into_completion(4096, true, ReasoningControl::Disabled)
+            .expect("content makes this a success");
+        match out.telemetry.reasoning {
+            ReasoningState::Unsupported { chars, text, .. } => {
+                assert_eq!(chars, Some(0), "an empty-but-present channel WAS measured");
+                assert_eq!(
+                    text.as_deref(),
+                    Some(""),
+                    "and its text agrees with its count"
+                );
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
+
+        // `seen` ABSENT: both say nothing was measured.
+        let bare = r#"{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(bare).expect("parses");
+        let out = r
+            .into_completion(4096, true, ReasoningControl::Disabled)
+            .expect("content makes this a success");
+        match out.telemetry.reasoning {
+            ReasoningState::Unsupported { chars, text, .. } => {
+                assert_eq!(chars, None, "an absent field is not a measurement");
+                assert_eq!(text, None, "and there is no text to offer for it");
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
+    }
+
     /// C-9. This provider must never acquire the native routing that
     /// `OllamaProvider` uses — it stays the documented path for OpenAI cloud,
     /// LocalAI, vLLM, LM Studio and llama.cpp-server (ADR 006). The only thing

@@ -474,18 +474,6 @@ pub struct RequestRecord {
 }
 
 impl RequestRecord {
-    /// Builds the REQUEST half. The response half does not exist yet — the
-    /// upstream has not answered — so the record is completed by
-    /// [`with_recorded_response`](RequestRecord::with_recorded_response) or
-    /// [`with_status_only`](RequestRecord::with_status_only) and pushed
-    /// **once**, after forwarding. Pushing here and mutating later would need
-    /// a second lock and an index, and an interleaved connection could
-    /// complete the wrong record.
-    ///
-    /// The hash is over the FULL body, whatever the recording cap says: `S2b`
-    /// compares transparency by checksum, and a hash of a capped prefix would
-    /// fail it on the large payload because of the cap — blaming the crate for
-    /// something the harness did.
     /// Whether this record is a COMPLETION, on either wire, whatever query it carried.
     ///
     /// Readers used to compare `path == COMPLETIONS_PATH`, which is wrong twice over: it misses
@@ -518,11 +506,23 @@ impl RequestRecord {
             .map_or(self.path.as_str(), |(p, _)| p)
     }
 
-    /// Builds a record of one request: the body's digest and length, and the target it went to.
+    /// Builds a record of one request: the body's DIGEST and the target it went to.
     ///
-    /// Its own doc block was consumed when the two accessors above were inserted into it, which
-    /// is a smaller version of the same defect this file keeps finding — an edit that reads as
-    /// complete while a neighbour silently loses something.
+    /// Its own doc block was consumed when the accessors above were inserted into it, and the
+    /// first repair wrote a fresh one that promised a body LENGTH the record does not store —
+    /// so the fix for a lost doc introduced a false one, and left the original paragraphs
+    /// stranded on the accessor. Both halves are put back here.
+    ///
+    /// Builds the REQUEST half. The response half does not exist yet — the upstream has not
+    /// answered — so the record is completed by
+    /// [`with_recorded_response`](RequestRecord::with_recorded_response) or
+    /// [`with_status_only`](RequestRecord::with_status_only) and pushed **once**, after
+    /// forwarding. Pushing here and mutating later would need a second lock and an index, and
+    /// an interleaved connection could complete the wrong record.
+    ///
+    /// The hash is over the FULL body, whatever the recording cap says: `S2b` compares
+    /// transparency by checksum, and a hash of a capped prefix would fail it on the large
+    /// payload because of the cap — blaming the crate for something the harness did.
     ///
     /// # Parameters
     ///
@@ -1361,6 +1361,34 @@ fn response_chunk_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A ROUTING question is about the endpoint, not the target.
+    ///
+    /// `path` carries the query since the forward became verbatim, so every reader asking
+    /// "which endpoint was this" has to strip it. The sweep that introduced `endpoint()` had NO
+    /// test exercising a queried target, which meant reverting the accessor left the whole suite
+    /// green — the exact shape of unverified fix this milestone keeps finding, committed inside
+    /// the fix for it.
+    #[test]
+    fn a_query_does_not_change_which_endpoint_a_record_names() {
+        let bare = RequestRecord::record_of(b"{}", "/api/chat");
+        let queried = RequestRecord::record_of(b"{}", "/api/chat?key=SECRET&b=2");
+
+        assert_eq!(queried.endpoint(), "/api/chat");
+        assert_eq!(bare.endpoint(), "/api/chat");
+        assert!(
+            queried.is_completion(),
+            "a completion is a completion whatever parameters it carried"
+        );
+
+        // And the FULL target survives on `path`, because that is what the record is for: the
+        // query is the channel a credential travels in, and a spy that strips it cannot watch
+        // the thing it exists to watch.
+        assert!(queried.path.contains("key=SECRET"));
+
+        // A probe path is still not a completion, with or without a query.
+        assert!(!RequestRecord::record_of(b"{}", "/api/show?x=1").is_completion());
+    }
 
     /// An injection answers COMPLETIONS and nothing else.
     ///

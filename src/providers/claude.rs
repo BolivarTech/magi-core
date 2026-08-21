@@ -362,11 +362,11 @@ impl ClaudeProvider {
         // and `text` be decided independently, and they promptly disagreed.
         let readable: Option<&str> = (!thought_text.is_empty()).then_some(thought_text.as_str());
         let text = Self::text_of(response.content);
-        telemetry = telemetry.with_reasoning(match reasoning {
+        telemetry = telemetry.with_reasoning(match (reasoning, readable) {
             // The control cannot be honoured here: this provider sends no switch that turns
             // extended thinking off. What it CAN do is say how much came back anyway, which is
             // the proof the control had no effect -- the same thing the compat path reports.
-            ReasoningControl::Disabled => ReasoningState::Unsupported {
+            (ReasoningControl::Disabled, readable) => ReasoningState::Unsupported {
                 backend: "anthropic".to_string(),
                 // The SAME readability rule as the arm below, swept across both instead of one:
                 // a redacted block fired the channel and left nothing to count, and reporting
@@ -386,11 +386,15 @@ impl ClaudeProvider {
             // Measured only when a thinking block was actually present. With none, nothing was
             // seen -- and `NotMeasured` says that, where `Measured { chars: 0 }` would claim a
             // look that found nothing.
-            ReasoningControl::Default if readable.is_some() => ReasoningState::Measured {
-                chars: readable.map_or(0, |t| t.chars().count()),
-                text: readable.filter(|_| trace).map(str::to_string),
+            // The value comes from the BINDING, so there is no default to reinstate. Guarding
+            // with `is_some()` and then reaching for the value through `map_or(0, ..)` left the
+            // zero-that-lies sitting in the expression as an unreachable default -- one edit
+            // from being reachable again, in the arm whose whole subject is that zero.
+            (ReasoningControl::Default, Some(t)) => ReasoningState::Measured {
+                chars: t.chars().count(),
+                text: trace.then(|| t.to_string()),
             },
-            ReasoningControl::Default => ReasoningState::NotMeasured,
+            (ReasoningControl::Default, None) => ReasoningState::NotMeasured,
         });
 
         // The THIRD wire to need this, and the reason it is worth stating once more: under
