@@ -254,8 +254,20 @@ pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
-**What you do:** nothing to keep compiling — the field is additive and `MagiReport` is
-`#[non_exhaustive]`. But if you **deserialize** reports with a stricter reader (a schema
+### One field inside it is an `Option`, and the reason is the release's own thesis
+
+`ReasoningState::Unsupported` carries `chars: Option<usize>`, not `usize`. All three providers
+that report this state can reach it with nothing to count: a wire with no separate reasoning
+channel has nothing to read, a compatibility body can omit the field, and an Anthropic response
+can carry a `redacted_thinking` block that proves the channel FIRED while carrying nothing
+countable. They all used to report `0`, and on this variant a zero reads as "no reasoning came
+back" — which suggests the control worked, on the variant that exists to declare it did not.
+
+`Some(0)` keeps its meaning and is worth having: the channel was read and was empty. `None` means
+nobody could measure it. If you match on this field, add the `Option`.
+
+**What you do:** nothing to keep compiling for `completions` itself — the field is additive and
+`MagiReport` is `#[non_exhaustive]`. But if you **deserialize** reports with a stricter reader (a schema
 validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` report will not
 load until that reader tolerates the new key. Additive is not the same as invisible.
 

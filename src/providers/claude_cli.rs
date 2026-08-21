@@ -208,9 +208,10 @@ fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion
     telemetry = telemetry.with_reasoning(match reasoning {
         ReasoningControl::Disabled => ReasoningState::Unsupported {
             backend: "anthropic-cli".to_string(),
-            // This wire exposes no separate reasoning channel, so there was nothing to see and
-            // nothing to report — a real zero, not a look that did not happen.
-            chars: 0,
+            // This wire exposes no separate reasoning channel at all, so there was nothing to
+            // read — which is `None`, not a zero. A zero would say the channel was read and
+            // found empty, a stronger claim than anything this provider can make.
+            chars: None,
             text: None,
         },
         ReasoningControl::Default => ReasoningState::NotMeasured,

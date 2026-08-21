@@ -160,7 +160,9 @@ impl OpenAiResponse {
             // prevent: the consumer learns the control did not take, and not how much it cost.
             (ReasoningControl::Disabled, seen) => ReasoningState::Unsupported {
                 backend: COMPAT_BACKEND_NAME.to_string(),
-                chars: seen.as_ref().map_or(0, |s| s.chars().count()),
+                // Absent field means the body never reported the channel; only a
+                // PRESENT one is a measurement, even when it is empty.
+                chars: seen.as_ref().map(|s| s.chars().count()),
                 text: trace.then_some(seen).flatten(),
             },
             (ReasoningControl::Default, Some(s)) => ReasoningState::Measured {
@@ -909,7 +911,7 @@ mod ",
             c.telemetry.reasoning,
             ReasoningState::Unsupported {
                 backend: "openai-compatible".to_string(),
-                chars: 3535,
+                chars: Some(3535),
                 text: None,
             }
         );

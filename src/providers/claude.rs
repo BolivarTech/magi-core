@@ -366,7 +366,11 @@ impl ClaudeProvider {
             // the proof the control had no effect -- the same thing the compat path reports.
             ReasoningControl::Disabled => ReasoningState::Unsupported {
                 backend: "anthropic".to_string(),
-                chars: thought,
+                // The SAME readability rule as the arm below, swept across both instead of one:
+                // a redacted block fired the channel and left nothing to count, and reporting
+                // `0` here says no reasoning came back — which reads as the control having
+                // worked, on the variant whose whole job is to say it did not.
+                chars: saw_thinking.then_some(thought),
                 // Carried when the consumer asked for it, on BOTH arms. Reading the channel
                 // and then discarding the payload someone opted into is the silent drop C-8
                 // forbids -- and it only became reachable once this wire started reading the
@@ -734,9 +738,11 @@ mod tests {
 
     /// Pulls `(chars, text)` out of either measured shape, so the test above can assert the
     /// SAME property across both arms instead of duplicating itself per variant.
-    fn reasoning_parts(state: &crate::provider::ReasoningState) -> (usize, Option<String>) {
+    fn reasoning_parts(state: &crate::provider::ReasoningState) -> (Option<usize>, Option<String>) {
         match state {
-            crate::provider::ReasoningState::Measured { chars, text } => (*chars, text.clone()),
+            crate::provider::ReasoningState::Measured { chars, text } => {
+                (Some(*chars), text.clone())
+            }
             crate::provider::ReasoningState::Unsupported { chars, text, .. } => {
                 (*chars, text.clone())
             }
@@ -793,7 +799,12 @@ mod tests {
             r#"{"type":"thinking"}"#,
         ] {
             let json = format!(r#"{{"content":[{blocks},{{"type":"text","text":"a"}}]}}"#);
-            let out = super::ClaudeProvider::parse_completion(
+
+            // BOTH arms, because the first version of this fix repaired one and left the other
+            // saying `chars: 0` — which on `Unsupported` reads as "no reasoning came back", and
+            // therefore as the control having worked, on the variant that exists to declare it
+            // did not. A test scoped to one arm is how half a sweep looks like a whole one.
+            let default = super::ClaudeProvider::parse_completion(
                 &json,
                 super::ReasoningControl::Default,
                 4096,
@@ -802,12 +813,42 @@ mod tests {
             .expect("the text block makes this a success");
             assert!(
                 matches!(
-                    out.telemetry.reasoning,
+                    default.telemetry.reasoning,
                     crate::provider::ReasoningState::NotMeasured
                 ),
-                "{blocks}: expected NotMeasured, got {:?}",
-                out.telemetry.reasoning
+                "{blocks} (Default): expected NotMeasured, got {:?}",
+                default.telemetry.reasoning
             );
+
+            let disabled = super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Disabled,
+                4096,
+                false,
+            )
+            .expect("the text block makes this a success");
+            assert!(
+                matches!(
+                    disabled.telemetry.reasoning,
+                    crate::provider::ReasoningState::Unsupported { chars: None, .. }
+                ),
+                "{blocks} (Disabled): the declaration must survive with NO count, got {:?}",
+                disabled.telemetry.reasoning
+            );
+        }
+
+        // And a READABLE channel still counts, on both arms, so the rule is not a wall.
+        let readable = r#"{"content":[{"type":"thinking","thinking":"abc"},
+                                      {"type":"text","text":"a"}]}"#;
+        for (control, expect_some) in [
+            (super::ReasoningControl::Default, true),
+            (super::ReasoningControl::Disabled, true),
+        ] {
+            let out = super::ClaudeProvider::parse_completion(readable, control, 4096, false)
+                .expect("parses");
+            let (chars, _) = reasoning_parts(&out.telemetry.reasoning);
+            assert_eq!(chars.is_some(), expect_some, "{control:?}: {chars:?}");
+            assert_eq!(chars, Some(3), "{control:?}");
         }
     }
 

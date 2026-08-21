@@ -414,8 +414,16 @@ fn max_recorded_body(payload_target_bytes: usize) -> usize {
 /// buys certainty about the shape that reader actually needs.
 #[derive(Clone, Debug)]
 pub struct RequestRecord {
-    /// The request's path component only — no query string, no host. This is
-    /// what [`RECORDED_RESPONSE_PATHS`] matches against.
+    /// The request's target: path **and query**, no host.
+    ///
+    /// It carried the path alone until the forward was made genuinely verbatim. The query had
+    /// been dropped both on the way upstream and here, so nothing could observe that it had
+    /// been dropped — and in this crate the query is the channel a query-authenticated backend
+    /// carries credentials in, which is what the redaction work exists to watch.
+    ///
+    /// **Compare with [`RequestRecord::is_completion`], never with `==` against a bare path**:
+    /// equality against `"/api/chat"` silently stops matching the moment a target carries
+    /// parameters, and it only holds today because nothing this harness drives appends any.
     pub path: String,
     /// **Computed over the FULL body, whatever the recording cap says.** If it
     /// were computed over a capped prefix, `S2b` — which compares transparency
@@ -478,6 +486,24 @@ impl RequestRecord {
     /// compares transparency by checksum, and a hash of a capped prefix would
     /// fail it on the large payload because of the cap — blaming the crate for
     /// something the harness did.
+    /// Whether this record is a COMPLETION, on either wire, whatever query it carried.
+    ///
+    /// Readers used to compare `path == COMPLETIONS_PATH`, which is wrong twice over: it misses
+    /// the OpenAI-compatible wire a mixed trio speaks, and it stops matching once `path` began
+    /// carrying a query. Both are silent — a scenario counting completions would simply find
+    /// none and assert against an empty set.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the target length.
+    pub fn is_completion(&self) -> bool {
+        let endpoint = self
+            .path
+            .split_once('?')
+            .map_or(self.path.as_str(), |(p, _)| p);
+        crate::runner::COMPLETION_PATHS.contains(&endpoint)
+    }
+
     pub fn record_of(body: &[u8], path: &str) -> RequestRecord {
         RequestRecord {
             path: path.to_string(),

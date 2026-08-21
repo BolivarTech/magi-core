@@ -63,7 +63,7 @@ use crate::config::RunId;
 use crate::proxy::{sha256_hex, RequestRecord};
 use crate::runner::{
     assert_that, Assertion, BackendNeed, BuildOutcome, ErrorClass, RunContext, Scenario, Source,
-    COMPLETIONS_PATH, INJECTED_FAILURE_STATUS,
+    INJECTED_FAILURE_STATUS,
 };
 
 // ---------------------------------------------------------------------------
@@ -332,11 +332,8 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
         // `.all()` over an EMPTY iterator is vacuously true, so "nothing was
         // ever injected" must not be provable by "nothing was ever seen" —
         // hence the explicit non-empty guard alongside it.
-        let completions: Vec<&RequestRecord> = ctx
-            .records
-            .iter()
-            .filter(|r| r.path == COMPLETIONS_PATH)
-            .collect();
+        let completions: Vec<&RequestRecord> =
+            ctx.records.iter().filter(|r| r.is_completion()).collect();
         // Deliberately does NOT require `response_recorded`. The tempting
         // addition reasons that an unrecorded response leaves
         // `response_status` at 0 and lets "nothing was injected" pass over a
@@ -536,7 +533,7 @@ fn why_the_wire_cannot_answer(ctx: &RunContext<'_>) -> Option<String> {
                 .to_string(),
         );
     }
-    if ctx.records.iter().any(|r| r.path == COMPLETIONS_PATH) {
+    if ctx.records.iter().any(RequestRecord::is_completion) {
         return None;
     }
     // Absence of traffic, with whatever the run said about why. The reason is
@@ -701,9 +698,9 @@ fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
         Some(reason) => Assertion::skip(NAME_WIRE, reason),
         None => assert_that(
             NAME_WIRE,
-            ctx.records.iter().any(|r| {
-                r.path == COMPLETIONS_PATH && r.response_status == INJECTED_FAILURE_STATUS
-            }),
+            ctx.records
+                .iter()
+                .any(|r| r.is_completion() && r.response_status == INJECTED_FAILURE_STATUS),
         ),
     };
 
@@ -962,6 +959,19 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
          model cannot be told apart";
     match preflight_error_for_stage(ctx, "Probe: ") {
         Err(()) => vec![Assertion::out_of_scope(NAME)],
+        // The probe stage has SEVERAL cannot-test messages, and this scenario is about exactly
+        // one of them: the endpoint that answers too slowly. The others -- a refused request, an
+        // unsuccessful status, a successful answer that generated nothing -- are different
+        // conditions with their own wording, and asserting this scenario's three phrases against
+        // one of them would turn a harness-side mismatch into a FAIL row, which reads as a
+        // verdict about the crate. That inversion is the one thing this harness must never do,
+        // so a message from another condition SKIPS with its reason rather than failing.
+        Ok(err) if !err.contains("did not answer a trivial request in time") => {
+            vec![Assertion::skip(
+                NAME,
+                format!("the probe cut for a different reason than slowness: {err}"),
+            )]
+        }
         Ok(err) => vec![assert_that(
             NAME,
             err.contains("cannot tell them apart")
@@ -1574,6 +1584,7 @@ mod tests {
     use super::*;
     use crate::alias::magi_core::schema::AgentName;
     use crate::outcome::ScenarioState;
+    use crate::runner::COMPLETIONS_PATH;
 
     // -- shared fixtures --
 

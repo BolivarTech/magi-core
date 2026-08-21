@@ -342,10 +342,22 @@ pub enum ReasoningState {
         /// The backend that cannot honour it, so a human reading the report knows
         /// which seat is unaffected by the control it set.
         backend: String,
-        /// Length of the reasoning trace that came back regardless, in characters.
+        /// Length of the reasoning trace that came back regardless, in characters — when it
+        /// could be measured at all.
         ///
-        /// Zero here is a real zero: the channel was read and the model did not reason.
-        chars: usize,
+        /// `Option` because the three backends that report this state can each reach it without
+        /// a number to give: a wire with no separate reasoning channel has nothing to read, a
+        /// compatibility body can omit the field entirely, and an Anthropic response can carry a
+        /// `redacted_thinking` block that proves the channel FIRED while carrying nothing
+        /// countable. All three used to report `0`, and the sentence here used to say that zero
+        /// was a real zero — which turned "we could not read it" into "the model did not
+        /// reason", and on this variant that reads as though the control had worked, when the
+        /// variant exists to declare that it did not.
+        ///
+        /// `Some(0)` therefore keeps its meaning and is worth having: the channel was read and
+        /// was empty. It is the same distinction [`crate::reporting::MagiReport::input_size`]
+        /// draws with its own `Option`, for the same reason.
+        chars: Option<usize>,
         /// The trace itself, present only when the consumer opted in — the same rule
         /// [`ReasoningState::Measured`] follows.
         text: Option<String>,
@@ -2560,7 +2572,7 @@ mod tests {
         assert_ne!(
             ReasoningState::Unsupported {
                 backend: "anthropic".into(),
-                chars: 0,
+                chars: Some(0),
                 text: None,
             },
             ReasoningState::Measured {
