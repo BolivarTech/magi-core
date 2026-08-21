@@ -758,12 +758,20 @@ mod tests {
     fn every_shape_with_no_usable_text_lands_where_the_table_says() {
         let cut = r#""stop_reason":"max_tokens""#;
         let ended = r#""stop_reason":"end_turn""#;
+        // The THIRD termination value, which the discriminator treats like a cut because
+        // unknown is not the same as known-to-be-something-else. Enumerating only the two
+        // present ones left that branch unasserted: deleting `None |` from the guard kept every
+        // row green, which is a table that certifies an axis it does not cover.
+        let absent = r#""id":"msg_1""#;
+        // A BLANK payload, not merely an empty one. The compat wire trims before deciding, so
+        // "all empty" is really "all blank" and only half of it was asserted.
+        let text_blank = r#"{"type":"text","text":"     "}"#;
         let text_empty = r#"{"type":"text","text":""}"#;
         let thinking = r#"{"type":"thinking","thinking":"deliberating"}"#;
         let tool = r#"{"type":"tool_use","id":"t"}"#;
 
-        // (blocks, stop_reason, expect_empty_completion)
-        let table: [(&str, &str, bool); 6] = [
+        // (blocks, termination, expect_empty_completion)
+        let table: [(&str, &str, bool); 11] = [
             // nothing was sent at all -> contract, whatever ended the turn
             ("", cut, false),
             // only text, and it came back empty -> the compat wire's `content: ""`, exactly
@@ -776,6 +784,13 @@ mod tests {
             (thinking, cut, true),
             // non-text only, ended normally -> the turn did something else
             (tool, ended, false),
+            // ---- the third termination value: ABSENT, treated like a cut ----
+            ("", absent, false),
+            (&format!("{thinking},{text_empty}"), absent, true),
+            (&format!("{tool},{text_empty}"), absent, true),
+            (thinking, absent, true),
+            // ---- blank, not merely empty: the compat wire trims before deciding ----
+            (text_blank, ended, true),
         ];
 
         for (blocks, stop, expect_empty) in table {
@@ -786,14 +801,21 @@ mod tests {
                 4096,
                 false,
             );
-            let is_empty = matches!(
-                got,
-                Err(crate::error::ProviderError::EmptyCompletion { .. })
-            );
-            assert_eq!(
-                is_empty, expect_empty,
-                "blocks=[{blocks}] {stop} -> {got:?}"
-            );
+            // Asserts the OUTCOME, not a bit. `!is_empty` was satisfied by a success, a
+            // panic-free `Ok`, or any other error — so a row could stop meaning what it says
+            // and stay green, which is the whole defect this table exists to prevent.
+            match (&got, expect_empty) {
+                (Err(crate::error::ProviderError::EmptyCompletion { .. }), true) => {}
+                (Err(crate::error::ProviderError::ResponseContract { .. }), false) => {}
+                _ => panic!(
+                    "blocks=[{blocks}] {stop} expected {} -> {got:?}",
+                    if expect_empty {
+                        "EmptyCompletion"
+                    } else {
+                        "ResponseContract"
+                    }
+                ),
+            }
         }
     }
 
