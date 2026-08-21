@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787308762.2312021,
-    "ast_hash": "725293f4206da3fa16946edc2b9ec465",
+    "mtime": 1787309727.408883,
+    "ast_hash": "eb285db9055d9a84c68af15db2c4ea4b",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
-    "mtime": 1787306288.7175632,
-    "ast_hash": "f94084cae57caead9393a1d3c5043255",
+    "mtime": 1787309995.7810636,
+    "ast_hash": "a112668d92d4d0038c80c2f1321b4d3d",
     "semantic_hash": ""
   },
   "src/reporting.rs": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787308627.8717682,
-    "ast_hash": "2d1c4e06b4ff6305eaf221a541af7b45",
+    "mtime": 1787309934.4280784,
+    "ast_hash": "38914b1fedfc810affced3e15301c83a",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
