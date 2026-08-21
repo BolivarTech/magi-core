@@ -2881,6 +2881,91 @@ mod tests {
 
     // ---- Task 3b: the arms are proved HERE, not seventeen tasks later ----
 
+    /// `is_mage_local()` must AGREE with what the classifier actually does, for every error
+    /// this crate can surface.
+    ///
+    /// # Why an accessor needs binding at all
+    ///
+    /// It is a second source of truth for scope: the classifier decides `MageLocal` versus
+    /// `Transport` in one place, and this method answers the same question in another. Nothing
+    /// made the two agree, so they could drift — and the whole point of `4.0.0`'s telemetry is
+    /// that a consumer can trust the reported scope. A consumer branching on `is_mage_local()`
+    /// while the run condemns run-wide would be told the opposite of what happened.
+    ///
+    /// This walks every variant rather than sampling, so a variant added later has to be added
+    /// here to compile — which is the same forcing function the exhaustive match provides.
+    #[test]
+    fn the_scope_accessor_agrees_with_the_classifier_for_every_variant() {
+        use crate::error::ResponseContractCause;
+        use crate::provider::FinishReason;
+
+        let cases: Vec<ProviderError> = vec![
+            ProviderError::Timeout {
+                message: "elapsed".into(),
+            },
+            ProviderError::Network {
+                message: "refused".into(),
+            },
+            ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: Vec::new(),
+                received_at: None,
+            },
+            ProviderError::ResponseTooLarge { limit: 1 },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::RedirectRefused,
+                detail: String::new(),
+            },
+            ProviderError::EmptyCompletion {
+                finish: Some(FinishReason::Length),
+                cap: 4096,
+            },
+            ProviderError::EmptyCompletion {
+                finish: None,
+                cap: 4096,
+            },
+        ];
+
+        for err in cases {
+            let rendered = format!("{err:?}");
+            match provider_err_outcome(err) {
+                // The classifier says mage-local, so the accessor must too.
+                ModelOutcome::MageLocal { kind, .. } => assert!(
+                    kind.is_mage_local(),
+                    "{rendered} is classified mage-local but its kind denies it"
+                ),
+                // And run-wide is the direction that costs the other two seats a lineage, so
+                // an accessor claiming mage-local there is the more dangerous disagreement.
+                ModelOutcome::Transport { kind, .. } => assert!(
+                    !kind.is_mage_local(),
+                    "{rendered} condemns run-wide but its kind claims to be mage-local"
+                ),
+                // These two carry their scope in the OUTCOME rather than in a `kind`: both are
+                // mage-local, and `4.0.0` is what gave them their own `RotationKind` instead of
+                // the `mage-local:` string prefix they wore since `3.1.0`. Pinned here so the
+                // renaming cannot quietly put them back on a run-wide cause.
+                ModelOutcome::OversizedResponse { .. } => assert!(
+                    RotationKind::OversizedResponse.is_mage_local(),
+                    "an oversized body is a content failure: the server answered perfectly"
+                ),
+                ModelOutcome::ExternalFailure { .. } => assert!(
+                    RotationKind::ExternalFailure.is_mage_local(),
+                    "this crate cannot know what a third-party backend's failure implies for                      the lineages the other seats are using"
+                ),
+                other => panic!("{rendered} produced no scoped outcome: {other:?}"),
+            }
+        }
+    }
+
     #[test]
     fn each_contract_variant_gets_the_consequence_the_spec_assigned() {
         use crate::error::ResponseContractCause;

@@ -210,6 +210,12 @@ pub enum ProviderError {
         ///
         /// Composed by the crate's single transport-error mapper, which is the only place that
         /// renders an endpoint at all — so whatever appears here is redacted by construction.
+        ///
+        /// **Bounded**, at [`MAX_CONTRACT_DETAIL_CHARS`]. It reaches the serialized report, which
+        /// this crate has already identified as its most-shared and least-inspected channel, and
+        /// every other outside-authored text that gets there is capped. Build it with
+        /// [`ProviderError::response_contract`] rather than by literal, so the bound is a
+        /// property of the type rather than of whoever wrote the call site.
         detail: String,
     },
 
@@ -404,7 +410,36 @@ pub enum ExternalErrorKind {
     Other,
 }
 
+/// Upper bound on [`ProviderError::ResponseContract`]'s `detail`, in characters.
+///
+/// Chosen to match the reasoning already written for the rotation detail: long enough for a
+/// composed message naming an operation and a redacted endpoint, short enough that a hostile or
+/// merely verbose backend cannot inflate a report through it.
+pub const MAX_CONTRACT_DETAIL_CHARS: usize = 256;
+
 impl ProviderError {
+    /// Builds a [`ProviderError::ResponseContract`] with its `detail` bounded.
+    ///
+    /// # Why a constructor rather than a convention
+    ///
+    /// The field's invariant used to be prose — *"composed by the single transport-error mapper,
+    /// so it is redacted by construction"*. That was true of every site that existed, which is
+    /// not the same as being true. A bound stated only in a doc comment is enforced by whoever
+    /// reads it, and this text reaches the serialized report.
+    ///
+    /// Truncation is on a character boundary and never panics.
+    pub fn response_contract(reason: ResponseContractCause, detail: impl Into<String>) -> Self {
+        let mut detail = detail.into();
+        if detail.chars().count() > MAX_CONTRACT_DETAIL_CHARS {
+            let cut = detail
+                .char_indices()
+                .nth(MAX_CONTRACT_DETAIL_CHARS)
+                .map_or(detail.len(), |(i, _)| i);
+            detail.truncate(cut);
+        }
+        Self::ResponseContract { reason, detail }
+    }
+
     /// Builds a failure from an [`LlmProvider`] implemented outside this crate.
     ///
     /// [`LlmProvider`]: crate::provider::LlmProvider
@@ -1159,5 +1194,47 @@ mod tests {
                 "a rendered message must not carry a run of spaces: {s:?}"
             );
         }
+    }
+    /// The detail is BOUNDED, and not merely documented as bounded.
+    #[test]
+    fn a_contract_detail_is_capped_at_the_declared_length() {
+        let long = "x".repeat(MAX_CONTRACT_DETAIL_CHARS * 4);
+        let err = ProviderError::response_contract(ResponseContractCause::RedirectRefused, long);
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(detail.chars().count(), MAX_CONTRACT_DETAIL_CHARS);
+    }
+
+    /// A shorter detail is kept whole: the cap truncates, it does not pad or normalise.
+    #[test]
+    fn a_contract_detail_under_the_cap_is_untouched() {
+        let err = ProviderError::response_contract(
+            ResponseContractCause::RedirectRefused,
+            "redirect refused by policy for https://gw.example.com/v1",
+        );
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(
+            detail,
+            "redirect refused by policy for https://gw.example.com/v1"
+        );
+    }
+
+    /// Truncation lands on a CHARACTER boundary and never panics.
+    ///
+    /// A composed message can carry a redacted endpoint with non-ASCII in its path, and cutting
+    /// by byte offset there is a panic, not a truncation. This crate has already shipped one
+    /// release for a slicing bug of exactly that shape.
+    #[test]
+    fn a_multi_byte_contract_detail_is_cut_without_panicking() {
+        let long = "é".repeat(MAX_CONTRACT_DETAIL_CHARS * 2);
+        let err = ProviderError::response_contract(ResponseContractCause::Unreadable, long);
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(detail.chars().count(), MAX_CONTRACT_DETAIL_CHARS);
+        assert!(detail.chars().all(|c| c == 'é'));
     }
 }

@@ -1044,13 +1044,11 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
         // status, non-retryable, mage-local — of which only the first came from the zero itself.
         // With the disguise gone it says what it is, and `Http.status` is left holding only real
         // statuses. The message still names which of the two causes applied.
-        ProviderError::ResponseContract {
-            reason: ResponseContractCause::RedirectRefused,
-            // The composed message, which names the operation and the REDACTED endpoint. This is
-            // the one routed-here case whose whole diagnostic value is which endpoint refused,
-            // and it is why the variant carries a detail at all.
-            detail: message,
-        }
+        // Through the constructor, so the bound is the type's and not this call site's. The
+        // message names the operation and the REDACTED endpoint: this is the one case routed
+        // here whose whole diagnostic value is which endpoint refused, and it is why the
+        // variant carries a detail at all.
+        ProviderError::response_contract(ResponseContractCause::RedirectRefused, message)
     } else {
         ProviderError::Network { message }
     }
@@ -2661,20 +2659,66 @@ mod tests {
         // same self-reference already made a sibling check pass while guarding nothing.
         let needle = concat!("PARSE_", "FAILURE_STATUS");
         //
-        // With it gone, `Http.status` only ever holds a real status — which makes lineage
+        // With it gone, `Http.status` only ever holds a real status -- which makes lineage
         // condemnation honest BY CONSTRUCTION rather than by comment.
-        for (file, src) in [
-            ("provider.rs", include_str!("provider.rs")),
-            ("error.rs", include_str!("error.rs")),
-            (
-                "providers/provider_url.rs",
-                include_str!("providers/provider_url.rs"),
-            ),
-            ("providers/claude.rs", include_str!("providers/claude.rs")),
-        ] {
+        //
+        // WALKED, never enumerated. The list used to name four files and omitted
+        // `providers/openai_compat.rs` -- the one the sentinel was actually CONSTRUCTED in.
+        // All three reviewers found that independently, and it is the same failure the
+        // record-site guard had: a hand-maintained allowlist reports success over whatever
+        // nobody remembered to add, and this one backs an acceptance criterion.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ must be readable") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        assert!(
+            files.len() >= 10,
+            "the walk found {} files; it is not reaching src/",
+            files.len()
+        );
+
+        // The SHAPE as well as the name. Deleting the constant and writing the literal back
+        // would restore the defect while leaving a name-only check green, so the disguise is
+        // searched for as it would actually be worn.
+        let shape = concat!("status: ", "0");
+        for path in files {
+            let file = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            let src = std::fs::read_to_string(&path).expect("a readable source file");
             assert!(
                 !src.contains(needle),
                 "the disguise is still alive in {file}"
+            );
+            // CODE only. Documenting where the sentinel went is exactly what a reader coming
+            // from `3.2.0` needs, and a guard that forbids naming the thing it removed makes
+            // the removal undocumentable — the same correction `check_r0.sh` already took.
+            let code: String = src
+                .lines()
+                .filter(|l| {
+                    let t = l.trim_start();
+                    !t.starts_with("//")
+                })
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+            assert!(
+                !code.contains(shape),
+                "a synthetic zero status was written back by hand in {file}"
             );
         }
     }
