@@ -179,9 +179,17 @@ pub struct RunContext<'a> {
     pub error_class: Option<ErrorClass>,
     /// Everything the proxy saw on the wire during THIS run.
     pub records: &'a [RequestRecord],
-    /// True if the proxy degraded. Assertions that read `records` must SKIP,
-    /// because a partial registry could fail an assertion the crate satisfied
-    /// perfectly.
+    /// Whether the PROXY is degraded — a latch, not a fact about this run.
+    ///
+    /// It sits beside `records`, which IS windowed to this run, and the asymmetry is
+    /// deliberate rather than an oversight. Degradation is set when a lock is found poisoned,
+    /// and a poisoned lock never heals: once any run trips it, every later run really is
+    /// served by a proxy whose own bookkeeping cannot be trusted. Windowing it per run would
+    /// report `false` for run 3 while run 3 was genuinely being served by a broken spy.
+    ///
+    /// So the value is right and the NAME reads wrong: it says "this run degraded" where it
+    /// means "the proxy has been degraded since some run at or before this one". A reader
+    /// attributing it to the run in hand would be looking for a fault in the wrong place.
     pub proxy_degraded: bool,
     /// `Some` only when the run hit its time cap: the cap itself, so a reader
     /// can tell a TIME failure from an assertion failure and knows which number
@@ -397,7 +405,17 @@ pub struct RunResult {
     pub error_class: Option<ErrorClass>,
     /// Everything the proxy saw during this run.
     pub records: Vec<RequestRecord>,
-    /// Whether the proxy degraded while this run was in flight.
+    /// Whether the PROXY is degraded — a latch, not a fact about this run.
+    ///
+    /// It sits beside `records`, which IS windowed to this run, and the asymmetry is
+    /// deliberate rather than an oversight. Degradation is set when a lock is found poisoned,
+    /// and a poisoned lock never heals: once any run trips it, every later run really is
+    /// served by a proxy whose own bookkeeping cannot be trusted. Windowing it per run would
+    /// report `false` for run 3 while run 3 was genuinely being served by a broken spy.
+    ///
+    /// So the value is right and the NAME reads wrong: it says "this run degraded" where it
+    /// means "the proxy has been degraded since some run at or before this one". A reader
+    /// attributing it to the run in hand would be looking for a fault in the wrong place.
     pub proxy_degraded: bool,
     /// How many attempts were spent. At most two, and two only for an
     /// inconclusive first attempt.

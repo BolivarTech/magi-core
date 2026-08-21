@@ -521,6 +521,12 @@ impl RequestRecord {
 /// else streams through untouched.
 const RECORDED_RESPONSE_PATHS: [&str; 2] = ["/api/show", "/api/tags"];
 
+/// The endpoint a completion goes to, and therefore the only one an injection may answer.
+///
+/// Compared against the ROUTING path, which never carries a query — the forward and the record
+/// use the full target instead, so this comparison stays about the endpoint.
+const COMPLETIONS_PATH: &str = "/api/chat";
+
 #[derive(Clone)]
 pub struct SpyProxy {
     base_url: String,
@@ -917,7 +923,7 @@ impl SpyProxy {
         // in the same record. This connection owns `rec` until then — no
         // second lock, no index into a shared Vec, and no chance of
         // completing someone else's row.
-        if let Some((status, payload)) = self.injected_response(&bytes) {
+        if let Some((status, payload)) = self.injected_response(&bytes, &path) {
             self.push(rec.with_recorded_response(status, &payload, self.record_cap));
             return Ok(hyper::Response::builder()
                 .status(status)
@@ -1116,7 +1122,16 @@ impl SpyProxy {
     /// rotation scenario stop injecting for the rest of the run while
     /// `is_degraded()` kept reporting clean. That is the harness lying about
     /// what it did.
-    fn injected_response(&self, body: &[u8]) -> Option<(u16, Vec<u8>)> {
+    fn injected_response(&self, body: &[u8], path: &str) -> Option<(u16, Vec<u8>)> {
+        // SCOPED TO COMPLETIONS, because that is what every injection means. It used to match
+        // on the model name found anywhere in the body, whatever endpoint was hit -- so a
+        // `FailModel` also failed that model's `POST /api/show`, which is the crate's
+        // CAPABILITY PROBE, not a completion. The scenario asking for a failed completion got a
+        // seat with no measured window as well, and a test that passes through a different
+        // failure path than the one it names is passing for the wrong reason.
+        if path != COMPLETIONS_PATH {
+            return None;
+        }
         let guard = match self.injection.lock() {
             Ok(g) => g,
             Err(p) => {
@@ -1294,6 +1309,52 @@ fn response_chunk_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An injection answers COMPLETIONS and nothing else.
+    ///
+    /// It matched the model name found anywhere in the body, whatever endpoint was hit, so a
+    /// `FailModel` also failed that model's `POST /api/show` — the crate's capability probe.
+    /// A scenario asking for a failed completion silently got a seat with no measured window
+    /// too, and a test that reaches its assertion through a different failure path than the one
+    /// it names is passing for the wrong reason.
+    #[tokio::test]
+    async fn an_injection_does_not_also_break_that_models_capability_probe() {
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
+            .await
+            .expect("proxy starts");
+        proxy.set_injection(Some(Injection::FailModel {
+            model: "m".to_string(),
+            status: 503,
+        }));
+
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({ "model": "m" });
+
+        let completion = client
+            .post(format!("{}{COMPLETIONS_PATH}", proxy.base_url()))
+            .json(&body)
+            .send()
+            .await
+            .expect("proxy answers");
+        assert_eq!(
+            completion.status().as_u16(),
+            503,
+            "the completion is what the injection is FOR"
+        );
+
+        let probe = client
+            .post(format!("{}/api/show", proxy.base_url()))
+            .json(&body)
+            .send()
+            .await
+            .expect("proxy answers");
+        assert_ne!(
+            probe.status().as_u16(),
+            503,
+            "the capability probe names the same model and must NOT be injected"
+        );
+    }
 
     /// The query string reaches the upstream AND the record.
     ///
