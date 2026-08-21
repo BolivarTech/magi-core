@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787309727.408883,
-    "ast_hash": "eb285db9055d9a84c68af15db2c4ea4b",
+    "mtime": 1787311117.560332,
+    "ast_hash": "e043d51e51456edb96a8ff057835e456",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787309934.4280784,
-    "ast_hash": "38914b1fedfc810affced3e15301c83a",
+    "mtime": 1787311069.5412927,
+    "ast_hash": "121aadc1974729dc1d7dd73fc883f904",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
