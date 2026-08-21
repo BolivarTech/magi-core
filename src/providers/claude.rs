@@ -492,9 +492,14 @@ impl ClaudeProvider {
             //   non-text only, not cut      -> contract
             //
             // Which collapses to: the budget could explain it, OR nothing but text came back.
+            // The budget question is asked of ONE function, the same one the message
+            // branches on, so the guard and the wording cannot drift apart. Only
+            // `MayExplain` routes here: an unrecognised reason leaves the budget
+            // undecided, and "undecided" is not a reason to overrule the block shape.
             Some(_) | None
                 if had_content
-                    && (matches!(telemetry.finish, None | Some(FinishReason::Length))
+                    && (telemetry.budget_bearing()
+                        == crate::provider::BudgetBearing::MayExplain
                         || !had_non_text) =>
             {
                 Err(ProviderError::EmptyCompletion { telemetry, cap })
@@ -767,6 +772,10 @@ mod tests {
         // funnels every unrecognised Anthropic reason into `Other`, so a refusal or a
         // `pause_turn` lands here — a reason the backend NAMED, and it is not the budget.
         let named_other = r#""stop_reason":"refusal""#;
+        // The fifth cell. `map_stop_reason` hands anything it does not know to
+        // `from_wire`, which DOES interpret "load" — so this reaches `FinishReason::Load`
+        // and not `Other`, and the axis has five states, not four.
+        let loading = r#""stop_reason":"load""#;
         // A BLANK payload, not merely an empty one. The compat wire trims before deciding, so
         // "all empty" is really "all blank" and only half of it was asserted.
         let text_blank = r#"{"type":"text","text":"     "}"#;
@@ -775,7 +784,7 @@ mod tests {
         let tool = r#"{"type":"tool_use","id":"t"}"#;
 
         // (blocks, termination, expect_empty_completion)
-        let table: [(&str, &str, bool); 15] = [
+        let table: [(&str, &str, bool); 18] = [
             // nothing was sent at all -> contract, whatever ended the turn
             ("", cut, false),
             // only text, and it came back empty -> the compat wire's `content: ""`, exactly
@@ -804,6 +813,12 @@ mod tests {
             (thinking, named_other, false),
             (&format!("{thinking},{text_empty}"), named_other, false),
             ("", named_other, false),
+            // ---- the FIFTH cell: `load`, which `from_wire` interprets even from this
+            // wire, so the axis is now total over `Option<FinishReason>` and not merely
+            // over the values Anthropic is documented to send ----
+            (text_empty, loading, true),
+            (thinking, loading, false),
+            (&format!("{thinking},{text_empty}"), loading, false),
         ];
 
         for (blocks, stop, expect_empty) in table {

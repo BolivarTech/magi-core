@@ -51,22 +51,32 @@ pub enum AbandonReason {
 ///
 /// The cap is stated either way, because "what budget was in force" is an
 /// observation. What is conditional is the PRESCRIPTION: telling an operator to
-/// raise `max_tokens` when the backend said it refused, or ended normally, sends
-/// them to change a number that had nothing to do with it -- the same shape of
-/// misdiagnosis as the `http error 0` this release removed, one layer in.
+/// raise `max_tokens` when the backend said it refused sends them to change a
+/// number that had nothing to do with it -- the same shape of misdiagnosis as the
+/// `http error 0` this release removed, one layer in.
+///
+/// The third branch is the one that took two rounds to get right. Saying "not the
+/// budget" for a reason this crate does not interpret asserts a negative it cannot
+/// support: `model_context_window_exceeded` reaches it and *is* about running out
+/// of room. So the unknown case says what is true -- that it cannot be told.
 ///
 /// # Parameters
 ///
-/// * `budget_may_explain` -- `CompletionTelemetry::budget_may_explain_empty`.
+/// * `bearing` -- from `CompletionTelemetry::budget_bearing`.
 ///
 /// # Returns
 ///
 /// The sentence tail, already carrying its leading punctuation.
-fn empty_completion_remedy(budget_may_explain: bool) -> &'static str {
-    if budget_may_explain {
-        ", configurable via `CompletionConfig::max_tokens`."
-    } else {
-        ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this."
+fn empty_completion_remedy(bearing: crate::provider::BudgetBearing) -> &'static str {
+    use crate::provider::BudgetBearing as B;
+    match bearing {
+        B::MayExplain => ", configurable via `CompletionConfig::max_tokens`.",
+        B::RuledOut => {
+            ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this."
+        }
+        B::Unknown => {
+            ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached cannot be told from it."
+        }
     }
 }
 
@@ -264,7 +274,7 @@ pub enum ProviderError {
         "empty completion: the model returned no content (termination: {:?}). \
          The output budget in force was {cap} tokens{}",
         .telemetry.finish,
-        empty_completion_remedy(.telemetry.budget_may_explain_empty())
+        empty_completion_remedy(.telemetry.budget_bearing())
     )]
     #[non_exhaustive]
     EmptyCompletion {
@@ -820,6 +830,10 @@ mod tests {
         // of misdiagnosis as the `http error 0` this release removed, one layer down -- and
         // it reached here through the one lane the termination narrowing does not cover, a
         // text-only response that came back blank.
+        //
+        // Three groups, not two. The unknown group is the correction of a first attempt that
+        // put every unrecognised reason on the "not the budget" side, which asserted a
+        // negative from an uninterpreted string -- the same defect, sign flipped.
         let render = |f: Option<FinishReason>| {
             let mut t = crate::provider::CompletionTelemetry::unmeasured();
             if let Some(f) = f {
@@ -832,7 +846,7 @@ mod tests {
             .to_string()
         };
 
-        // Unknown is NOT evidence that the budget was untouched, so it prescribes too.
+        // Unknown is NOT evidence that the budget was untouched, so absent prescribes too.
         for may in [None, Some(FinishReason::Length)] {
             let s = render(may);
             assert!(s.contains("16384"), "{s}");
@@ -841,15 +855,12 @@ mod tests {
                 "the budget can explain this, so the message must carry its own fix: {s}"
             );
             assert!(!s.contains("does not address"), "{s}");
+            assert!(!s.contains("cannot be told"), "{s}");
         }
 
-        // Every reason the backend actually NAMED, and none of them is the budget.
-        for named in [
-            FinishReason::Stop,
-            FinishReason::Load,
-            FinishReason::Other("refusal".to_string()),
-        ] {
-            let s = render(Some(named));
+        // Reasons this crate INTERPRETS, and neither of them is the budget.
+        for ruled_out in [FinishReason::Stop, FinishReason::Load] {
+            let s = render(Some(ruled_out));
             assert!(
                 s.contains("16384"),
                 "the budget in force stays an observation: {s}"
@@ -863,6 +874,20 @@ mod tests {
                 "prescription survived a termination that rules it out: {s}"
             );
         }
+
+        // A reason this crate does NOT interpret. `model_context_window_exceeded` is a real
+        // Anthropic value that lands here and IS about running out of room, so claiming the
+        // budget was not involved would be inventing evidence in the other direction.
+        let s = render(Some(FinishReason::Other(
+            "model_context_window_exceeded".to_string(),
+        )));
+        assert!(s.contains("16384"), "{s}");
+        assert!(
+            s.contains("cannot be told"),
+            "an uninterpreted reason supports neither direction: {s}"
+        );
+        assert!(!s.contains("configurable via"), "{s}");
+        assert!(!s.contains("does not address"), "{s}");
     }
 
     #[test]

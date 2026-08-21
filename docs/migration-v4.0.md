@@ -168,8 +168,23 @@ changes on a second try.
 honest **by construction** rather than by comment: the synthetic zero is how a contract failure
 inherited run-wide semantics it was never entitled to.
 
-`EmptyCompletion` carries the budget that cut it, and says so in its message — the error names its
-own fix instead of sending you to inspect a healthy network.
+`EmptyCompletion` carries the budget in force, and its message says so — the error names its own
+fix instead of sending you to inspect a healthy network.
+
+**The message names the cap as the fix only where the cap can be the fix**, and that distinction
+is worth knowing if you match on the text. The budget in force is always stated, because it is an
+observation. What is conditional is the advice, on three cases:
+
+| the backend reported | the message |
+|---|---|
+| `max_tokens`, or no reason at all | says the budget is `configurable via CompletionConfig::max_tokens` |
+| a reason this crate interprets and that is not the budget (`end_turn`, `load`) | says raising it **does not address** the case |
+| a reason this crate does not interpret | says whether the budget was reached **cannot be told** from it |
+
+The third case exists because asserting the other way would be inventing evidence:
+`model_context_window_exceeded` reaches it and *is* about running out of room. Telling an operator
+to raise `max_tokens` because the model refused would be the same misdiagnosis as the `http error
+0` this release removed, one layer in.
 
 **`NoGeneration` is different from the rest and aborts the run.** It means the backend accepted a
 request and generated nothing, whose known cause is a request this crate built wrongly. It is

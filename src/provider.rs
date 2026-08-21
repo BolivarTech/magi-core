@@ -191,6 +191,16 @@ pub enum FinishReason {
     /// The model finished on its own.
     Stop,
     /// The output budget ran out before the model finished.
+    ///
+    /// **A declared boundary: on the OpenAI-compatible wire this value conflates
+    /// two causes.** `finish_reason: "length"` is what that API reports both for
+    /// hitting `max_tokens` and for running past the model's context window, and it
+    /// carries nothing that separates them. This crate does not guess between the
+    /// two -- it reports what the backend said -- so a completion cut by an oversized
+    /// PROMPT arrives here indistinguishable from one cut by an undersized budget.
+    /// The remedies differ (shrink the input versus raise the cap), and telling them
+    /// apart needs `prompt_tokens` against the measured window, which
+    /// [`crate::reporting::CompletionRecord`] carries for exactly that comparison.
     Length,
     /// The backend answered without generating, while loading the model.
     Load,
@@ -543,26 +553,51 @@ impl CompletionTelemetry {
         self
     }
 
-    /// Whether the output budget could be what left the completion empty.
+    /// What the termination says about the output budget as an explanation for an
+    /// empty completion.
     ///
-    /// The predicate is deliberately the same one the Anthropic provider branches
-    /// on, and for the same reason: an ABSENT termination is not evidence that the
-    /// budget was untouched, while any termination the backend did name — a normal
-    /// stop, a load, or a value this crate does not recognise — is. `map_stop_reason`
-    /// turns `max_tokens` into [`FinishReason::Length`] and everything else into
-    /// something that is not it, so a named reason other than `Length` says the
-    /// budget is not the explanation.
+    /// **Three states, not two, and the third is the point.** An earlier form of
+    /// this returned a `bool`, which forced every reason the crate does not
+    /// recognise onto the "not the budget" side -- asserting a negative from an
+    /// uninterpreted string. That is the same defect as the message it was written
+    /// to fix, with the sign flipped: `model_context_window_exceeded` is a real
+    /// Anthropic value that lands in [`FinishReason::Other`] and *is* about running
+    /// out of room.
     ///
-    /// It exists so an error message can name the cap as the FIX only where the fix
-    /// applies. Prescribing "raise `max_tokens`" for a refusal is the misdiagnosis
-    /// this release was written to end, wearing different clothes.
+    /// The `match` is exhaustive on purpose rather than a `matches!`: a variant
+    /// added to [`FinishReason`] later must not be able to join a branch silently,
+    /// and in-crate exhaustiveness makes it a compile error instead. That is the
+    /// same discipline `provider_err_outcome` keeps for its own consequences.
     ///
     /// # Returns
     ///
-    /// `true` when the termination is unknown or was the budget running out.
-    pub(crate) fn budget_may_explain_empty(&self) -> bool {
-        matches!(self.finish, None | Some(FinishReason::Length))
+    /// Which of the three the reported termination supports. An ABSENT termination
+    /// is [`BudgetBearing::MayExplain`], because unknown is not evidence that the
+    /// budget was untouched.
+    pub(crate) fn budget_bearing(&self) -> BudgetBearing {
+        match self.finish {
+            None | Some(FinishReason::Length) => BudgetBearing::MayExplain,
+            Some(FinishReason::Stop) | Some(FinishReason::Load) => BudgetBearing::RuledOut,
+            Some(FinishReason::Other(_)) => BudgetBearing::Unknown,
+        }
     }
+}
+
+/// What a reported termination says about the output budget.
+///
+/// Internal: it exists so **one** rule decides both whether a provider classifies a
+/// contentless reply as an empty completion and whether the resulting message
+/// prescribes raising the cap. Two sites branching on two copies of one rule is how
+/// they drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BudgetBearing {
+    /// The budget could be the explanation: it ran out, or nothing was reported.
+    MayExplain,
+    /// The backend named a reason, and that reason is not the budget.
+    RuledOut,
+    /// The backend named a reason this crate does not interpret. Neither direction
+    /// is supportable, and saying either would be inventing evidence.
+    Unknown,
 }
 
 /// Abstraction for LLM backends.
