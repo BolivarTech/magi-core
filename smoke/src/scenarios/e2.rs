@@ -45,7 +45,7 @@ fn s8_completions_are_native_only(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let completions: Vec<&RequestRecord> = ctx
         .records
         .iter()
-        .filter(|r| r.path == COMPLETIONS_PATH)
+        .filter(|r| r.endpoint() == COMPLETIONS_PATH)
         .collect();
 
     // The non-empty guard is the whole scenario, not a formality. "No request used the legacy
@@ -57,7 +57,9 @@ fn s8_completions_are_native_only(ctx: &RunContext<'_>) -> Vec<Assertion> {
 
     let no_legacy = assert_that(
         NAME_NO_LEGACY,
-        !ctx.records.iter().any(|r| r.path == LEGACY_COMPAT_PATH),
+        !ctx.records
+            .iter()
+            .any(|r| r.endpoint() == LEGACY_COMPAT_PATH),
     );
 
     vec![native_only, no_legacy]

@@ -497,13 +497,41 @@ impl RequestRecord {
     ///
     /// `O(n)` in the target length.
     pub fn is_completion(&self) -> bool {
-        let endpoint = self
-            .path
-            .split_once('?')
-            .map_or(self.path.as_str(), |(p, _)| p);
-        crate::runner::COMPLETION_PATHS.contains(&endpoint)
+        crate::runner::COMPLETION_PATHS.contains(&self.endpoint())
     }
 
+    /// The target with any query removed — what a ROUTING comparison is about.
+    ///
+    /// EVERY reader asking "which endpoint was this" needs it, not only the completion ones.
+    /// `path` carries the query since the forward became verbatim, so `path == "/api/show"`
+    /// stops matching the moment a target carries parameters, and it holds today only because
+    /// nothing this harness drives appends any. Sweeping the completion readers and leaving the
+    /// probe readers on `==` left the class alive one function away from the rustdoc that
+    /// forbids it.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the target length.
+    pub fn endpoint(&self) -> &str {
+        self.path
+            .split_once('?')
+            .map_or(self.path.as_str(), |(p, _)| p)
+    }
+
+    /// Builds a record of one request: the body's digest and length, and the target it went to.
+    ///
+    /// Its own doc block was consumed when the two accessors above were inserted into it, which
+    /// is a smaller version of the same defect this file keeps finding — an edit that reads as
+    /// complete while a neighbour silently loses something.
+    ///
+    /// # Parameters
+    ///
+    /// * `body` — the request body as received, hashed rather than stored.
+    /// * `path` — the target, path AND query, as [`RequestRecord::path`] documents.
+    ///
+    /// # Complexity
+    ///
+    /// `O(n)` in the body length: one hash.
     pub fn record_of(body: &[u8], path: &str) -> RequestRecord {
         RequestRecord {
             path: path.to_string(),

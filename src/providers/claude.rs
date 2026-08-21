@@ -352,13 +352,15 @@ impl ClaudeProvider {
             .filter(|b| b.type_ == "thinking")
             .filter_map(|b| b.thinking.as_deref())
             .collect();
-        let thought = thought_text.chars().count();
         // READABLE is the condition, not merely PRESENT. A `redacted_thinking` block, or a
         // `thinking` block whose payload is absent, proves the channel fired but carries
         // nothing to count -- and reporting `Measured { chars: 0 }` for it would claim a look
         // that found nothing where the truth is a look that could not read. `NotMeasured` is
         // what the crate uses for exactly that, everywhere else.
-        let saw_thinking = !thought_text.is_empty();
+        //
+        // ONE value, not a flag beside a string: a separate `saw_thinking` boolean let `chars`
+        // and `text` be decided independently, and they promptly disagreed.
+        let readable: Option<&str> = (!thought_text.is_empty()).then_some(thought_text.as_str());
         let text = Self::text_of(response.content);
         telemetry = telemetry.with_reasoning(match reasoning {
             // The control cannot be honoured here: this provider sends no switch that turns
@@ -370,19 +372,23 @@ impl ClaudeProvider {
                 // a redacted block fired the channel and left nothing to count, and reporting
                 // `0` here says no reasoning came back — which reads as the control having
                 // worked, on the variant whose whole job is to say it did not.
-                chars: saw_thinking.then_some(thought),
-                // Carried when the consumer asked for it, on BOTH arms. Reading the channel
-                // and then discarding the payload someone opted into is the silent drop C-8
-                // forbids -- and it only became reachable once this wire started reading the
-                // channel at all, which is the shape of defect a fix keeps introducing.
-                text: trace.then(|| thought_text.clone()),
+                // BOTH fields, from ONE decision. Sweeping `chars` and leaving `text` beside it
+                // produced `Some("")` where `chars` was `None` -- an empty trace offered as
+                // though it were the trace, which is the same zero-that-lies one field over. A
+                // sweep that stops at the sibling in the same struct literal is not a sweep.
+                chars: readable.map(|t| t.chars().count()),
+                // Carried only when the consumer asked AND there is something to carry. Reading
+                // the channel and then discarding an opted-in payload is the silent drop the
+                // reasoning contract forbids; offering an empty one is the same drop wearing a
+                // value.
+                text: readable.filter(|_| trace).map(str::to_string),
             },
             // Measured only when a thinking block was actually present. With none, nothing was
             // seen -- and `NotMeasured` says that, where `Measured { chars: 0 }` would claim a
             // look that found nothing.
-            ReasoningControl::Default if saw_thinking => ReasoningState::Measured {
-                chars: thought,
-                text: trace.then(|| thought_text.clone()),
+            ReasoningControl::Default if readable.is_some() => ReasoningState::Measured {
+                chars: readable.map_or(0, |t| t.chars().count()),
+                text: readable.filter(|_| trace).map(str::to_string),
             },
             ReasoningControl::Default => ReasoningState::NotMeasured,
         });
@@ -834,6 +840,31 @@ mod tests {
                 ),
                 "{blocks} (Disabled): the declaration must survive with NO count, got {:?}",
                 disabled.telemetry.reasoning
+            );
+
+            // THE SIBLING FIELD, in the same struct literal. Sweeping `chars` and leaving
+            // `text` beside it produced `Some("")` where `chars` was `None` — an empty trace
+            // offered as though it were the trace. Both come from one decision now, and this
+            // asserts they cannot disagree again.
+            let opted_in = super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Disabled,
+                4096,
+                true,
+            )
+            .expect("the text block makes this a success");
+            let crate::provider::ReasoningState::Unsupported { chars, text, .. } =
+                &opted_in.telemetry.reasoning
+            else {
+                panic!(
+                    "expected Unsupported, got {:?}",
+                    opted_in.telemetry.reasoning
+                );
+            };
+            assert!(chars.is_none(), "{blocks}: nothing readable to count");
+            assert!(
+                text.is_none(),
+                "{blocks}: an unreadable channel has no trace to offer, not an empty one: {text:?}"
             );
         }
 

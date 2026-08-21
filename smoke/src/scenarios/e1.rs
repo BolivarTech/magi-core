@@ -895,7 +895,7 @@ fn answered_probes<'a>(ctx: &RunContext<'a>, path: &str) -> Vec<&'a RequestRecor
     ctx.records
         .iter()
         .filter(|r| {
-            r.path == path
+            r.endpoint() == path
                 && r.response_recorded
                 && (FIRST_SUCCESS_STATUS..FIRST_NON_SUCCESS_STATUS).contains(&r.response_status)
         })
