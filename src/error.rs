@@ -74,18 +74,24 @@ pub enum AbandonReason {
 /// # Returns
 ///
 /// The sentence tail, already carrying its leading punctuation.
-fn empty_completion_remedy(bearing: crate::provider::BudgetBearing) -> &'static str {
+fn empty_completion_remedy(
+    bearing: crate::provider::BudgetBearing,
+    prompt_tokens: Option<u32>,
+) -> String {
     use crate::provider::BudgetBearing as B;
     match bearing {
         B::MayExplain => {
-            ", configurable via `CompletionConfig::max_tokens`. If `prompt_tokens` is already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them."
+            // The measurement is PRINTED, not merely named. Telling a reader to compare
+            // `prompt_tokens` against the context window while withholding the number is
+            // advice they cannot act on from the message they are holding.
+            let measured = match prompt_tokens {
+                Some(n) => format!("The prompt measured {n} tokens: if that is"),
+                None => "The prompt was not measured; if it is".to_string(),
+            };
+            format!(", configurable via `CompletionConfig::max_tokens`. {measured} already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them.")
         }
-        B::RuledOut => {
-            ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this."
-        }
-        B::Unknown => {
-            ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached cannot be told from it."
-        }
+        B::RuledOut => ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this.".to_string(),
+        B::Unknown => ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached cannot be told from it.".to_string(),
     }
 }
 
@@ -283,7 +289,7 @@ pub enum ProviderError {
         "empty completion: the model returned no content (termination: {:?}). \
          The output budget in force was {cap} tokens{}",
         .telemetry.finish,
-        empty_completion_remedy(.telemetry.budget_bearing())
+        empty_completion_remedy(.telemetry.budget_bearing(), .telemetry.prompt_tokens)
     )]
     #[non_exhaustive]
     EmptyCompletion {
@@ -860,6 +866,10 @@ mod tests {
             let s = render(may);
             assert!(s.contains("16384"), "{s}");
             assert!(
+                s.contains("not measured"),
+                "the sentence names the prompt as the other cause, so it must say whether                  the prompt was measured: {s}"
+            );
+            assert!(
                 s.contains("configurable via"),
                 "the budget can explain this, so the message must carry its own fix: {s}"
             );
@@ -897,6 +907,20 @@ mod tests {
         );
         assert!(!s.contains("configurable via"), "{s}");
         assert!(!s.contains("does not address"), "{s}");
+
+        // The number is PRINTED when it exists. Naming `prompt_tokens` as the thing to
+        // compare while withholding it is advice the reader cannot act on.
+        let measured = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(FinishReason::Length)
+                .with_prompt_tokens(63_924),
+            cap: 16_384,
+        }
+        .to_string();
+        assert!(
+            measured.contains("63924"),
+            "the prompt measurement must appear in the sentence that tells you to check it:              {measured}"
+        );
     }
 
     #[test]

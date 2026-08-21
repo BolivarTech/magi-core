@@ -181,6 +181,10 @@ observation. What is conditional is the advice, on three cases:
 | a reason this crate interprets and that is not the budget (`end_turn`, `load`) | says raising it **does not address** the case |
 | a reason this crate does not interpret | says whether the budget was reached **cannot be told** from it |
 
+**The wording is diagnostic, not a contract.** It is written for a person reading a failure,
+and it will be reworded when a clearer sentence is found. Do not branch on the text — branch on
+`FinishReason`, which is typed, `#[non_exhaustive]`, and the thing the wording is derived from.
+
 The third case exists because asserting the other way would be inventing evidence:
 `model_context_window_exceeded` reaches it and *is* about running out of room. Telling an operator
 to raise `max_tokens` because the model refused would be the same misdiagnosis as the `http error

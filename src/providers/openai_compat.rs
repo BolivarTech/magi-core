@@ -762,6 +762,81 @@ mod ",
     /// present, `finish_reason` is `stop`, and the reasoning channel is non-empty.
     const FIX_H: &str = include_str!("../../tests/fixtures/ec/resp-H.json");
 
+    /// Every termination the OpenAI API publishes, and one it does not.
+    ///
+    /// The translation was widened to cover `content_filter`, `tool_calls` and
+    /// `function_call` because leaving them untranslated made the empty-completion message
+    /// claim the budget "cannot be told" about values the vendor documents. That widening
+    /// shipped with **no test**: deleting the three literals left the whole suite green,
+    /// which is the same state the Anthropic side of this decision was in for three rounds.
+    #[test]
+    fn the_published_openai_vocabulary_is_translated_and_the_rest_is_not() {
+        use crate::provider::{BudgetBearing, CompletionTelemetry};
+
+        // (wire value, what it reads as, what that says about the budget)
+        let table: [(&str, FinishReason, BudgetBearing); 8] = [
+            ("stop", FinishReason::Stop, BudgetBearing::RuledOut),
+            (
+                "content_filter",
+                FinishReason::Stop,
+                BudgetBearing::RuledOut,
+            ),
+            ("tool_calls", FinishReason::Stop, BudgetBearing::RuledOut),
+            ("function_call", FinishReason::Stop, BudgetBearing::RuledOut),
+            ("length", FinishReason::Length, BudgetBearing::MayExplain),
+            ("load", FinishReason::Load, BudgetBearing::RuledOut),
+            (
+                "brand_new_reason",
+                FinishReason::Other("brand_new_reason".to_string()),
+                BudgetBearing::Unknown,
+            ),
+            (
+                "another_unpublished_one",
+                FinishReason::Other("another_unpublished_one".to_string()),
+                BudgetBearing::Unknown,
+            ),
+        ];
+
+        for (raw, expected, bearing) in table {
+            let got = FinishReason::from_wire(raw);
+            assert_eq!(got, expected, "{raw} must translate to {expected:?}");
+            assert_eq!(
+                CompletionTelemetry::unmeasured()
+                    .with_finish(got)
+                    .budget_bearing(),
+                bearing,
+                "{raw} must bear {bearing:?} on the budget question"
+            );
+        }
+    }
+
+    /// The advice an operator reads, driven from a whole compat-wire body.
+    ///
+    /// The table above pins the translation; this pins what the translation is FOR. A
+    /// `content_filter` reply that came back empty must not be answered with "raise your
+    /// output budget", which is what an untranslated value produced.
+    #[test]
+    fn a_filtered_reply_is_not_answered_with_raise_your_budget() {
+        for raw in ["content_filter", "tool_calls", "function_call"] {
+            let body = format!(
+                r#"{{"choices":[{{"message":{{"content":""}},"finish_reason":"{raw}"}}]}}"#
+            );
+            let r: OpenAiResponse = serde_json::from_str(&body).expect("parses");
+            let rendered = match r.into_completion(16_384, false, ReasoningControl::Default) {
+                Err(e) => e.to_string(),
+                other => panic!("{raw} with empty content must be an empty completion: {other:?}"),
+            };
+            assert!(
+                rendered.contains("does not address"),
+                "{raw} is a reason the vendor named and it is not the budget: {rendered}"
+            );
+            assert!(
+                !rendered.contains("cannot be told"),
+                "{raw} is published; claiming it is uninterpretable is the defect: {rendered}"
+            );
+        }
+    }
+
     #[test]
     fn finish_reason_is_read_where_today_it_is_silently_dropped() {
         // The response side used to deserialize ONLY `message`. That single

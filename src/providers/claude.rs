@@ -157,6 +157,25 @@ struct ClaudeUsage {
 ///   names the prompt as the other possibility instead of prescribing blindly.
 /// * `refusal` and `pause_turn` end a turn on terms the backend named, and neither
 ///   is the output budget. They join `end_turn`, `stop_sequence` and `tool_use`.
+///
+/// # What the fold costs, said plainly
+///
+/// [`FinishReason::Stop`] does not carry the word that produced it, so a report of a
+/// refusal now reads `Stop` and the fact that the model REFUSED is gone from it. That
+/// is a real loss and it is chosen, not overlooked. The alternatives were a variant per
+/// vendor word — which does not scale past two vendors — or a payload on `Stop`, which
+/// would touch every construction and match of a type nothing outside the crate needs
+/// the payload from. **Every consumer of this value consumes exactly one property**: the
+/// reply is not short because it ran out of room. The day a consumer needs the word, the
+/// payload is the fix, and it is additive for `Other` and a major for `Stop`.
+///
+/// The same trade decides `model_context_window_exceeded`. Reading it as `Length` folds
+/// away Anthropic's own disambiguation between an undersized budget and an oversized
+/// prompt — a distinction the OpenAI-compatible wire does not make at all. It is folded
+/// so that ONE condition does not read as two different things depending on which
+/// backend answered, and the message pays for it by naming both causes and printing
+/// `prompt_tokens` instead of prescribing one. If that disambiguation is ever needed
+/// programmatically, the answer is a dedicated variant, not un-folding this one.
 fn map_stop_reason(raw: &str) -> FinishReason {
     match raw {
         "end_turn" | "stop_sequence" | "tool_use" | "refusal" | "pause_turn" => FinishReason::Stop,
@@ -525,10 +544,15 @@ impl ClaudeProvider {
                 // Says what was OBSERVED. It read "no text block" and listed a text block in
                 // the same sentence, because an empty one reaches here too — a message that
                 // contradicts its own evidence sends the reader looking for the wrong thing.
+                // Carries the MEASUREMENT too, not only the reason. A turn that produced a
+                // 15 000-character thinking block and no text is a different problem from one
+                // that produced nothing at all, and the shape list alone does not say which.
                 format!(
-                    "no usable text; termination {:?}, blocks [{}]",
+                    "no usable text; termination {:?}, blocks [{}], completion_tokens {:?}, reasoning {:?}",
                     telemetry.finish,
-                    block_types.join(", ")
+                    block_types.join(", "),
+                    telemetry.completion_tokens,
+                    telemetry.reasoning
                 ),
             )),
         }
@@ -792,12 +816,6 @@ mod tests {
     /// THE WHOLE TABLE, enumerated, because splitting it into ordered arms was wrong twice in
     /// opposite directions and each fix reopened the one before it.
     ///
-    /// Six shapes this wire can send once no usable text came back. Asserting them together is
-    /// what makes a later edit that satisfies one cell and breaks another fail here rather than
-    /// three reviews downstream.
-    /// Six shapes this wire can send once no usable text came back. Asserting them together is
-    /// what makes a later edit that satisfies one cell and breaks another fail here rather than
-    /// three reviews downstream.
     #[test]
     fn the_budget_question_is_asked_in_exactly_one_place_in_this_file() {
         // The claim that guard and message share ONE implementation is what makes the
@@ -815,9 +833,14 @@ mod tests {
             .next()
             .expect("the non-test half is what ships");
         assert_eq!(
+            body.matches("budget_bearing()").count(),
+            1,
+            "the budget rule is consulted from ONE place in this file -- `budget_routes_here`. A second caller is a second decision site even when it calls the same function, because the next edit only has to change one of them."
+        );
+        assert_eq!(
             body.matches("telemetry.finish").count(),
             1,
-            "`telemetry.finish` is read once outside the tests, to render the observed reason into the contract detail. Reading it a second time to re-decide the budget question is the drift this test exists to stop; ask `budget_bearing` instead."
+            "`telemetry.finish` is read once outside the tests, to render the observed reason into the contract detail. A second read is how the budget question gets re-decided locally, which is the drift that took this decision to a fourth round."
         );
     }
 
@@ -869,6 +892,9 @@ mod tests {
         }
     }
 
+    /// Every shape this wire can send once no usable text came back, across every
+    /// termination it can report. Asserting them together is what makes a later edit that
+    /// satisfies one cell and breaks another fail here rather than three reviews downstream.
     #[test]
     fn every_shape_with_no_usable_text_lands_where_the_table_says() {
         let cut = r#""stop_reason":"max_tokens""#;
@@ -878,10 +904,15 @@ mod tests {
         // present ones left that branch unasserted: deleting `None |` from the guard kept every
         // row green, which is a table that certifies an axis it does not cover.
         let absent = r#""id":"msg_1""#;
-        // The FOURTH value, and the one the table was still silent about. `map_stop_reason`
-        // funnels every unrecognised Anthropic reason into `Other`, so a refusal or a
-        // `pause_turn` lands here — a reason the backend NAMED, and it is not the budget.
+        // A reason the backend NAMED that is not the budget. It reads as `Stop` since the
+        // translator was completed — the comment here used to say it landed in `Other`,
+        // which stopped being true in the same commit that added these rows and left the
+        // `Unknown` arm of the routing guard unexercised behind a name that claimed to
+        // cover it.
         let named_other = r#""stop_reason":"refusal""#;
+        // A value NO vendor publishes. This is what reaches `BudgetBearing::Unknown`, and
+        // nothing else in this file does.
+        let novel = r#""stop_reason":"brand_new_reason""#;
         // The fifth cell. `map_stop_reason` hands anything it does not know to
         // `from_wire`, which DOES interpret "load" — so this reaches `FinishReason::Load`
         // and not `Other`, and the axis has five states, not four.
@@ -894,7 +925,7 @@ mod tests {
         let tool = r#"{"type":"tool_use","id":"t"}"#;
 
         // (blocks, termination, expect_empty_completion)
-        let table: [(&str, &str, bool); 18] = [
+        let table: [(&str, &str, bool); 21] = [
             // nothing was sent at all -> contract, whatever ended the turn
             ("", cut, false),
             // only text, and it came back empty -> the compat wire's `content: ""`, exactly
@@ -929,6 +960,12 @@ mod tests {
             (text_empty, loading, true),
             (thinking, loading, false),
             (&format!("{thinking},{text_empty}"), loading, false),
+            // ---- the SIXTH cell: a reason no vendor publishes, the only one that reaches
+            // `BudgetBearing::Unknown`. Without these the guard's `Unknown` arm was dead
+            // code that could be flipped to `true` with the whole suite green ----
+            (text_empty, novel, true),
+            (thinking, novel, false),
+            (&format!("{thinking},{text_empty}"), novel, false),
         ];
 
         for (blocks, stop, expect_empty) in table {
