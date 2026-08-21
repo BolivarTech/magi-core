@@ -145,6 +145,11 @@ pub async fn spawn_capturing(
                         Ok(n) => raw.extend_from_slice(&chunk[..n]),
                     }
                 }
+                // A TRAP for any absence assertion downstream, and it is left here rather
+                // than made fallible because the alternative is worse: `Null.get("x")` is
+                // `None`, so "the field is absent" holds identically for a body that never
+                // parsed. Tests asserting absence must first assert the body is an OBJECT --
+                // see `the_default_reasoning_control_puts_no_think_field_on_the_wire`.
                 let parsed =
                     serde_json::from_slice(&raw[head_end..]).unwrap_or(serde_json::Value::Null);
                 if let Ok(mut slot) = sink.lock() {

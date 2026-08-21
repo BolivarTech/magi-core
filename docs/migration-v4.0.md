@@ -126,11 +126,17 @@ use magi_core::prelude::{ProviderError, ResponseContractCause};
 match err {
     ProviderError::ResponseContract { reason: ResponseContractCause::Unreadable, .. } => …,
     ProviderError::ResponseContract { reason: ResponseContractCause::NoMessage, .. } => …,
+    ProviderError::ResponseContract { reason: ResponseContractCause::RedirectRefused, .. } => …,
     ProviderError::EmptyCompletion { telemetry, cap, .. } => …,
     ProviderError::NoGeneration { .. } => …,
     _ => …,
 }
 ```
+
+The three causes, since the prose further down names them: `Unreadable` is a body that could not
+be read at all — unparseable, or not valid UTF-8; `NoMessage` is a well-formed body that does not
+carry the message the contract promises; `RedirectRefused` is a redirect chain this crate declines
+to follow. `ResponseContractCause` is `#[non_exhaustive]`, so match it with a `_` arm.
 
 `EmptyCompletion` carries a `CompletionTelemetry`, not a bare termination reason: the
 termination is `telemetry.finish`, and alongside it travel the token counts and the reasoning

@@ -278,7 +278,19 @@ async fn a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled() {
     // body that fitted the cap in bytes could leave this function as a String three times larger
     // — and the mangled text would then fail downstream as a *schema* error, blaming the model
     // for an encoding fault.
-    let (addr, server) = serve_framed("200 OK", vec![0xff, 0xfe, 0xfd], Framing::Length);
+    // A DISCRIMINATING payload, and the previous one was not. `[0xff, 0xfe, 0xfd]` is invalid
+    // as UTF-8 *and* as JSON, so lossy conversion would produce three replacement characters
+    // that are still not JSON -- the same `Unreadable` either way, and the test would keep
+    // passing with the very mangling it is named for restored.
+    //
+    // This body is well-formed JSON whose content string carries one invalid byte. Strictly
+    // decoded it fails as an encoding fault, which is what must happen. Decoded lossily it
+    // becomes a VALID response carrying U+FFFD and the call SUCCEEDS -- an outcome so
+    // different that no assertion below could confuse the two.
+    let mut body = br#"{"choices":[{"message":{"content":""#.to_vec();
+    body.push(0xff);
+    body.extend_from_slice(br#""},"finish_reason":"stop"}]}"#);
+    let (addr, server) = serve_framed("200 OK", body, Framing::Length);
     let provider =
         OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
 

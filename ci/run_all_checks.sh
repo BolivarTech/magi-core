@@ -93,6 +93,14 @@ CARGO_TARGET_DIR="$ALL_DIR" cargo run --all-features --example external_provider
 step "tests (all features)"
 CARGO_TARGET_DIR="$ALL_DIR" cargo nextest run --all-features
 
+# A SINGLE-feature configuration, which neither `--all-features` nor the default set compiles.
+# `ollama` implies `openai-compat`, so `--all-features` always brings both and a consumer who
+# enables only the OpenAI-compatible provider was building a combination no gate had ever seen.
+# `check` rather than a full test run: the risk here is that the code does not COMPILE without
+# its siblings' items in scope, and the behaviour is already covered by the two full runs.
+step "openai-compat alone (compiles without its siblings)"
+CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features openai-compat --all-targets
+
 step "tests (default features)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo nextest run
 

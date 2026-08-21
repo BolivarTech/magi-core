@@ -447,6 +447,10 @@ mod tests {
     const FIX_N2: &str = include_str!("../../tests/fixtures/ec/native-N2.json");
     const FIX_LOAD: &str = include_str!("../../tests/fixtures/ec/native-E-malformed.json");
     const FIX_E_404: &str = include_str!("../../tests/fixtures/ec/native-E-model-not-found.json");
+    const FIX_THINK_LOCAL: &str =
+        include_str!("../../tests/fixtures/ec/native-think-false-nonthinking-local.json");
+    const FIX_THINK_CLOUD: &str =
+        include_str!("../../tests/fixtures/ec/native-think-false-nonthinking-cloud.json");
 
     /// Builds a minimal native success body carrying only `done_reason`, empty
     /// content and no counters — enough to exercise `done_reason` parsing in
@@ -690,6 +694,45 @@ mod tests {
             c.telemetry.reasoning,
             ReasoningState::Measured { text: Some(t), .. } if t == "reasoning text"
         ));
+    }
+
+    /// `think: false` against a model with NO thinking capability is ACCEPTED, on both
+    /// deployment shapes.
+    ///
+    /// A review round raised, as its only critical finding, that the switch might be REJECTED
+    /// there -- which would turn the declaration this release promises into a run-wide lineage
+    /// condemnation, since a `400` is an `Http` and every `Http` is run-wide. The remedy asked
+    /// for was to capture it rather than reason about it, and the capture refutes the fear:
+    /// HTTP 200, `done_reason: "stop"`, content present, no `thinking` block.
+    ///
+    /// Both shapes, because this project has already been bitten by `/v1` and native differing,
+    /// and cloud routing is not local routing. Read from the corpus rather than left as a note
+    /// in a review log, because a guarantee that needs a live backend is one that stops being
+    /// checked.
+    #[test]
+    fn think_false_is_accepted_by_a_model_that_cannot_think_on_both_deployments() {
+        for (what, raw) in [("local", FIX_THINK_LOCAL), ("cloud", FIX_THINK_CLOUD)] {
+            let r: NativeResponse =
+                serde_json::from_str(raw).unwrap_or_else(|e| panic!("{what} fixture parses: {e}"));
+            assert_eq!(r.done_reason, Some(FinishReason::Stop), "{what}");
+            let completion = r
+                .into_completion(4_096, false)
+                .unwrap_or_else(|e| panic!("{what} must be a success, got {e:?}"));
+            assert!(
+                !completion.text.trim().is_empty(),
+                "{what}: the model answered despite the switch"
+            );
+            // No thinking block came back, which on THIS wire is a measured zero rather than
+            // an absent measurement -- see the asymmetry documented in `into_completion`.
+            assert!(
+                matches!(
+                    completion.telemetry.reasoning,
+                    ReasoningState::Measured { chars: 0, .. }
+                ),
+                "{what}: expected a measured zero, got {:?}",
+                completion.telemetry.reasoning
+            );
+        }
     }
 
     #[test]

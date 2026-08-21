@@ -62,6 +62,21 @@ async fn the_default_reasoning_control_puts_no_think_field_on_the_wire() {
 
     let req = captured.lock().expect("not poisoned");
     let req = req.as_ref().expect("the server recorded a request");
+    // The body must be an OBJECT before absence means anything. The capture falls back to
+    // `Value::Null` when the payload does not parse, and `Null.get(..)` is `None` -- so this
+    // assertion would hold just as well against a request that was never parsed, or never
+    // sent. Checking the shape first is what makes the absence a fact about the wire rather
+    // than about the fallback.
+    assert!(
+        req.body.is_object(),
+        "the captured body must have parsed as an object, got {}",
+        req.body
+    );
+    assert!(
+        req.body.get("model").is_some(),
+        "a field we KNOW is always sent must be present, or absence proves nothing: {}",
+        req.body
+    );
     assert!(
         req.body.get("think").is_none(),
         "Default must omit the field entirely, got {}",

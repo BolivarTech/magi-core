@@ -319,6 +319,31 @@ pub(crate) fn suffix(detail: &str) -> String {
 /// Splitting them into sibling error variants would force the orchestrator's classifier to nest
 /// a match to reach the same answer — and this crate has already paid for a nested match that
 /// stole the outer one's state.
+///
+/// # Migrating from a synthetic `Http { status: 0 }`
+///
+/// This example is a **doctest**, so it is compiled: the same shape written into
+/// `docs/migration-v4.0.md` is prose that nothing checks, and one snippet there had already
+/// gone stale against a field rename before anyone noticed. Whatever a reader copies should
+/// have been compiled at least once.
+///
+/// ```
+/// use magi_core::prelude::{ProviderError, ResponseContractCause};
+///
+/// fn is_a_contract_failure(err: &ProviderError) -> bool {
+///     match err {
+///         ProviderError::ResponseContract { reason, .. } => match reason {
+///             ResponseContractCause::Unreadable => true,
+///             ResponseContractCause::NoMessage => true,
+///             ResponseContractCause::RedirectRefused => true,
+///             // `#[non_exhaustive]`: a cause added later lands here rather than
+///             // failing to compile for every consumer.
+///             _ => true,
+///         },
+///         _ => false,
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ResponseContractCause {

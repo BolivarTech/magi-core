@@ -531,11 +531,32 @@ if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
     #      builds a second variant into the real file and watching this fail.
     built="$(prod_only "$SRC/error.rs" \
         | awk '
-            # POSITIVE filter: only the bodies of `pub fn`. A `pub(crate)` or private helper
-            # is not a door, and an exclusion filter got this wrong once -- a multi-line
-            # signature closed its own brace count before the body began, so nothing was
-            # skipped and the check still refused.
-            /^[[:space:]]*pub[[:space:]]+fn/ { inpub = 1; opened = 0 }
+            # POSITIVE filter: the bodies of everything PUBLICLY REACHABLE. A `pub(crate)` or
+            # private helper is not a door, and an exclusion filter got this wrong once -- a
+            # multi-line signature closed its own brace count before the body began, so nothing
+            # was skipped and the check still refused.
+            #
+            # Two shapes beyond the obvious one, both of which a bare `pub fn` match misses and
+            # both of which a reviewer found by asking what ELSE opens a door:
+            #
+            #   * `pub const fn` / `pub async fn` / `pub unsafe fn` / `pub extern "C" fn` --
+            #     every bit as callable from another crate as `pub fn`.
+            #   * a TRAIT impl on this type. `impl From<X> for ProviderError` makes
+            #     `ProviderError::from(x)` public even though its `fn from` carries no `pub`,
+            #     so its body is a door too. An INHERENT `impl ProviderError` is not: a bare
+            #     `fn` there is private, which is why the `for` is required to match.
+            #
+            # `pub(crate)` cannot match: after `pub` comes `(`, never whitespace.
+            /^[[:space:]]*impl([[:space:]]|<).*[[:space:]]for[[:space:]]+(ProviderError|Self)[[:space:]]*(<[^>]*>[[:space:]]*)?\{/ {
+                intraitimpl = 1; implddepth = 0
+            }
+            intraitimpl {
+                ni = gsub(/{/, "{"); mi = gsub(/}/, "}")
+                implddepth += ni - mi
+                if (implddepth <= 0) intraitimpl = 0
+            }
+            /^[[:space:]]*pub([[:space:]]+(const|async|unsafe))*([[:space:]]+extern[[:space:]]+"[^"]*")?[[:space:]]+fn/ { inpub = 1; opened = 0 }
+            intraitimpl && /^[[:space:]]*(const[[:space:]]+|async[[:space:]]+|unsafe[[:space:]]+)*fn[[:space:]]/ { inpub = 1; opened = 0 }
             inpub {
                 n = gsub(/{/, "{"); m = gsub(/}/, "}")
                 if (n > 0) opened = 1

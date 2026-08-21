@@ -184,6 +184,19 @@ jobs:
       - run: cargo generate-lockfile
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit
+      # The smoke harness, on the PUBLISHING path and not only before the merge.
+      #
+      # It is a declared hard release prerequisite AND the first external consumer of the
+      # `complete() -> Completion` break, so it is the only thing that empirically prices that
+      # migration. It ran in `ci.yml` and not here -- which is EXACTLY the asymmetry the
+      # comment above this job describes and claims to have fixed: a check present before
+      # merge and absent before publish. Its own package, so it needs its own invocation.
+      - run: cargo fmt --check
+        working-directory: smoke
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: smoke
+      - run: cargo nextest run
+        working-directory: smoke
 
   publish:
     name: Publish to crates.io

@@ -9,8 +9,16 @@ behaves a way nobody observed, and the milestone's own acceptance criterion asks
 responses: a JSON we wrote proves our deserialiser does what we intended, not that a backend
 answers that way.
 
-The constants that name these files live in `mod.rs`, one `include_str!` per artifact, with the
-shape of each read off the artifact rather than remembered.
+**How they are consumed, stated because it was once claimed wrongly.** Each file is pulled in
+with `include_str!` from the unit tests that need it, by relative path from `src/`. There is no
+fixture module: one existed, declaring a constant per artifact, and **nothing compiled it** --
+`mod ec` appeared in no test target, so nine constants sat there looking like an index of a
+corpus that was in fact read from somewhere else entirely. A file that certifies nothing while
+looking like it does is the defect this whole directory exists to avoid, so it was deleted
+rather than wired up.
+
+Corollary, and it is a rule rather than an observation: **a capture with no reader is not a
+guard**. Adding an artifact here means adding the test that reads it in the same change.
 
 ## Files
 
