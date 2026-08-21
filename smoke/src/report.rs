@@ -184,6 +184,29 @@ impl Report {
                          gain an entry nothing measured",
             );
         }
+        // NON-VACUITY, and it is the first thing checked about the table because every other
+        // check below is about what the table CONTAINS. With no rows at all, "no row failed" is
+        // true and the certificate was issued over a run that measured nothing -- the release
+        // receipt for an artifact nobody exercised. It is the same shape as an assertion that
+        // holds because its fixture is empty, which this project has now found ten times, and
+        // it is worse here because the artifact SURVIVES the run and gets cited later.
+        if !self.rows.iter().any(|r| r.state == ScenarioState::Pass) {
+            return Some(
+                "no scenario PASSED in this run, so there is no evidence to certify -- an                  empty or wholly unrun table cannot support the claim a certificate makes",
+            );
+        }
+        // TIMEOUT REFUSES, and this is written out because its sibling `Skip` deliberately does
+        // NOT and the two had silently landed in the same bucket. They are not alike: a skip is
+        // a DECISION, carries its reason, and renders in the table for a reader to weigh. A
+        // timeout is a failure to measure -- the scenario was still alive when its budget ran
+        // out, so nobody knows whether the property holds. Admitting it let a run exit
+        // INCONCLUSIVE and be certified in the same breath, so the exit code and the receipt
+        // said opposite things about the same run.
+        if self.rows.iter().any(|r| r.state == ScenarioState::Timeout) {
+            return Some(
+                "a scenario TIMED OUT, so its property was never established -- unlike a                  skip, which is a recorded decision, a timeout is an unknown",
+            );
+        }
         if self.rows.iter().any(|r| r.state == ScenarioState::Fail) {
             // The certificate's whole claim is "nothing regressed and everything
             // that ran passed". A FAIL contradicts it, and R37's reasoning
@@ -315,6 +338,24 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
         invocation_or_bare(&facts.invocation)
     );
     let _ = writeln!(out, "- {}", facts.fixtures.report_line());
+    // THE RESULT, stated by the document rather than left to be counted off the table.
+    //
+    // Without it a reader establishes "everything passed" by scanning rows and finding no
+    // FAIL -- which is true of a table with no rows at all, and true of one whose scenarios
+    // all timed out. Both were certifiable until this release. The refusals above now stop
+    // those runs from reaching here, and this line is the second half of the same fix: the
+    // certificate says what it found, so a later citation quotes a claim instead of an
+    // inference. Counting is how an inconclusive run gets read as a clean one.
+    let passed = rows
+        .iter()
+        .filter(|r| r.state == ScenarioState::Pass)
+        .count();
+    let not_passed = rows.len() - passed;
+    let _ = writeln!(
+        out,
+        "- result: {passed} passed, {not_passed} not passed, {} total",
+        rows.len()
+    );
     let _ = writeln!(out);
     let _ = writeln!(out, "{UNION_NOTE}");
     // R23: advisory, never blocking, and placed ABOVE the table so it is read
@@ -1387,6 +1428,96 @@ mod tests {
         assert!(
             failing.render_certificate(&sample_facts()).is_none(),
             "a red run gets no certificate to cite"
+        );
+    }
+
+    /// A run that measured NOTHING is not a clean run, and must not be certifiable.
+    ///
+    /// Every other refusal below asks what the table CONTAINS. With no rows, "no row failed"
+    /// is vacuously true and the certificate was issued over an artifact nobody exercised --
+    /// the release receipt as green-by-omission, which is the one verdict this harness exists
+    /// to make impossible.
+    #[test]
+    fn a_certificate_is_refused_over_a_table_that_established_nothing() {
+        let empty = Report {
+            rows: vec![],
+            run: CycleRun::Second,
+        };
+        assert!(
+            empty.render_certificate(&sample_facts()).is_none(),
+            "an empty table supports no claim, so it must earn no certificate"
+        );
+
+        // And the narrower case that is NOT empty but still establishes nothing: every row a
+        // recorded skip. The table has content a reader can weigh; what it has no trace of is
+        // a property that held.
+        let all_skipped = Report {
+            rows: sample_results()
+                .into_iter()
+                .map(|mut r| {
+                    r.state = ScenarioState::Skip("no backend".into());
+                    r
+                })
+                .collect(),
+            run: CycleRun::Second,
+        };
+        assert!(
+            all_skipped.render_certificate(&sample_facts()).is_none(),
+            "a table of nothing but skips has no evidence in it"
+        );
+    }
+
+    /// A TIMEOUT refuses the certificate; a SKIP deliberately does not.
+    ///
+    /// They had silently landed in the same bucket, so a run could exit INCONCLUSIVE and be
+    /// certified in the same breath -- the exit code and the receipt saying opposite things
+    /// about one run. They are not alike: a skip is a DECISION that carries its reason and
+    /// renders for a reader to weigh, while a timeout is a failure to measure at all.
+    #[test]
+    fn a_timeout_refuses_the_certificate_and_a_skip_still_does_not() {
+        let mut rows = sample_results();
+        rows[0].state = ScenarioState::Timeout;
+        let timed_out = Report {
+            rows,
+            run: CycleRun::Second,
+        };
+        assert!(
+            timed_out.render_certificate(&sample_facts()).is_none(),
+            "a timed-out scenario established nothing, so nothing certifies it"
+        );
+
+        // The sibling behaviour, asserted in the SAME test so that collapsing the two back
+        // together cannot pass: `sample_results` already carries a skip, and it certifies.
+        let with_skip = Report {
+            rows: sample_results(),
+            run: CycleRun::Second,
+        };
+        assert!(
+            with_skip.render_certificate(&sample_facts()).is_some(),
+            "a recorded skip is a decision, and must NOT refuse the certificate"
+        );
+    }
+
+    /// The certificate STATES its result rather than leaving it to be counted.
+    ///
+    /// Counting is how an inconclusive run gets read as a clean one: "no FAIL in the table"
+    /// is equally true of a table with no rows.
+    #[test]
+    fn the_certificate_declares_its_own_tally() {
+        let report = Report {
+            rows: sample_results(),
+            run: CycleRun::Second,
+        };
+        let body = report
+            .render_certificate(&sample_facts())
+            .expect("this fixture certifies");
+        let passed = sample_results()
+            .iter()
+            .filter(|r| r.state == ScenarioState::Pass)
+            .count();
+        assert!(
+            body.contains(&format!("- result: {passed} passed,")),
+            "the document must say what it found: {body}"
         );
     }
 

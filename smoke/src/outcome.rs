@@ -124,6 +124,13 @@ impl RunOutcome {
 ///
 /// `O(n)` in the number of scenarios, two passes at worst, no allocation.
 pub fn exit_code(states: &[ScenarioState]) -> u8 {
+    // NOTHING RAN is not success. An empty slice contains no `Fail` and no `Skip`, so the two
+    // checks below both fall through and the run used to exit clean having measured nothing --
+    // green by omission, which is the one verdict this harness must never produce. It is
+    // INCONCLUSIVE for the same reason a skip is: the property is simply unknown.
+    if states.is_empty() {
+        return EXIT_INCONCLUSIVE;
+    }
     if states.contains(&ScenarioState::Fail) {
         return EXIT_FAILED;
     }

@@ -44,8 +44,14 @@ const GUARD_OWN_FILE: &str = "weakened.rs";
 /// violation of its own guard, which is how this restriction was found.
 const TRIGGER: &str = "WEAKENED";
 
-/// Comment opener. Only what follows it on a line can be a mark.
-const COMMENT_OPEN: &str = "//";
+/// Comment openers. Only what follows one of them on a line can be a mark.
+///
+/// BOTH shapes, because the line comment alone left a hole the width of the guard: a
+/// weakening written `/* WEAKENED_FOR: X */` contains no `//`, so the scan returned early and
+/// the mark escaped -- not malformed, simply invisible. The point of this module is that every
+/// deliberate weakening stays countable, and one that cannot be seen is worse than one that is
+/// badly formed, because the badly formed one at least fails loudly.
+const COMMENT_OPENS: [&str; 2] = ["//", "/*"];
 
 /// Checks ONE line. `Ok(())` also covers lines that carry no mark at all.
 ///
@@ -133,7 +139,15 @@ const COMMENT_OPEN: &str = "//";
 ///
 /// `O(n)` in the line's length: one uppercase pass and one substring search.
 pub fn validate_line(line: &str) -> Result<(), String> {
-    let Some((_, comment)) = line.split_once(COMMENT_OPEN) else {
+    // The EARLIEST opener on the line, not the first one that happens to match: a line
+    // carrying both would otherwise be split at whichever the array lists first, and the text
+    // before that point would be searched as if it were comment text.
+    let Some(comment) = COMMENT_OPENS
+        .iter()
+        .filter_map(|open| line.find(open).map(|i| (i, i + open.len())))
+        .min_by_key(|(start, _)| *start)
+        .map(|(_, after)| &line[after..])
+    else {
         return Ok(());
     };
     if !comment.to_ascii_uppercase().contains(TRIGGER) {
@@ -284,6 +298,47 @@ pub fn scan_tree(root: &Path) -> Result<(), Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A weakening written in a BLOCK comment is SEEN, and therefore rejected.
+    ///
+    /// It used to be invisible rather than rejected: the scan looked only for `//`, so a
+    /// `/* WEAKENED_FOR: ... */` returned early and the mark never entered the count at all.
+    /// Being rejected is the right outcome and not a lesser one -- there is exactly ONE
+    /// accepted shape, and `MARK` carries the `//` in it, so a block comment cannot express
+    /// it. What matters is that it now fails LOUDLY instead of passing unseen: a weakening
+    /// nobody can count is worse than one that is badly written, because the badly written
+    /// one stops the build.
+    #[test]
+    fn a_weakening_in_a_block_comment_is_rejected_rather_than_skipped() {
+        for line in [
+            "/* WEAKENED_FOR: EC-3 */",
+            "/* weakened for EC-3 */",
+            "/* WEAKENED_FOR: */",
+        ] {
+            assert!(
+                validate_line(line).is_err(),
+                "a block-comment weakening must be caught, not skipped: {line:?}"
+            );
+        }
+        // The accepted shape still passes, so the widening did not turn the guard into a wall.
+        assert!(validate_line("// WEAKENED_FOR: EC-3").is_ok());
+    }
+
+    /// The EARLIEST opener wins, so an opener quoted inside another comment is just text.
+    ///
+    /// With a fixed opener order, a line carrying both would be split at whichever the array
+    /// listed first and the code before that point would be searched as comment text.
+    #[test]
+    fn the_earliest_opener_wins_so_code_is_never_read_as_a_comment() {
+        // Both of these mention the trigger inside a comment without being the accepted
+        // shape, so both are refused -- the point here is WHERE the split happens, which the
+        // messages below would reveal if it moved.
+        assert!(validate_line("let x = 1; // /* WEAKENED_FOR: EC-9 */").is_err());
+        assert!(validate_line("let y = 2; /* // WEAKENED_FOR: EC-9 */").is_err());
+        // And a line whose only comment carries the accepted shape still passes, whichever
+        // opener precedes it in the array.
+        assert!(validate_line("let z = 3; // WEAKENED_FOR: EC-9").is_ok());
+    }
     use crate::testkit::{make_dir_link, tempdir_with};
 
     /// A mark the guard must reject, used as the CONTENT of the file the link
