@@ -322,6 +322,7 @@ impl ClaudeProvider {
         body: &str,
         reasoning: ReasoningControl,
         cap: u32,
+        trace: bool,
     ) -> Result<Completion, ProviderError> {
         let response = Self::deserialize_body(body)?;
 
@@ -343,14 +344,13 @@ impl ClaudeProvider {
         // Counted BEFORE the content is consumed, and counted at all because Anthropic does
         // have a reasoning channel: extended thinking returns `thinking` blocks. The earlier
         // claim that this wire exposed none was simply wrong.
-        let thought: usize = response
+        let thought_text: String = response
             .content
             .iter()
             .filter(|b| b.type_ == "thinking")
             .filter_map(|b| b.thinking.as_deref())
-            .map(str::chars)
-            .map(Iterator::count)
-            .sum();
+            .collect();
+        let thought = thought_text.chars().count();
         let saw_thinking = response.content.iter().any(|b| b.type_ == "thinking");
         let text = Self::text_of(response.content);
         telemetry = telemetry.with_reasoning(match reasoning {
@@ -360,14 +360,18 @@ impl ClaudeProvider {
             ReasoningControl::Disabled => ReasoningState::Unsupported {
                 backend: "anthropic".to_string(),
                 chars: thought,
-                text: None,
+                // Carried when the consumer asked for it, on BOTH arms. Reading the channel
+                // and then discarding the payload someone opted into is the silent drop C-8
+                // forbids -- and it only became reachable once this wire started reading the
+                // channel at all, which is the shape of defect a fix keeps introducing.
+                text: trace.then(|| thought_text.clone()),
             },
             // Measured only when a thinking block was actually present. With none, nothing was
             // seen -- and `NotMeasured` says that, where `Measured { chars: 0 }` would claim a
             // look that found nothing.
             ReasoningControl::Default if saw_thinking => ReasoningState::Measured {
                 chars: thought,
-                text: None,
+                text: trace.then(|| thought_text.clone()),
             },
             ReasoningControl::Default => ReasoningState::NotMeasured,
         });
@@ -382,7 +386,17 @@ impl ClaudeProvider {
         // termination reason makes that legitimate.
         match text {
             Some(t) if !t.trim().is_empty() => Ok(Completion::new(t).with_telemetry(telemetry)),
-            Some(_) | None if had_content => Err(ProviderError::EmptyCompletion { telemetry, cap }),
+            // NARROWED to a termination the budget could actually explain. Widened to "any
+            // content with no text block", this arm told an operator to raise `max_tokens`
+            // for a `tool_use` or `redacted_thinking` response the budget never cut -- which
+            // is the misdiagnosis this whole release exists to end, re-created one level
+            // down by the fix for it. An absent reason still qualifies: unknown is not the
+            // same as known-to-be-something-else.
+            Some(_) | None
+                if had_content && matches!(telemetry.finish, None | Some(FinishReason::Length)) =>
+            {
+                Err(ProviderError::EmptyCompletion { telemetry, cap })
+            }
             _ => Err(crate::error::ProviderError::ResponseContract {
                 reason: crate::error::ResponseContractCause::NoMessage,
                 detail: String::new(),
@@ -485,7 +499,12 @@ impl LlmProvider for ClaudeProvider {
         // loses its closing marker, which would make the parser blame the model for our cut.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
 
-        Self::parse_completion(&response_body, config.reasoning, config.max_tokens)
+        Self::parse_completion(
+            &response_body,
+            config.reasoning,
+            config.max_tokens,
+            config.reasoning_trace,
+        )
     }
 
     fn name(&self) -> &str {
@@ -610,6 +629,7 @@ mod tests {
             json,
             super::ReasoningControl::Default,
             16_384,
+            false,
         ) {
             Err(crate::error::ProviderError::EmptyCompletion { telemetry, cap }) => {
                 assert_eq!(cap, 16_384);
@@ -636,11 +656,85 @@ mod tests {
 
     /// The safe direction keeps its own meaning: nothing was sent at all, so no termination
     /// reason makes it legitimate and it stays a contract failure.
+    /// A non-text block that the BUDGET did not cut is not a budget cut.
+    ///
+    /// The fix for the budget-cut case first fired on ANY content carrying no text block, so a
+    /// `tool_use` response told the operator to raise `max_tokens` for a completion nothing had
+    /// truncated -- the same misdiagnosis this release exists to end, re-created one level down
+    /// by the correction for it. The termination reason is what separates them.
+    #[test]
+    fn a_non_text_block_with_a_normal_ending_is_not_reported_as_a_budget_cut() {
+        let json = r#"{"content":[{"type":"tool_use","id":"t1"}],
+                       "stop_reason":"tool_use",
+                       "usage":{"input_tokens":10,"output_tokens":20}}"#;
+        match super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        ) {
+            Err(crate::error::ProviderError::ResponseContract { .. }) => {}
+            other => panic!("a tool_use response is a contract miss, not a cut: {other:?}"),
+        }
+    }
+
+    /// `reasoning_trace` is honoured on this wire too, on both reasoning arms.
+    ///
+    /// It reads the thinking channel since this milestone, and reading a channel then throwing
+    /// away the payload someone opted into is the silent drop the reasoning contract forbids.
+    #[test]
+    fn the_opted_in_reasoning_trace_is_carried_on_the_anthropic_wire() {
+        let json = r#"{"content":[{"type":"thinking","thinking":"deliberating"},
+                                  {"type":"text","text":"answer"}],
+                       "stop_reason":"end_turn"}"#;
+        for control in [
+            super::ReasoningControl::Default,
+            super::ReasoningControl::Disabled,
+        ] {
+            let off = super::ClaudeProvider::parse_completion(json, control, 4096, false)
+                .expect("parses");
+            let on =
+                super::ClaudeProvider::parse_completion(json, control, 4096, true).expect("parses");
+            let (chars_off, text_off) = reasoning_parts(&off.telemetry.reasoning);
+            let (chars_on, text_on) = reasoning_parts(&on.telemetry.reasoning);
+            assert_eq!(
+                chars_off, chars_on,
+                "{control:?}: the length is always there"
+            );
+            assert!(
+                text_off.is_none(),
+                "{control:?}: opt-in means off by default"
+            );
+            assert_eq!(
+                text_on.as_deref(),
+                Some("deliberating"),
+                "{control:?}: the opted-in payload must survive"
+            );
+        }
+    }
+
+    /// Pulls `(chars, text)` out of either measured shape, so the test above can assert the
+    /// SAME property across both arms instead of duplicating itself per variant.
+    fn reasoning_parts(state: &crate::provider::ReasoningState) -> (usize, Option<String>) {
+        match state {
+            crate::provider::ReasoningState::Measured { chars, text } => (*chars, text.clone()),
+            crate::provider::ReasoningState::Unsupported { chars, text, .. } => {
+                (*chars, text.clone())
+            }
+            other => panic!("expected a measured shape, got {other:?}"),
+        }
+    }
+
     #[test]
     fn an_anthropic_response_with_no_content_at_all_is_still_a_contract_failure() {
         let json = r#"{"content":[],"stop_reason":"max_tokens"}"#;
         assert!(matches!(
-            super::ClaudeProvider::parse_completion(json, super::ReasoningControl::Default, 4096),
+            super::ClaudeProvider::parse_completion(
+                json,
+                super::ReasoningControl::Default,
+                4096,
+                false
+            ),
             Err(crate::error::ProviderError::ResponseContract {
                 reason: crate::error::ResponseContractCause::NoMessage,
                 ..
@@ -655,9 +749,13 @@ mod tests {
         let json = r#"{"content":[{"type":"text","text":"hi"}],
             "stop_reason":"max_tokens",
             "usage":{"input_tokens":100,"output_tokens":50}}"#;
-        let out =
-            super::ClaudeProvider::parse_completion(json, super::ReasoningControl::default(), 4096)
-                .expect("valid body parses");
+        let out = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::default(),
+            4096,
+            false,
+        )
+        .expect("valid body parses");
         assert_eq!(out.telemetry.finish, Some(FinishReason::Length));
         assert_eq!(out.telemetry.completion_tokens, Some(50));
         assert_eq!(out.telemetry.prompt_tokens, Some(100));
@@ -672,9 +770,13 @@ mod tests {
         use crate::provider::ReasoningState;
 
         let json = r#"{"content":[{"type":"text","text":"hi"}]}"#;
-        let out =
-            super::ClaudeProvider::parse_completion(json, super::ReasoningControl::Disabled, 4096)
-                .expect("valid body parses");
+        let out = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Disabled,
+            4096,
+            false,
+        )
+        .expect("valid body parses");
         assert!(
             matches!(
                 out.telemetry.reasoning,
@@ -693,9 +795,13 @@ mod tests {
         use crate::provider::ReasoningState;
 
         let json = r#"{"content":[{"type":"text","text":"hi"}]}"#;
-        let out =
-            super::ClaudeProvider::parse_completion(json, super::ReasoningControl::Default, 4096)
-                .expect("valid body parses");
+        let out = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        )
+        .expect("valid body parses");
         assert_eq!(out.telemetry.reasoning, ReasoningState::NotMeasured);
     }
 
