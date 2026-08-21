@@ -2216,12 +2216,22 @@ pub(crate) async fn resolve_abnormal_exit(
     joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
     let decision = resolve_run_abort(reg, joined_before_abort).await;
-    if decision.is_some() {
-        tracing::warn!(
+    // The message names WHICH latch decided it. It used to say endpoint-down unconditionally,
+    // which stopped being true the moment this started consulting both — so an abort caused by
+    // a defect of ours was logged as an outage. That is this milestone's own thesis, reproduced
+    // inside the abort path built to end it.
+    match &decision {
+        Some(MagiError::CrateDefect { .. }) => tracing::warn!(
+            agent = agent.display_name(),
+            cause = %err,
+            "abnormal agent exit with a crate-defect latch set; aborting run"
+        ),
+        Some(_) => tracing::warn!(
             agent = agent.display_name(),
             cause = %err,
             "abnormal agent exit with endpoint-down latch set; aborting run"
-        );
+        ),
+        None => {}
     }
     decision
 }
@@ -6262,67 +6272,102 @@ mod tests {
         // with CRLF on Windows, so an LF-anchored search over `include_str!` finds nothing and
         // the test fails for a reason unrelated to what it guards. It passed only because these
         // files happened to have been rewritten with LF in place.
-        // The invariant is CRATE-WIDE, so the scan must be too. It used to read one file while
-        // asserting something about all of them: a production construction site added to
-        // `reporting.rs` -- where the type lives, so the natural place for one -- would have
-        // gone unnoticed by a guard that never looked there.
-        //
-        // Test modules are stripped from EVERY file, because the type's own tests and doc
-        // examples construct records legitimately and must not trip the guard.
-        let files: [(&str, &str); 4] = [
-            ("orchestrator.rs", include_str!("orchestrator.rs")),
-            ("reporting.rs", include_str!("reporting.rs")),
-            ("rotation.rs", include_str!("rotation.rs")),
-            ("provider.rs", include_str!("provider.rs")),
-        ];
-        let opener = concat!("#[cfg(test)]", "\n", "mod tests {");
-        for (name, raw) in files {
+        // The invariant is CRATE-WIDE, so the file list is WALKED, never enumerated. A
+        // hand-maintained allowlist is the mechanism this project has already removed twice:
+        // it reports success over whatever nobody remembered to add, and a new module is
+        // exactly what nobody remembers. All three reviewers named this independently.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ must be readable") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        assert!(
+            files.len() >= 10,
+            "the walk found {} files; it is not reaching src/",
+            files.len()
+        );
+
+        for path in files {
+            let name = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            let raw = std::fs::read_to_string(&path).expect("a readable source file");
+            // Line endings normalised first: the repo checks out with CRLF on Windows, so an
+            // LF-anchored search finds nothing and the test fails for an unrelated reason.
             let src = raw.replace("\r\n", "\n");
-            let production = src.split(opener).next().unwrap_or(&src).to_string();
+            // ANY test module, not just one called `tests` -- this crate has several, and
+            // treating one of them as production is how the guard gained a false positive.
+            let mut production = String::new();
+            let mut in_test_mod = false;
+            let mut depth = 0i32;
+            let mut prev_is_cfg_test = false;
+            for line in src.lines() {
+                let t = line.trim();
+                if !in_test_mod && prev_is_cfg_test && t.starts_with("mod ") && t.ends_with('{') {
+                    in_test_mod = true;
+                    depth = 1;
+                    prev_is_cfg_test = false;
+                    continue;
+                }
+                if in_test_mod {
+                    depth += line.matches('{').count() as i32;
+                    depth -= line.matches('}').count() as i32;
+                    if depth <= 0 {
+                        in_test_mod = false;
+                    }
+                    continue;
+                }
+                prev_is_cfg_test = t == "#[cfg(test)]";
+                // A doc EXAMPLE is prose that happens to compile, and constructs on purpose.
+                if !t.starts_with("///") {
+                    production.push_str(line);
+                    production.push('\n');
+                }
+            }
+
+            // In this file the one legal site is carved out; everywhere else there is none.
             let outside = if name == "orchestrator.rs" {
-                let helper_start = production
+                let start = production
                     .find("fn record_attempt(")
                     .expect("the single recording site must exist");
-                let closer = concat!("\n", "}", "\n");
-                let helper_end = production[helper_start..]
+                let closer = concat!(
+                    "
+", "}", "
+"
+                );
+                let end = production[start..]
                     .find(closer)
-                    .map(|i| helper_start + i)
+                    .map(|k| start + k)
                     .expect("the helper must be a complete function");
                 assert!(
-                    production[helper_start..helper_end]
-                        .contains("CompletionRecord::from_telemetry"),
+                    production[start..end].contains("CompletionRecord::from_telemetry"),
                     "the carve-out must contain the site, or it excludes nothing"
                 );
-                format!(
-                    "{}{}",
-                    &production[..helper_start],
-                    &production[helper_end..]
-                )
+                format!("{}{}", &production[..start], &production[end..])
             } else {
-                // A doc EXAMPLE is prose that happens to compile, and constructs on purpose.
                 production
-                    .lines()
-                    .filter(|l| !l.trim_start().starts_with("///"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
             };
-            // BOTH construction forms. `#[non_exhaustive]` blocks the struct literal from
-            // OTHER crates only, so inside this one `CompletionRecord { .. }` compiles and the
-            // path-form check would not have seen it. Checking only the form the code happens
-            // to use today is how a guard reports success while guarding half its surface.
+
             assert!(
                 !outside.contains("CompletionRecord::"),
-                "only `record_attempt` may build a record; found a path-form site in {name}"
+                "only `record_attempt` may build a record; a path-form site in {name}"
             );
             // The STRUCT-LITERAL form too. `#[non_exhaustive]` blocks it from OTHER crates
-            // only, so inside this one `CompletionRecord { .. }` compiles and the path-form
-            // check above would not have seen it -- a guard reporting success over half its
-            // surface, which is the class this milestone keeps paying for.
-            //
-            // Line-based, because `struct CompletionRecord {` and `impl CompletionRecord {`
-            // contain the same three tokens and are DECLARATIONS, not construction. Matching
-            // the raw substring reported both, and the tempting fix was to loosen the check
-            // rather than to narrow it.
+            // only, so inside this one it compiles and the check above would not see it.
+            // Line-based, because `struct X {` and `impl X {` carry the same three tokens and
+            // are DECLARATIONS: matching the raw substring reported both, and the tempting
+            // fix was to drop the check rather than to narrow it.
             let literal = concat!("CompletionRecord", " {");
             let smuggled = outside.lines().find(|l| {
                 let t = l.trim_start();

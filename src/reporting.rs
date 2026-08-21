@@ -475,8 +475,16 @@ pub struct CompletionRecord {
     /// The model that served the attempt. With rotation a seat may use several, and this is the
     /// dimension that makes the record actionable.
     pub model: String,
-    /// The output budget in force for the attempt. Set by the caller, never read off the
+    /// The output budget **requested** for the attempt. Set by the caller, never read off the
     /// response — a provider does not know what it was given.
+    ///
+    /// [`ProviderError::EmptyCompletion`] carries a `cap` too, and the two answer different
+    /// questions on purpose: this is what was ASKED FOR, so it is the number a consumer edits;
+    /// the error's is what was in force when the completion came back empty, so it is the
+    /// number that belongs in the message. They are the same value by construction, and giving
+    /// one of them ownership is what keeps them from being reconciled by guesswork later.
+    ///
+    /// [`ProviderError::EmptyCompletion`]: crate::error::ProviderError::EmptyCompletion
     pub cap: u32,
     /// Why the model stopped, when the backend said.
     pub finish: Option<FinishReason>,
