@@ -207,8 +207,10 @@ pub enum FinishReason {
     /// per vendor word -- which does not scale past two vendors -- or a payload
     /// here, which would touch every construction and match of a type nothing
     /// outside the crate needs the payload from. **Every consumer of this value
-    /// consumes exactly one property.** The day one needs the word, the payload is
-    /// the fix.
+    /// consumes exactly one property.** The day one needs the word, the fix is a NEW
+    /// variant -- additive, this enum being `#[non_exhaustive]` -- and **not** a payload
+    /// here: adding a field to a unit variant is a break, so that route costs another
+    /// major and this one costs none.
     Stop,
     /// The output budget ran out before the model finished.
     ///
@@ -223,7 +225,11 @@ pub enum FinishReason {
     /// indistinguishable from one cut by an undersized budget.
     /// The remedies differ (shrink the input versus raise the cap), and telling them
     /// apart needs `prompt_tokens` against the measured window, which
-    /// [`crate::reporting::CompletionRecord`] carries for exactly that comparison.
+    /// [`crate::reporting::CompletionRecord`] carries for exactly that comparison --
+    /// **the report is where that distinction survives, not this value.** Folding
+    /// `model_context_window_exceeded` in here means this variant no longer separates
+    /// the two even on the wire that separates them, which is the price of one condition
+    /// reading the same way whichever backend answered.
     Length,
     /// The backend answered without generating, while loading the model.
     Load,
@@ -266,7 +272,9 @@ impl FinishReason {
     ///
     /// # Parameters
     ///
-    /// * `raw` — the value the backend sent, in either wire format.
+    /// * `raw` — the value the backend sent, on any wire this crate speaks: the
+    ///   OpenAI-compatible `finish_reason`, Anthropic's `stop_reason`, or the native
+    ///   Ollama `done_reason`.
     ///
     /// # Returns
     ///
@@ -313,7 +321,7 @@ impl FinishReason {
     /// ```
     pub fn from_wire(raw: &str) -> Self {
         match raw {
-            // The union of both wires' published not-the-budget vocabularies. It is ONE
+            // The union of every wire's published not-the-budget vocabulary. It is ONE
             // table on purpose: `Other` is documented in four places as "a value no vendor
             // publishes", and that was only true per-wire while each provider kept half the
             // list -- an Anthropic word arriving on the compat wire fell through to `Other`
@@ -703,6 +711,57 @@ impl ReasoningState {
             },
             Self::Measured { chars, .. } => format!("{chars} chars"),
         }
+    }
+}
+
+/// Helpers shared by the source-scanning guards, which live in several modules.
+///
+/// They read their own file with `include_str!` to assert properties no behavioural test
+/// can see -- that a rule is consulted from one place, that a wire type stayed private.
+/// The reading is what needs the care, which is why it is written once.
+///
+/// Gated on the providers whose guards use it: with neither feature on, the module compiles
+/// with no caller and the linter is right to name it. That is not a reason to widen it --
+/// the two guards are where the scanning happens.
+#[cfg(all(test, any(feature = "claude-api", feature = "openai-compat")))]
+pub(crate) mod source_scan {
+    /// The half of a source file that ships, with line endings normalized.
+    ///
+    /// # Two properties, and the second is why this is a function
+    ///
+    /// **Normalization**: `core.autocrlf` is on for this repo, so a Windows checkout has
+    /// CRLF on disk. `include_str!` embeds those bytes verbatim while rustc normalizes a
+    /// multi-line marker in source to LF, so a split on one silently found nothing and the
+    /// "production half" became the WHOLE file. **The dangerous direction is not the one
+    /// that surfaced**: guards whose needle appears in their own message failed loudly,
+    /// but a guard whose needle lives only in the production half would have PASSED while
+    /// guarding nothing.
+    ///
+    /// **The split is asserted.** Removing the normalization, renaming the module, or any
+    /// other reason the marker stops matching fails HERE, by name, instead of degrading
+    /// every caller into a guard over the whole file. A silent fallback is what put this
+    /// class in the tree twice.
+    ///
+    /// # Parameters
+    /// * `src` -- the file's own source, from `include_str!`.
+    ///
+    /// # Returns
+    /// Everything before the `#[cfg(test)]` module that opens the test half.
+    ///
+    /// # Panics
+    /// If the marker is absent, which means the split guarded nothing.
+    pub(crate) fn production_half(src: &str) -> String {
+        let normalized = src.replace("\r\n", "\n");
+        let marker = "\n#[cfg(test)]\nmod ";
+        assert!(
+            normalized.contains(marker),
+            "the test-module marker was not found, so every guard built on this would have scanned the whole file and reported success while checking nothing"
+        );
+        normalized
+            .split(marker)
+            .next()
+            .expect("split always yields at least one part")
+            .to_string()
     }
 }
 
@@ -2849,6 +2908,10 @@ mod tests {
         // What lands in `Other` decides what the empty-completion message may claim: an
         // untranslated reason renders as "cannot be told", so a value a vendor publishes
         // that falls through here turns a knowable case into an unknowable one.
+        // THREE wires, not two: `from_wire` is also what the native Ollama path reads
+        // `done_reason` with. Its published set -- `stop`, `length`, `load` -- is a subset
+        // of what is listed here, so the claim "no vendor publishes it" holds for that wire
+        // too rather than being scoped away from it.
         let published_and_not_the_budget = [
             // OpenAI-compatible
             "stop",

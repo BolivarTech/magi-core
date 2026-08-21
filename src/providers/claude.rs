@@ -767,11 +767,10 @@ mod tests {
         // Scans source, which is coarse. It is the honest tool for the property, because
         // the property IS about the source: a second reader of `telemetry.finish` in this
         // file is the defect, whatever it computes.
-        let src = include_str!("claude.rs");
-        let body = src
-            .split("mod tests {")
-            .next()
-            .expect("the non-test half is what ships");
+        // The ASSERTED helper, not a third copy of the idiom: this guard's counters report
+        // success over whatever they are given, so a split that quietly matched nothing
+        // would have made it scan the test half too and pass while guarding nothing.
+        let body = crate::provider::source_scan::production_half(include_str!("claude.rs"));
         assert_eq!(
             body.matches("budget_bearing()").count(),
             1,

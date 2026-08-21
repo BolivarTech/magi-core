@@ -541,7 +541,8 @@ mod tests {
     /// otherwise make the file "contain" the needle it is checking for.
     #[test]
     fn the_openai_compatible_provider_never_acquires_native_routing() {
-        let production = production_half(include_str!("openai_compat.rs"));
+        let production =
+            crate::provider::source_scan::production_half(include_str!("openai_compat.rs"));
         // BOTH spellings, because the crate does not use the one this guard used to check.
         // `OllamaProvider` addresses the native endpoint as a SEGMENT LIST -- `&["api",
         // "chat"]` (ollama.rs) -- so the literal `/api/chat` never appears in routing code and
@@ -554,7 +555,7 @@ mod tests {
         );
         assert!(
             !production.contains("\"api\""),
-            "no native path segment may appear here: the crate routes with segment lists,              so this is the spelling a real regression would wear"
+            "no native path segment may appear here: the crate routes with segment lists, so this is the spelling a real regression would wear"
         );
     }
 
@@ -866,42 +867,18 @@ mod tests {
         assert_eq!(r.choices[0].message.reasoning.as_deref(), Some("abc"));
     }
 
-    /// The half of this file that ships, with line endings normalized.
-    ///
-    /// # Two properties, and the second is why this is a function
-    ///
-    /// **Normalization**: `core.autocrlf` is on for this repo, so a Windows checkout has
-    /// CRLF on disk. `include_str!` embeds those bytes verbatim while rustc normalizes the
-    /// multi-line marker below to LF, so the split silently found nothing and the
-    /// "production half" became the WHOLE file. These guards then evaluated their own error
-    /// messages. **The dangerous direction is the other one**: a guard whose needle lives
-    /// only in the production half would have PASSED while guarding nothing.
-    ///
-    /// **The split is asserted**, which the first fix did not do. Removing the
-    /// normalization, renaming the module, or any other reason the marker stops matching
-    /// now fails HERE, by name, instead of degrading each caller into a guard over the
-    /// whole file. A silent fallback is what put this class in the tree twice.
-    ///
-    /// # Parameters
-    /// * `src` — the file's own source, from `include_str!`.
-    ///
-    /// # Returns
-    /// Everything before the `#[cfg(test)]` module that opens the test half.
-    ///
-    /// # Panics
-    /// If the marker is absent, which means the split guarded nothing.
-    fn production_half(src: &str) -> String {
-        let normalized = src.replace("\r\n", "\n");
-        let marker = "\n#[cfg(test)]\nmod ";
-        assert!(
-            normalized.contains(marker),
-            "the test-module marker was not found, so every guard built on this would have scanned the whole file and reported success while checking nothing"
+    #[test]
+    #[should_panic(expected = "the test-module marker was not found")]
+    fn a_split_that_finds_nothing_fails_instead_of_scanning_the_whole_file() {
+        // The assertion inside the helper was PRESENT but not EXERCISED: deleting it left
+        // the suite green, so the durable form of the CRLF fix was itself revertible. This
+        // is the whole point of the helper -- a guard that silently widens to the whole file
+        // reports success while checking nothing, which is the class this milestone has now
+        // met in three different disguises.
+        let _ = crate::provider::source_scan::production_half(
+            "fn ships() {}
+",
         );
-        normalized
-            .split(marker)
-            .next()
-            .expect("split always yields at least one part")
-            .to_string()
     }
 
     #[test]
@@ -910,7 +887,7 @@ mod tests {
         // it the fix is one revert from disarming again, and CI -- which runs on LF --
         // could never see it.
         let crlf = "fn ships() {}\r\n#[cfg(test)]\r\nmod tests {\r\n    fn hidden() {}\r\n}\r\n";
-        let half = production_half(crlf);
+        let half = crate::provider::source_scan::production_half(crlf);
         assert!(
             half.contains("ships"),
             "the production half must survive: {half}"
@@ -930,7 +907,8 @@ mod tests {
         // Scans only the PRODUCTION half, split at the `#[cfg(test)]` that opens
         // this module: `include_str!` embeds the test source too, so this literal
         // would otherwise make the file "contain" the needle it checks for.
-        let production = production_half(include_str!("openai_compat.rs"));
+        let production =
+            crate::provider::source_scan::production_half(include_str!("openai_compat.rs"));
         for needle in [
             "pub struct OpenAiResponse",
             "pub struct OpenAiChoice",

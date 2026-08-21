@@ -12,7 +12,7 @@ Fixing it properly meant reading the wire completely, naming contract failures a
 failures, and giving rotation telemetry types that do not lie. That is a major, so the breaks are
 spent all at once rather than saved up.
 
-**Eight observable changes.** Each section says what it was, what it is, and what you do.
+**Nine observable changes.** Each section says what it was, what it is, and what you do.
 
 ---
 
@@ -273,27 +273,6 @@ pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
-### The vendor termination vocabularies are fully translated
-
-**Before:** on the Anthropic wire, `end_turn`, `stop_sequence`, `tool_use` and `max_tokens` were
-translated and everything else became `FinishReason::Other`.
-
-**After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
-`model_context_window_exceeded` reads as `FinishReason::Length`. On the OpenAI-compatible wire,
-`content_filter`, `tool_calls` and `function_call` likewise read as `Stop`.
-
-**What you do:** nothing, unless you match on `FinishReason::Other` expecting to find those
-strings in it. **Why it changed** is the part worth keeping: what lands in `Other` decides what
-the empty-completion message is allowed to claim. An untranslated reason renders as "cannot be
-told"; a *documented* one left untranslated by oversight turned a knowable case into an
-unknowable one, and filed Anthropic's own out-of-room response as a broken contract. `Other` now
-means a value neither vendor has published.
-
-`FinishReason::Stop` is correspondingly wider than "the model finished its answer" — it always
-was, since `tool_use` mapped there and a turn that stops to call a tool has finished nothing.
-What its members share is the only property anything downstream asks of them: the reply is not
-short because it ran out of room.
-
 ### One field inside it is an `Option`, and the reason is the release's own thesis
 
 `ReasoningState::Unsupported` carries `chars: Option<usize>`, not `usize`. All three providers
@@ -324,6 +303,20 @@ attempt that was cut and still produced a valid verdict belongs in the first and
 filing it in the second would assert a failure that did not happen, and a consumer counting that
 list to gate a run would start seeing failures where extraction went perfectly.
 
+### `ReasoningState`'s `Debug` output changed
+
+**Before:** `#[derive(Debug)]`, which printed the trace text when a consumer had opted into
+carrying it.
+
+**After:** hand-written, rendering `text: "<N chars withheld>"` instead.
+
+**What you do:** nothing, unless you were parsing `Debug` output — which you should not be. The
+reason it changed is that the trace is model-authored text that never passes the `Validator` and
+is never redacted, and `ProviderError` derives `Debug` and can hold this type, so a consumer
+logging an error with `{:?}` was carrying it into their logs. The elision is announced rather
+than silent, the same way `ClaudeProvider`'s `Debug` marks its API key: a `Debug` that drops a
+field without saying so misleads whoever reads it.
+
 ### The reasoning trace is opt-in, and turning it on accepts four things
 
 `CompletionConfig::reasoning_trace` is `false` by default. With `false` the report carries the
@@ -338,7 +331,28 @@ measured. That figure is a measured reference, not a ceiling.
 
 ---
 
-## 7. `ClaudeProvider::parse_response` is gone
+## 7. The vendor termination vocabularies are fully translated
+
+**Before:** on the Anthropic wire, `end_turn`, `stop_sequence`, `tool_use` and `max_tokens` were
+translated and everything else became `FinishReason::Other`.
+
+**After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
+`model_context_window_exceeded` reads as `FinishReason::Length`. On the OpenAI-compatible wire,
+`content_filter`, `tool_calls` and `function_call` likewise read as `Stop`.
+
+**What you do:** nothing, unless you match on `FinishReason::Other` expecting to find those
+strings in it. **Why it changed** is the part worth keeping: what lands in `Other` decides what
+the empty-completion message is allowed to claim. An untranslated reason renders as "cannot be
+told"; a *documented* one left untranslated by oversight turned a knowable case into an
+unknowable one, and filed Anthropic's own out-of-room response as a broken contract. `Other` now
+means a value neither vendor has published.
+
+`FinishReason::Stop` is correspondingly wider than "the model finished its answer" — it always
+was, since `tool_use` mapped there and a turn that stops to call a tool has finished nothing.
+What its members share is the only property anything downstream asks of them: the reply is not
+short because it ran out of room.
+
+## 8. `ClaudeProvider::parse_response` is gone
 
 **Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
 
@@ -358,7 +372,7 @@ and `tool_use` blocks, so a reply split across two text blocks used to come back
 first, and a first block carrying `null` used to discard the rest entirely — which the
 completion path then reported as an exhausted output budget.
 
-## 8. The time defaults change
+## 9. The time defaults change
 
 <!-- PENDING: MS2 F-2 — the seven time values. Enforced by ci/check_pending.sh, which the
      release workflow runs: the tag cannot be cut while this marker is here. -->

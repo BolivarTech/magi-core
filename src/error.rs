@@ -888,7 +888,7 @@ mod tests {
             assert!(s.contains("16384"), "{s}");
             assert!(
                 s.contains("not measured"),
-                "the sentence names the prompt as the other cause, so it must say whether                  the prompt was measured: {s}"
+                "the sentence names the prompt as the other cause, so it must say whether the prompt was measured: {s}"
             );
             assert!(
                 s.contains(REMEDY_PRESCRIBES),
@@ -941,7 +941,7 @@ mod tests {
         .to_string();
         assert!(
             measured.contains("63924"),
-            "the prompt measurement must appear in the sentence that tells you to check it:              {measured}"
+            "the prompt measurement must appear in the sentence that tells you to check it: {measured}"
         );
     }
 
