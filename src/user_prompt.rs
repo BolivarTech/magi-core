@@ -346,7 +346,33 @@ pub(crate) fn build_retry_prompt(
 ///
 /// The instruction text, ready to be appended to the retry prompt.
 fn retry_template(cause: ExtractionFailureCause, finish: Option<FinishReason>) -> String {
-    if cause == ExtractionFailureCause::Unterminated && finish == Some(FinishReason::Length) {
+    // BOTH shapes a budget cut produces, not just the obvious one. `Unterminated` is what a
+    // model that had started the block leaves behind; `MissingMarkers` is what it leaves when
+    // the budget ran out BEFORE the opening marker -- which is the likelier of the two, because
+    // the shipped prompts explicitly invite reasoning ahead of it (see the `InvalidJson`
+    // wording below). Telling that model "you emitted no marker lines" blames it for a
+    // formatting choice it never made, and re-sends it into the same wall.
+    //
+    // Every other cause keeps its own wording: no-markers-with-a-normal-ending, bad JSON or a
+    // schema miss say nothing about why generation stopped, so attributing the budget there
+    // would be a guess wearing a diagnosis.
+    //
+    // AN ACCEPTED TRADE, written down rather than left to be discovered: the retry that
+    // carries this feedback re-sends the SAME cap, and what overran it was the reasoning
+    // channel -- which a prompt cannot shorten by asking. So this wording buys a better
+    // ordering ("emit the block FIRST"), not a smaller budget, and against a model that
+    // reasons past the ceiling regardless it will fail again.
+    //
+    // It is still worth sending, because the alternative is worse: the old text told a model
+    // that had been CUT not to stop, which is advice it could not act on at all. The real
+    // remedy is the consumer's -- raise `max_tokens`, or turn the reasoning channel off with
+    // `ReasoningControl::Disabled` where the provider honours it -- and naming the budget is
+    // what points them at it.
+    if matches!(
+        cause,
+        ExtractionFailureCause::Unterminated | ExtractionFailureCause::MissingMarkers
+    ) && finish == Some(FinishReason::Length)
+    {
         return format!(
             "Your previous output was cut off by the OUTPUT BUDGET, not by any choice of \
              yours: generation ended because the token limit was reached. Emit the verdict \
@@ -1457,6 +1483,65 @@ mod tests {
         );
     }
 
+    /// The `finish` argument reaches the RENDERED prompt, not merely `retry_template`.
+    ///
+    /// Every other `build_retry_prompt` test passes `None`, so dropping the argument on the
+    /// floor -- passing `None` through, or ignoring it -- would have left all of them green
+    /// while the whole point of the parameter quietly stopped working.
+    #[test]
+    fn the_termination_reason_reaches_the_rendered_retry_prompt() {
+        let cut = build_retry_prompt(
+            "ORIGINAL",
+            ExtractionFailureCause::Unterminated,
+            "err",
+            Some(FinishReason::Length),
+        );
+        let unknown = build_retry_prompt(
+            "ORIGINAL",
+            ExtractionFailureCause::Unterminated,
+            "err",
+            None,
+        );
+        assert!(cut.contains("OUTPUT BUDGET"), "{cut}");
+        assert!(!unknown.contains("OUTPUT BUDGET"), "{unknown}");
+        assert_ne!(
+            cut, unknown,
+            "the rendered prompt must differ when the crate knows the budget cut it"
+        );
+    }
+
+    #[test]
+    fn a_budget_cut_before_the_opening_marker_is_also_attributed_to_the_budget() {
+        // The likelier of the two budget shapes: the prompts invite reasoning ahead of the
+        // opening marker, so a model that burns its budget there leaves NO markers at all.
+        // Telling it "you emitted no marker lines" blames it for a choice it never made.
+        let t = retry_template(
+            ExtractionFailureCause::MissingMarkers,
+            Some(FinishReason::Length),
+        );
+        assert!(t.contains("OUTPUT BUDGET"), "{t}");
+        assert!(
+            !t.contains("You emitted no verdict marker lines"),
+            "the no-markers scolding must not survive a known budget cut: {t}"
+        );
+    }
+
+    #[test]
+    fn missing_markers_without_a_budget_cut_keeps_its_own_wording() {
+        // The safe direction: no markers and a NORMAL ending is a contract miss, not a cut,
+        // and it must keep the feedback that names the contract.
+        let t = retry_template(ExtractionFailureCause::MissingMarkers, None);
+        assert!(t.contains("You emitted no verdict marker lines"), "{t}");
+        assert!(!t.contains("OUTPUT BUDGET"), "{t}");
+        assert_eq!(
+            t,
+            retry_template(
+                ExtractionFailureCause::MissingMarkers,
+                Some(FinishReason::Stop)
+            )
+        );
+    }
+
     #[test]
     fn an_unterminated_of_unknown_cause_keeps_the_old_wording() {
         // When the crate does NOT know the termination reason, the model stopping on its own is
@@ -1480,13 +1565,20 @@ mod tests {
 
     #[test]
     fn the_other_causes_are_untouched_by_the_termination_reason() {
-        // The attribution only applies to `Unterminated`: a body with no markers or with
-        // invalid JSON says nothing about why generation ended, so varying the reason must not
-        // change a single word of their feedback.
+        // EVERY cause the crate cannot attribute, not a sample of them. The earlier version
+        // listed three of the six named ones, so widening the attribution to `Schema` or
+        // `EchoedExample` -- a real risk, since the budget branch was just widened once
+        // already -- would have passed here in silence. A test that names a universal and
+        // iterates a subset is the vacuity this milestone keeps paying for.
+        //
+        // `Unterminated` and `MissingMarkers` are absent because they are the two the crate
+        // DOES attribute; their behaviour is pinned by the tests above.
         for cause in [
-            ExtractionFailureCause::MissingMarkers,
             ExtractionFailureCause::Ambiguous,
             ExtractionFailureCause::InvalidJson,
+            ExtractionFailureCause::Schema,
+            ExtractionFailureCause::EchoedExample,
+            ExtractionFailureCause::AgentIdentity,
         ] {
             assert_eq!(
                 retry_template(cause, Some(FinishReason::Length)),

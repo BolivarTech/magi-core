@@ -758,3 +758,131 @@ async fn a_crate_defect_aborts_even_with_no_fallback_pool_declared() {
         other => panic!("without a pool the defect used to degrade instead of aborting: {other}"),
     }
 }
+
+/// S4 — the two telemetry maps are DISJOINT, observed where the orchestrator fills both.
+///
+/// The property: a completion cut at the output budget that nonetheless produced a valid
+/// verdict belongs in `completions` and NOT in `extraction_failures`. Putting it in the latter
+/// would assert a failure that did not happen, and a consumer counting that list to decide
+/// whether a run is usable would start seeing failures where extraction went perfectly.
+///
+/// It lives here, at the integration level, because the earlier unit version inserted a record
+/// into one map by hand and then asserted the other was empty -- which is what
+/// `report_with_no_telemetry()` guarantees by construction. It asserted its own fixture.
+#[tokio::test]
+async fn a_verdict_cut_at_the_ceiling_is_recorded_without_inventing_an_extraction_failure() {
+    let magi =
+        MagiBuilder::new(ScriptProvider::new("m", vec![Beh::OkAtTheCap]) as Arc<dyn LlmProvider>)
+            .with_agent(
+                AgentName::Melchior,
+                ScriptProvider::new("m", vec![Beh::OkAtTheCap]),
+                Lineage::new("alibaba"),
+            )
+            .with_agent(
+                AgentName::Balthasar,
+                ScriptProvider::new("b", vec![Beh::Ok]),
+                Lineage::new("moonshot"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                ScriptProvider::new("c", vec![Beh::Ok]),
+                Lineage::new("zhipu"),
+            )
+            .build()
+            .unwrap();
+
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    // The cut happened and is on the record, with the model that hit it.
+    let cut = &report.completions[&AgentName::Melchior];
+    assert_eq!(cut.len(), 1, "one attempt, one record");
+    assert_eq!(cut[0].finish, Some(FinishReason::Length));
+    assert_eq!(cut[0].model, "m");
+
+    // And extraction SUCCEEDED, so no agent carries a failure -- the disjointness itself.
+    //
+    // Asserted PER AGENT, not on the map: `extraction_failures` is pre-seeded with an empty
+    // list for every seat, because it is a certificate -- an empty list means "we looked and
+    // there were none", which an absent key could not say. So `map.is_empty()` is false on
+    // every real report, and a test asserting it would only ever pass against a hand-built
+    // fixture. That is exactly what the unit test this one replaces was doing.
+    assert!(
+        report
+            .extraction_failures
+            .values()
+            .all(|failures| failures.is_empty()),
+        "a cut that still produced a valid verdict is not an extraction failure: {:?}",
+        report.extraction_failures
+    );
+    assert!(
+        !report.degraded,
+        "the verdict was valid, so nothing degraded"
+    );
+
+    // The success path copies its telemetry too, and differently -- which is what makes the
+    // assertion above about the CUT rather than about every record looking alike.
+    let clean = &report.completions[&AgentName::Caspar];
+    assert_eq!(clean[0].finish, Some(FinishReason::Stop));
+}
+
+/// The milestone's CENTRAL diagnosis reaches the report, observed end to end.
+///
+/// A budget-exhausted completion is an `Err`, and an error can perfectly well leave no trace:
+/// `NoGeneration` deliberately records nothing, because that path aborts the run and a record
+/// would die in a local `Vec`. `EmptyCompletion` must be the opposite — the seat rotates, the
+/// run produces a report, and the burned budget has to be IN it. Without this the whole axis
+/// diagnoses a failure the operator still cannot see.
+#[tokio::test]
+async fn an_empty_completion_leaves_its_measurement_in_the_report() {
+    let caspar_primary = retry0(ScriptProvider::new("deepseek", vec![Beh::EmptyCompletion]));
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let cas = &report.completions[&AgentName::Caspar];
+    let cut = cas
+        .iter()
+        .find(|r| r.model == "deepseek")
+        .expect("the model that came back empty must have left a record");
+
+    assert_eq!(
+        cut.finish,
+        Some(FinishReason::Length),
+        "the record must name the budget as what ended it"
+    );
+    assert!(
+        matches!(cut.reasoning, ReasoningState::Measured { chars, .. } if chars > 0),
+        "the reasoning it burned is the number that explains the cut: {:?}",
+        cut.reasoning
+    );
+    // And the consequence that this release changed: mage-local, so the seat rotated and the
+    // run is whole.
+    assert!(!report.degraded);
+    assert_eq!(report.rotations[&AgentName::Caspar].chain.len(), 1);
+}

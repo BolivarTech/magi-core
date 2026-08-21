@@ -192,8 +192,22 @@ pub fn valid_verdict_for_current_agent() -> String {
 /// One behavior per attempt index; the last entry repeats for further calls.
 #[derive(Clone)]
 pub enum Beh {
-    /// Return a valid, agent-aware verdict.
+    /// Return a valid, agent-aware verdict, with a MEASURED telemetry attached.
+    ///
+    /// Measured rather than blank because the success path's whole job is copying that
+    /// telemetry into the report; with `unmeasured()` every field a test could look at is
+    /// `None`, so the copy is observable only in a unit test of the conversion and never end
+    /// to end. The values model an ordinary completion: it ended on its own (`Stop`), well
+    /// under its budget, having reasoned a little.
     Ok,
+    /// Return a valid, agent-aware verdict that was nonetheless CUT at the output budget.
+    ///
+    /// The case the report's two telemetry maps are required to keep DISJOINT: extraction
+    /// succeeded, so nothing belongs in `extraction_failures`, while `completions` must still
+    /// record that the answer arrived at the ceiling. Scripted because that disjointness is a
+    /// property of the orchestrator filling both maps, and a test that inserts into one of
+    /// them by hand asserts only its own fixture.
+    OkAtTheCap,
     /// Surface `ProviderError::Network` (connection-level → counts toward
     /// endpoint-down).
     Network,
@@ -279,7 +293,7 @@ impl LlmProvider for ScriptProvider {
         &self,
         _s: &str,
         _u: &str,
-        _c: &CompletionConfig,
+        config: &CompletionConfig,
     ) -> Result<Completion, ProviderError> {
         let i = self.calls.fetch_add(1, Ordering::SeqCst);
         let beh = self
@@ -289,7 +303,28 @@ impl LlmProvider for ScriptProvider {
             .cloned()
             .unwrap_or(Beh::Ok);
         match beh {
-            Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
+            Beh::Ok => Ok(
+                Completion::new(valid_verdict_for_current_agent()).with_telemetry(
+                    crate::provider::CompletionTelemetry::unmeasured()
+                        .with_finish(crate::provider::FinishReason::Stop)
+                        .with_completion_tokens(512)
+                        .with_prompt_tokens(1_024)
+                        .with_reasoning(crate::provider::ReasoningState::Measured {
+                            chars: 64,
+                            text: None,
+                        }),
+                ),
+            ),
+            Beh::OkAtTheCap => Ok(Completion::new(valid_verdict_for_current_agent())
+                .with_telemetry(
+                    crate::provider::CompletionTelemetry::unmeasured()
+                        .with_finish(crate::provider::FinishReason::Length)
+                        .with_completion_tokens(config.max_tokens)
+                        .with_reasoning(crate::provider::ReasoningState::Measured {
+                            chars: 4_096,
+                            text: None,
+                        }),
+                )),
             Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
             Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
             // Modelled on `resp-C.json`, the capture this milestone is named after: the model
@@ -300,12 +335,15 @@ impl LlmProvider for ScriptProvider {
             Beh::EmptyCompletion => Err(ProviderError::EmptyCompletion {
                 telemetry: crate::provider::CompletionTelemetry::unmeasured()
                     .with_finish(crate::provider::FinishReason::Length)
-                    .with_completion_tokens(16_384)
+                    .with_completion_tokens(config.max_tokens)
                     .with_reasoning(crate::provider::ReasoningState::Measured {
                         chars: 15_409,
                         text: None,
                     }),
-                cap: 16_384,
+                // READ, never invented: a double that hardcodes the budget lets a test
+                // configure a different one, assert the record carries it, and pass on a
+                // number the production path never chose.
+                cap: config.max_tokens,
             }),
             Beh::NoGeneration => Err(ProviderError::NoGeneration {
                 // The value the one captured case carried. Named rather than `None` so the
@@ -677,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_two_scripted_bodies_fail_and_succeed_where_their_names_claim() {
+    fn test_every_scripted_body_fails_and_succeeds_where_its_name_claims() {
         use crate::verdict_markers::{ExtractionFailureCause, extract};
 
         // Both causes map to `Deserialization`, so every rotation test passes either
@@ -694,6 +732,17 @@ mod tests {
         let block = extract(&ok).expect("the success body must be correctly delimited");
         serde_json::from_str::<crate::schema::AgentOutput>(block)
             .expect("the success body must deserialize as a full 7-key verdict");
+
+        // TRUNCATED is the THIRD scripted body and the newest, so it is the one whose
+        // meaning is likeliest to drift -- and its drift is invisible: `Unterminated` and
+        // `MissingMarkers` both land on a schema failure, so every rotation test passes
+        // either way. That is precisely how `Beh::BadJson` drifted from "bad JSON" to "no
+        // markers" unnoticed when the wire format changed. Pinning is what makes it loud.
+        assert_eq!(
+            extract(&TRUNCATED).unwrap_err().cause(),
+            ExtractionFailureCause::Unterminated,
+            "TRUNCATED must fail because the CLOSING marker is missing, not because              delimitation never started"
+        );
 
         // And the guard rail for the reverse drift: a bare body no longer models a
         // cooperative provider at all.

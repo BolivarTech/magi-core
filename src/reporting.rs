@@ -415,8 +415,26 @@ pub struct MagiReport {
     /// (~2.5 KB)** when every seat rotates and takes its corrective retry. That is the price of
     /// not being blind until the first cut, and it is stated rather than discovered.
     ///
-    /// `skip_serializing_if` therefore guards the **real** empty case — a report with no
-    /// completions at all — and not "a report with no cuts", which no longer exists.
+    /// Those figures assume `reasoning_trace` is off, which is its default. Turn it on and a
+    /// record also carries the trace text, whose size is the model's to choose: traces of
+    /// ~141 k characters have been measured, so a run that keeps them is orders of magnitude
+    /// larger than the numbers above. See `reasoning_trace` for what enabling it accepts.
+    ///
+    /// # An ABSENT key means one thing, and it is not "nothing was measured"
+    ///
+    /// Every dispatched seat leaves at least one record, because an attempt is recorded
+    /// whether it succeeded or failed. So a report this crate returns is never empty here, and
+    /// `skip_serializing_if` never fires on one.
+    ///
+    /// What it does serve is the other direction: a report produced BEFORE `4.0.0` has no such
+    /// key, and `#[serde(default)]` reads it back as an empty map. An absent key therefore
+    /// means *this report predates the field*, never *this run measured nothing* — which is
+    /// what an `Option` would have been needed to distinguish had both states been reachable.
+    ///
+    /// Note the deliberate asymmetry with its sibling: `extraction_failures` IS pre-seeded with
+    /// an empty list per agent, because there an empty list is a **certificate** — "we looked
+    /// and there were none" — a claim an absent key cannot make. Here presence carries no such
+    /// claim, so seeding would add a key that says nothing.
     ///
     /// # One entry per ATTEMPT, which is not the same as per model
     ///
@@ -3540,19 +3558,5 @@ mod tests {
             .remove("completions");
         let back: MagiReport = serde_json::from_value(doc).expect("parses without the field");
         assert!(back.completions.is_empty());
-    }
-
-    #[test]
-    fn a_recorded_cut_is_not_an_extraction_failure() {
-        // Disjoint sets. Putting a cut in `extraction_failures` would ASSERT a
-        // failure that did not happen, and a consumer counting that list to gate a
-        // run would start seeing failures where extraction went perfectly.
-        let mut report = report_with_no_telemetry();
-        report.completions.insert(
-            AgentName::Caspar,
-            vec![CompletionRecord::new("m".to_string(), 16_384).with_finish(FinishReason::Length)],
-        );
-        assert_eq!(report.completions[&AgentName::Caspar].len(), 1);
-        assert!(report.extraction_failures.is_empty());
     }
 }
