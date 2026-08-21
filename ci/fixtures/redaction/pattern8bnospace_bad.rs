@@ -37,5 +37,5 @@ pub enum ProviderError {
         f: u8,
     },
 }
-fn build() -> Self { Self::External { f: 0 } }
-fn sneak() -> Self { Self::Auth{ f: 0 } }
+pub fn build() -> Self { Self::External { f: 0 } }
+pub fn sneak() -> Self { Self::Auth{ f: 0 } }

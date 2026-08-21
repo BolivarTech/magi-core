@@ -188,7 +188,7 @@ skeleton() {
         for v in Http Network Timeout Auth Process ResponseTooLarge RetryAbandoned External; do
             printf '    #[non_exhaustive]\n    %s {\n        f: u8,\n    },\n' "$v"
         done
-        printf '}\nfn build() -> Self { Self::External { f: 0 } }\n'
+        printf '}\npub fn build() -> Self { Self::External { f: 0 } }\n'
     } > "$tmp/error.rs"
     printf 'fn f() {\n    match outcome {\n        A => 1,\n        B => 2,\n    };\n}\n' \
         > "$tmp/orchestrator.rs"
@@ -523,7 +523,28 @@ if [ -f "$SRC/error.rs" ] && [ "${SKIP_EXISTENCE:-0}" != "1" ]; then
     #      PATTERN — it destructures, it does not build — and counting it made a plain `match` over
     #      the enum look like a second door. `X => Self::External { .. }` still counts, because
     #      what follows the arrow is a construction.
+    #      Only what a PUBLIC function builds. The invariant is one public DOOR -- whatever
+    #      `error.rs` lets the outside world construct -- and a `pub(crate)` helper is not a
+    #      door: `#[non_exhaustive]` already stops another crate from writing the literal.
+    #      Reading the whole file made an internal bounding constructor look like a second door
+    #      and refused a change that TIGHTENED the type. Verified by injecting a `pub fn` that
+    #      builds a second variant into the real file and watching this fail.
     built="$(prod_only "$SRC/error.rs" \
+        | awk '
+            # POSITIVE filter: only the bodies of `pub fn`. A `pub(crate)` or private helper
+            # is not a door, and an exclusion filter got this wrong once -- a multi-line
+            # signature closed its own brace count before the body began, so nothing was
+            # skipped and the check still refused.
+            /^[[:space:]]*pub[[:space:]]+fn/ { inpub = 1; opened = 0 }
+            inpub {
+                n = gsub(/{/, "{"); m = gsub(/}/, "}")
+                if (n > 0) opened = 1
+                depth += n - m
+                print
+                if (opened && depth <= 0) { inpub = 0; depth = 0 }
+                next
+            }
+        ' \
         | awk '{ while (match($0, /=>/)) { $0 = substr($0, RSTART + 2) } print }' \
         | grep -oE '(Self|ProviderError)::[A-Za-z]+[[:space:]]*\{' \
         | sed -e 's/^ProviderError::/Self::/' -e 's/[[:space:]]*{$/ {/' \

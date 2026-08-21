@@ -213,9 +213,11 @@ pub enum ProviderError {
         ///
         /// **Bounded**, at [`MAX_CONTRACT_DETAIL_CHARS`]. It reaches the serialized report, which
         /// this crate has already identified as its most-shared and least-inspected channel, and
-        /// every other outside-authored text that gets there is capped. Build it with
-        /// [`ProviderError::response_contract`] rather than by literal, so the bound is a
-        /// property of the type rather than of whoever wrote the call site.
+        /// every other outside-authored text that gets there is capped.
+        ///
+        /// The bound is a property of the TYPE, not of whoever wrote a call site: this variant is
+        /// built inside the crate through one bounding constructor, and `#[non_exhaustive]` stops
+        /// anyone outside from writing the literal.
         detail: String,
     },
 
@@ -428,7 +430,23 @@ impl ProviderError {
     /// reads it, and this text reaches the serialized report.
     ///
     /// Truncation is on a character boundary and never panics.
-    pub fn response_contract(reason: ResponseContractCause, detail: impl Into<String>) -> Self {
+    ///
+    /// # `pub(crate)`, and the redaction gate is what said so
+    ///
+    /// It was written `pub` and the CI rule refused it: `error.rs` holds exactly ONE public
+    /// door, and whatever that door builds is what the outside world can build. A contract
+    /// failure is this crate's own reading of a response — an external provider claiming one
+    /// would be asserting something only the parser can know. `external` stays the only public
+    /// constructor, which is the shape `3.1.0` settled on.
+    /// Gated with its only caller, the shared transport mapper, which exists only when an
+    /// HTTP provider is compiled in. Without the gate the default feature set fails on an
+    /// unused function -- and silencing that with an attribute would have kept a
+    /// constructor alive in a build where nothing can construct.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    pub(crate) fn response_contract(
+        reason: ResponseContractCause,
+        detail: impl Into<String>,
+    ) -> Self {
         let mut detail = detail.into();
         if detail.chars().count() > MAX_CONTRACT_DETAIL_CHARS {
             let cut = detail
@@ -1196,6 +1214,7 @@ mod tests {
         }
     }
     /// The detail is BOUNDED, and not merely documented as bounded.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     #[test]
     fn a_contract_detail_is_capped_at_the_declared_length() {
         let long = "x".repeat(MAX_CONTRACT_DETAIL_CHARS * 4);
@@ -1207,6 +1226,7 @@ mod tests {
     }
 
     /// A shorter detail is kept whole: the cap truncates, it does not pad or normalise.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     #[test]
     fn a_contract_detail_under_the_cap_is_untouched() {
         let err = ProviderError::response_contract(
@@ -1227,6 +1247,7 @@ mod tests {
     /// A composed message can carry a redacted endpoint with non-ASCII in its path, and cutting
     /// by byte offset there is a panic, not a truncation. This crate has already shipped one
     /// release for a slicing bug of exactly that shape.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     #[test]
     fn a_multi_byte_contract_detail_is_cut_without_panicking() {
         let long = "é".repeat(MAX_CONTRACT_DETAIL_CHARS * 2);
