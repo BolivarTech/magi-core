@@ -266,6 +266,13 @@ at the first — and a first block carrying `null` or `""` used to discard the r
 which the completion path then reported as an exhausted output budget. The old behaviour lost
 content; this is the fix, not a change of policy.
 
+**One case changes from `Err` to `Ok`, and it is worth knowing about.** A response whose only
+text block carries a `null` payload used to be `Err(ResponseContract)`, because reading that one
+block yielded nothing. It is now `Ok("")`: a text block was present, and what it held — nothing —
+is what you get. If you branched on the error to detect an empty reply, branch on the empty
+string instead. `complete()` is unaffected: it still classifies an empty reply as
+`EmptyCompletion`, which carries the telemetry explaining it.
+
 ### One field inside it is an `Option`, and the reason is the release's own thesis
 
 `ReasoningState::Unsupported` carries `chars: Option<usize>`, not `usize`. All three providers

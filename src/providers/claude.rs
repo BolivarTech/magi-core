@@ -474,36 +474,38 @@ impl ClaudeProvider {
             // is the misdiagnosis this whole release exists to end, re-created one level
             // down by the fix for it. An absent reason still qualifies: unknown is not the
             // same as known-to-be-something-else.
-            // ONLY-text content that came back empty is the compat wire's case exactly: the
-            // contract shape arrived and carried nothing, so the model returned nothing and the
-            // termination reason does not change that.
+            // ONE condition over the whole table, not two ordered arms. Splitting it into
+            // "empty text" and "no text" put them in an order, and the order was wrong twice in
+            // opposite directions: first the narrowing swallowed an empty text block that the
+            // compat wire calls an empty completion, then the fix for that preempted the
+            // narrowing and turned a `tool_use` turn into a budget cut, and the fix for THAT
+            // left the canonical case of this whole release -- an empty text block beside a
+            // `thinking` block on a `max_tokens` cut -- reported as a broken contract.
             //
-            // "Only text" is the discriminator, and the previous version lacked it: `Some(_)`
-            // alone preempted the narrowing, so a `tool_use` turn that also carried an empty
-            // text block went back to being reported as a budget cut -- the misdiagnosis the
-            // narrowing exists to prevent, re-opened by the fix for a different shape of the
-            // same arm.
-            Some(_) if !had_non_text => Err(ProviderError::EmptyCompletion { telemetry, cap }),
-            // NO text block at all is the case the narrowing is for: `tool_use` or
-            // `redacted_thinking` content that was never cut, which only a `Length` (or
-            // unknown) termination lets us call a budget cut.
-            None if had_content
-                && matches!(telemetry.finish, None | Some(FinishReason::Length)) =>
+            // Enumerated instead, over what this wire can send once no usable text came back:
+            //
+            //   no blocks at all            -> contract: nothing was sent
+            //   only text, all empty        -> EMPTY: the compat wire's `content: ""`, exactly
+            //   text + non-text, cut        -> EMPTY: the budget explains it
+            //   text + non-text, not cut    -> contract: the turn produced something else
+            //   non-text only, cut          -> EMPTY
+            //   non-text only, not cut      -> contract
+            //
+            // Which collapses to: the budget could explain it, OR nothing but text came back.
+            Some(_) | None
+                if had_content
+                    && (matches!(telemetry.finish, None | Some(FinishReason::Length))
+                        || !had_non_text) =>
             {
                 Err(ProviderError::EmptyCompletion { telemetry, cap })
             }
-            // The observed SHAPE travels, because this arm now receives a class the narrowing
-            // moved into it — a `tool_use` or redacted response — and rendering that
-            // identically to a literally empty `content: []` throws away the only thing that
-            // tells the two apart. Discarding telemetry on an error path is the defect this
-            // release fixed for `EmptyCompletion`; the fix for THAT re-created it here.
-            //
-            // Through the bounding constructor, so the text is capped like every other
-            // outside-influenced string that reaches the serialized report.
             _ => Err(ProviderError::response_contract(
                 crate::error::ResponseContractCause::NoMessage,
+                // Says what was OBSERVED. It read "no text block" and listed a text block in
+                // the same sentence, because an empty one reaches here too — a message that
+                // contradicts its own evidence sends the reader looking for the wrong thing.
                 format!(
-                    "no text block; termination {:?}, blocks [{}]",
+                    "no usable text; termination {:?}, blocks [{}]",
                     telemetry.finish,
                     block_types.join(", ")
                 ),
@@ -746,6 +748,55 @@ mod tests {
     /// text answered `EmptyCompletion` before the check for a non-text block ran, so the
     /// misdiagnosis the narrowing exists to prevent came back through the fix for a different
     /// shape of the same arm.
+    /// THE WHOLE TABLE, enumerated, because splitting it into ordered arms was wrong twice in
+    /// opposite directions and each fix reopened the one before it.
+    ///
+    /// Six shapes this wire can send once no usable text came back. Asserting them together is
+    /// what makes a later edit that satisfies one cell and breaks another fail here rather than
+    /// three reviews downstream.
+    #[test]
+    fn every_shape_with_no_usable_text_lands_where_the_table_says() {
+        let cut = r#""stop_reason":"max_tokens""#;
+        let ended = r#""stop_reason":"end_turn""#;
+        let text_empty = r#"{"type":"text","text":""}"#;
+        let thinking = r#"{"type":"thinking","thinking":"deliberating"}"#;
+        let tool = r#"{"type":"tool_use","id":"t"}"#;
+
+        // (blocks, stop_reason, expect_empty_completion)
+        let table: [(&str, &str, bool); 6] = [
+            // nothing was sent at all -> contract, whatever ended the turn
+            ("", cut, false),
+            // only text, and it came back empty -> the compat wire's `content: ""`, exactly
+            (text_empty, ended, true),
+            // THE CASE THIS RELEASE IS ABOUT: reasoned to the ceiling, emitted nothing
+            (&format!("{thinking},{text_empty}"), cut, true),
+            // the turn produced a tool call, not an exhausted budget
+            (&format!("{tool},{text_empty}"), ended, false),
+            // non-text only, cut by the budget
+            (thinking, cut, true),
+            // non-text only, ended normally -> the turn did something else
+            (tool, ended, false),
+        ];
+
+        for (blocks, stop, expect_empty) in table {
+            let json = format!(r#"{{"content":[{blocks}],{stop}}}"#);
+            let got = super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Default,
+                4096,
+                false,
+            );
+            let is_empty = matches!(
+                got,
+                Err(crate::error::ProviderError::EmptyCompletion { .. })
+            );
+            assert_eq!(
+                is_empty, expect_empty,
+                "blocks=[{blocks}] {stop} -> {got:?}"
+            );
+        }
+    }
+
     #[test]
     fn an_empty_text_block_beside_a_tool_use_is_not_a_budget_cut() {
         let json = r#"{"content":[{"type":"tool_use","id":"t"},{"type":"text","text":""}],
