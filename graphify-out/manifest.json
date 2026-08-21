@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787292349.5610955,
-    "ast_hash": "ffcb00a6b064fe5e3cfd32858e83570c",
+    "mtime": 1787304994.9589405,
+    "ast_hash": "4a948972e64e9c886ece628f9845ba3b",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -760,13 +760,13 @@
     "semantic_hash": ""
   },
   "smoke/src/preflight.rs": {
-    "mtime": 1787297289.3926628,
-    "ast_hash": "eb92da68b7a23db545a19381217a77e4",
+    "mtime": 1787304856.1693068,
+    "ast_hash": "09fe3f9c2146dadf990bd686ab54ee86",
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787302773.6459596,
-    "ast_hash": "f6a38b5300699c65cf85e3dccf1633d2",
+    "mtime": 1787304651.4182272,
+    "ast_hash": "f585650afdcd8ef5db179b031441c8a0",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
@@ -775,8 +775,8 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787302880.3738434,
-    "ast_hash": "b063808dbf37d01e2f6aa0d237ddd90f",
+    "mtime": 1787304616.0897803,
+    "ast_hash": "205cadee2b18abb01e5311dfb109ad4f",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
@@ -800,8 +800,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787303465.7581117,
-    "ast_hash": "68d5214fac948e022d3e51a74091dc76",
+    "mtime": 1787304446.1627002,
+    "ast_hash": "6b828ff66280d815c442441451efbabc",
     "semantic_hash": ""
   },
   "smoke/README.md": {
