@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-08-21)
 
 ## Corpus Check
-- 181 files · ~331,275 words
+- 181 files · ~331,474 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1ae0b62d`
+- Built from commit: `fba7a9d4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1035,7 +1035,7 @@ Cohesion: 0.18
 Nodes (15): Instant, Option, the_thirty_percent_warning_fires_only_strictly_above_the_threshold(), ClaudeMessage, ClaudeRequest, ClaudeResponse, ClaudeUsage, ContentBlock (+7 more)
 
 ## Knowledge Gaps
-- **231 isolated node(s):** `1. `complete()` returns `Completion`, not `String``, `2. `RotationKind` gains four variants and becomes `#[non_exhaustive]``, `3. `ProviderError::Http { status: 0 }` no longer exists`, `4. `OllamaProvider` completes on `/api/chat``, `5. `CompletionConfig::max_tokens` defaults to `16_384`` (+226 more)
+- **231 isolated node(s):** `melchior`, `report`, `X`, `8. Evangelion Correspondence Table`, `9. Relationship to the MAGI Python Plugin` (+226 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **214 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -1043,12 +1043,12 @@ Nodes (15): Instant, Option, the_thirty_percent_warning_fires_only_strictly_abov
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `ProviderError` connect `ProviderError` to `validate.rs`, `.new`, `Result`, `LlmProvider`, `rotation.rs`, `CompletionConfig`, `error.rs`, `HostedModel`, `orchestrator.rs`, `ProviderResponse`, `OllamaProvider`, `ollama.rs`, `Arc`, `provider_url.rs`, `ProviderRequest`?**
-  _High betweenness centrality (0.055) - this node is a cross-community bridge._
+  _High betweenness centrality (0.046) - this node is a cross-community bridge._
 - **Why does `MagiError` connect `validate.rs` to `String`, `consensus.rs`, `prompts/mod.rs`, `.new`, `LlmProvider`, `ProviderError`, `error.rs`, `orchestrator.rs`, `Arc`, `proxy.rs`?**
-  _High betweenness centrality (0.040) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **Why does `SpyProxy` connect `proxy.rs` to `runner.rs`, `preflight.rs`, `Arc`, `run`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **What connects `1. `complete()` returns `Completion`, not `String``, `2. `RotationKind` gains four variants and becomes `#[non_exhaustive]``, `3. `ProviderError::Http { status: 0 }` no longer exists` to the rest of the system?**
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **What connects `melchior`, `report`, `X` to the rest of the system?**
   _231 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `test_support.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.11738648947951273 - nodes in this community are weakly interconnected._
