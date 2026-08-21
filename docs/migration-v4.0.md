@@ -12,7 +12,7 @@ Fixing it properly meant reading the wire completely, naming contract failures a
 failures, and giving rotation telemetry types that do not lie. That is a major, so the breaks are
 spent all at once rather than saved up.
 
-**Seven observable changes.** Each section says what it was, what it is, and what you do.
+**Eight observable changes.** Each section says what it was, what it is, and what you do.
 
 ---
 
@@ -273,26 +273,6 @@ pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
-### `ClaudeProvider::parse_response` is gone
-
-**Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
-
-**After:** removed. Nothing replaces it, and nothing inside the crate called it either.
-
-**What you do:** call `complete()`. If you were parsing a captured body outside a request there
-is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite
-answers for the identical body**. A reply whose only text block is empty is `Ok("")` through
-`parse_response` and `EmptyCompletion` through `complete()`. One of those says the call
-succeeded and the other says the model produced nothing — and a release whose entire subject is
-telling those two apart cannot ship both as public answers. The one with no telemetry to answer
-with is the one that went.
-
-Its behaviour also changed on the way out, which matters only if you vendored it: it joins
-**every** text block instead of returning the first. Anthropic interleaves text with `thinking`
-and `tool_use` blocks, so a reply split across two text blocks used to come back cut at the
-first, and a first block carrying `null` used to discard the rest entirely — which the
-completion path then reported as an exhausted output budget.
-
 ### The vendor termination vocabularies are fully translated
 
 **Before:** on the Anthropic wire, `end_turn`, `stop_sequence`, `tool_use` and `max_tokens` were
@@ -358,7 +338,27 @@ measured. That figure is a measured reference, not a ceiling.
 
 ---
 
-## 7. The time defaults change
+## 7. `ClaudeProvider::parse_response` is gone
+
+**Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
+
+**After:** removed. Nothing replaces it, and nothing inside the crate called it either.
+
+**What you do:** call `complete()`. If you were parsing a captured body outside a request there
+is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite
+answers for the identical body**. A reply whose only text block is empty is `Ok("")` through
+`parse_response` and `EmptyCompletion` through `complete()`. One of those says the call
+succeeded and the other says the model produced nothing — and a release whose entire subject is
+telling those two apart cannot ship both as public answers. The one with no telemetry to answer
+with is the one that went.
+
+Its behaviour also changed on the way out, which matters only if you vendored it: it joins
+**every** text block instead of returning the first. Anthropic interleaves text with `thinking`
+and `tool_use` blocks, so a reply split across two text blocks used to come back cut at the
+first, and a first block carrying `null` used to discard the rest entirely — which the
+completion path then reported as an exhausted output budget.
+
+## 8. The time defaults change
 
 <!-- PENDING: MS2 F-2 — the seven time values. Enforced by ci/check_pending.sh, which the
      release workflow runs: the tag cannot be cut while this marker is here. -->

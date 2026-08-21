@@ -198,6 +198,17 @@ pub enum FinishReason {
     /// is the only property anything downstream asks of them -- the reply is not
     /// short because it ran out of room -- so the remedy for an empty one is never
     /// to raise the cap.
+    ///
+    /// # What the fold costs, said plainly
+    ///
+    /// This variant does not carry the word that produced it, so a report of a
+    /// refusal reads `Stop` and the fact that the model REFUSED is gone from it.
+    /// A real loss, chosen rather than overlooked: the alternatives were a variant
+    /// per vendor word -- which does not scale past two vendors -- or a payload
+    /// here, which would touch every construction and match of a type nothing
+    /// outside the crate needs the payload from. **Every consumer of this value
+    /// consumes exactly one property.** The day one needs the word, the payload is
+    /// the fix.
     Stop,
     /// The output budget ran out before the model finished.
     ///
@@ -311,7 +322,15 @@ impl FinishReason {
             // wire; it can only reach a correct answer by a route nobody planned.
             "stop" | "content_filter" | "tool_calls" | "function_call" | "end_turn"
             | "stop_sequence" | "tool_use" | "refusal" | "pause_turn" => Self::Stop,
-            "length" => Self::Length,
+            // The budget half of the same union. `max_tokens` is Anthropic's word for it
+            // and `model_context_window_exceeded` is Anthropic's out-of-room response --
+            // read as `Length` because that is what it is, and the same condition the
+            // compat wire reports as `"length"`, so ONE condition does not read as two
+            // things depending on which backend answered. Leaving these two behind while
+            // moving the not-the-budget words was worse than not merging at all: it made
+            // `Other` mean "unpublished" for the words nobody was arguing about and
+            // "published but untranslated" for the two this release is named after.
+            "length" | "max_tokens" | "model_context_window_exceeded" => Self::Length,
             "load" => Self::Load,
             other => {
                 let cut = other
@@ -345,7 +364,7 @@ impl FinishReason {
 /// it once — `Unsupported` gained `chars` and `text` mid-milestone — so treat the shape as not
 /// yet settled, and prefer a new variant over a new field where the two would serve equally.
 #[non_exhaustive]
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ReasoningState {
     /// **Nobody measured.** NOT `Measured { chars: 0 }`, which would assert that
     /// something looked and saw zero. It is the same criterion that makes the
@@ -607,6 +626,55 @@ impl CompletionTelemetry {
     }
 }
 
+impl std::fmt::Debug for ReasoningState {
+    /// Renders the state without the trace, marking the elision rather than hiding it.
+    ///
+    /// `#[derive(Debug)]` printed the opt-in trace: model-authored text that never passes
+    /// the `Validator` and is never redacted. Anything composed with `{:?}` therefore
+    /// carried it -- a diagnostic in this crate did, and a consumer logging a
+    /// [`crate::error::ProviderError`] the same way still would, since that type derives
+    /// `Debug` and can hold this one. Composing carefully at each site is a rule someone
+    /// eventually applies wrong; at the type there is nothing to apply.
+    ///
+    /// The elision is **announced**, following the same shape `ClaudeProvider` uses for its
+    /// API key: a `Debug` that silently drops a field misleads the developer reading it,
+    /// while one that says a field was withheld tells them exactly where to look.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotMeasured => f.write_str("NotMeasured"),
+            Self::Unsupported {
+                backend,
+                chars,
+                text,
+            } => f
+                .debug_struct("Unsupported")
+                .field("backend", backend)
+                .field("chars", chars)
+                .field("text", &elided(text))
+                .finish(),
+            Self::Measured { chars, text } => f
+                .debug_struct("Measured")
+                .field("chars", chars)
+                .field("text", &elided(text))
+                .finish(),
+        }
+    }
+}
+
+/// How a withheld trace is announced inside [`ReasoningState`]'s `Debug`.
+///
+/// # Parameters
+/// * `text` — the trace, when the consumer opted into carrying it.
+///
+/// # Returns
+/// A marker naming the length, never the content.
+fn elided(text: &Option<String>) -> String {
+    match text {
+        Some(t) => format!("<{} chars withheld>", t.chars().count()),
+        None => "None".to_string(),
+    }
+}
+
 impl ReasoningState {
     /// The state rendered as a MEASUREMENT, with the trace text left out.
     ///
@@ -621,6 +689,11 @@ impl ReasoningState {
     ///
     /// A short description naming the state and, where one exists, the length -- never
     /// the trace itself.
+    ///
+    /// Gated: the Anthropic provider is the only composer of a diagnostic that carries the
+    /// reasoning state, and a helper compiled where nothing calls it is dead weight the
+    /// linter is right to name.
+    #[cfg(feature = "claude-api")]
     pub(crate) fn measurement(&self) -> String {
         match self {
             Self::NotMeasured => "not measured".to_string(),
@@ -2720,6 +2793,53 @@ mod tests {
     ];
 
     #[test]
+    fn debug_never_prints_the_trace_however_it_is_composed() {
+        // At the TYPE, not at each call site. The trace is model-authored text that never
+        // passes the `Validator` and is never redacted; one diagnostic in this crate carried
+        // it through `{:?}` before this impl existed, and a consumer logging a
+        // `ProviderError` -- which derives `Debug` and can hold this -- still would.
+        //
+        // The elision is announced rather than silent, the same shape `ClaudeProvider` uses
+        // for its API key: a `Debug` that drops a field misleads whoever reads it.
+        let secret = "a private chain of thought";
+        for state in [
+            ReasoningState::Measured {
+                chars: secret.chars().count(),
+                text: Some(secret.to_string()),
+            },
+            ReasoningState::Unsupported {
+                backend: "anthropic".to_string(),
+                chars: Some(secret.chars().count()),
+                text: Some(secret.to_string()),
+            },
+        ] {
+            let rendered = format!("{state:?}");
+            assert!(
+                !rendered.contains(secret),
+                "the trace reached a Debug rendering: {rendered}"
+            );
+            assert!(
+                rendered.contains("withheld"),
+                "the elision must be announced, not silent: {rendered}"
+            );
+            assert!(
+                rendered.contains("26"),
+                "the length survives, because that is the measurement: {rendered}"
+            );
+        }
+
+        // And it survives one level up, which is the case that actually reaches a consumer.
+        let wrapped = format!(
+            "{:?}",
+            CompletionTelemetry::unmeasured().with_reasoning(ReasoningState::Measured {
+                chars: secret.chars().count(),
+                text: Some(secret.to_string()),
+            })
+        );
+        assert!(!wrapped.contains(secret), "{wrapped}");
+    }
+
+    #[test]
     fn the_published_wire_vocabularies_are_translated_and_nothing_else_is() {
         // Lives HERE, next to `from_wire`, and NOT only in the provider that motivated it:
         // `openai_compat.rs` is feature-gated, so the per-commit run on the default feature
@@ -2757,7 +2877,22 @@ mod tests {
             );
         }
 
-        assert_eq!(FinishReason::from_wire("length"), FinishReason::Length);
+        // The budget half: published on one wire or the other, and the message must
+        // PRESCRIBE for these rather than say the budget cannot be told.
+        for raw in ["length", "max_tokens", "model_context_window_exceeded"] {
+            assert_eq!(
+                FinishReason::from_wire(raw),
+                FinishReason::Length,
+                "{raw} is how a wire says the response ran out of room"
+            );
+            assert_eq!(
+                CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::from_wire(raw))
+                    .budget_bearing(),
+                BudgetBearing::MayExplain,
+                "{raw} is exactly the case the cap can explain"
+            );
+        }
         assert_eq!(FinishReason::from_wire("load"), FinishReason::Load);
 
         // And the complement: `Other` is what no vendor publishes, on either wire.

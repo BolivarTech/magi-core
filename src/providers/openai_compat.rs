@@ -541,26 +541,7 @@ mod tests {
     /// otherwise make the file "contain" the needle it is checking for.
     #[test]
     fn the_openai_compatible_provider_never_acquires_native_routing() {
-        // Line endings NORMALIZED before splitting, and this is not defensive
-        // programming: `core.autocrlf` is on for this repo, so a Windows checkout has
-        // CRLF on disk. `include_str!` embeds those bytes verbatim while rustc
-        // normalizes the multi-line literal below to LF -- so the split silently found
-        // nothing, `production` became the WHOLE file including this module, and the
-        // guard failed on its own message. It could as easily have failed the other
-        // way on a needle that only lives in the test half.
-        let src = include_str!("openai_compat.rs").replace(
-            "
-", "
-",
-        );
-        let production = src
-            .split(
-                "
-#[cfg(test)]
-mod ",
-            )
-            .next()
-            .unwrap_or(&src);
+        let production = production_half(include_str!("openai_compat.rs"));
         // BOTH spellings, because the crate does not use the one this guard used to check.
         // `OllamaProvider` addresses the native endpoint as a SEGMENT LIST -- `&["api",
         // "chat"]` (ollama.rs) -- so the literal `/api/chat` never appears in routing code and
@@ -885,6 +866,61 @@ mod ",
         assert_eq!(r.choices[0].message.reasoning.as_deref(), Some("abc"));
     }
 
+    /// The half of this file that ships, with line endings normalized.
+    ///
+    /// # Two properties, and the second is why this is a function
+    ///
+    /// **Normalization**: `core.autocrlf` is on for this repo, so a Windows checkout has
+    /// CRLF on disk. `include_str!` embeds those bytes verbatim while rustc normalizes the
+    /// multi-line marker below to LF, so the split silently found nothing and the
+    /// "production half" became the WHOLE file. These guards then evaluated their own error
+    /// messages. **The dangerous direction is the other one**: a guard whose needle lives
+    /// only in the production half would have PASSED while guarding nothing.
+    ///
+    /// **The split is asserted**, which the first fix did not do. Removing the
+    /// normalization, renaming the module, or any other reason the marker stops matching
+    /// now fails HERE, by name, instead of degrading each caller into a guard over the
+    /// whole file. A silent fallback is what put this class in the tree twice.
+    ///
+    /// # Parameters
+    /// * `src` — the file's own source, from `include_str!`.
+    ///
+    /// # Returns
+    /// Everything before the `#[cfg(test)]` module that opens the test half.
+    ///
+    /// # Panics
+    /// If the marker is absent, which means the split guarded nothing.
+    fn production_half(src: &str) -> String {
+        let normalized = src.replace("\r\n", "\n");
+        let marker = "\n#[cfg(test)]\nmod ";
+        assert!(
+            normalized.contains(marker),
+            "the test-module marker was not found, so every guard built on this would have scanned the whole file and reported success while checking nothing"
+        );
+        normalized
+            .split(marker)
+            .next()
+            .expect("split always yields at least one part")
+            .to_string()
+    }
+
+    #[test]
+    fn the_production_half_is_found_whatever_the_checkout_did_to_line_endings() {
+        // Pins the property independently of how THIS repo happens to be cloned. Without
+        // it the fix is one revert from disarming again, and CI -- which runs on LF --
+        // could never see it.
+        let crlf = "fn ships() {}\r\n#[cfg(test)]\r\nmod tests {\r\n    fn hidden() {}\r\n}\r\n";
+        let half = production_half(crlf);
+        assert!(
+            half.contains("ships"),
+            "the production half must survive: {half}"
+        );
+        assert!(
+            !half.contains("hidden"),
+            "the test half must be cut off even on a CRLF checkout: {half}"
+        );
+    }
+
     #[test]
     fn the_response_structs_stay_private() {
         // A-3: they are wire plumbing. `OpenAiRequest`/`OpenAiMessage` are already
@@ -894,26 +930,7 @@ mod ",
         // Scans only the PRODUCTION half, split at the `#[cfg(test)]` that opens
         // this module: `include_str!` embeds the test source too, so this literal
         // would otherwise make the file "contain" the needle it checks for.
-        // Line endings NORMALIZED before splitting, and this is not defensive
-        // programming: `core.autocrlf` is on for this repo, so a Windows checkout has
-        // CRLF on disk. `include_str!` embeds those bytes verbatim while rustc
-        // normalizes the multi-line literal below to LF -- so the split silently found
-        // nothing, `production` became the WHOLE file including this module, and the
-        // guard failed on its own message. It could as easily have failed the other
-        // way on a needle that only lives in the test half.
-        let src = include_str!("openai_compat.rs").replace(
-            "
-", "
-",
-        );
-        let production = src
-            .split(
-                "
-#[cfg(test)]
-mod ",
-            )
-            .next()
-            .unwrap_or(&src);
+        let production = production_half(include_str!("openai_compat.rs"));
         for needle in [
             "pub struct OpenAiResponse",
             "pub struct OpenAiChoice",

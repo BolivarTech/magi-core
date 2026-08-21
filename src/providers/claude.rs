@@ -128,65 +128,6 @@ struct ClaudeUsage {
     input_tokens: Option<u32>,
 }
 
-/// Translates Anthropic's `stop_reason` vocabulary to this crate's
-/// [`FinishReason`] at the provider boundary (T-5.3) — the same translation
-/// [`crate::providers::ollama_wire`] performs for the native wire's
-/// `done_reason`. Public API vocabulary stays vendor-neutral; the translation
-/// lives entirely inside the provider that speaks the vendor's wire.
-///
-/// # Parameters
-/// * `raw` — the value Anthropic sent.
-///
-/// # Returns
-/// [`FinishReason::Length`] for the two values that mean the response ran out of
-/// room, [`FinishReason::Stop`] for the values that end a turn for a reason that
-/// is **not** the budget, and [`FinishReason::Other`] for anything else, via
-/// [`FinishReason::from_wire`] (capped at 64 characters).
-///
-/// # Every value Anthropic documents is translated, and that is the point
-///
-/// What lands in [`FinishReason::Other`] decides what the empty-completion message
-/// is allowed to claim: an untranslated reason means crate::error::REMEDY_UNKNOWN, so a reason
-/// left there by oversight turns a knowable case into an unknowable one. Three
-/// values used to fall through here and each was a live defect:
-///
-/// * `model_context_window_exceeded` is Anthropic's out-of-room response. It reads
-///   as [`FinishReason::Length`] because that is what it is — the same condition the
-///   OpenAI-compatible wire reports as `"length"`, so the two wires now agree. Its
-///   remedy is not always "raise the cap", which is why the message for `Length`
-///   names the prompt as the other possibility instead of prescribing blindly.
-/// * `refusal` and `pause_turn` end a turn on terms the backend named, and neither
-///   is the output budget. They join `end_turn`, `stop_sequence` and `tool_use`.
-///
-/// # What the fold costs, said plainly
-///
-/// [`FinishReason::Stop`] does not carry the word that produced it, so a report of a
-/// refusal now reads `Stop` and the fact that the model REFUSED is gone from it. That
-/// is a real loss and it is chosen, not overlooked. The alternatives were a variant per
-/// vendor word — which does not scale past two vendors — or a payload on `Stop`, which
-/// would touch every construction and match of a type nothing outside the crate needs
-/// the payload from. **Every consumer of this value consumes exactly one property**: the
-/// reply is not short because it ran out of room. The day a consumer needs the word, the
-/// payload is the fix, and it is additive for `Other` and a major for `Stop`.
-///
-/// The same trade decides `model_context_window_exceeded`. Reading it as `Length` folds
-/// away Anthropic's own disambiguation between an undersized budget and an oversized
-/// prompt — a distinction the OpenAI-compatible wire does not make at all. It is folded
-/// so that ONE condition does not read as two different things depending on which
-/// backend answered, and the message pays for it by naming both causes and printing
-/// `prompt_tokens` instead of prescribing one. If that disambiguation is ever needed
-/// programmatically, the answer is a dedicated variant, not un-folding this one.
-fn map_stop_reason(raw: &str) -> FinishReason {
-    match raw {
-        // Only where Anthropic DIFFERS from the shared table. Its not-the-budget words --
-        // `end_turn`, `stop_sequence`, `tool_use`, `refusal`, `pause_turn` -- live in
-        // `from_wire` beside the compat wire's, so that `Other` means "no vendor publishes
-        // this" on both wires rather than per-wire, which is what four rustdocs claim.
-        "max_tokens" | "model_context_window_exceeded" => FinishReason::Length,
-        other => FinishReason::from_wire(other),
-    }
-}
-
 /// Whether the budget question alone routes a contentless reply to
 /// [`ProviderError::EmptyCompletion`].
 ///
@@ -359,7 +300,7 @@ impl ClaudeProvider {
     ///
     /// # Returns
     /// A [`Completion`] whose telemetry carries `stop_reason` (mapped through
-    /// [`map_stop_reason`]) and `usage`'s token counts when Anthropic sent
+    /// [`FinishReason::from_wire`]) and `usage`'s token counts when Anthropic sent
     /// them, and [`ReasoningState::Unsupported`] when the caller asked to
     /// disable reasoning. With [`ReasoningControl::Default`] the reasoning
     /// state is [`ReasoningState::NotMeasured`] — nothing was asked, so
@@ -386,7 +327,7 @@ impl ClaudeProvider {
 
         let mut telemetry = CompletionTelemetry::unmeasured();
         if let Some(raw) = response.stop_reason.as_deref() {
-            telemetry = telemetry.with_finish(map_stop_reason(raw));
+            telemetry = telemetry.with_finish(FinishReason::from_wire(raw));
         }
         if let Some(usage) = response.usage {
             if let Some(n) = usage.output_tokens {
@@ -768,21 +709,21 @@ mod tests {
         assert_eq!(out.text, "response text");
     }
 
-    /// `parse_response` joins EVERY text block, because the message is the sequence of them.
+    /// Text extraction joins EVERY text block, because the message is the sequence of them.
     ///
     /// It used to return the first one and this test pinned that, which made the data loss look
     /// deliberate. Anthropic interleaves text with thinking and tool_use blocks, so a reply
     /// split across two text blocks came back truncated at the first — and with a `null` or
     /// empty first block, came back as nothing at all.
     #[test]
-    fn test_parse_response_joins_every_text_block() {
+    fn text_extraction_joins_every_text_block() {
         let json = r#"{"content": [{"type": "text", "text": "first"}, {"type": "text", "text": " second"}], "id": "msg_1", "model": "m", "role": "assistant"}"#;
         assert_eq!(parse_ok(json).text, "first second");
     }
 
-    /// parse_response returns error when no text content block found.
+    /// An empty `content` array is a broken contract: nothing was sent at all.
     #[test]
-    fn test_parse_response_error_when_no_text_block() {
+    fn an_empty_content_array_is_a_contract_failure() {
         let json = r#"{"content": [], "id": "msg_1", "model": "m", "role": "assistant"}"#;
         assert!(matches!(
             parse_any(json),
@@ -790,7 +731,7 @@ mod tests {
         ));
     }
 
-    /// parse_response returns error on invalid JSON.
+    /// A body serde cannot read is a broken contract, and says which half.
     /// A verdict in a LATER text block is not lost to an earlier empty or null one.
     ///
     /// `text_of` took the first block of type `text` and then read its payload, so a first block
@@ -885,7 +826,7 @@ mod tests {
         // table above asserts VARIANTS and throws the telemetry away -- so nothing checked
         // that the reason reaching the guard is the reason reaching the message. Round C
         // rewrote the advice and the whole suite stayed green through a one-line mutation
-        // of `map_stop_reason`'s fallback, which is how the two rounds before it got in.
+        // of the shared table's fallback, which is how the two rounds before it got in.
         //
         // The shape is text-only-and-empty on purpose: it reaches `EmptyCompletion` for
         // every termination, so what the message says is decided by the termination alone.
@@ -968,9 +909,8 @@ mod tests {
         // A value NO vendor publishes. This is what reaches `BudgetBearing::Unknown`, and
         // nothing else in this file does.
         let novel = r#""stop_reason":"brand_new_reason""#;
-        // The fifth cell. `map_stop_reason` hands anything it does not know to
-        // `from_wire`, which DOES interpret "load" — so this reaches `FinishReason::Load`
-        // and not `Other`, and the axis has five states, not four.
+        // The fifth cell. `from_wire` DOES interpret "load", so this reaches
+        // `FinishReason::Load` and not `Other`: the axis has five states, not four.
         let loading = r#""stop_reason":"load""#;
         // A BLANK payload, not merely an empty one. The compat wire trims before deciding, so
         // "all empty" is really "all blank" and only half of it was asserted.
@@ -1065,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_response_error_on_invalid_json() {
+    fn an_unreadable_body_is_a_contract_failure() {
         assert!(matches!(
             parse_any("not json"),
             Err(crate::error::ProviderError::ResponseContract {
