@@ -50,8 +50,8 @@
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787316632.595246,
-    "ast_hash": "e614697a92581728f8c265b0d984c55d",
+    "mtime": 1787317935.6465921,
+    "ast_hash": "96775d7d1efaf340e0f0aacb4c3c64e4",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787307526.2837403,
-    "ast_hash": "dac7cb1cc1de763321a1b217438f5768",
+    "mtime": 1787317935.7124317,
+    "ast_hash": "dd9d4068ed98ba55a9c668b1f974b04f",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
