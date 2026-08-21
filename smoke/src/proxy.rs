@@ -432,11 +432,22 @@ pub struct RequestRecord {
     /// stripped them could not watch the thing it exists to watch.
     ///
     /// The consequence is that this field may hold a secret **verbatim**, and nothing redacts
-    /// it. VERIFIED at the time of writing: no assertion message interpolates a record path and
-    /// the certificate renders scenario names and states only, so nothing here reaches a
-    /// committed file. That is a property of the current readers, not of the type — so anything
-    /// that starts rendering a path must redact it first. The crate's own rule applies: state
-    /// the boundary, because a limitation nobody wrote down is one somebody walks past.
+    /// it.
+    ///
+    /// VERIFIED at the time of writing, and stated at the width it was actually checked: no
+    /// SCENARIO message interpolates a record path, and the certificate renders scenario names
+    /// and states only — so nothing here reaches a committed file. Unit-test assertions in this
+    /// module DO print a path when they fail, deliberately, and that output is not committed
+    /// anywhere.
+    ///
+    /// The first version of this paragraph claimed no assertion message anywhere interpolates
+    /// one, which a test in this very file falsifies. A "VERIFIED" written wider than what was
+    /// verified is worse than no claim, because the next reader trusts it instead of looking.
+    ///
+    /// It is a property of the current readers, not of the type — so anything that starts
+    /// rendering a path into committed output must redact it first. The crate's own rule
+    /// applies: state the boundary, because a limitation nobody wrote down is one somebody
+    /// walks past.
     pub path: String,
     /// **Computed over the FULL body, whatever the recording cap says.** If it
     /// were computed over a capped prefix, `S2b` — which compares transparency

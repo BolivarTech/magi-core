@@ -360,6 +360,19 @@ impl ClaudeProvider {
         //
         // An unreadable block ALONGSIDE a readable one still makes the total unknown: counting
         // only what parsed would report a partial read as the channel's full size.
+        //
+        // KNOWN LIMIT, decided rather than overlooked: "fired but unreadable" and "never fired"
+        // both come out as `NotMeasured`, because `ReasoningState` has no state between them and
+        // adding one is public surface. It is not added because the distinction changes NO
+        // decision: either way the operator cannot see the reasoning, and the remedy — raise the
+        // budget, or turn the channel off where a provider honours it — is identical. What DOES
+        // change their decision is where the budget went, and `completion_tokens` on the same
+        // record answers that.
+        //
+        // The cost is real and belongs in the open: an opted-in trace is dropped when any block
+        // is unreadable, since `NotMeasured` carries no text. If a consumer ever needs the
+        // readable part of a partially-redacted channel, that is the evidence for a fourth
+        // state — and this crate adds surface on evidence, not on anticipation.
         let thinking_blocks = response
             .content
             .iter()
@@ -444,8 +457,17 @@ impl ClaudeProvider {
             // is the misdiagnosis this whole release exists to end, re-created one level
             // down by the fix for it. An absent reason still qualifies: unknown is not the
             // same as known-to-be-something-else.
-            Some(_) | None
-                if had_content && matches!(telemetry.finish, None | Some(FinishReason::Length)) =>
+            // A text block that EXISTS and is empty is the compat wire's case exactly: the
+            // contract shape came back and the content is empty, so the model returned nothing
+            // and the termination reason does not change that. Routing it through the narrowing
+            // made the two wires classify one shape they can BOTH receive differently -- the
+            // cross-wire disagreement this delta closed one level up, surviving one level down.
+            Some(_) => Err(ProviderError::EmptyCompletion { telemetry, cap }),
+            // NO text block at all is the case the narrowing is for: `tool_use` or
+            // `redacted_thinking` content that was never cut, which only a `Length` (or
+            // unknown) termination lets us call a budget cut.
+            None if had_content
+                && matches!(telemetry.finish, None | Some(FinishReason::Length)) =>
             {
                 Err(ProviderError::EmptyCompletion { telemetry, cap })
             }
@@ -684,6 +706,42 @@ mod tests {
     /// block and NO text block. Propagating that with `?` used to discard the telemetry
     /// assembled one line above -- including the `max_tokens` stop reason -- and report a
     /// broken contract instead of the budget cut it actually was. Third wire, same defect.
+    /// An EMPTY text block is an empty completion on both wires, whatever ended the turn.
+    ///
+    /// The narrowing that stopped calling a `tool_use` response a budget cut also caught this,
+    /// and it should not have: the contract shape DID come back, the content is simply empty, so
+    /// the model returned nothing exactly as it does on the compat wire — which classifies the
+    /// same shape as `EmptyCompletion` regardless of termination. One shape both wires receive,
+    /// answered two ways, is the cross-wire disagreement this round closed one level up.
+    #[test]
+    fn an_empty_text_block_is_an_empty_completion_like_the_other_wire() {
+        for stop in ["end_turn", "stop_sequence"] {
+            let json =
+                format!(r#"{{"content":[{{"type":"text","text":""}}],"stop_reason":"{stop}"}}"#);
+            match super::ClaudeProvider::parse_completion(
+                &json,
+                super::ReasoningControl::Default,
+                4096,
+                false,
+            ) {
+                Err(crate::error::ProviderError::EmptyCompletion { .. }) => {}
+                other => panic!("{stop}: expected EmptyCompletion, got {other:?}"),
+            }
+        }
+
+        // And the narrowing still holds for what it was FOR: a non-text block the budget never
+        // cut stays a contract failure.
+        match super::ClaudeProvider::parse_completion(
+            r#"{"content":[{"type":"tool_use","id":"t"}],"stop_reason":"tool_use"}"#,
+            super::ReasoningControl::Default,
+            4096,
+            false,
+        ) {
+            Err(crate::error::ProviderError::ResponseContract { .. }) => {}
+            other => panic!("a tool_use response is not a budget cut: {other:?}"),
+        }
+    }
+
     #[test]
     fn an_anthropic_budget_cut_with_no_text_block_names_the_budget_not_a_broken_contract() {
         let json = r#"{"content":[{"type":"thinking","thinking":"a long deliberation"}],
@@ -807,7 +865,9 @@ mod tests {
     fn a_present_but_empty_thinking_payload_is_a_measured_zero_like_the_other_wire() {
         let json = r#"{"content":[{"type":"thinking","thinking":""},
                                   {"type":"text","text":"a"}]}"#;
-        let out = super::ClaudeProvider::parse_completion(
+        // BOTH arms, like the sibling test in this file. Pinning one and covering the other
+        // "by construction" is how the previous round's half-sweep looked whole.
+        let default = super::ClaudeProvider::parse_completion(
             json,
             super::ReasoningControl::Default,
             4096,
@@ -816,11 +876,27 @@ mod tests {
         .expect("parses");
         assert!(
             matches!(
-                out.telemetry.reasoning,
+                default.telemetry.reasoning,
                 crate::provider::ReasoningState::Measured { chars: 0, .. }
             ),
             "an empty payload was READ and was empty, got {:?}",
-            out.telemetry.reasoning
+            default.telemetry.reasoning
+        );
+
+        let disabled = super::ClaudeProvider::parse_completion(
+            json,
+            super::ReasoningControl::Disabled,
+            4096,
+            false,
+        )
+        .expect("parses");
+        assert!(
+            matches!(
+                disabled.telemetry.reasoning,
+                crate::provider::ReasoningState::Unsupported { chars: Some(0), .. }
+            ),
+            "the declaration carries the same measured zero, got {:?}",
+            disabled.telemetry.reasoning
         );
     }
 
