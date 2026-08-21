@@ -15,8 +15,8 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1787337176.9887848,
-    "ast_hash": "0956daabf8f7e7dec378bc9b5bc71a24",
+    "mtime": 1787339718.3471656,
+    "ast_hash": "f9ac48cb58a02e7a54cd26ec61e85764",
     "semantic_hash": ""
   },
   "src/finding_id.rs": {
@@ -45,13 +45,13 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787338430.0409267,
+    "mtime": 1787339462.3009892,
     "ast_hash": "32764826bddee50ed7d8ba8e06cc0b89",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787338167.2985928,
-    "ast_hash": "c7de21aa298ed0ae13e55c38d5811bf1",
+    "mtime": 1787339790.073742,
+    "ast_hash": "6c04070bcda7bc11cb821bc6df911128",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -65,8 +65,8 @@
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
-    "mtime": 1787309995.7810636,
-    "ast_hash": "a112668d92d4d0038c80c2f1321b4d3d",
+    "mtime": 1787339346.2384012,
+    "ast_hash": "f3b07686586f3f97f5939887bc32144e",
     "semantic_hash": ""
   },
   "src/reporting.rs": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787338216.8950028,
-    "ast_hash": "803cc0a0e65ba0c9d843d6ac17f18663",
+    "mtime": 1787339790.1908522,
+    "ast_hash": "e0755d4143238e4674ac970a5d06672f",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
