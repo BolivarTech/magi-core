@@ -143,18 +143,10 @@ impl OpenAiResponse {
         let OpenAiRespMessage { content, reasoning } = message;
         let content = content.unwrap_or_default();
 
-        if content.trim().is_empty() {
-            // Absent, null, empty and blank all mean the same thing: the server sent no content.
-            //
-            // `NoGeneration` is deliberately NOT considered here. Its discriminant is a set of
-            // NATIVE wire fields that do not exist in this format, so there is no way to assert
-            // the defect is ours — and this crate takes the reversible route when it cannot tell.
-            // Aborting a run on a guess is the failure this release exists to stop making.
-            return Err(ProviderError::EmptyCompletion {
-                finish: finish_reason,
-                cap,
-            });
-        }
+        // Assembled BEFORE the empty-content branch, deliberately. `resp-C.json` -- the capture
+        // this milestone is named after -- is an EMPTY completion whose `reasoning` field holds
+        // the whole budget the model burned. Building the telemetry after the branch dropped
+        // exactly that, so the report named the cut and lost its cause.
 
         // ORDER MATTERS: the CONTROL resolves before the trace. A provider that was asked for
         // `Disabled` and cannot honour it declares `Unsupported` even when the body carries
@@ -181,7 +173,7 @@ impl OpenAiResponse {
         };
 
         let mut telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
-        if let Some(f) = finish_reason {
+        if let Some(f) = finish_reason.clone() {
             telemetry = telemetry.with_finish(f);
         }
         if let Some(n) = usage.completion_tokens {
@@ -189,6 +181,16 @@ impl OpenAiResponse {
         }
         if let Some(n) = usage.prompt_tokens {
             telemetry = telemetry.with_prompt_tokens(n);
+        }
+
+        if content.trim().is_empty() {
+            // Absent, null, empty and blank all mean the same thing: the server sent no content.
+            //
+            // `NoGeneration` is deliberately NOT considered here. Its discriminant is a set of
+            // NATIVE wire fields that do not exist in this format, so there is no way to assert
+            // the defect is ours — and this crate takes the reversible route when it cannot tell.
+            // Aborting a run on a guess is the failure this release exists to stop making.
+            return Err(ProviderError::EmptyCompletion { telemetry, cap });
         }
         Ok(Completion::new(content).with_telemetry(telemetry))
     }
@@ -804,16 +806,23 @@ mod tests {
         let err = r
             .into_completion(4096, false, ReasoningControl::Default)
             .expect_err("no content is a failure");
-        assert!(
-            matches!(
-                err,
-                ProviderError::EmptyCompletion {
-                    finish: Some(FinishReason::Length),
-                    cap: 4096
-                }
+        let ProviderError::EmptyCompletion { telemetry, cap } = &err else {
+            panic!("expected EmptyCompletion, got {err:?}");
+        };
+        assert_eq!(*cap, 4096, "the cap that cut it travels with the error");
+        assert_eq!(telemetry.finish, Some(FinishReason::Length));
+        // THE POINT OF THE FIXTURE. `resp-C` is an empty completion whose `reasoning` field
+        // holds the entire budget the model burned; reporting the cut without it leaves the
+        // operator with "empty, budget 4096" and no evidence of where the budget went. This
+        // assertion fails if the measurement is ever dropped on the way out again.
+        assert_eq!(telemetry.completion_tokens, Some(4096));
+        match &telemetry.reasoning {
+            ReasoningState::Measured { chars, .. } => assert!(
+                *chars > 10_000,
+                "the burned reasoning must survive the empty path, got {chars}"
             ),
-            "the cap that cut it travels with the error: {err:?}"
-        );
+            other => panic!("expected a measured trace on the empty path, got {other:?}"),
+        }
     }
 
     #[test]

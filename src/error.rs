@@ -234,14 +234,26 @@ pub enum ProviderError {
     /// Retrying with the same budget reproduces the failure by construction, and that is
     /// measured, not assumed.
     #[error(
-        "empty completion: the model returned no content (termination: {finish:?}). \
+        "empty completion: the model returned no content (termination: {:?}). \
          The output budget in force was {cap} tokens, configurable via \
-         `CompletionConfig::max_tokens`."
+         `CompletionConfig::max_tokens`.",
+        .telemetry.finish
     )]
     #[non_exhaustive]
     EmptyCompletion {
-        /// The termination reason the backend reported, when it reported one.
-        finish: Option<crate::provider::FinishReason>,
+        /// What the provider measured about the completion that came back empty.
+        ///
+        /// It carries the termination reason, the token counts and -- the reason this is a
+        /// whole telemetry rather than a lone reason -- the **reasoning measurement**. That is
+        /// the exact failure this release exists to diagnose: the model spent its entire output
+        /// budget reasoning and emitted nothing. Reporting the cut without the number that
+        /// explains it leaves the operator with "empty, budget 16384" and no evidence of where
+        /// the budget went, which is the blindness this milestone set out to end.
+        ///
+        /// It is the same type the success path returns, so
+        /// [`CompletionRecord::from_telemetry`](crate::reporting::CompletionRecord::from_telemetry)
+        /// fills a record identically either way: one shape, not two that can drift.
+        telemetry: crate::provider::CompletionTelemetry,
         /// The output budget in force for the completion that came back empty.
         ///
         /// It exists so the MESSAGE can name the number the operator has to change. It is not
@@ -735,7 +747,8 @@ mod tests {
         // The whole point of the diagnosis axis: the message has to contain its own fix. An
         // operator reading "http error 0" went and looked at a network that answered 200.
         let rendered = ProviderError::EmptyCompletion {
-            finish: Some(crate::provider::FinishReason::Length),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
             cap: 4096,
         }
         .to_string();
@@ -1123,7 +1136,8 @@ mod tests {
         // number that cut the completion AND say that the number is theirs to change,
         // or it diagnoses without being actionable.
         let e = ProviderError::EmptyCompletion {
-            finish: Some(crate::provider::FinishReason::Length),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
             cap: 16_384,
         };
         let s = e.to_string();
@@ -1143,11 +1157,13 @@ mod tests {
         // The two need opposite remedies — raise the budget, or look at the model —
         // so a message that renders them identically has diagnosed nothing.
         let a = ProviderError::EmptyCompletion {
-            finish: Some(crate::provider::FinishReason::Stop),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Stop),
             cap: 16_384,
         };
         let b = ProviderError::EmptyCompletion {
-            finish: Some(crate::provider::FinishReason::Length),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
             cap: 16_384,
         };
         assert_ne!(a.to_string(), b.to_string());
@@ -1192,7 +1208,8 @@ mod tests {
         // read than the thing it guards is the one that gets deleted.
         let rendered = [
             ProviderError::EmptyCompletion {
-                finish: Some(crate::provider::FinishReason::Length),
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(crate::provider::FinishReason::Length),
                 cap: 16_384,
             }
             .to_string(),

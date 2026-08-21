@@ -136,15 +136,18 @@ async fn a_budget_exhausted_completion_is_named_for_what_it_is_and_carries_no_ht
         .await
         .expect_err("an empty completion is a failure");
 
+    let ProviderError::EmptyCompletion { telemetry, .. } = &err else {
+        panic!("expected EmptyCompletion carrying the termination, got {err:?}");
+    };
+    assert_eq!(telemetry.finish, Some(FinishReason::Length));
+    // Observed from OUTSIDE the crate, through `complete()`, which is the only view a
+    // consumer has: the measurement that explains the cut must survive all the way out,
+    // not merely exist inside the parser.
+    assert_eq!(telemetry.completion_tokens, Some(4096));
     assert!(
-        matches!(
-            err,
-            ProviderError::EmptyCompletion {
-                finish: Some(FinishReason::Length),
-                ..
-            }
-        ),
-        "expected EmptyCompletion carrying the termination, got {err:?}"
+        matches!(telemetry.reasoning, ReasoningState::Measured { chars, .. } if chars > 10_000),
+        "the burned reasoning must reach the caller, got {:?}",
+        telemetry.reasoning
     );
     assert!(
         !matches!(err, ProviderError::Http { .. }),

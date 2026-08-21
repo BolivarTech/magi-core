@@ -1475,12 +1475,14 @@ fn record_attempt(
         // instead of ending the run — this arm silently starts DROPPING attempts that would
         // then have somewhere to go. Change the two together.
         Ok(Err(ProviderError::NoGeneration { .. })) => {}
-        Ok(Err(ProviderError::EmptyCompletion {
-            finish: Some(reason),
-            ..
-        })) => {
-            records.push(CompletionRecord::new(model.to_string(), cap).with_finish(reason.clone()))
-        }
+        // Symmetric with the success arm on purpose: an empty completion now carries the SAME
+        // telemetry a successful one does, so the record is filled the same way. It used to
+        // keep only the termination reason, which said the completion was cut and threw away
+        // the reasoning length that explains WHY -- on the one failure this release exists to
+        // diagnose.
+        Ok(Err(ProviderError::EmptyCompletion { telemetry, .. })) => records.push(
+            CompletionRecord::from_telemetry(model.to_string(), cap, telemetry),
+        ),
         // Every other failure, and a timeout: the attempt happened and nothing was measured.
         Ok(Err(_)) | Err(_) => records.push(CompletionRecord::new(model.to_string(), cap)),
     }
@@ -2926,11 +2928,12 @@ mod tests {
                 detail: String::new(),
             },
             ProviderError::EmptyCompletion {
-                finish: Some(FinishReason::Length),
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
                 cap: 4096,
             },
             ProviderError::EmptyCompletion {
-                finish: None,
+                telemetry: crate::provider::CompletionTelemetry::unmeasured(),
                 cap: 4096,
             },
         ];
@@ -2994,7 +2997,8 @@ mod tests {
         }
 
         let empty = ProviderError::EmptyCompletion {
-            finish: Some(crate::provider::FinishReason::Length),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
             cap: 4096,
         };
         match provider_err_outcome(empty) {
@@ -3036,7 +3040,7 @@ mod tests {
                 detail: String::new(),
             },
             ProviderError::EmptyCompletion {
-                finish: None,
+                telemetry: crate::provider::CompletionTelemetry::unmeasured(),
                 cap: 16_384,
             },
             ProviderError::NoGeneration { done_reason: None },
@@ -6171,7 +6175,8 @@ mod tests {
             "mock",
             "cut-model",
             vec![Err(ProviderError::EmptyCompletion {
-                finish: Some(FinishReason::Length),
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
                 cap: 4096,
             })],
         ));
@@ -6501,7 +6506,8 @@ mod tests {
             "mock",
             "deepseek",
             vec![Err(ProviderError::EmptyCompletion {
-                finish: Some(FinishReason::Length),
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
                 cap: 16_384,
             })],
         )) as Arc<dyn LlmProvider>;

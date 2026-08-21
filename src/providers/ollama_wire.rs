@@ -304,24 +304,10 @@ impl NativeResponse {
         let NativeRespMessage { content, thinking } = message;
         let content = content.unwrap_or_default();
 
-        if content.trim().is_empty() {
-            // ORDER MATTERS: the full fingerprint is checked FIRST, because it
-            // is the strictly narrower case. Checking `EmptyCompletion` first
-            // would make the crate-defect branch unreachable.
-            if is_crate_defect(
-                eval_count,
-                prompt_eval_count,
-                done_reason.as_ref(),
-                &content,
-            ) {
-                return Err(ProviderError::NoGeneration { done_reason });
-            }
-            return Err(ProviderError::EmptyCompletion {
-                finish: done_reason,
-                cap,
-            });
-        }
-
+        // The telemetry is assembled BEFORE the empty-content branch, and that ordering is the
+        // fix rather than an accident of style. Built after it, the branch returned an error
+        // that had thrown away `thinking` -- so on the ONE failure this release exists to
+        // diagnose, the report named the cut and lost the measurement that explains it.
         // A MEASURED zero, not `NotMeasured`, and the asymmetry with the compat path is
         // deliberate. On THIS wire the crate did look at a channel it knows how to read: the
         // field appears whenever there is reasoning to report (fixture `native-N2`) and is
@@ -342,7 +328,7 @@ impl NativeResponse {
             },
         };
         let mut telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
-        if let Some(f) = done_reason {
+        if let Some(f) = done_reason.clone() {
             telemetry = telemetry.with_finish(f);
         }
         if let Some(n) = eval_count {
@@ -350,6 +336,21 @@ impl NativeResponse {
         }
         if let Some(n) = prompt_eval_count {
             telemetry = telemetry.with_prompt_tokens(n);
+        }
+
+        if content.trim().is_empty() {
+            // ORDER MATTERS: the full fingerprint is checked FIRST, because it
+            // is the strictly narrower case. Checking `EmptyCompletion` first
+            // would make the crate-defect branch unreachable.
+            if is_crate_defect(
+                eval_count,
+                prompt_eval_count,
+                done_reason.as_ref(),
+                &content,
+            ) {
+                return Err(ProviderError::NoGeneration { done_reason });
+            }
+            return Err(ProviderError::EmptyCompletion { telemetry, cap });
         }
         Ok(Completion::new(content).with_telemetry(telemetry))
     }
@@ -683,6 +684,37 @@ mod tests {
             c.telemetry.reasoning,
             ReasoningState::Measured { text: Some(t), .. } if t == "reasoning text"
         ));
+    }
+
+    #[test]
+    fn a_native_empty_completion_carries_the_reasoning_it_burned() {
+        // The native half of the defect the compat fixture `resp-C` shows: the model spends
+        // the whole budget in the reasoning channel and returns no content. Before the fix
+        // this branch destructured `thinking` and never used it, so the ONE failure this
+        // release exists to diagnose reported the cut and dropped its cause.
+        let body = serde_json::json!({
+            "model": "m",
+            "message": { "role": "assistant", "content": "", "thinking": "x".repeat(15_409) },
+            "done": true,
+            "done_reason": "length",
+            "eval_count": 16_384,
+            "prompt_eval_count": 63_926,
+        })
+        .to_string();
+        let r: NativeResponse = serde_json::from_str(&body).unwrap();
+        match r.into_completion(16_384, false) {
+            Err(ProviderError::EmptyCompletion { telemetry, cap }) => {
+                assert_eq!(cap, 16_384);
+                assert_eq!(telemetry.finish, Some(FinishReason::Length));
+                assert_eq!(telemetry.completion_tokens, Some(16_384));
+                assert_eq!(telemetry.prompt_tokens, Some(63_926));
+                match telemetry.reasoning {
+                    ReasoningState::Measured { chars, .. } => assert_eq!(chars, 15_409),
+                    other => panic!("expected the burned reasoning, got {other:?}"),
+                }
+            }
+            other => panic!("expected EmptyCompletion, got {other:?}"),
+        }
     }
 
     #[test]

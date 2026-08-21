@@ -1419,7 +1419,8 @@ mod tests {
         // Without this, `RetryProvider` would retry OUR OWN bad request four times and the abort
         // would land after the whole chain had been burned.
         assert!(!is_retryable(&ProviderError::EmptyCompletion {
-            finish: Some(FinishReason::Length),
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(FinishReason::Length),
             cap: 4096,
         }));
         assert!(!is_retryable(&ProviderError::NoGeneration {
@@ -1451,7 +1452,7 @@ mod tests {
                 detail: String::new(),
             }),
             classify(&ProviderError::EmptyCompletion {
-                finish: None,
+                telemetry: crate::provider::CompletionTelemetry::unmeasured(),
                 cap: 16_384,
             }),
             classify(&ProviderError::NoGeneration { done_reason: None }),

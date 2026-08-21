@@ -292,8 +292,19 @@ impl LlmProvider for ScriptProvider {
             Beh::Ok => Ok(Completion::new(valid_verdict_for_current_agent())),
             Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
             Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
+            // Modelled on `resp-C.json`, the capture this milestone is named after: the model
+            // spent the WHOLE budget reasoning and emitted nothing, so `completion_tokens`
+            // equals the cap and the reasoning measurement is non-zero. A double that returned
+            // a bare termination reason would let an integration test believe the empty path
+            // carries no measurement -- which is precisely the defect being fixed.
             Beh::EmptyCompletion => Err(ProviderError::EmptyCompletion {
-                finish: Some(crate::provider::FinishReason::Length),
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(crate::provider::FinishReason::Length)
+                    .with_completion_tokens(16_384)
+                    .with_reasoning(crate::provider::ReasoningState::Measured {
+                        chars: 15_409,
+                        text: None,
+                    }),
                 cap: 16_384,
             }),
             Beh::NoGeneration => Err(ProviderError::NoGeneration {
