@@ -45,18 +45,18 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787283489.518183,
-    "ast_hash": "6ccedd271b7f7ef3baa7bc3ffbfb2dd5",
+    "mtime": 1787306288.715562,
+    "ast_hash": "4d08b4d06cca64248fd95c7cd447d204",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787304994.9589405,
-    "ast_hash": "4a948972e64e9c886ece628f9845ba3b",
+    "mtime": 1787307051.5393,
+    "ast_hash": "2a335ad85215e13c1b002be015856eae",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
-    "mtime": 1787259329.9574103,
-    "ast_hash": "f019359a6165e97d5e2e4bda5049d333",
+    "mtime": 1787306175.2929583,
+    "ast_hash": "0229dbb985f9cc11cf33b293d183267d",
     "semantic_hash": ""
   },
   "src/providers/mod.rs": {
@@ -65,13 +65,13 @@
     "semantic_hash": ""
   },
   "src/providers/openai_compat.rs": {
-    "mtime": 1787283417.8336122,
-    "ast_hash": "e817db68592e49ada9cfaaa0446de079",
+    "mtime": 1787306288.7175632,
+    "ast_hash": "f94084cae57caead9393a1d3c5043255",
     "semantic_hash": ""
   },
   "src/reporting.rs": {
-    "mtime": 1787286545.9883535,
-    "ast_hash": "53204eba866dcdee368e58490d6b02c8",
+    "mtime": 1787306288.7205622,
+    "ast_hash": "da8b082679078bd70588c8ddf8ea8730",
     "semantic_hash": ""
   },
   "src/schema.rs": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "smoke/src/proxy.rs": {
-    "mtime": 1787304651.4182272,
-    "ast_hash": "f585650afdcd8ef5db179b031441c8a0",
+    "mtime": 1787306923.5425892,
+    "ast_hash": "5c14ee5f8d9b2f4bb4ea0784ded060a5",
     "semantic_hash": ""
   },
   "smoke/src/report.rs": {
@@ -800,8 +800,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/e1.rs": {
-    "mtime": 1787304446.1627002,
-    "ast_hash": "6b828ff66280d815c442441451efbabc",
+    "mtime": 1787306923.8740158,
+    "ast_hash": "1cff6700dbea30fc8d8a640a40b86289",
     "semantic_hash": ""
   },
   "smoke/README.md": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787289324.3493586,
-    "ast_hash": "46c43bce80276abe3723ad1fd64634fb",
+    "mtime": 1787307526.2837403,
+    "ast_hash": "dac7cb1cc1de763321a1b217438f5768",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
