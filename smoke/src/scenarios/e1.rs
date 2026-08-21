@@ -659,19 +659,24 @@ fn why_the_forced_failure_cannot_be_read(ctx: &RunContext<'_>) -> Option<String>
 /// prefix. So `kind == Transport` separates transport from schema and timeout,
 /// and nothing more.
 ///
-/// The name now says what the body checks. **The spec clause is DEFERRED to
-/// E2**, where the EC major's typed `RotationKind` variants make the property
-/// expressible; asserting it here would have left a green row under a sentence
-/// the code could not support, which is the shape of green-by-omission this
-/// harness exists to refuse.
+/// The name says what the body checks. It once carried a deferral to "E2, where the typed
+/// `RotationKind` variants make the property expressible" -- and **E2 is this milestone**, so
+/// the destination arrived while the sentence went on reading as a live limitation. It claimed
+/// the crate CANNOT tell mage-local from run-wide, which stopped being true, and that name is
+/// copied verbatim into the release certificate.
+///
+/// With the variants typed, the property is asserted the strong way round: the injected failure
+/// is a real HTTP `503`, which is transport, so the rotation must NOT be reported as mage-local.
+/// Going through `is_mage_local()` exercises the accessor the major added for exactly this --
+/// matching the variant by hand would mean keeping a list, which is the drift that accessor
+/// exists to prevent.
 fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
     const NAME_WIRE: &str =
         "the injected failure reached a completion request over the wire, not a coincidence";
     const NAME_ROTATED: &str =
         "the injected agent rotated to a second, differently-lineaged candidate";
     const NAME_CAUSE: &str =
-        "the reported rotation cause is Transport, not Schema or Timeout (3.2.0 cannot \
-         distinguish mage-local from run-wide; deferred to E2)";
+        "the injected 503 rotates as run-wide Transport, never as a mage-local cause";
 
     if ctx.proxy_degraded {
         let reason = "the proxy registry degraded during this run";
@@ -732,7 +737,9 @@ fn s4_rotation_and_its_cause(ctx: &RunContext<'_>) -> Vec<Assertion> {
     );
     let cause = assert_that(
         NAME_CAUSE,
-        first_hop.is_some_and(|hop| matches!(hop.kind(), RotationKind::Transport)),
+        first_hop.is_some_and(|hop| {
+            hop.kind() == RotationKind::Transport && !hop.kind().is_mage_local()
+        }),
     );
 
     vec![wire, rotated, cause]
