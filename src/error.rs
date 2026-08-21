@@ -57,8 +57,15 @@ pub enum AbandonReason {
 ///
 /// The third branch is the one that took two rounds to get right. Saying "not the
 /// budget" for a reason this crate does not interpret asserts a negative it cannot
-/// support: `model_context_window_exceeded` reaches it and *is* about running out
-/// of room. So the unknown case says what is true -- that it cannot be told.
+/// support. So the unknown case says what is true -- that it cannot be told -- and
+/// the vendor vocabularies were widened until only genuinely novel values land
+/// there.
+///
+/// **The prescribing branch is hedged, and it has to be.** `Length` covers two
+/// conditions with OPPOSITE remedies -- an undersized output budget and a prompt
+/// that filled the context window -- because that is how both wires report them.
+/// Prescribing the cap unconditionally would have been the same defect as the one
+/// above, one branch over: correct for half the inputs and harmful for the rest.
 ///
 /// # Parameters
 ///
@@ -70,7 +77,9 @@ pub enum AbandonReason {
 fn empty_completion_remedy(bearing: crate::provider::BudgetBearing) -> &'static str {
     use crate::provider::BudgetBearing as B;
     match bearing {
-        B::MayExplain => ", configurable via `CompletionConfig::max_tokens`.",
+        B::MayExplain => {
+            ", configurable via `CompletionConfig::max_tokens`. If `prompt_tokens` is already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them."
+        }
         B::RuledOut => {
             ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` does not address this."
         }

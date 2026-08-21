@@ -91,7 +91,8 @@ pub(crate) struct ClaudeMessage {
 ///
 /// `stop_reason` and `usage` are `#[serde(default)]`: a body that omits either
 /// (or both) must still parse (A-3) — the text extraction in
-/// [`ClaudeProvider::parse_response`] never depended on them.
+/// [`ClaudeProvider::parse_completion`] reads them, and the text extraction
+/// never depended on them.
 #[derive(Debug, Deserialize)]
 struct ClaudeResponse {
     content: Vec<ContentBlock>,
@@ -137,17 +138,60 @@ struct ClaudeUsage {
 /// * `raw` — the value Anthropic sent.
 ///
 /// # Returns
-/// [`FinishReason::Length`] for `"max_tokens"` — the output-budget cut this
-/// crate's diagnosis axis exists to surface — [`FinishReason::Stop`] for the
-/// three values Anthropic documents as the model finishing on its own terms,
-/// and [`FinishReason::Other`] for anything else, via
-/// [`FinishReason::from_wire`] (capped at 64 characters, open space: Anthropic
-/// could add a fourth value at any time).
+/// [`FinishReason::Length`] for the two values that mean the response ran out of
+/// room, [`FinishReason::Stop`] for the values that end a turn for a reason that
+/// is **not** the budget, and [`FinishReason::Other`] for anything else, via
+/// [`FinishReason::from_wire`] (capped at 64 characters).
+///
+/// # Every value Anthropic documents is translated, and that is the point
+///
+/// What lands in [`FinishReason::Other`] decides what the empty-completion message
+/// is allowed to claim: an untranslated reason means "cannot be told", so a reason
+/// left there by oversight turns a knowable case into an unknowable one. Three
+/// values used to fall through here and each was a live defect:
+///
+/// * `model_context_window_exceeded` is Anthropic's out-of-room response. It reads
+///   as [`FinishReason::Length`] because that is what it is — the same condition the
+///   OpenAI-compatible wire reports as `"length"`, so the two wires now agree. Its
+///   remedy is not always "raise the cap", which is why the message for `Length`
+///   names the prompt as the other possibility instead of prescribing blindly.
+/// * `refusal` and `pause_turn` end a turn on terms the backend named, and neither
+///   is the output budget. They join `end_turn`, `stop_sequence` and `tool_use`.
 fn map_stop_reason(raw: &str) -> FinishReason {
     match raw {
-        "end_turn" | "stop_sequence" | "tool_use" => FinishReason::Stop,
-        "max_tokens" => FinishReason::Length,
+        "end_turn" | "stop_sequence" | "tool_use" | "refusal" | "pause_turn" => FinishReason::Stop,
+        "max_tokens" | "model_context_window_exceeded" => FinishReason::Length,
         other => FinishReason::from_wire(other),
+    }
+}
+
+/// Whether the budget question alone routes a contentless reply to
+/// [`ProviderError::EmptyCompletion`].
+///
+/// **An exhaustive `match`, not a comparison.** `== MayExplain` would let a fourth
+/// [`crate::provider::BudgetBearing`] state be added and silently join the `false`
+/// side — the identical hazard the `budget_bearing` rustdoc argues against one
+/// module over, re-created at the call site by an operator that does not force a
+/// decision. This way a new state stops the build here and someone chooses.
+///
+/// # Parameters
+/// * `t` — the telemetry read from the same response the message will describe.
+///
+/// # Returns
+/// `true` only for [`crate::provider::BudgetBearing::MayExplain`].
+///
+/// # `Unknown` is `false`, and the guard and the message DO answer different questions
+///
+/// The message says "whether the budget was reached cannot be told"; the guard has to
+/// route anyway, and it declines to overrule the block shape on a maybe. That is not a
+/// contradiction — a reply carrying a `tool_use` block and no text produced *something*,
+/// which is a fact about the shape, not about the budget. Since every value Anthropic and
+/// the OpenAI-compatible wire document is now translated, `Unknown` means a value neither
+/// vendor has published, and filing that as a broken contract is the conservative read.
+fn budget_routes_here(t: &CompletionTelemetry) -> bool {
+    match t.budget_bearing() {
+        crate::provider::BudgetBearing::MayExplain => true,
+        crate::provider::BudgetBearing::RuledOut | crate::provider::BudgetBearing::Unknown => false,
     }
 }
 
@@ -239,27 +283,6 @@ impl ClaudeProvider {
         }
     }
 
-    /// Parses a Claude Messages API response JSON string and extracts the
-    /// first text content block.
-    ///
-    /// # Parameters
-    /// - `body`: Raw JSON response body from the API.
-    ///
-    /// # Returns
-    /// The text content of the first `"text"` content block, or a
-    /// `ProviderError` if parsing fails or no text block is found.
-    pub fn parse_response(body: &str) -> Result<String, ProviderError> {
-        // Keeps its `Result` contract: this entry point returns only the text, so it has no
-        // telemetry with which to tell a budget cut from a broken shape. `parse_completion`,
-        // which does, draws that distinction instead.
-        Self::text_of(Self::deserialize_body(body)?.content).ok_or(
-            ProviderError::ResponseContract {
-                reason: crate::error::ResponseContractCause::NoMessage,
-                detail: String::new(),
-            },
-        )
-    }
-
     /// Deserializes the body ONCE, so a caller that also wants telemetry does not pay for a
     /// second full parse of the same bytes into the same type. The body is bounded by the cap
     /// derived from `max_tokens`, so "parse it twice" is not free: it is one extra pass over up
@@ -303,7 +326,7 @@ impl ClaudeProvider {
 
     /// Parses a Claude Messages API response body into a [`Completion`],
     /// carrying whatever telemetry Anthropic reported alongside the text
-    /// [`Self::parse_response`] already extracts.
+    /// [`Self::text_of`] already extracts.
     ///
     /// # Parameters
     /// * `body` — the raw JSON response body.
@@ -330,7 +353,7 @@ impl ClaudeProvider {
     /// text now comes from the same parse the telemetry does.
     ///
     /// # Errors
-    /// Same as [`Self::parse_response`].
+    /// Same as [`Self::deserialize_body`].
     pub(crate) fn parse_completion(
         body: &str,
         reasoning: ReasoningControl,
@@ -351,7 +374,7 @@ impl ClaudeProvider {
                 telemetry = telemetry.with_prompt_tokens(n);
             }
         }
-        // Taken from the SAME parse: reading the text through `parse_response` here would
+        // Taken from the SAME parse: deserializing the body a second time here would
         // deserialize these very bytes a second time into this very type.
         let had_content = !response.content.is_empty();
         // Counted BEFORE the content is consumed, and counted at all because Anthropic does
@@ -493,15 +516,8 @@ impl ClaudeProvider {
             //
             // Which collapses to: the budget could explain it, OR nothing but text came back.
             // The budget question is asked of ONE function, the same one the message
-            // branches on, so the guard and the wording cannot drift apart. Only
-            // `MayExplain` routes here: an unrecognised reason leaves the budget
-            // undecided, and "undecided" is not a reason to overrule the block shape.
-            Some(_) | None
-                if had_content
-                    && (telemetry.budget_bearing()
-                        == crate::provider::BudgetBearing::MayExplain
-                        || !had_non_text) =>
-            {
+            // branches on, so the guard and the wording cannot drift apart.
+            Some(_) | None if had_content && (budget_routes_here(&telemetry) || !had_non_text) => {
                 Err(ProviderError::EmptyCompletion { telemetry, cap })
             }
             _ => Err(ProviderError::response_contract(
@@ -692,13 +708,32 @@ mod tests {
 
     // -- Response parsing --
 
-    /// parse_response extracts text content from Claude response format.
+    /// Drives the shipping entry point with the defaults these tests do not vary.
+    fn parse_any(body: &str) -> Result<crate::provider::Completion, crate::error::ProviderError> {
+        super::ClaudeProvider::parse_completion(
+            body,
+            crate::provider::ReasoningControl::Default,
+            16_384,
+            false,
+        )
+    }
+
+    /// `parse_any` for the cases that must succeed.
+    fn parse_ok(body: &str) -> crate::provider::Completion {
+        parse_any(body).expect("parses")
+    }
+
+    /// Text extraction from the Claude response format.
+    ///
+    /// Against `parse_completion`, the entry point that ships. It used to be asserted through
+    /// a second public parser that returned only the text -- which gave the two of them
+    /// OPPOSITE answers for a reply whose only text block was empty, so the one that could
+    /// not tell a budget cut from a broken shape was removed rather than reconciled.
     #[test]
     fn test_parse_claude_response_extracts_text_content() {
         let json = r#"{"content": [{"type": "text", "text": "response text"}], "id": "msg_1", "model": "claude-sonnet-4-6", "role": "assistant"}"#;
-        let result = super::ClaudeProvider::parse_response(json);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "response text");
+        let out = parse_ok(json);
+        assert_eq!(out.text, "response text");
     }
 
     /// `parse_response` joins EVERY text block, because the message is the sequence of them.
@@ -710,16 +745,17 @@ mod tests {
     #[test]
     fn test_parse_response_joins_every_text_block() {
         let json = r#"{"content": [{"type": "text", "text": "first"}, {"type": "text", "text": " second"}], "id": "msg_1", "model": "m", "role": "assistant"}"#;
-        let result = super::ClaudeProvider::parse_response(json);
-        assert_eq!(result.expect("parses"), "first second");
+        assert_eq!(parse_ok(json).text, "first second");
     }
 
     /// parse_response returns error when no text content block found.
     #[test]
     fn test_parse_response_error_when_no_text_block() {
         let json = r#"{"content": [], "id": "msg_1", "model": "m", "role": "assistant"}"#;
-        let result = super::ClaudeProvider::parse_response(json);
-        assert!(result.is_err());
+        assert!(matches!(
+            parse_any(json),
+            Err(crate::error::ProviderError::ResponseContract { .. })
+        ));
     }
 
     /// parse_response returns error on invalid JSON.
@@ -759,6 +795,80 @@ mod tests {
     /// Six shapes this wire can send once no usable text came back. Asserting them together is
     /// what makes a later edit that satisfies one cell and breaks another fail here rather than
     /// three reviews downstream.
+    /// Six shapes this wire can send once no usable text came back. Asserting them together is
+    /// what makes a later edit that satisfies one cell and breaks another fail here rather than
+    /// three reviews downstream.
+    #[test]
+    fn the_budget_question_is_asked_in_exactly_one_place_in_this_file() {
+        // The claim that guard and message share ONE implementation is what makes the
+        // agreement between them structural rather than remembered. Nothing enforced it:
+        // re-inlining a copy of the rule here is behaviour-identical today, so no
+        // behavioural test can see it, and the two copies then drift on the next edit --
+        // which is exactly how this decision arrived at its third round.
+        //
+        // Scans source, which is coarse. It is the honest tool for the property, because
+        // the property IS about the source: a second reader of `telemetry.finish` in this
+        // file is the defect, whatever it computes.
+        let src = include_str!("claude.rs");
+        let body = src
+            .split("mod tests {")
+            .next()
+            .expect("the non-test half is what ships");
+        assert_eq!(
+            body.matches("telemetry.finish").count(),
+            1,
+            "`telemetry.finish` is read once outside the tests, to render the observed reason into the contract detail. Reading it a second time to re-decide the budget question is the drift this test exists to stop; ask `budget_bearing` instead."
+        );
+    }
+
+    #[test]
+    fn the_wire_string_decides_the_advice_the_operator_reads() {
+        // END TO END, from the raw `stop_reason` to the rendered sentence, because the
+        // table above asserts VARIANTS and throws the telemetry away -- so nothing checked
+        // that the reason reaching the guard is the reason reaching the message. Round C
+        // rewrote the advice and the whole suite stayed green through a one-line mutation
+        // of `map_stop_reason`'s fallback, which is how the two rounds before it got in.
+        //
+        // The shape is text-only-and-empty on purpose: it reaches `EmptyCompletion` for
+        // every termination, so what the message says is decided by the termination alone.
+        let cases: [(&str, &str); 8] = [
+            // the budget may be the explanation -> the message carries its own fix
+            (r#""stop_reason":"max_tokens""#, "configurable via"),
+            // Anthropic's out-of-room value. It is `Length` because it IS running out of
+            // room; the hedge in that sentence is what keeps the advice honest for it.
+            (
+                r#""stop_reason":"model_context_window_exceeded""#,
+                "configurable via",
+            ),
+            // absent: unknown is not evidence that the budget was untouched
+            (r#""id":"msg_1""#, "configurable via"),
+            // reasons the backend named, none of them the budget
+            (r#""stop_reason":"end_turn""#, "does not address"),
+            (r#""stop_reason":"refusal""#, "does not address"),
+            (r#""stop_reason":"pause_turn""#, "does not address"),
+            (r#""stop_reason":"load""#, "does not address"),
+            // a value no vendor publishes: neither direction is supportable
+            (r#""stop_reason":"brand_new_reason""#, "cannot be told"),
+        ];
+
+        for (stop, expected) in cases {
+            let body = format!(r#"{{"content":[{{"type":"text","text":""}}],{stop}}}"#);
+            let rendered = match super::ClaudeProvider::parse_completion(
+                &body,
+                crate::provider::ReasoningControl::Default,
+                16_384,
+                false,
+            ) {
+                Err(e) => e.to_string(),
+                other => panic!("{stop} should be an empty completion -> {other:?}"),
+            };
+            assert!(
+                rendered.contains(expected),
+                "{stop} must render advice containing {expected:?} -> {rendered}"
+            );
+        }
+    }
+
     #[test]
     fn every_shape_with_no_usable_text_lands_where_the_table_says() {
         let cut = r#""stop_reason":"max_tokens""#;
@@ -864,8 +974,13 @@ mod tests {
 
     #[test]
     fn test_parse_response_error_on_invalid_json() {
-        let result = super::ClaudeProvider::parse_response("not json");
-        assert!(result.is_err());
+        assert!(matches!(
+            parse_any("not json"),
+            Err(crate::error::ProviderError::ResponseContract {
+                reason: crate::error::ResponseContractCause::Unreadable,
+                ..
+            })
+        ));
     }
 
     // -- Task 11: telemetry the HTTP provider CAN report --

@@ -188,7 +188,16 @@ const MAX_FINISH_REASON_CHARS: usize = 64;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FinishReason {
-    /// The model finished on its own.
+    /// The turn ended on terms the backend named, and the output budget was not
+    /// one of them.
+    ///
+    /// Wider than "the model finished its answer", and it always was: `tool_use`
+    /// has mapped here since the wire translation existed, and a turn that stops to
+    /// call a tool has not finished anything. `refusal`, `pause_turn`,
+    /// `content_filter`, `tool_calls` and `stop_sequence` join it. What they share
+    /// is the only property anything downstream asks of them -- the reply is not
+    /// short because it ran out of room -- so the remedy for an empty one is never
+    /// to raise the cap.
     Stop,
     /// The output budget ran out before the model finished.
     ///
@@ -290,7 +299,12 @@ impl FinishReason {
     /// ```
     pub fn from_wire(raw: &str) -> Self {
         match raw {
-            "stop" => Self::Stop,
+            // `content_filter`, `tool_calls` and `function_call` are documented
+            // OpenAI terminations, and none of them is the output budget. Left
+            // untranslated they reached `Other`, where the empty-completion message
+            // says the budget "cannot be told" -- an unknown claimed about a value
+            // the vendor publishes. `Other` is for what no vendor has published.
+            "stop" | "content_filter" | "tool_calls" | "function_call" => Self::Stop,
             "length" => Self::Length,
             "load" => Self::Load,
             other => {

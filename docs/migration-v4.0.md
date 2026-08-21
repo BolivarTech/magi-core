@@ -269,24 +269,46 @@ pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
-### `ClaudeProvider::parse_response` joins every text block
+### `ClaudeProvider::parse_response` is gone
 
-**Before:** it returned the first `text` block's payload.
+**Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
 
-**After:** it joins them all, in order.
+**After:** removed. Nothing replaces it, and nothing inside the crate called it either.
 
-**What you do:** nothing, unless you relied on the truncation. Anthropic interleaves text with
-`thinking` and `tool_use` blocks, so a reply split across two text blocks used to come back cut
-at the first — and a first block carrying `null` or `""` used to discard the rest entirely,
-which the completion path then reported as an exhausted output budget. The old behaviour lost
-content; this is the fix, not a change of policy.
+**What you do:** call `complete()`. If you were parsing a captured body outside a request there
+is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite
+answers for the identical body**. A reply whose only text block is empty is `Ok("")` through
+`parse_response` and `EmptyCompletion` through `complete()`. One of those says the call
+succeeded and the other says the model produced nothing — and a release whose entire subject is
+telling those two apart cannot ship both as public answers. The one with no telemetry to answer
+with is the one that went.
 
-**One case changes from `Err` to `Ok`, and it is worth knowing about.** A response whose only
-text block carries a `null` payload used to be `Err(ResponseContract)`, because reading that one
-block yielded nothing. It is now `Ok("")`: a text block was present, and what it held — nothing —
-is what you get. If you branched on the error to detect an empty reply, branch on the empty
-string instead. `complete()` is unaffected: it still classifies an empty reply as
-`EmptyCompletion`, which carries the telemetry explaining it.
+Its behaviour also changed on the way out, which matters only if you vendored it: it joins
+**every** text block instead of returning the first. Anthropic interleaves text with `thinking`
+and `tool_use` blocks, so a reply split across two text blocks used to come back cut at the
+first, and a first block carrying `null` used to discard the rest entirely — which the
+completion path then reported as an exhausted output budget.
+
+### The vendor termination vocabularies are fully translated
+
+**Before:** on the Anthropic wire, `end_turn`, `stop_sequence`, `tool_use` and `max_tokens` were
+translated and everything else became `FinishReason::Other`.
+
+**After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
+`model_context_window_exceeded` reads as `FinishReason::Length`. On the OpenAI-compatible wire,
+`content_filter`, `tool_calls` and `function_call` likewise read as `Stop`.
+
+**What you do:** nothing, unless you match on `FinishReason::Other` expecting to find those
+strings in it. **Why it changed** is the part worth keeping: what lands in `Other` decides what
+the empty-completion message is allowed to claim. An untranslated reason renders as "cannot be
+told"; a *documented* one left untranslated by oversight turned a knowable case into an
+unknowable one, and filed Anthropic's own out-of-room response as a broken contract. `Other` now
+means a value neither vendor has published.
+
+`FinishReason::Stop` is correspondingly wider than "the model finished its answer" — it always
+was, since `tool_use` mapped there and a turn that stops to call a tool has finished nothing.
+What its members share is the only property anything downstream asks of them: the reply is not
+short because it ran out of room.
 
 ### One field inside it is an `Option`, and the reason is the release's own thesis
 
