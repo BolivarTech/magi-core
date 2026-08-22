@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787385004.4487333,
-    "ast_hash": "26489090e4fdef882d6d61b4d0479d17",
+    "mtime": 1787392476.3671868,
+    "ast_hash": "be700af7ce7e17c270e7d02d8e908acc",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1787383951.189557,
-    "ast_hash": "fb63a51ef529cf3112cb8be5a0299d04",
+    "mtime": 1787392326.0041094,
+    "ast_hash": "bf5aba0a7f5c19ead8a3e42ba704f124",
     "semantic_hash": ""
   },
   "README.md": {
@@ -165,8 +165,8 @@
     "semantic_hash": ""
   },
   "tests/support/mock_server.rs": {
-    "mtime": 1787367607.2688277,
-    "ast_hash": "ea224bdea098671eda8b0239f66e3e10",
+    "mtime": 1787392295.2820897,
+    "ast_hash": "63395fcb74e320d2b2b60f36e4d81709",
     "semantic_hash": ""
   },
   "tests/support/mod.rs": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787380928.4871504,
-    "ast_hash": "52f22cca9e096ad3396b3c99c881ffc6",
+    "mtime": 1787392325.9981122,
+    "ast_hash": "429f6d18a570ad6258849dd1faa49a4f",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
@@ -925,8 +925,8 @@
     "semantic_hash": ""
   },
   "tests/retry_class_transition.rs": {
-    "mtime": 1787367663.400317,
-    "ast_hash": "f7bc0c28af7f4fb20ec48fec5e233629",
+    "mtime": 1787392435.388062,
+    "ast_hash": "16d48eaac7935597756d1c429eb59431",
     "semantic_hash": ""
   },
   "tests/cross_milestone.rs": {
