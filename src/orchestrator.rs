@@ -6935,9 +6935,13 @@ mod tests {
         // report success.
         //
         // The marker must be FOUND. Falling back to the whole file would make this test count its
-        // own literals, and it would disarm the day someone renames the module — silently, which
-        // is the direction that matters. (An earlier comment claimed the fallback would "fail for
-        // a reason that is not its own"; measured, it PASSED, which is worse.)
+        // own literals, and — the direction that matters — it would disarm silently the day
+        // someone renames the module.
+        //
+        // What the fallback does TODAY is fail (`sites = 5`, `uses = 7`), but that is an accident
+        // of how many times this module happens to name the helper: it counted 5 == 5 and PASSED
+        // until the phase test added two more mentions. A guard whose correctness depends on a
+        // tie being broken elsewhere is not a guard, which is why the marker is required instead.
         let cut = src
             .find(
                 "

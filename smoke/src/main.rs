@@ -1107,7 +1107,7 @@ mod tests {
 
     /// `evaluate` WIRES the session timings into the context, not merely accepts them.
     ///
-    /// Deleting `ctx.timings = session.timings;` left every unit test green, because all five
+    /// Deleting `ctx.timings = session.timings;` left every unit test green, because all six
     /// call sites in this module pass `None` — so nothing distinguished wired from unwired, and
     /// `S-F1`/`S-F2a` would have become permanent skips on a real run. This crosses the function
     /// with its consumer, the same shape as the crate's `the_window_guard_is_wired_into_...`.

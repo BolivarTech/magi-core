@@ -42,8 +42,8 @@ to leave alone.
   Waiting times change for a consumer who never configured them, which makes this a contract
   change rather than an internal adjustment. The budget is now a **backstop**: the per-class
   attempt count cuts first, and the budget exists so that if something escapes it the
-  abandonment is typed rather than an opaque cut. `450` is not free choice — it is the only
-  window that keeps both properties.
+  abandonment is typed rather than an opaque cut. `450` is not free choice: `[302, 603)` is
+  the only window that keeps both properties, and `450` sits inside it.
 - **The agent timeout message names the configured ceiling.** It cannot report a measurement —
   this path is only reached when our own timeout fires, so elapsed is always exactly the ceiling —
   so it publishes our number plainly rather than printing it twice as a false comparison. The new

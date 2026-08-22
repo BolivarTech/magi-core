@@ -5,7 +5,9 @@
 //! The scenario registry, one submodule per milestone that contributed scenarios.
 //!
 //! - `e1` — the twelve harness scenarios (`S1, S2, S2b, S4, S5, S6, S7, S14, S15, S16, S20, S21`).
-//! - `e2` — the ones `e1` deliberately deferred (`S3`, `S8`-`S13`, `S17`-`S19`), now implemented.
+//! - `e2` — the ones `e1` deferred that this stage does implement (`S3`, `S8`-`S13`).
+//!   `S17`-`S19` belong to stage E3 — the `published` mode, which cannot run before `4.0.0` is
+//!   on crates.io — and are deliberately absent here.
 //! - `f` — the axis-F scenarios of MS2 (`S-F1`, `S-F2a`, `S-F2b`, `S-F3`, `S-F4`, `S-F5`), three
 //!   of which run; the other three are out of scope from here, each with its reason in its own
 //!   name so the row still says why.
