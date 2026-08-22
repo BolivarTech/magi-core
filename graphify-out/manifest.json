@@ -740,8 +740,8 @@
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787298392.704399,
-    "ast_hash": "eaf37338413405dcc8cd5d5c23aac98b",
+    "mtime": 1787372153.082684,
+    "ast_hash": "b4c64b115be0643b8126c36937ef9634",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
@@ -775,13 +775,13 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787304616.0897803,
-    "ast_hash": "205cadee2b18abb01e5311dfb109ad4f",
+    "mtime": 1787372104.4814317,
+    "ast_hash": "f2093044f141d2a97ff5dd5ea41adffa",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
-    "mtime": 1787220733.610942,
-    "ast_hash": "3074b470d47ae3c0ccb3bbfc566b3393",
+    "mtime": 1787371517.5042214,
+    "ast_hash": "f3b35ccd814e891a029d73a88405ccb9",
     "semantic_hash": ""
   },
   "smoke/src/testkit.rs": {
@@ -932,6 +932,11 @@
   "tests/cross_milestone.rs": {
     "mtime": 1787370683.6608944,
     "ast_hash": "5ace1aa0f1c9b326d537edfeea74c1e9",
+    "semantic_hash": ""
+  },
+  "smoke/src/scenarios/f.rs": {
+    "mtime": 1787372023.612097,
+    "ast_hash": "1e482cf8a4e727bfb76190eee105a420",
     "semantic_hash": ""
   }
 }
