@@ -246,6 +246,7 @@ async fn main() -> std::process::ExitCode {
     // failure this harness exists to catch, committed by the harness itself.
     let mut scenarios = scenarios::e1_scenarios();
     scenarios.extend(scenarios::e2_scenarios());
+    scenarios.extend(scenarios::f_scenarios());
 
     // 1. Config, printed BEFORE anything runs: a run whose configuration is
     //    unstated cannot be read afterwards.
@@ -366,7 +367,10 @@ async fn main() -> std::process::ExitCode {
         run.erosion(),
         matrix.as_deref(),
         cli.no_backend,
-        status_before.as_deref(),
+        SessionFacts {
+            repo_status_before: status_before.as_deref(),
+            timings: runner::shipped_timings(),
+        },
     );
 
     // 6. Report, certificate, exit code.
@@ -482,6 +486,17 @@ fn cycle_run(cli: &Cli) -> report::CycleRun {
         report::CycleRun::First
     }
 }
+/// What a SESSION-scoped scenario reads, as opposed to a run's own observations.
+///
+/// Grouped rather than passed as two more parameters: the same branch reads both, and adding the
+/// second individually pushed `evaluate` past the argument count the linter accepts.
+#[derive(Debug, Clone, Copy, Default)]
+struct SessionFacts<'a> {
+    /// `git status` as it stood before any run started, or `None` when it could not be measured.
+    repo_status_before: Option<&'a str>,
+    /// The time budget this session configured, or `None` when no trio was built.
+    timings: Option<runner::Timings>,
+}
 
 /// Builds each scenario's context and evaluates it.
 ///
@@ -513,7 +528,10 @@ fn evaluate(
     erosion: &runner::ErosionProbe,
     matrix: Option<&[(String, runner::BuildOutcome)]>,
     no_backend: bool,
-    repo_status_before: Option<&str>,
+    // The two SESSION-scoped observables travel together rather than as two more parameters:
+    // they are read by the same branch, and splitting them pushed this signature past what the
+    // linter will accept — a signal worth heeding rather than silencing.
+    session: SessionFacts<'_>,
 ) -> Vec<report::AssertionRow> {
     let mut rows = Vec::new();
     for scenario in scenarios {
@@ -654,7 +672,10 @@ fn evaluate(
                 // Passed THROUGH, never wrapped: wrapping it in `Some(..)` made
                 // the scenario's own "no baseline, so skip" branch dead code,
                 // and its rustdoc said the opposite.
-                ctx.repo_status_before = repo_status_before;
+                ctx.repo_status_before = session.repo_status_before;
+                // The axis-F scenarios are properties of the CONSTRUCTION, so they read this
+                // rather than the wire — which is why they run under `--no-backend` too.
+                ctx.timings = session.timings;
             }
             runner::Source::Build => ctx.build_matrix = matrix,
         }
@@ -712,6 +733,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         injected_agent: None,
         build_matrix: None,
         repo_status_before: None,
+        timings: None,
     }
 }
 
@@ -1220,7 +1242,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             None,
             false,
-            None,
+            SessionFacts {
+                repo_status_before: None,
+                timings: None,
+            },
         );
         let row = rows
             .iter()
@@ -1264,7 +1289,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             None,
             false,
-            Some(""),
+            SessionFacts {
+                repo_status_before: Some(""),
+                timings: None,
+            },
         );
         for id in NOT_INDUCED_BY_A_PLAIN_RUN {
             let row = rows
@@ -1328,7 +1356,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             Some(&unrunnable),
             false,
-            Some(""),
+            SessionFacts {
+                repo_status_before: Some(""),
+                timings: None,
+            },
         );
         let s21 = rows
             .iter()
@@ -1536,7 +1567,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             None,
             false,
-            Some(""),
+            SessionFacts {
+                repo_status_before: Some(""),
+                timings: None,
+            },
         );
         let s1 = rows
             .iter()
@@ -1627,7 +1661,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             None,
             false,
-            None,
+            SessionFacts {
+                repo_status_before: None,
+                timings: None,
+            },
         );
         assert_eq!(
             COUNTED_RECORDS.with(|c| c.get()),
@@ -1652,7 +1689,10 @@ mod tests {
             &runner::ErosionProbe::default(),
             None,
             true,
-            Some(""),
+            SessionFacts {
+                repo_status_before: Some(""),
+                timings: None,
+            },
         );
 
         for scenario in &scenarios {

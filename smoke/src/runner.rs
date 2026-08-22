@@ -25,8 +25,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::alias::magi_core::error::MagiError;
-use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder};
-use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider, ReasoningControl};
+use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder, MagiConfig};
+use crate::alias::magi_core::provider::{
+    CompletionConfig, LlmProvider, ReasoningControl, RetryConfig, DEFAULT_CLIENT_TIMEOUT,
+};
 use crate::alias::magi_core::providers::ollama::OllamaProvider;
 use crate::alias::magi_core::providers::openai_compat::OpenAiCompatibleProvider;
 use crate::alias::magi_core::reporting::MagiReport;
@@ -138,6 +140,36 @@ pub enum ErrorClass {
 ///
 /// An assertion cannot reach the network on its own, which is what makes "one
 /// run, many assertions" cheap AND honest.
+/// The time budget as THIS session configured it, plus what it derives to.
+///
+/// # Why a struct and not seven fields on `RunContext`
+///
+/// They are one subject read together by one axis's scenarios, and seven separate fields would
+/// have to be threaded through every context literal individually.
+///
+/// # Why the names differ from the crate's
+///
+/// `rotations_configured` is what THIS harness built into its pool, not `MagiConfig::max_rotations`
+/// — the harness configures no fallbacks today, so it is `0`. Naming it after the crate's field
+/// would claim it reads that field.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Timings {
+    /// `Magi::worst_case_per_seat()` for the trio this session built.
+    pub worst_case_per_seat: Duration,
+    /// Rotation candidates THIS harness put in the pool.
+    pub rotations_configured: u32,
+    /// Whether the corrective schema retry is on, which doubles the calls per model.
+    pub schema_retry: bool,
+    /// The per-agent ceiling this session used.
+    pub agent_ceiling: Duration,
+    /// The three `RetryConfig` values the chain-vs-ceiling arithmetic needs.
+    pub retry_client_timeout: Duration,
+    /// How many retries a limited class gets.
+    pub retry_limited_max: u32,
+    /// The flat backoff between two attempts of a limited class.
+    pub retry_base_delay: Duration,
+}
+
 pub struct RunContext<'a> {
     /// Which shared run fed this assertion.
     pub run: RunId,
@@ -232,6 +264,12 @@ pub struct RunContext<'a> {
     /// harness for their own edits. What the scenario can honestly claim is that
     /// it added nothing.
     pub repo_status_before: Option<&'a str>,
+    /// The time budget this session configured, and what it derives to.
+    ///
+    /// `None` when nothing built a trio — under `--no-backend` the session still constructs one
+    /// to read these off it, so the axis-F scenarios that are pure construction properties do
+    /// run there. A scenario reading `None` SKIPS: a budget nobody configured says nothing.
+    pub timings: Option<Timings>,
 }
 
 impl RunContext<'static> {
@@ -265,6 +303,7 @@ impl RunContext<'static> {
             injected_agent: None,
             build_matrix: None,
             repo_status_before: None,
+            timings: None,
         }
     }
 }
@@ -1340,6 +1379,59 @@ fn classify_error(e: &MagiError) -> ErrorClass {
             ErrorClass::Environment
         }
         _ => ErrorClass::CrateFailure,
+    }
+}
+
+/// Builds a `Magi` whose time relations are ABSURD — a one-second agent ceiling against a
+/// five-minute client timeout, the relation F-3 declares broken — so a scenario can assert that
+/// NO time value makes construction fail.
+///
+/// Uses the same external stub as the `NoBackend` run: it touches no network.
+///
+/// # Parameters
+///
+/// * `ceiling` — the agent ceiling to impose, however unreasonable.
+pub fn build_with_absurd_timings(ceiling: Duration) -> Result<Magi, String> {
+    MagiBuilder::new(Arc::new(external::AlwaysFailsExternally) as Arc<dyn LlmProvider>)
+        .with_timeout(ceiling)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+/// Reads the time budget off a built `Magi` plus the shipped `RetryConfig` defaults.
+///
+/// # Why the defaults and not this session's retry config
+///
+/// The harness does NOT wrap its providers in `RetryProvider`, so no `RetryConfig` participates
+/// in its runs. What the axis-F scenarios check is a property of the values the crate SHIPS, and
+/// reading them from `Default` says exactly that rather than implying a configuration this
+/// session made.
+///
+/// # Parameters
+///
+/// * `magi` — the trio this session built.
+/// * `rotations` — how many candidates THIS harness put in the pool.
+pub fn shipped_timings() -> Option<Timings> {
+    // Built against the external stub, which touches no network: what the axis-F scenarios check
+    // is a property of the values the crate SHIPS, so the trio only has to exist to be read.
+    // The harness configures no fallback pool, hence zero rotations.
+    let magi = MagiBuilder::new(Arc::new(external::AlwaysFailsExternally) as Arc<dyn LlmProvider>)
+        .build()
+        .ok()?;
+    Some(timings_of(&magi, 0))
+}
+
+/// See [`shipped_timings`]; split out so a caller with its own trio can read that one instead.
+pub fn timings_of(magi: &Magi, rotations: u32) -> Timings {
+    let r = RetryConfig::default();
+    Timings {
+        worst_case_per_seat: magi.worst_case_per_seat(),
+        rotations_configured: rotations,
+        schema_retry: MagiConfig::default().retry_on_schema_error,
+        agent_ceiling: MagiConfig::default().timeout,
+        retry_client_timeout: DEFAULT_CLIENT_TIMEOUT,
+        retry_limited_max: r.limited_max_retries,
+        retry_base_delay: r.base_delay,
     }
 }
 

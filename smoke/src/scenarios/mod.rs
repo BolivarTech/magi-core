@@ -11,9 +11,11 @@
 
 mod e1;
 mod e2;
+mod f;
 
 pub use e1::e1_scenarios;
 pub use e2::e2_scenarios;
+pub use f::f_scenarios;
 
 #[cfg(test)]
 mod tests {

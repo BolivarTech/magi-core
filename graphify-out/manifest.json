@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1786341975.484979,
-    "ast_hash": "6c22a08e42190117736c5fa63a39e0bd",
+    "mtime": 1787371024.024683,
+    "ast_hash": "c0b60cf915a272c17eb2876be44ac24a",
     "semantic_hash": ""
   },
   "README.md": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787344903.5224867,
-    "ast_hash": "38c480576e9d9e587ec76b539ab87678",
+    "mtime": 1787370955.62533,
+    "ast_hash": "e6a46fa71197668f836cdcb83e626d21",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
