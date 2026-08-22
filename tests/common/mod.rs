@@ -221,8 +221,10 @@ pub fn captured_warnings<F: FnOnce()>(f: F) -> Vec<String> {
 
 /// A run whose Caspar seat talks to a backend that answers headers and never a body.
 ///
-/// The `RetryProvider` absorbs its own retries, so from the orchestrator's side this is **one**
-/// call and therefore **one** completion record. That is the point: it is the counter-example to
+/// The hanging provider is WRAPPED in a `RetryProvider`, which absorbs its own retries — so
+/// from the orchestrator's side this is **one** call and therefore **one** completion record.
+/// The wrapping is what makes the claim testable: unwrapped, one record would follow from one
+/// call whether retries were absorbed or not. That is the point: it is the counter-example to
 /// the corrective-retry helper below, which produces two.
 ///
 /// # Feature gate, stated rather than discovered
@@ -248,14 +250,25 @@ pub async fn run_against_a_hanging_backend()
         OpenAiCompatibleProvider::with_timeout(url, "m-hanging", None, Duration::from_millis(300))
             .expect("the hanging provider builds");
 
+    // WRAPPED in a `RetryProvider`, and that is load-bearing rather than decoration: without it
+    // the single record would come from a single call and the test would pass identically
+    // whether or not retries are absorbed — proving nothing about the mechanism it names.
+    // `MagiBuilder::build` does not wrap providers itself, which its own rustdoc states.
+    // Fields over `Default`: `RetryConfig` is `#[non_exhaustive]`, so the struct literal does not
+    // compile from OUTSIDE the crate — which is the 2.0 migration pattern its rustdoc documents,
+    // and a reminder that the in-crate form is not available here.
+    let mut retry_cfg = RetryConfig::default();
+    // Small enough that the absorbed retries cost milliseconds, not the shipped seconds.
+    retry_cfg.base_delay = Duration::from_millis(1);
+    let retrying: Arc<dyn LlmProvider> = Arc::new(RetryProvider::with_config(
+        Arc::new(hanging) as Arc<dyn LlmProvider>,
+        retry_cfg,
+    ));
+
     let magi =
         MagiBuilder::new(ScriptProvider::new("m-default", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
             .with_timeout(Duration::from_secs(5))
-            .with_agent(
-                AgentName::Caspar,
-                Arc::new(hanging) as Arc<dyn LlmProvider>,
-                Lineage::new("deepseek"),
-            )
+            .with_agent(AgentName::Caspar, retrying, Lineage::new("deepseek"))
             .build()
             .expect("the hanging trio builds");
 

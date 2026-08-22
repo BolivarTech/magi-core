@@ -140,7 +140,11 @@ pub enum ErrorClass {
 ///
 /// An assertion cannot reach the network on its own, which is what makes "one
 /// run, many assertions" cheap AND honest.
-/// The time budget as THIS session configured it, plus what it derives to.
+/// The time budget as the crate SHIPS it, plus what it derives to.
+///
+/// Not "as this session configured it": `worst_case_per_seat` comes from the built trio, but the
+/// rest are read from `MagiConfig::default()` and `RetryConfig::default()`. Saying otherwise
+/// would promise something the code does not do.
 ///
 /// # Why a struct and not seven fields on `RunContext`
 ///
@@ -1398,7 +1402,7 @@ pub fn build_with_absurd_timings(ceiling: Duration) -> Result<Magi, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Reads the time budget off a built `Magi` plus the shipped `RetryConfig` defaults.
+/// Reads the time budget off a built `Magi` plus the SHIPPED defaults.
 ///
 /// # Why the defaults and not this session's retry config
 ///
@@ -1407,10 +1411,6 @@ pub fn build_with_absurd_timings(ceiling: Duration) -> Result<Magi, String> {
 /// reading them from `Default` says exactly that rather than implying a configuration this
 /// session made.
 ///
-/// # Parameters
-///
-/// * `magi` — the trio this session built.
-/// * `rotations` — how many candidates THIS harness put in the pool.
 pub fn shipped_timings() -> Option<Timings> {
     // Built against the external stub, which touches no network: what the axis-F scenarios check
     // is a property of the values the crate SHIPS, so the trio only has to exist to be read.
@@ -1421,8 +1421,9 @@ pub fn shipped_timings() -> Option<Timings> {
     Some(timings_of(&magi, 0))
 }
 
-/// See [`shipped_timings`]; split out so a caller with its own trio can read that one instead.
-pub fn timings_of(magi: &Magi, rotations: u32) -> Timings {
+/// See [`shipped_timings`], its only caller. Private: a `pub` helper with one in-crate caller
+/// is surface without a consumer.
+fn timings_of(magi: &Magi, rotations: u32) -> Timings {
     let r = RetryConfig::default();
     Timings {
         worst_case_per_seat: magi.worst_case_per_seat(),

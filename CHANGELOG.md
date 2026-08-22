@@ -52,9 +52,9 @@ to leave alone.
 
 ### Fixed
 
-- **The `retry_after_cap` warning relates the wait to the budget**, and fires at `>=`: at
-  equality the backstop already cuts before the wait can be honoured, so the configured cap is
-  unreachable. It deliberately does not compare the accumulated chain, which would fire on this
+- **The `retry_after_cap` warning relates the wait to the budget**, and fires at `>=`: a
+  honoured wait is never interrupted, so one at least as long as the budget runs in full and the
+  chain gets at most one of them before abandoning. It deliberately does not compare the accumulated chain, which would fire on this
   crate's own defaults and be silenced on day one.
 - **The budget symptom detection declares its scope.** It reads as though it covered the layering
   invariant and does not: it fires at the second attempt, so when the outer timeout cancels the
@@ -123,6 +123,9 @@ error that does not mention the proxy.
 - Corrected two rustdoc claims that the retry-defaults coherence work is "tracked for 3.2.0".
   That number now belongs to this release; the defaults work is tracked for **3.3.0**. The
   `3.1.0` entry below is left as written — it is a record of what was true then.
+  *[Superseded: `3.3.0` was never cut. That work was absorbed into `4.0.0`. This entry is left
+  as written for the same reason it gives for leaving `3.1.0` alone — it records what was true
+  then — but a reader arriving here should not go looking for the version it names.]*
 
 ## [3.1.0] - 2026-07-31
 

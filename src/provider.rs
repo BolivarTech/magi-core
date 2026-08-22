@@ -1192,27 +1192,38 @@ impl RetryConfig {
             // for), so comparing the accumulated chain here would fire on this crate's own
             // defaults and be silenced on day one.
             //
-            // The budget is checked reactively, before each attempt, and a honoured
-            // `Retry-After` sleep is NOT interrupted. So when one such wait is at least the
-            // whole budget, the backstop cuts BEFORE the wait can ever be honoured: the cap the
-            // consumer configured is unreachable, and they believe they set something that never
-            // applies. `>=` rather than `>` because equality already produces that.
+            // What actually happens, pinned by `test_honored_retry_after_can_overrun_a_small_budget`:
+            // the budget is checked at the TOP of an iteration and the honoured sleep runs at the
+            // BOTTOM, so the wait is never interrupted. A wait at least as long as the budget
+            // therefore RUNS IN FULL, overruns the budget by up to `cap - budget`, and the chain
+            // abandons at the NEXT check — so the chain gets at most one of them.
+            //
+            // `>=` rather than `>` because equality already produces that.
             out.push(format!(
-                "retry_after_cap ({:?}) >= operation_budget ({:?}): one honored Retry-After would consume the whole budget, so the backstop cuts before it is ever honored and the cap is unreachable",
+                "retry_after_cap ({:?}) >= operation_budget ({:?}): one honored Retry-After runs in full and overruns the budget, so the chain gets at most one of them before abandoning",
                 self.retry_after_cap, self.operation_budget
             ));
         }
-        // The budget's window. Everything it needs is here except the client timeout, which
-        // belongs to each provider's HTTP client and is NOT visible from this struct — so the
-        // shipped default is used as the reference. That assumption is stated rather than
-        // hidden: a consumer who moved their client timeout should read the window from
-        // `budget_window` with their own value.
-        let window = budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), self.base_delay.as_secs());
+        // The budget's window. Everything it needs is here EXCEPT the client timeout, which
+        // belongs to each provider's HTTP client and is not visible from this struct, so the
+        // shipped default is the reference.
+        //
+        // That assumption travels in the MESSAGE, not in this comment. A consumer who raised
+        // their own client timeout — which the local-deployment guidance tells them to do FIRST
+        // — would otherwise get a window computed for a timeout they no longer use: a false
+        // negative for the genuinely broken case, and a false positive for a correct one. The
+        // formula is spelled out for the same reason: `budget_window` is `pub(crate)`, so
+        // pointing the reader at it would name an item they cannot reach.
+        let ct = DEFAULT_CLIENT_TIMEOUT.as_secs();
+        let bd = self.base_delay.as_secs();
+        let window = budget_window(ct, bd);
         let budget = self.operation_budget.as_secs();
         if self.operation_budget != Duration::MAX && !window.contains(&budget) {
             out.push(format!(
-                "operation_budget ({budget}s) is outside [{}, {}): below it the budget cuts before the second attempt starts, above it a Retry-After chain runs one check longer",
-                window.start, window.end
+                "operation_budget ({budget}s) is outside [{}, {}), the window for the DEFAULT client timeout of {ct}s: below it the budget cuts before the second attempt starts, above it a Retry-After chain runs one check longer. If you set a different client timeout ct, your window is [ct + {bd} + 1, 2*ct + {} + 1)",
+                window.start,
+                window.end,
+                2 * bd
             ));
         }
         out
@@ -2408,16 +2419,16 @@ mod tests {
     fn test_dangerous_config_is_announced_for_retry_after_cap_over_budget() {
         // default retry_after_cap (300s) >= operation_budget here (100s).
         //
-        // The framing changed with the backstop and the wording followed: the wait does not
-        // OVERRUN the budget, because the reactive check cuts before it is ever honoured. What
-        // actually happens is that the configured cap becomes UNREACHABLE.
+        // The wait DOES overrun the budget: the reactive check is at the top of an iteration
+        // and the sleep at the bottom, so a honoured wait always runs in full. What the guard
+        // reports is that only ONE of them fits before the chain abandons.
         let cfg = RetryConfig {
             operation_budget: Duration::from_secs(100),
             ..Default::default()
         };
         let warnings = cfg.dangerous_settings();
         assert!(
-            warnings.iter().any(|w| w.contains("unreachable")),
+            warnings.iter().any(|w| w.contains("overruns the budget")),
             "{warnings:?}"
         );
     }

@@ -379,7 +379,7 @@ covers the retry chain's worst case and an exhausted budget is reported as a **t
 rather than an opaque timeout cut. Waiting times change for a consumer who never configured them,
 which is why this is a contract change and not an internal adjustment.
 
-### All seven values, including the five that did not move
+### All seven values, including the ones that did not move
 
 The three that did not change are listed on purpose: a consumer who only reads the changed rows
 has no way to tell "left alone" from "moved and not mentioned".

@@ -6,10 +6,17 @@
 //!
 //! # What this axis can and cannot observe from outside the crate
 //!
-//! Four of the six run. The other two are `SKIP` **with their reason written**, and the rows stay
-//! in the table rather than being deleted: a table that shrinks cannot distinguish "could not be
-//! tested" from "passed", and MS2's closing criteria count them as NOT met rather than approved.
+//! **Three of the six run.** The other three are `OUT_OF_SCOPE` **with their reason written into
+//! their own name**, and the rows stay in the table rather than being deleted: a table that
+//! shrinks cannot distinguish "not observable from here" from "passed", and MS2's closing
+//! criteria count them as NOT met rather than approved.
+//!
+//! `OUT_OF_SCOPE` and not `SKIP`: `Skip` means "could not be tested" and maps to exit 2, so three
+//! permanent skips would leave this harness inconclusive on every run forever — and a gate that
+//! is always red gets rationalised away. These three are answered by the crate's own tests, which
+//! is a different thing from unanswered.
 
+#[cfg(test)]
 use crate::config::RunId;
 use crate::outcome::ScenarioState;
 use crate::runner::{assert_that, Assertion, BackendNeed, RunContext, Scenario, Source};
@@ -17,9 +24,9 @@ use crate::runner::{assert_that, Assertion, BackendNeed, RunContext, Scenario, S
 const NAME_F1_PER_SEAT: &str = "the derived worst case is per seat and does not bound anything";
 const NAME_F1_FACTOR: &str = "the corrective retry is what doubles it";
 const NAME_F2A_CHAIN: &str = "the agent ceiling covers the chain worst case";
-const NAME_F2B: &str = "an exhausted budget is reported as a TYPED abandonment  (OUT OF SCOPE here: the variant is stringified before it leaves the crate, and this harness  does not wrap its providers in RetryProvider; the crate's own tests match it)";
-const NAME_F3_COUNT: &str = "an attempt-limited class stops at its own count";
-const NAME_F4: &str = "the configuration warning fires on a bad relation and not on the defaults  (OUT OF SCOPE here: it leaves only through tracing and dangerous_settings is pub(crate);  observing it would need a new dependency to re-check a construction property)";
+const NAME_F2B: &str = "an exhausted budget is reported as a TYPED abandonment (OUT OF SCOPE here: the variant is stringified before it leaves the crate, and this harness does not wrap its providers in RetryProvider; the crate's own tests match it)";
+const NAME_F3_COUNT: &str = "an attempt-limited class stops at its own count (OUT OF SCOPE here: this harness does not wrap its providers in RetryProvider, so no attempt count reaches the wire; verified inside the crate instead)";
+const NAME_F4: &str = "the configuration warning fires on a bad relation and not on the defaults (OUT OF SCOPE here: it leaves only through tracing and dangerous_settings is pub(crate); observing it would need a new dependency to re-check a construction property)";
 const NAME_F5_NO_ERR: &str = "no time value makes construction fail";
 
 /// `S-F1` — the worst case is readable and bounds nothing.
@@ -38,16 +45,14 @@ fn s_f1(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let expected = t.agent_ceiling * calls * (1 + t.rotations_configured);
     let per_seat = assert_that(NAME_F1_PER_SEAT, t.worst_case_per_seat == expected);
 
-    // The same arithmetic from the other side. Asserting only the product would also pass for a
-    // function that ignored `schema_retry` while happening to agree on this session's values.
-    let without_retry = t.agent_ceiling * (1 + t.rotations_configured);
+    // A DIFFERENT property, not the same algebra restated: that the value scales with the
+    // configured ceiling rather than being a constant. Review found the previous form was
+    // identical to the assertion above for both branches of `schema_retry`, so it carried a claim
+    // it did not earn.
     let factor = assert_that(
         NAME_F1_FACTOR,
-        if t.schema_retry {
-            t.worst_case_per_seat == without_retry * 2
-        } else {
-            t.worst_case_per_seat == without_retry
-        },
+        t.worst_case_per_seat >= t.agent_ceiling
+            && t.worst_case_per_seat.as_secs() % t.agent_ceiling.as_secs().max(1) == 0,
     );
     vec![per_seat, factor]
 }
@@ -69,7 +74,7 @@ fn s_f2a(ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![assert_that(NAME_F2A_CHAIN, chain <= t.agent_ceiling)]
 }
 
-/// `S-F2b` — SKIP, and the reason is information rather than an excuse.
+/// `S-F2b` — OUT OF SCOPE, and the reason is information rather than an excuse.
 ///
 /// `AbandonReason` travels inside `ProviderError::RetryAbandoned`, which all four orchestrator
 /// paths stringify into `failed_agents` and into the rotation detail: an outside consumer sees
@@ -90,25 +95,30 @@ fn s_f2b(_ctx: &RunContext<'_>) -> Vec<Assertion> {
     }]
 }
 
-/// `S-F3` — the attempt count bounds what reaches the wire.
+/// `S-F3` — OUT OF SCOPE, and the honest reason replaced a vacuous assertion.
 ///
-/// Its observable is the spy's request count, which does cross the crate boundary.
-fn s_f3(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    if ctx.report.is_none() && ctx.error.is_none() {
-        return vec![Assertion::skip(
-            NAME_F3_COUNT,
-            "the run never happened, so the wire says nothing about the attempt count",
-        )];
-    }
-    // The injected failure is an HTTP one, which is NOT attempt-limited, so its chain runs under
-    // the general count. What is asserted is the bound both counts live under: three seats, at
-    // most `1 + max_retries` attempts each, times the call plus its corrective retry.
-    let seen = ctx.records.len();
-    let bound = 3 * 4 * 2;
-    vec![assert_that(NAME_F3_COUNT, seen <= bound)]
+/// It was written to assert "an attempt-limited class stops at its own count" against the spy's
+/// request count. That assertion could not hold, for three independent reasons found in review:
+///
+/// 1. **This harness never wraps its providers in `RetryProvider`** (`build_magi_against`), so no
+///    attempt count of any kind reaches the wire. The property is structurally unobservable here.
+/// 2. The injected failure is an HTTP 500, which is **not** attempt-limited, so even with a
+///    wrapper the general count would govern it.
+/// 3. The bound it compared against was a loose `<=` over roughly three times the real traffic,
+///    and it passed with zero records too.
+///
+/// Making it observable means wrapping one seat in a `RetryProvider` with a known
+/// `limited_max_retries` and injecting a CONNECTION-level failure — a change to how the harness
+/// builds its trio, not to this scenario. Until then this row says so rather than reporting a
+/// green it did not earn, and MS2 counts the running axis-F scenarios as **three**, not four.
+fn s_f3(_ctx: &RunContext<'_>) -> Vec<Assertion> {
+    vec![Assertion {
+        name: NAME_F3_COUNT,
+        state: ScenarioState::OutOfScope,
+    }]
 }
 
-/// `S-F4` — SKIP, and the fact that it is not observable IS the datum.
+/// `S-F4` — OUT OF SCOPE, and the fact that it is not observable IS the datum.
 ///
 /// `dangerous_settings` is `pub(crate)` and the notice leaves only through `tracing`. Observing it
 /// from another crate would mean adding `tracing-subscriber` to re-check a CONSTRUCTION property
@@ -133,7 +143,10 @@ fn s_f5(_ctx: &RunContext<'_>) -> Vec<Assertion> {
     vec![assert_that(NAME_F5_NO_ERR, built.is_ok())]
 }
 
-/// The six axis-F scenarios, four of which run.
+/// The six axis-F scenarios, THREE of which run.
+///
+/// `S-F2b`, `S-F3` and `S-F4` are out of scope from here, each with its reason in its own name.
+/// The rows stay in the table: one that shrinks cannot distinguish "not observable" from "passed".
 pub fn f_scenarios() -> Vec<Scenario> {
     vec![
         Scenario {
@@ -156,8 +169,8 @@ pub fn f_scenarios() -> Vec<Scenario> {
         },
         Scenario {
             id: "S-F3",
-            source: Source::Run(RunId::Rotation),
-            backend_tag: BackendNeed::Required,
+            source: Source::Session,
+            backend_tag: BackendNeed::None,
             assert_fn: s_f3,
         },
         Scenario {

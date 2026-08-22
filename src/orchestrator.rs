@@ -905,15 +905,18 @@ pub struct Magi {
 
 /// The message an agent-timeout cut reports, naming the CONFIGURED ceiling.
 ///
-/// # Why the ceiling and not only the elapsed time
+/// # It names the ceiling as the ceiling, and does NOT pretend to a measurement
 ///
-/// The shipped ceiling crosses the range where infrastructure timeouts live (60-600 s), so a cut
-/// an operator sees may come from THEIR proxy rather than from this crate. "cut after 600s,
-/// configured ceiling 660s" says by itself that it was not us; the elapsed time alone leaves two
-/// numbers nobody has together, and the operator comes to look at the crate.
+/// `tokio::time::timeout` returns `Elapsed` only when OUR ceiling fires, so the elapsed time here
+/// is always exactly the ceiling. An earlier form printed the same value twice, shaped like
+/// "measured versus configured" — two identical numbers say nothing, and the shape invited the
+/// reader to compare them.
 ///
-/// This is not inferring anything about someone else's deployment — it is publishing our own
-/// number so the difference is visible.
+/// What it does instead is publish our own number plainly: an operator who sees a cut at 600 s
+/// against a configured ceiling of 660 s knows the cut was not ours. That comparison is made by
+/// the operator against their own infrastructure, not by this message — and the case it matters
+/// for arrives as `ProviderError::Network`, not through this path at all, which the migration
+/// guide says explicitly.
 ///
 /// # One function for all four sites
 ///
@@ -926,7 +929,7 @@ fn agent_timeout_message(is_corrective_retry: bool, ceiling: Duration) -> String
     } else {
         "timeout: agent timed out"
     };
-    format!("{phase} after {ceiling:?} (configured ceiling {ceiling:?})")
+    format!("{phase} at its configured ceiling of {ceiling:?}")
 }
 
 impl Magi {
@@ -6855,10 +6858,17 @@ mod tests {
     /// multiplying by three would assert a serialisation nobody measured.
     #[test]
     fn the_worst_case_is_per_seat_and_never_multiplies_by_the_trio() {
-        let magi = build_with(Duration::from_secs(1800), 2, true);
-        assert_eq!(magi.worst_case_per_seat(), Duration::from_secs(10_800)); // 3 h
-        let magi2 = build_with(Duration::from_secs(1800), 2, false);
-        assert_eq!(magi2.worst_case_per_seat(), Duration::from_secs(5_400));
+        // `max_rotations` is deliberately NOT 2. With 2 the model count is `1 + 2 = 3`, which is
+        // also the number of mages — so the correct formula and one that multiplied by the trio
+        // produce the identical number, and this test would pass against the very thing its name
+        // forbids. With 1 and 4 the two disagree.
+        let magi = build_with(Duration::from_secs(1800), 1, true);
+        assert_eq!(magi.worst_case_per_seat(), Duration::from_secs(7_200)); // 1800 * 2 * 2
+        let magi2 = build_with(Duration::from_secs(1800), 1, false);
+        assert_eq!(magi2.worst_case_per_seat(), Duration::from_secs(3_600)); // 1800 * 1 * 2
+        // A third point, so no single wrong constant fits all three.
+        let magi3 = build_with(Duration::from_secs(600), 4, true);
+        assert_eq!(magi3.worst_case_per_seat(), Duration::from_secs(6_000)); // 600 * 2 * 5
     }
 
     /// It never returns `Err`, however absurd the configuration.
@@ -6874,11 +6884,9 @@ mod tests {
 
     /// The timeout message publishes the CONFIGURED ceiling, not only the elapsed time.
     ///
-    /// Raising the default 300 -> 660 s crosses the range where infrastructure timeouts live
-    /// (60-600 s), so the cut an operator sees may come from THEIR proxy rather than from this
-    /// crate. With the ceiling in the message, "cut after 200ms, configured ceiling 200ms" says
-    /// by itself whose cut it was. Without it they are two numbers nobody has together, and the
-    /// operator comes to look at the crate.
+    /// The message must name the ceiling AS the ceiling. It cannot report a measurement: this
+    /// path is only reached when our own timeout fires, so elapsed is always exactly the ceiling
+    /// — printing both would be one number twice, shaped like a comparison.
     ///
     /// The helper uses a SHORT ceiling and the assertion is about that number, not about 660:
     /// the property is "the message publishes the configured ceiling", true for any value, and a
@@ -6937,7 +6945,10 @@ mod tests {",
             sites >= 4,
             "the test-module cut left {sites} sites, which is not plausible"
         );
-        let uses = prod.matches("agent_timeout_message(").count() - 1; // -1: the definition
+        let uses = prod
+            .matches("agent_timeout_message(")
+            .count()
+            .saturating_sub(1); // the definition
         assert_eq!(
             uses, sites,
             "{sites} timeout sites but {uses} use the shared message: the ones missing report a cut without naming the configured ceiling"
