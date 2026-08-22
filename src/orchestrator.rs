@@ -71,31 +71,51 @@ const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(660);
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct MagiConfig {
-    /// Maximum time to wait for each agent (default: 300 seconds).
+    /// Maximum time to wait for each agent (default: **660 seconds**).
     ///
-    /// # Layering — the shipped defaults do NOT satisfy it
+    /// # Layering — the invariant, and why it is not the one you may remember
     ///
-    /// A retry chain costs `operation_budget + client_timeout`, and that client timeout applies
-    /// **per attempt**. For the retry budget to be reachable when a provider hangs:
+    /// The ceiling must cover the worst case of ONE retry chain:
     ///
     /// ```text
-    /// operation_budget + client_timeout <= timeout
+    /// timeout >= (1 + limited_max_retries) * client_timeout + backoffs
     /// ```
     ///
-    /// The defaults give `600 + 300 = 900` against a `timeout` of 300 s. On a hang the first
-    /// attempt consumes the whole per-agent budget and **no retry happens** — so describing
-    /// rotation as firing *after the retry chain is exhausted* is inaccurate for that case.
+    /// With the shipped defaults that is `2 * 300 + 1 = 601 s` for a hang, and roughly `604 s`
+    /// through the `Retry-After` path where the backstop cuts, against a ceiling of `660 s`.
+    /// The defaults satisfy it.
     ///
-    /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix.
-    /// **It is tracked for 3.3.0**, starting from a configuration that puts the retry budget
-    /// *below* the agent ceiling on purpose, so abandonment is typed and diagnosable instead of an
-    /// opaque timeout cut. This is documented in both places that govern it — here and on
-    /// [`RetryConfig`] — because whoever configures one of them does not read the other.
+    /// **The older form — `operation_budget + client_timeout <= timeout` — is deliberately NOT
+    /// satisfied** (`450 + 300 = 750 > 660`). It was formulated when the budget was the binding
+    /// limit. With the per-class attempt count binding, the budget is a **backstop**, and adding
+    /// it to the worst case would charge about 25 minutes per seat of ceiling the chain cannot
+    /// use. A reader arriving from `3.1.0` will look for that sum; this is where it went.
+    ///
+    /// # Where the multiplication comes from — the value alone does not say it
+    ///
+    /// This wraps a **single call** and is applied **twice per model** (the call plus the
+    /// corrective schema retry), across `1 + max_rotations` models. The worst case **per seat**
+    /// is therefore `timeout * calls_per_model * (1 + max_rotations)` — with the defaults, about
+    /// 66 minutes. `Magi::worst_case_per_seat` computes it from the effective configuration
+    /// rather than from these defaults.
+    ///
+    /// **Per seat, never per run:** whether the backend serves the three mages in parallel or
+    /// serialises them is a property of the deployment, and this crate does not know it.
+    ///
+    /// # Tuning for a local deployment
+    ///
+    /// These defaults are calibrated for **cloud**, the only deployment measured here (36-96 s
+    /// per attempt). Against a local Ollama a single attempt can take far longer, and a lone GPU
+    /// serialises the mages regardless of this setting. Raise, in this order:
+    /// the provider's own client timeout (`with_timeout`), then [`RetryConfig::operation_budget`]
+    /// keeping it inside its documented window, then this ceiling — and read the resulting worst
+    /// case per seat back from `Magi::worst_case_per_seat` rather than estimating it.
     ///
     /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
     /// providers in one.
     ///
     /// [`RetryConfig`]: crate::provider::RetryConfig
+    /// [`RetryConfig::operation_budget`]: crate::provider::RetryConfig::operation_budget
     /// [`RetryProvider`]: crate::provider::RetryProvider
     pub timeout: Duration,
     /// Maximum accepted size of the raw `content` argument to [`Magi::analyze`], in bytes.

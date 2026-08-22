@@ -999,27 +999,44 @@ pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// adjust fields (the struct-literal `RetryConfig { .. }` does not compile
 /// outside the crate — that is the 2.0 migration pattern).
 ///
-/// # Layering against the per-agent timeout — the defaults do NOT satisfy it
+/// # The COUNT is the operating limit; this budget is a backstop
 ///
-/// A retry chain costs `operation_budget + client_timeout`, and the client timeout applies **per
-/// attempt**. For this budget to be reachable when a provider hangs:
+/// This inverts what an earlier reading of these fields suggested, so it is said plainly rather
+/// than left to be inferred.
+///
+/// [`limited_retry_classes`] caps the attempts for the classes that can each burn a whole client
+/// timeout, and that count cuts the chain **before** [`operation_budget`] does: with the shipped
+/// defaults the budget's only check lands at roughly 301 s and **does not fire** on the normal
+/// path. The budget exists so that if something escapes the count, the abandonment is **typed**
+/// (`AbandonReason::OperationBudgetExhausted`) instead of an opaque cut — not to be the thing
+/// that ends an ordinary chain.
+///
+/// Reading it the other way round leads to tuning the budget expecting the attempt count to
+/// follow, which it will not.
+///
+/// # Layering against the per-agent timeout — the defaults DO satisfy it
+///
+/// The ceiling must cover the worst case of one chain:
 ///
 /// ```text
-/// operation_budget + client_timeout <= MagiConfig::timeout
+/// MagiConfig::timeout >= (1 + limited_max_retries) * client_timeout + backoffs
 /// ```
 ///
-/// The defaults give `600 + 300 = 900` against a 300 s agent timeout, so on a hang the first
-/// attempt consumes the whole agent budget and **none of the retries below ever run**. Every knob
-/// here is then inert for that failure mode — which is worth knowing before tuning them.
+/// Which the defaults meet: `2 * 300 + 1 = 601 s` (and about `604 s` through the `Retry-After`
+/// path) against a `660 s` ceiling.
 ///
-/// Fixing the numbers is a latency trade-off, not a bug fix. **It is tracked for 3.3.0**, starting
-/// from a configuration that puts this budget *below* the agent ceiling so that abandonment is
-/// typed and diagnosable rather than an opaque cut. Said here
-/// as well as on [`MagiConfig::timeout`] deliberately: whoever tunes retries does not necessarily
-/// read the orchestrator's config, and a layering rule documented on one side only is a rule that
-/// gets broken from the other.
+/// **The older form — `operation_budget + client_timeout <= MagiConfig::timeout` — is
+/// deliberately NOT satisfied** (`450 + 300 = 750 > 660`), and that is not an oversight. It was
+/// written when this budget was the binding limit; adding a backstop to a worst case it cannot
+/// reach would charge about 25 minutes per seat of ceiling the chain can never use.
+///
+/// Said here as well as on [`MagiConfig::timeout`] deliberately: whoever tunes retries does not
+/// necessarily read the orchestrator's config, and a layering rule documented on one side only is
+/// a rule that gets broken from the other.
 ///
 /// [`MagiConfig::timeout`]: crate::orchestrator::MagiConfig::timeout
+/// [`limited_retry_classes`]: RetryConfig::limited_retry_classes
+/// [`operation_budget`]: RetryConfig::operation_budget
 ///
 /// ```
 /// use magi_core::prelude::*;
@@ -3363,6 +3380,32 @@ mod tests {
         assert!(
             (302..603).contains(&b),
             "budget {b} fell outside [302, 603): one of the two properties is now broken"
+        );
+    }
+
+    /// The re-derived invariant holds with the shipped defaults.
+    ///
+    /// Everything is derived rather than literal, so the test stays true if someone moves
+    /// `base_delay` or the client timeout — which is the same reason the budget window is
+    /// expressed as a formula rather than as `[302, 603)` alone.
+    ///
+    /// The OLD invariant is not asserted. A test demanding that something FAIL breaks the day
+    /// someone picks values where it happens to hold — and nothing would be wrong with that — so
+    /// it is a maintenance trap over a relation that no longer governs anything. It lives in the
+    /// rustdoc, which is where a reader arriving from `3.1.0` will look for it.
+    #[test]
+    fn the_re_derived_invariant_holds_with_the_shipped_defaults() {
+        let r = RetryConfig::default();
+        let ceiling = crate::orchestrator::MagiConfig::default().timeout.as_secs();
+        // The REAL backoff, not filler: `Timeout` and `Network` are in `flat_classes`, so their
+        // wait is FLAT (`base_delay`) rather than exponential, and with one limited retry there
+        // is exactly one of them between the two attempts.
+        let backoffs = r.limited_max_retries as u64 * r.base_delay.as_secs();
+        let chain =
+            (1 + r.limited_max_retries as u64) * DEFAULT_CLIENT_TIMEOUT.as_secs() + backoffs;
+        assert!(
+            chain <= ceiling,
+            "the chain's worst case ({chain}s) must fit under the agent ceiling ({ceiling}s)"
         );
     }
 }
