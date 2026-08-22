@@ -96,20 +96,34 @@ pub struct MagiConfig {
     /// This wraps a **single call** and is applied **twice per model** (the call plus the
     /// corrective schema retry), across `1 + max_rotations` models. The worst case **per seat**
     /// is therefore `timeout * calls_per_model * (1 + max_rotations)` — with the defaults, about
-    /// 66 minutes. `Magi::worst_case_per_seat` computes it from the effective configuration
+    /// 66 minutes. [`Magi::worst_case_per_seat`] computes it from the effective configuration
     /// rather than from these defaults.
     ///
     /// **Per seat, never per run:** whether the backend serves the three mages in parallel or
     /// serialises them is a property of the deployment, and this crate does not know it.
     ///
-    /// # Tuning for a local deployment
+    /// # Local deployments
     ///
-    /// These defaults are calibrated for **cloud**, the only deployment measured here (36-96 s
-    /// per attempt). Against a local Ollama a single attempt can take far longer, and a lone GPU
-    /// serialises the mages regardless of this setting. Raise, in this order:
-    /// the provider's own client timeout (`with_timeout`), then [`RetryConfig::operation_budget`]
-    /// keeping it inside its documented window, then this ceiling — and read the resulting worst
-    /// case per seat back from `Magi::worst_case_per_seat` rather than estimating it.
+    /// The defaults are calibrated for **CLOUD** (36-96 s per attempt, measured). Against a local
+    /// Ollama the same work can take 30 minutes per mage, and a single GPU **serialises** the
+    /// three seats even though the orchestrator dispatches them in parallel — roughly 90 minutes
+    /// per run, which is correct there.
+    ///
+    /// Raise them **IN THIS ORDER**; each one bounds the next:
+    ///
+    /// 1. **`client_timeout`** — the slowest legitimate request you have seen, set per provider
+    ///    with its `with_timeout`. Everything else derives from it.
+    /// 2. **[`RetryConfig::operation_budget`]** — keep it inside the window its own rustdoc
+    ///    documents, or you lose either the deterministic second attempt (floor) or the
+    ///    `Retry-After` cut (ceiling). Neither loss announces itself.
+    /// 3. **`MagiConfig::timeout`** (this field) — at least the chain's worst case.
+    ///
+    /// Then read [`Magi::worst_case_per_seat`]: it tells you what you just bought. It is a
+    /// **ceiling, not a prediction** — the chain usually ends earlier.
+    ///
+    /// A default calibrated on purpose for another deployment, without the guidance to move it,
+    /// is indistinguishable from a badly chosen one — and the user finds out when their model
+    /// dies at five minutes for a reason that is not theirs.
     ///
     /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
     /// providers in one.
@@ -890,6 +904,66 @@ pub struct Magi {
 }
 
 impl Magi {
+    /// The worst-case wall clock **one seat** can spend, derived from THIS instance's effective
+    /// configuration.
+    ///
+    /// ```text
+    /// timeout * calls_per_model * (1 + max_rotations)
+    /// ```
+    ///
+    /// where `calls_per_model` is **2** when [`MagiConfig::retry_on_schema_error`] is on (the
+    /// call plus the corrective retry) and **1** when it is off.
+    ///
+    /// # It informs; it never rejects
+    ///
+    /// Returns a [`Duration`], not a `Result`. It does not fail the build and does not warn,
+    /// however large the number: the moment it rejected something it would be the cap this crate
+    /// deliberately does not impose. A consumer who wants an alarm builds it on top of the value
+    /// in three lines.
+    ///
+    /// # Per SEAT, never per run
+    ///
+    /// Whether the backend serves the three mages in parallel or serialises them is a property of
+    /// the deployment. Multiplying by three here would assert a serialisation this crate has not
+    /// measured, so the run total is left to the caller, who knows their backend.
+    ///
+    /// # Transport retries are NOT a separate factor
+    ///
+    /// They happen **inside** one of those calls, and the agent ceiling wraps **each** call.
+    /// Counting them again would count them twice — which is exactly why the ceiling, and not an
+    /// estimate per failure class, is the unit here. What a 503 costs before it fails is not
+    /// something this crate knows, and estimating it would fabricate precision.
+    ///
+    /// # A ceiling, not a prediction
+    ///
+    /// The chain usually ends earlier. This is the bound that can be guaranteed without modelling
+    /// every failure path.
+    ///
+    /// # Why it lives on `Magi` and not on [`MagiConfig`]
+    ///
+    /// The `(1 + max_rotations)` factor lives in the fallback POOL, not in the config, so this is
+    /// the only place all three pieces are visible at once. That makes "reads the EFFECTIVE
+    /// configuration" true by construction rather than by convention.
+    ///
+    /// [`MagiConfig::retry_on_schema_error`]: MagiConfig::retry_on_schema_error
+    pub fn worst_case_per_seat(&self) -> Duration {
+        let calls_per_model: u32 = if self.config.retry_on_schema_error {
+            2
+        } else {
+            1
+        };
+        let models: u32 = 1 + self
+            .rotation_config
+            .as_ref()
+            .map_or(0, |r| r.pool.max_rotations());
+        // Saturating rather than wrapping: an absurd configuration must produce an absurd
+        // number, never a small one that reads as safe.
+        self.config
+            .timeout
+            .saturating_mul(calls_per_model)
+            .saturating_mul(models)
+    }
+
     /// Creates a MAGI orchestrator with a single provider and all defaults.
     ///
     /// Equivalent to `MagiBuilder::new(provider).build().unwrap()`.
@@ -6747,5 +6821,28 @@ mod tests {
     #[test]
     fn the_agent_ceiling_covers_the_worst_case_of_the_chain() {
         assert_eq!(MagiConfig::default().timeout, Duration::from_secs(660));
+    }
+
+    /// The worst case is per SEAT and never multiplies by the trio.
+    ///
+    /// The crate does not know whether the backend parallelises or serialises the three mages;
+    /// multiplying by three would assert a serialisation nobody measured.
+    #[test]
+    fn the_worst_case_is_per_seat_and_never_multiplies_by_the_trio() {
+        let magi = build_with(Duration::from_secs(1800), 2, true);
+        assert_eq!(magi.worst_case_per_seat(), Duration::from_secs(10_800)); // 3 h
+        let magi2 = build_with(Duration::from_secs(1800), 2, false);
+        assert_eq!(magi2.worst_case_per_seat(), Duration::from_secs(5_400));
+    }
+
+    /// It never returns `Err`, however absurd the configuration.
+    ///
+    /// The moment it rejects something it is the cap this project decided not to have.
+    #[test]
+    fn it_never_returns_err_no_matter_how_absurd_the_configuration() {
+        let magi = build_with(Duration::from_secs(86_400), 9, true);
+        // Returns a `Duration`, not a `Result`: the type is the assertion.
+        let d: Duration = magi.worst_case_per_seat();
+        assert!(d > Duration::ZERO);
     }
 }
