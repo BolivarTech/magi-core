@@ -494,7 +494,7 @@ fn cycle_run(cli: &Cli) -> report::CycleRun {
 struct SessionFacts<'a> {
     /// `git status` as it stood before any run started, or `None` when it could not be measured.
     repo_status_before: Option<&'a str>,
-    /// The time budget this session configured, or `None` when no trio was built.
+    /// The time budget as the crate SHIPS it, or `None` when no trio was built.
     timings: Option<runner::Timings>,
 }
 
@@ -1104,6 +1104,38 @@ fn git_commit() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// `evaluate` WIRES the session timings into the context, not merely accepts them.
+    ///
+    /// Deleting `ctx.timings = session.timings;` left every unit test green, because all five
+    /// call sites in this module pass `None` — so nothing distinguished wired from unwired, and
+    /// `S-F1`/`S-F2a` would have become permanent skips on a real run. This crosses the function
+    /// with its consumer, the same shape as the crate's `the_window_guard_is_wired_into_...`.
+    #[test]
+    fn evaluate_wires_the_session_timings_into_the_context() {
+        let timings = runner::shipped_timings().expect("the stub trio builds");
+        let scenarios = scenarios::f_scenarios();
+        let rows = evaluate(
+            &scenarios,
+            &[],
+            &runner::TransparencyProbe::default(),
+            &runner::ErosionProbe::default(),
+            None,
+            true,
+            SessionFacts {
+                repo_status_before: None,
+                timings: Some(timings),
+            },
+        );
+        let f1: Vec<_> = rows.iter().filter(|r| r.scenario_id == "S-F1").collect();
+        assert!(!f1.is_empty(), "S-F1 must produce a row");
+        for row in f1 {
+            assert!(
+                !matches!(row.state, outcome::ScenarioState::Skip(_)),
+                "S-F1 skipped despite timings being supplied: they were not wired through"
+            );
+        }
+    }
     use super::*;
 
     #[test]

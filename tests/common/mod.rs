@@ -231,6 +231,11 @@ pub fn captured_warnings<F: FnOnce()>(f: F) -> Vec<String> {
 ///
 /// Needs `openai-compat` for a real HTTP provider and `test-utils` for the trio builders. The
 /// hanging server itself is `support::mock_server`, already used by two integration suites.
+/// The client timeout the hanging seat runs under. Public so the absorbed-retry assertion can
+/// derive its threshold instead of repeating a number that would decouple in silence.
+#[cfg(all(feature = "test-utils", feature = "openai-compat"))]
+pub const HANGING_SEAT_CLIENT_TIMEOUT: Duration = Duration::from_millis(300);
+
 #[cfg(all(feature = "test-utils", feature = "openai-compat"))]
 pub async fn run_against_a_hanging_backend()
 -> Result<magi_core::reporting::MagiReport, magi_core::error::MagiError> {
@@ -244,10 +249,13 @@ pub async fn run_against_a_hanging_backend()
     mod mock_server;
 
     let (url, handle) = mock_server::spawn_hanging_headers().await;
+    // Named so the test that asserts the absorbed retries happened can derive its threshold from
+    // it rather than hardcoding a number that silently decouples.
+
     // A short client timeout: the property is that the seat is lost to a hang, not how long a
     // test is willing to sit still for it.
     let hanging =
-        OpenAiCompatibleProvider::with_timeout(url, "m-hanging", None, Duration::from_millis(300))
+        OpenAiCompatibleProvider::with_timeout(url, "m-hanging", None, HANGING_SEAT_CLIENT_TIMEOUT)
             .expect("the hanging provider builds");
 
     // WRAPPED in a `RetryProvider`, and that is load-bearing rather than decoration: without it

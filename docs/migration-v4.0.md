@@ -421,9 +421,20 @@ parallel or serialises them is something this crate does not know.
 > ### ⚠ Infrastructure Timeout Checklist — run this BEFORE you upgrade
 >
 > The agent ceiling rises past **600 seconds**, which crosses the range where infrastructure
-> timeouts live. A proxy that cuts the connection at 600 s reaches this crate as
-> `ProviderError::Network` — the one class that feeds the endpoint-down latch — so **two of them
-> abort the run** with `MagiError::EndpointDown`, an error that does not mention your proxy.
+> timeouts live. A proxy that cuts the connection reaches this crate as `ProviderError::Network`,
+> the one class that feeds the endpoint-down latch. What happens next depends on your
+> configuration, and the two outcomes look nothing alike:
+>
+> - **With rotation engaged** — you declared a fallback pool or primary probes — cuts on **two
+>   distinct lineages** abort the run with `MagiError::EndpointDown`, an error that does not
+>   mention your proxy.
+> - **Without rotation** — the default — there is no registry and no latch at all, so the seat
+>   simply fails and the run **degrades**. You see a missing mage, or `InsufficientAgents`, not
+>   `EndpointDown`.
+>
+> One more precondition worth checking before you go hunting: with `DEFAULT_CLIENT_TIMEOUT` at
+> 300 s a single connection cannot live to 600 s unless you raised your own client timeout or use
+> a provider that has none.
 >
 > The crate cannot distinguish a proxy reset from a real network failure: they are the same error
 > on the socket, and guessing is exactly what it refuses to do. So the check is yours:
@@ -434,7 +445,8 @@ parallel or serialises them is something this crate does not know.
 > - [ ] Kubernetes ingress `proxy-read-timeout` **above** it
 > - [ ] any service mesh or sidecar timeout **above** it
 >
-> **If the symptom is `EndpointDown` and your backend was answering, look at these first** — the
+> **If the symptom is `EndpointDown` (with rotation) or a degraded run (without it), and your
+> backend was answering, look at these first** — the
 > crate will not name them for you. The timeout error carries the configured ceiling so you can
 > compare it against where the cut actually happened, but a proxy reset does not arrive as a
 > timeout, so that message will not appear on this path.

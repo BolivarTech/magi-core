@@ -3613,7 +3613,11 @@ mod tests {
     /// that outlived its code" class this round exists to remove.
     #[test]
     fn the_window_message_formula_agrees_with_budget_window() {
-        let bd = 1u64;
+        // NOT the default `base_delay` of 1 s, and that is the whole point: with `bd = 1` every
+        // number the message could hardcode equals the number the function computes, so a message
+        // carrying the literals `302`/`603` would pass this test while calling `budget_window`
+        // never — which is precisely the drift it exists to catch.
+        let bd = 5u64;
         let c = RetryConfig {
             operation_budget: Duration::from_secs(200), // outside, so the guard fires
             base_delay: Duration::from_secs(bd),
@@ -3632,15 +3636,10 @@ mod tests {
             "the printed window must be the one the function computes: {msg}"
         );
 
-        // And the formula it printed, substituted for a DIFFERENT client timeout, must reproduce
-        // what the function gives for that timeout. This is the half a consumer acts on.
-        let other_ct = 600u64;
-        let by_formula = (other_ct + bd + 1)..(2 * other_ct + 2 * bd + 1);
-        assert_eq!(
-            budget_window(other_ct, bd),
-            by_formula,
-            "the formula in the message and the function must be the same arithmetic"
-        );
+        // And the formula it printed must be the one a consumer substitutes their own client
+        // timeout into. (That `budget_window` agrees with itself for another `ct` is covered by
+        // `the_window_moves_with_client_timeout_and_base_delay`; repeating it here would be the
+        // duplication this round removed elsewhere.)
         assert!(
             msg.contains(&format!("[ct + {bd} + 1, 2*ct + {} + 1)", 2 * bd)),
             "the message must carry the formula a consumer substitutes into: {msg}"

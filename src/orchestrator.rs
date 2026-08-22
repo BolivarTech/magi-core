@@ -6954,4 +6954,31 @@ mod tests {",
             "{sites} timeout sites but {uses} use the shared message: the ones missing report a cut without naming the configured ceiling"
         );
     }
+
+    /// The two phases render differently, and each names the ceiling.
+    ///
+    /// Without this, swapping the two phase strings leaves the whole suite green while a
+    /// first-call timeout reports the `retry-failed:` prefix — which this module documents as
+    /// meaning the corrective retry was reached.
+    #[test]
+    fn the_two_timeout_phases_are_distinguishable_and_both_name_the_ceiling() {
+        let d = Duration::from_secs(42);
+        let first = agent_timeout_message(false, d);
+        let retry = agent_timeout_message(true, d);
+        assert_ne!(first, retry, "the two phases must be tellable apart");
+        assert!(
+            first.starts_with("timeout: agent timed out"),
+            "the first call must NOT claim the corrective retry was reached: {first}"
+        );
+        assert!(
+            retry.starts_with("retry-failed:"),
+            "the corrective retry must say so: {retry}"
+        );
+        for m in [&first, &retry] {
+            assert!(
+                m.contains("42s"),
+                "both must name the configured ceiling: {m}"
+            );
+        }
+    }
 }

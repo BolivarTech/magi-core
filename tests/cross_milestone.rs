@@ -79,8 +79,12 @@ async fn a_transport_hang_produces_one_record_and_that_is_correct() {
     // 300 ms client timeout with `limited_max_retries = 1`, so two internal attempts cost more
     // than one. Without this, reclassifying the hang as non-retryable would leave this test green
     // with its own claim unearned — which is how it read before review.
+    // DERIVED from the helper's own client timeout rather than hardcoded: two attempts have a
+    // hard floor of twice it, and the slack covers scheduling. A literal here would decouple the
+    // day someone lowered that timeout, and this test would go red against a correct crate.
+    let floor = common::HANGING_SEAT_CLIENT_TIMEOUT * 2 - std::time::Duration::from_millis(100);
     assert!(
-        elapsed >= std::time::Duration::from_millis(500),
-        "only one attempt was made ({elapsed:?}), so nothing was absorbed and the claim is unearned"
+        elapsed >= floor,
+        "only one attempt was made ({elapsed:?} < {floor:?}), so nothing was absorbed and the claim is unearned"
     );
 }

@@ -148,8 +148,8 @@ pub enum ErrorClass {
 ///
 /// # Why the names differ from the crate's
 ///
-/// `rotations_configured` is what THIS harness built into its pool. The crate's own count lives
-/// on the fallback POOL rather than on `MagiConfig`
+/// `rotations_configured` is what THIS harness built into its pool; the crate's own count lives
+/// on the fallback POOL rather than on `MagiConfig`.
 /// — the harness configures no fallbacks today, so it is `0`. Naming it after the crate's field
 /// would claim it reads that field.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1412,7 +1412,6 @@ pub fn build_with_absurd_timings(ceiling: Duration) -> Result<Magi, String> {
 /// in its runs. What the axis-F scenarios check is a property of the values the crate SHIPS, and
 /// reading them from `Default` says exactly that rather than implying a configuration this
 /// session made.
-///
 pub fn shipped_timings() -> Option<Timings> {
     // Built against the external stub, which touches no network: what the axis-F scenarios check
     // is a property of the values the crate SHIPS, so the trio only has to exist to be read.

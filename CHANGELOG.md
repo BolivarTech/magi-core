@@ -69,8 +69,9 @@ to leave alone.
 
 `docs/migration-v4.0.md` covers every observable change, and its **Infrastructure Timeout
 Checklist** must be run before upgrading: a proxy that cuts at 600 s now reaches the crate as
-`Network`, the one class that feeds the endpoint-down latch, so two of them abort the run with an
-error that does not mention the proxy.
+`Network`, the one class that feeds the endpoint-down latch. With rotation engaged, cuts on two
+distinct lineages abort the run with an error that does not mention the proxy; without rotation —
+the default — there is no latch and the run simply degrades.
 
 ## [3.2.0] - 2026-08-10
 

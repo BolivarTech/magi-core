@@ -42,10 +42,14 @@ const NAME_F5_NO_ERR: &str = "no time value makes construction fail";
 /// seconds, and a FALSE FAILURE against a correct crate when it is not — `as_secs()` truncation
 /// makes a 2500 ms ceiling times three fail a divisibility check.
 ///
-/// Assertion 1 is the whole property: it pins the exact product, so it already fails if the
-/// corrective-retry factor, the model count or the ceiling is wrong. A second assertion here
-/// would have to build a second trio with `retry_on_schema_error` flipped and compare, which is
-/// a different scenario rather than a second reading of this one.
+/// The one assertion pins the exact product, so it fails if the corrective-retry factor or the
+/// ceiling is wrong. **It does NOT exercise the model count**: this harness configures no
+/// fallback pool, so `(1 + rotations)` is `1` on both sides and removing that factor from the
+/// crate would leave this green. That half is covered inside the crate, by
+/// `the_worst_case_is_per_seat_and_never_multiplies_by_the_trio`, which uses 1 and 4 rotations.
+///
+/// A second assertion here would have to build a second trio with `retry_on_schema_error`
+/// flipped and compare — a different scenario, not a second reading of this one.
 fn s_f1(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let Some(t) = ctx.timings else {
         return vec![Assertion::skip(
