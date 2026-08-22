@@ -944,6 +944,30 @@ pub fn default_model_for_mode(mode: Mode) -> &'static str {
     }
 }
 
+/// The range `operation_budget` must sit in to preserve BOTH of its properties.
+///
+/// Derived rather than hardcoded: `[302, 603)` is only what it gives for the shipped
+/// `client_timeout = 300` and `base_delay = 1`. Writing those literals would make the guard lie
+/// for anyone who moves either value — which is the defect this function exists to prevent.
+///
+/// - **Floor, `ct + bd + 1`:** the budget is checked AFTER the first attempt. That attempt costs
+///   `ct`, and the flat backoff of `Timeout`/`Network` adds `bd`, so the check lands near
+///   `ct + bd`. The `+1` makes the comparison strict rather than being a magic number. Below the
+///   floor the check cuts there and the **second attempt never starts**, losing the determinism
+///   the per-class count was chosen for.
+/// - **Ceiling, `2*ct + 2*bd + 1`:** above it a `Retry-After` chain reaches its THIRD check
+///   instead of being cut at its second, costing roughly five more minutes per seat.
+///
+/// It lives in production, not in the test module: reimplementing it beside the tests would give
+/// two formulas that can diverge, and the tests would stay green while the guard did something
+/// else.
+pub(crate) fn budget_window(
+    client_timeout_secs: u64,
+    base_delay_secs: u64,
+) -> std::ops::Range<u64> {
+    (client_timeout_secs + base_delay_secs + 1)..(2 * client_timeout_secs + 2 * base_delay_secs + 1)
+}
+
 /// Named default values (no magic numbers).
 const DEFAULT_MAX_RETRIES: u32 = 3;
 /// Retries for a class in `limited_retry_classes`, giving two attempts in total.
@@ -1176,6 +1200,19 @@ impl RetryConfig {
             out.push(format!(
                 "retry_after_cap ({:?}) >= operation_budget ({:?}): one honored Retry-After would consume the whole budget, so the backstop cuts before it is ever honored and the cap is unreachable",
                 self.retry_after_cap, self.operation_budget
+            ));
+        }
+        // The budget's window. Everything it needs is here except the client timeout, which
+        // belongs to each provider's HTTP client and is NOT visible from this struct — so the
+        // shipped default is used as the reference. That assumption is stated rather than
+        // hidden: a consumer who moved their client timeout should read the window from
+        // `budget_window` with their own value.
+        let window = budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), self.base_delay.as_secs());
+        let budget = self.operation_budget.as_secs();
+        if self.operation_budget != Duration::MAX && !window.contains(&budget) {
+            out.push(format!(
+                "operation_budget ({budget}s) is outside [{}, {}): below it the budget cuts before the second attempt starts, above it a Retry-After chain runs one check longer",
+                window.start, window.end
             ));
         }
         out
@@ -3470,5 +3507,77 @@ mod tests {
                 .any(|w| w.contains("retry_after_cap")),
             "the shipped defaults must not trip their own guard"
         );
+    }
+
+    /// The default lands inside its own window.
+    ///
+    /// An earlier form of this used `(1 + limited_max_retries) * ct + 2` as the floor, giving
+    /// 602 — and with that the guard would have fired on the crate's own defaults. The check that
+    /// must NOT cut is the FIRST one, not the second.
+    #[test]
+    fn the_default_budget_lands_inside_its_own_window() {
+        let c = RetryConfig::default();
+        assert!(
+            budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), c.base_delay.as_secs())
+                .contains(&c.operation_budget.as_secs())
+        );
+    }
+
+    /// The window MOVES with both of its inputs.
+    ///
+    /// The second half is what the previous docstring claimed and the body did not do: moving
+    /// `base_delay` has to move the window, or the guard lies for anyone who changes it.
+    #[test]
+    fn the_window_moves_with_client_timeout_and_base_delay() {
+        assert_eq!(budget_window(300, 1), 302..603);
+        assert_eq!(budget_window(600, 1), 602..1203);
+        // With a 600 s client timeout the shipped 450 no longer serves, and the guard must say so.
+        assert!(!budget_window(600, 1).contains(&450));
+        assert_eq!(budget_window(300, 5), 306..611);
+    }
+
+    /// The guard fires when the budget LEAVES its window.
+    #[test]
+    fn the_window_guard_fires_when_the_budget_leaves_its_window() {
+        let c = RetryConfig {
+            operation_budget: Duration::from_secs(200), // below the 302 floor
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "a budget under the floor costs the second attempt, silently"
+        );
+    }
+
+    /// A budget INSIDE the window says nothing — the crate must not warn about itself.
+    #[test]
+    fn a_budget_inside_the_window_says_nothing() {
+        let c = RetryConfig::default();
+        assert!(
+            !c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt"))
+        );
+    }
+
+    /// The guard is WIRED into `dangerous_settings`, not merely defined.
+    ///
+    /// `budget_window` can be flawless and called by nobody. This crosses the function with its
+    /// consumer: without it the window would be a correct function that guards nothing.
+    #[test]
+    fn the_window_guard_is_wired_into_dangerous_settings() {
+        for secs in [301u64, 604] {
+            // one under the floor, one over the ceiling
+            let c = RetryConfig {
+                operation_budget: Duration::from_secs(secs),
+                ..Default::default()
+            };
+            assert!(
+                !c.dangerous_settings().is_empty(),
+                "budget {secs}s should have warned"
+            );
+        }
     }
 }
