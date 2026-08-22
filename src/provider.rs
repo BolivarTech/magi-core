@@ -1162,13 +1162,19 @@ impl RetryConfig {
         if self.cap.is_zero() {
             out.push("cap = 0: every wait is zero, no pause and NO JITTER".to_string());
         }
-        if self.retry_after_cap > self.operation_budget {
-            // The budget is checked reactively (before each attempt), so a honored
-            // `Retry-After` sleep of up to `retry_after_cap` is NOT interrupted. If
-            // that cap exceeds the whole budget, a single honored wait can overrun
-            // the budget by the difference. Legitimate but almost always a mistake.
+        if self.retry_after_cap >= self.operation_budget {
+            // ONE honoured wait consuming the whole budget is the misconfiguration; a CHAIN of
+            // them being cut by the budget is the design (that is what the budget's window is
+            // for), so comparing the accumulated chain here would fire on this crate's own
+            // defaults and be silenced on day one.
+            //
+            // The budget is checked reactively, before each attempt, and a honoured
+            // `Retry-After` sleep is NOT interrupted. So when one such wait is at least the
+            // whole budget, the backstop cuts BEFORE the wait can ever be honoured: the cap the
+            // consumer configured is unreachable, and they believe they set something that never
+            // applies. `>=` rather than `>` because equality already produces that.
             out.push(format!(
-                "retry_after_cap ({:?}) > operation_budget ({:?}): a single honored Retry-After can overrun the budget",
+                "retry_after_cap ({:?}) >= operation_budget ({:?}): one honored Retry-After would consume the whole budget, so the backstop cuts before it is ever honored and the cap is unreachable",
                 self.retry_after_cap, self.operation_budget
             ));
         }
@@ -2350,15 +2356,18 @@ mod tests {
 
     #[test]
     fn test_dangerous_config_is_announced_for_retry_after_cap_over_budget() {
-        // default retry_after_cap (300s) > operation_budget here (100s): a honored
-        // Retry-After can overrun the budget (reactive check does not clamp sleeps).
+        // default retry_after_cap (300s) >= operation_budget here (100s).
+        //
+        // The framing changed with the backstop and the wording followed: the wait does not
+        // OVERRUN the budget, because the reactive check cuts before it is ever honoured. What
+        // actually happens is that the configured cap becomes UNREACHABLE.
         let cfg = RetryConfig {
             operation_budget: Duration::from_secs(100),
             ..Default::default()
         };
         let warnings = cfg.dangerous_settings();
         assert!(
-            warnings.iter().any(|w| w.contains("overrun")),
+            warnings.iter().any(|w| w.contains("unreachable")),
             "{warnings:?}"
         );
     }
@@ -3406,6 +3415,60 @@ mod tests {
         assert!(
             chain <= ceiling,
             "the chain's worst case ({chain}s) must fit under the agent ceiling ({ceiling}s)"
+        );
+    }
+
+    /// One honoured wait that eats the whole budget is flagged.
+    ///
+    /// When a single wait is at least the budget, the backstop cuts before it can be honoured:
+    /// the cap is unreachable and the consumer believes they configured something that never
+    /// applies.
+    #[test]
+    fn a_single_honoured_wait_that_eats_the_whole_budget_is_flagged() {
+        let c = RetryConfig {
+            retry_after_cap: Duration::from_secs(500),
+            operation_budget: Duration::from_secs(450),
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("retry_after_cap") && w.contains("operation_budget")),
+            "an unreachable cap must be reported"
+        );
+    }
+
+    /// Equality already produces the condition, which is why the comparison is `>=`.
+    #[test]
+    fn a_wait_exactly_equal_to_the_budget_is_flagged_too() {
+        let c = RetryConfig {
+            retry_after_cap: Duration::from_secs(450),
+            operation_budget: Duration::from_secs(450),
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("retry_after_cap")),
+            "at equality the backstop still cuts before the wait is honoured"
+        );
+    }
+
+    /// The test that makes the one above honest.
+    ///
+    /// A guard that fires on its own shipped defaults is switched off on day one, and then it
+    /// guards nothing. Note this is also why the comparison is not against the ACCUMULATED
+    /// chain: `max_retries * retry_after_cap` is `900 s` against a `450 s` budget, so that form
+    /// would fire on every default run — and it would be a false positive, because the budget
+    /// cutting a Retry-After chain is the design.
+    #[test]
+    fn the_crate_defaults_produce_no_retry_after_warning() {
+        let c = RetryConfig::default();
+        assert!(
+            !c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("retry_after_cap")),
+            "the shipped defaults must not trip their own guard"
         );
     }
 }
