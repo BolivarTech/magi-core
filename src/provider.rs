@@ -1484,12 +1484,25 @@ impl LlmProvider for RetryProvider {
             if attempt > 0 {
                 let elapsed = started.elapsed();
                 if elapsed >= self.config.operation_budget {
-                    // If the budget is exhausted already on the first check, a
-                    // single attempt consumed it whole: almost always
-                    // `operation_budget < provider timeout`. Detected by SYMPTOM,
-                    // not by comparing config: the `LlmProvider` trait does not
-                    // expose the wrapped timeout, so a construction-time comparison
+                    // WHAT THIS DETECTS, and just as importantly what it does NOT.
+                    //
+                    // DETECTS: a budget smaller than ONE attempt plus its backoff. If the budget
+                    // is already exhausted at the first check, a single attempt consumed it
+                    // whole -- usually `operation_budget < provider timeout`. Detected by
+                    // SYMPTOM rather than by comparing config, because the `LlmProvider` trait
+                    // does not expose the wrapped timeout, so a construction-time comparison
                     // would be unreachable code.
+                    //
+                    // DOES NOT DETECT: an agent ceiling smaller than `budget + client_timeout`.
+                    // This fires at `attempt == 1`, so it needs the chain to REACH a second
+                    // attempt. When the orchestrator's outer `tokio::timeout` cancels the call
+                    // first -- which is the shape of the layering defect -- the loop never
+                    // reaches `attempt == 1` and NOTHING is emitted here. That case is silent
+                    // and is addressed elsewhere: `Magi::worst_case_per_seat` shows the number
+                    // the consumer actually bought.
+                    //
+                    // A guard that appears to cover more than it does is worse than none,
+                    // because nobody goes looking for the one that is missing.
                     if attempt == 1 {
                         tracing::warn!(
                             target: "magi_core::retry",
