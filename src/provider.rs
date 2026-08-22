@@ -946,6 +946,12 @@ pub fn default_model_for_mode(mode: Mode) -> &'static str {
 
 /// Named default values (no magic numbers).
 const DEFAULT_MAX_RETRIES: u32 = 3;
+/// Retries for a class in `limited_retry_classes`, giving two attempts in total.
+///
+/// One rather than zero: a `Timeout` condemns the lineage run-wide, so rotating on the first
+/// hang takes that lineage from the other two mages over a transient spike. The second retry
+/// buys almost nothing — an endpoint that hung twice is not having a spike.
+const DEFAULT_LIMITED_MAX_RETRIES: u32 = 1;
 const DEFAULT_BASE_DELAY: Duration = Duration::from_secs(1);
 const DEFAULT_CAP: Duration = Duration::from_secs(60);
 const DEFAULT_RETRY_AFTER_CAP: Duration = Duration::from_secs(300);
@@ -1033,6 +1039,47 @@ pub struct RetryConfig {
     pub operation_budget: Duration,
     /// Classes that use **flat** backoff instead of exponential.
     pub flat_classes: Vec<RetryClass>,
+    /// Classes whose attempt count is [`limited_max_retries`] instead of [`max_retries`].
+    ///
+    /// Default: `[Timeout, Network]` — the two classes that can consume a whole client timeout
+    /// per attempt. `Timeout` does so by definition: the model accepted the connection and kept
+    /// generating. `Network` does so in its pathological case — a packet dropped in silence
+    /// (firewall drop, host down), as opposed to the immediate refusal — so it belongs here too.
+    /// Leaving it out would leave an undeclared hybrid regime: deterministic for one, time-bound
+    /// for the other.
+    ///
+    /// # Orthogonal to [`flat_classes`], which is why a class can be in both
+    ///
+    /// That one governs the SHAPE of the backoff; this one governs HOW MANY attempts happen.
+    /// `Timeout` appearing in both is expected rather than a conflict.
+    ///
+    /// # A `Vec`, not a map
+    ///
+    /// [`RetryClass`] derives neither `Ord` nor `Hash`, so a `BTreeMap`/`HashMap` key would
+    /// require adding derives to a public type for a granularity nobody has asked for. It is
+    /// also `#[non_exhaustive]`: a list with a fallback to the general count absorbs future
+    /// classes without a further rule.
+    ///
+    /// [`limited_max_retries`]: RetryConfig::limited_max_retries
+    /// [`max_retries`]: RetryConfig::max_retries
+    /// [`flat_classes`]: RetryConfig::flat_classes
+    pub limited_retry_classes: Vec<RetryClass>,
+    /// Retries allowed for a class in [`limited_retry_classes`]. Default `1`, giving 2 attempts.
+    ///
+    /// # Why one and not zero
+    ///
+    /// A `Timeout` condemns the lineage run-wide, so rotating on the first hang takes that
+    /// lineage away from the OTHER two mages over a transient load spike. One retry buys that
+    /// second chance for one client timeout; a second buys almost nothing, because an endpoint
+    /// that hung twice in a row is not having a spike.
+    ///
+    /// # Zero is legitimate and is not rejected
+    ///
+    /// "Do not retry, rotate straight away" is a valid choice. This crate imposes no artificial
+    /// ceilings on the consumer's deployment.
+    ///
+    /// [`limited_retry_classes`]: RetryConfig::limited_retry_classes
+    pub limited_max_retries: u32,
 }
 
 impl Default for RetryConfig {
@@ -1044,6 +1091,8 @@ impl Default for RetryConfig {
             retry_after_cap: DEFAULT_RETRY_AFTER_CAP,
             operation_budget: DEFAULT_OPERATION_BUDGET,
             flat_classes: vec![RetryClass::Timeout, RetryClass::Network],
+            limited_retry_classes: vec![RetryClass::Timeout, RetryClass::Network],
+            limited_max_retries: DEFAULT_LIMITED_MAX_RETRIES,
         }
     }
 }
@@ -1445,6 +1494,25 @@ impl LlmProvider for RetryProvider {
                 },
                 _ => None,
             };
+
+            // The effective attempt cap depends on the class of the error that JUST happened,
+            // not on the one that started the chain. A chain can open with a `429` — four
+            // attempts — and meet a `Timeout` on the second; the cap that governs is the one for
+            // what IS happening. Resolving the class once on entry would give four, and that is
+            // the defect this check exists to prevent.
+            let limit = if self.config.limited_retry_classes.contains(&classify(&err)) {
+                self.config.limited_max_retries
+            } else {
+                self.config.max_retries
+            };
+            if attempt >= limit {
+                // Leaves through the same path as exhausting `max_retries`: the last error is
+                // recorded and the post-loop code turns it into the caller's result. Returning
+                // a different error here would make an attempt-capped chain distinguishable
+                // from an exhausted one for no reason the consumer can act on.
+                last_error = Some(err);
+                break;
+            }
 
             let mut rand = || fastrand::f64();
             let wait = crate::backoff::next_backoff(
@@ -1949,6 +2017,36 @@ mod tests {
     async fn test_base_zero_with_three_retries_emits_exactly_four_requests() {
         // S2 / B7 end-to-end: `base_delay = 0` does not sleep, but the burst is
         // BOUNDED to `max_retries + 1`.
+        //
+        // The error class matters now and did not before: this asserts the count for a class
+        // that is NOT attempt-limited. `Http` fails fast, so four attempts cost seconds — which
+        // is exactly why it keeps the general count. Its limited counterpart is the test below.
+        let inner = Arc::new(FailingProvider::new(ProviderError::Http {
+            status: 503,
+            body: "err".into(),
+            retry_after_raw: vec![],
+            received_at: None,
+        }));
+        let p = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                base_delay: Duration::ZERO,
+                max_retries: 3,
+                ..Default::default()
+            },
+        );
+        let _ = p.complete("s", "u", &CompletionConfig::default()).await;
+        assert_eq!(inner.calls(), 4, "1 initial + 3 retries, no infinite loop");
+    }
+
+    #[tokio::test]
+    async fn a_limited_class_stops_at_its_own_count_not_at_max_retries() {
+        // The behaviour change of this milestone, pinned end to end rather than only through
+        // the `attempts_for` helper: `Network` is attempt-limited, so `max_retries = 3` does NOT
+        // buy four attempts.
+        //
+        // This test previously asserted 4 with this same error, which is what makes the change
+        // observable: a consumer who counted on four requests for a hang gets two.
         let inner = Arc::new(FailingProvider::new(ProviderError::Network {
             message: "fail".into(),
         }));
@@ -1961,7 +2059,30 @@ mod tests {
             },
         );
         let _ = p.complete("s", "u", &CompletionConfig::default()).await;
-        assert_eq!(inner.calls(), 4, "1 initial + 3 retries, no infinite loop");
+        assert_eq!(
+            inner.calls(),
+            2,
+            "1 initial + limited_max_retries, not 1 + max_retries"
+        );
+    }
+
+    #[tokio::test]
+    async fn zero_limited_retries_makes_a_hang_rotate_on_the_first_attempt() {
+        // The zero case exercised through the real loop, not just the helper: a consumer who
+        // wants to reach a different lineage immediately gets exactly one request.
+        let inner = Arc::new(FailingProvider::new(ProviderError::Timeout {
+            message: "hang".into(),
+        }));
+        let p = RetryProvider::with_config(
+            inner.clone(),
+            RetryConfig {
+                base_delay: Duration::ZERO,
+                limited_max_retries: 0,
+                ..Default::default()
+            },
+        );
+        let _ = p.complete("s", "u", &CompletionConfig::default()).await;
+        assert_eq!(inner.calls(), 1, "no retry at all, by configuration");
     }
 
     #[tokio::test]
@@ -2452,6 +2573,11 @@ mod tests {
             mock.clone(),
             RetryConfig {
                 max_retries: 3,
+                // `Timeout` is attempt-limited by default (two attempts), which would end this
+                // chain before the third scripted response. Raised here because the property
+                // under test is that a transient timeout is RETRIED AND RECOVERS, not how many
+                // attempts the shipped policy grants it — that has its own tests.
+                limited_max_retries: 3,
                 base_delay: Duration::from_millis(1),
                 ..Default::default()
             },
@@ -2671,6 +2797,9 @@ mod tests {
             mock.clone(),
             RetryConfig {
                 max_retries: 2,
+                // Matched to `max_retries` so the general count governs: this test is about the
+                // LAST error surviving an exhausted chain, not about the per-class policy.
+                limited_max_retries: 2,
                 base_delay: Duration::from_millis(1),
                 ..Default::default()
             },
@@ -3113,5 +3242,63 @@ mod tests {
         assert!(!is_retryable(&e));
         // Same chain, same failure, every time: retrying only spends budget.
         assert!(e.to_string().contains("redirect"));
+    }
+
+    /// How many attempts a class is allowed: `1 + limited_max_retries` when it is on the limited
+    /// list, `1 + max_retries` otherwise.
+    ///
+    /// Lives beside the field it reads so the two tasks that consume it do not each rewrite it.
+    fn attempts_for(cfg: &RetryConfig, class: RetryClass) -> u32 {
+        if cfg.limited_retry_classes.contains(&class) {
+            1 + cfg.limited_max_retries
+        } else {
+            1 + cfg.max_retries
+        }
+    }
+
+    /// The two classes that can burn a whole `client_timeout` get two attempts; everything else
+    /// keeps four.
+    ///
+    /// `Http` covers 429 and the transient 5xx: those fail fast, so four of them cost seconds.
+    /// A `Timeout` costs the client timeout each time, which is what the shorter count is for.
+    #[test]
+    fn a_limited_class_gets_two_attempts_not_four() {
+        let cfg = RetryConfig::default();
+        assert_eq!(attempts_for(&cfg, RetryClass::Timeout), 2);
+        assert_eq!(attempts_for(&cfg, RetryClass::Network), 2);
+        assert_eq!(attempts_for(&cfg, RetryClass::Http), 4);
+    }
+
+    /// "Do not retry, rotate straight away" is a legitimate choice and is not rejected.
+    ///
+    /// This crate imposes no artificial ceilings; a consumer who wants to reach a different
+    /// lineage on the first hang is entitled to say so.
+    #[test]
+    fn zero_limited_retries_is_legitimate_and_not_rejected() {
+        // `RetryConfig` has no builders by design — fields over `Default`. Inside the crate the
+        // struct-update form is available and clippy prefers it; an outside consumer, for whom
+        // `#[non_exhaustive]` forbids the literal, assigns the field instead.
+        let cfg = RetryConfig {
+            limited_max_retries: 0,
+            ..Default::default()
+        };
+        assert_eq!(attempts_for(&cfg, RetryClass::Timeout), 1);
+    }
+
+    /// `flat_classes` and `limited_retry_classes` are ORTHOGONAL: one governs the backoff shape,
+    /// the other the attempt count. A class appearing in both is expected, not a conflict.
+    #[test]
+    fn the_two_class_lists_are_orthogonal() {
+        let cfg = RetryConfig::default();
+        for class in [RetryClass::Timeout, RetryClass::Network] {
+            assert!(
+                cfg.flat_classes.contains(&class),
+                "{class:?} should back off flat"
+            );
+            assert!(
+                cfg.limited_retry_classes.contains(&class),
+                "{class:?} should also be attempt-limited; the lists govern different things"
+            );
+        }
     }
 }

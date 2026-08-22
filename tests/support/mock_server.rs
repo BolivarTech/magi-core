@@ -167,3 +167,75 @@ pub async fn spawn_capturing(
     });
     (format!("http://{addr}"), captured, handle)
 }
+
+/// `429` on the first request and a **hang** on every one after it, counting what it served.
+///
+/// Exists because neither server above can produce a class TRANSITION: one hangs always, the
+/// other never hangs. The property under test is that the attempt cap follows the class of the
+/// error that JUST happened, so a chain has to change class mid-flight.
+///
+/// # Three return values where the others return two, deliberately
+///
+/// The counter IS the observable: it is what distinguishes "abandoned on the `Timeout` cap" (2)
+/// from "on the general cap" (4). Normalising this to `(String, JoinHandle<()>)` would leave the
+/// test with no way to tell those apart, which is the whole property.
+///
+/// # The `429` carries no `Retry-After`, on purpose
+///
+/// With the header the chain would honour the server's requested wait and the test would be
+/// measuring a server backoff instead of the per-class cap. Without it the backoff is the one in
+/// `RetryConfig`, which the test pins to 1 ms.
+///
+/// # The counter increments after READING the request, before hanging
+///
+/// Incrementing when responding would never count the request that hangs, so the test would read
+/// `1` where there were `2` — the helper would report success for an abandonment that did not
+/// happen.
+#[allow(dead_code)]
+pub async fn spawn_429_then_hang() -> (String, JoinHandle<()>, Arc<std::sync::atomic::AtomicU32>) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind ephemeral port");
+    let addr = listener.local_addr().expect("local addr");
+    let hits = Arc::new(AtomicU32::new(0));
+    let counter = Arc::clone(&hits);
+
+    let handle = tokio::spawn(async move {
+        let mut served = 0u32;
+        while let Ok((mut sock, _)) = listener.accept().await {
+            let counter = Arc::clone(&counter);
+            let hang = served > 0;
+            // Each connection is handled in its OWN task, and that is load-bearing rather than
+            // tidiness: a hung connection served inline never returns, so the loop would never
+            // call `accept()` again. The counter would then read 2 whatever attempt cap was in
+            // force -- the test would measure this server's serialisation instead of the code,
+            // and would pass against a deliberately broken cap. Found by mutation, not by review.
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let _ = sock.read(&mut buf).await;
+                // Counted after reading and before hanging: a hung request is still a request
+                // the chain spent an attempt on. Counting when responding would never count it.
+                counter.fetch_add(1, Ordering::SeqCst);
+                if hang {
+                    let headers = "HTTP/1.1 200 OK
+Content-Type: application/json
+Content-Length: 512
+
+";
+                    let _ = sock.write_all(headers.as_bytes()).await;
+                    std::future::pending::<()>().await;
+                } else {
+                    let resp = "HTTP/1.1 429 Too Many Requests
+Content-Length: 0
+
+";
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                }
+            });
+            served += 1;
+        }
+    });
+    (format!("http://{addr}"), handle, hits)
+}
