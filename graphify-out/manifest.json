@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787379185.313716,
-    "ast_hash": "24fb67e55ec03787f1b808edbe7ac314",
+    "mtime": 1787381359.3600833,
+    "ast_hash": "d117c692a5ec1e27f695ad898469775c",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787379185.2171826,
-    "ast_hash": "473e5c605f95dc2f60881e7e1fa8fec8",
+    "mtime": 1787381052.5823197,
+    "ast_hash": "13ae875b8609f661f49332f8624e4935",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1787379185.3111966,
-    "ast_hash": "19bfc3066a91a028285e0c6c5cc5fe3f",
+    "mtime": 1787380928.4891543,
+    "ast_hash": "0e990a17a8e1c2bf8cb685d6efcdc496",
     "semantic_hash": ""
   },
   "README.md": {
@@ -585,8 +585,8 @@
     "semantic_hash": ""
   },
   "tests/common/mod.rs": {
-    "mtime": 1787376802.4528866,
-    "ast_hash": "8e345a70179da7e972f277a0fe3715ed",
+    "mtime": 1787381093.3889065,
+    "ast_hash": "cafe4475d152b4eba4ff76db2ba720f0",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/README.md": {
@@ -740,8 +740,8 @@
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787372153.082684,
-    "ast_hash": "b4c64b115be0643b8126c36937ef9634",
+    "mtime": 1787381267.6762755,
+    "ast_hash": "ed82582b302f25e5c0524543ea6a8e64",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
@@ -775,12 +775,12 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787379355.904291,
-    "ast_hash": "771c79192441c12fbb8816b420376c25",
+    "mtime": 1787381267.6772785,
+    "ast_hash": "6fd70d8e33419207bad7e66f5dbc147a",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
-    "mtime": 1787371517.5042214,
+    "mtime": 1787381267.6792789,
     "ast_hash": "f3b35ccd814e891a029d73a88405ccb9",
     "semantic_hash": ""
   },
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787376580.9027998,
-    "ast_hash": "7f6e6bbe37e8669112c615eaee22db50",
+    "mtime": 1787380928.4871504,
+    "ast_hash": "52f22cca9e096ad3396b3c99c881ffc6",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
@@ -930,13 +930,13 @@
     "semantic_hash": ""
   },
   "tests/cross_milestone.rs": {
-    "mtime": 1787379384.6686387,
-    "ast_hash": "ac9a72f0de639e7f944666d92e69fb42",
+    "mtime": 1787381093.3899083,
+    "ast_hash": "286ce55121404cd5647eda83e397ff1c",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/f.rs": {
-    "mtime": 1787379540.5186083,
-    "ast_hash": "a20ed236c1a0320e06847eb0db087441",
+    "mtime": 1787380928.6101859,
+    "ast_hash": "1dddaa61107dcba8fe458003936c87a1",
     "semantic_hash": ""
   }
 }
