@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-08-21)
 
 ## Corpus Check
-- 184 files · ~344,287 words
+- 184 files · ~344,421 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d5f6dbdc`
+- Built from commit: `17507c82`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1066,11 +1066,11 @@ Nodes (3): Mode, test_format_init_banner_shows_mode_model_timeout(), test_separa
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `ProviderError` connect `ProviderError` to `OllamaProvider`, `validate.rs`, `LlmProvider`, `CompletionTelemetry`, `rotation.rs`, `String`, `Completion`, `.response_contract`, `error.rs`, `HostedModel`, `ProviderResponse`, `openai_compat.rs`, `ollama.rs`, `ProviderRequest`, `provider_url.rs`, `claude.rs`?**
-  _High betweenness centrality (0.071) - this node is a cross-community bridge._
+  _High betweenness centrality (0.068) - this node is a cross-community bridge._
 - **Why does `MagiError` connect `validate.rs` to `AgentName`, `prompts/mod.rs`, `consensus.rs`, `LlmProvider`, `ProviderError`, `.response_contract`, `error.rs`, `Self`?**
-  _High betweenness centrality (0.041) - this node is a cross-community bridge._
+  _High betweenness centrality (0.040) - this node is a cross-community bridge._
 - **Why does `Cli` connect `main.rs` to `config.rs`, `PathBuf`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+  _High betweenness centrality (0.022) - this node is a cross-community bridge._
 - **What connects `melchior`, `report`, `X` to the rest of the system?**
   _234 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `test_support.rs` be split into smaller, more focused modules?**

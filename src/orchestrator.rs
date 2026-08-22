@@ -903,6 +903,32 @@ pub struct Magi {
     probe_declaration_warned: std::sync::atomic::AtomicBool,
 }
 
+/// The message an agent-timeout cut reports, naming the CONFIGURED ceiling.
+///
+/// # Why the ceiling and not only the elapsed time
+///
+/// The shipped ceiling crosses the range where infrastructure timeouts live (60-600 s), so a cut
+/// an operator sees may come from THEIR proxy rather than from this crate. "cut after 600s,
+/// configured ceiling 660s" says by itself that it was not us; the elapsed time alone leaves two
+/// numbers nobody has together, and the operator comes to look at the crate.
+///
+/// This is not inferring anything about someone else's deployment — it is publishing our own
+/// number so the difference is visible.
+///
+/// # One function for all four sites
+///
+/// There are four `tokio::time::timeout` calls on the agent path (the call and its corrective
+/// retry, on the rotating path and the non-rotating one). Four separate `format!`s is how three
+/// of them end up without the ceiling.
+fn agent_timeout_message(is_corrective_retry: bool, ceiling: Duration) -> String {
+    let phase = if is_corrective_retry {
+        "retry-failed: timeout"
+    } else {
+        "timeout: agent timed out"
+    };
+    format!("{phase} after {ceiling:?} (configured ceiling {ceiling:?})")
+}
+
 impl Magi {
     /// The worst-case wall clock **one seat** can spend, derived from THIS instance's effective
     /// configuration.
@@ -1697,7 +1723,7 @@ pub(crate) async fn dispatch_one_agent(
         }
         Err(_elapsed) => {
             return (
-                Err(format!("timeout: agent timed out after {timeout:?}")),
+                Err(agent_timeout_message(false, timeout)),
                 false,
                 failures,
                 records,
@@ -1768,7 +1794,7 @@ pub(crate) async fn dispatch_one_agent(
         }
         Err(_elapsed) => {
             return (
-                Err(format!("retry-failed: timeout after {timeout:?}")),
+                Err(agent_timeout_message(true, timeout)),
                 true,
                 failures,
                 records,
@@ -2060,7 +2086,7 @@ async fn attempt_model(
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
         Err(_elapsed) => {
             return ModelOutcome::Transport {
-                detail: format!("timeout: agent timed out after {timeout:?}"),
+                detail: agent_timeout_message(false, timeout),
                 connection: false,
                 kind: RotationKind::Timeout,
             };
@@ -2125,7 +2151,7 @@ async fn attempt_model(
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
         Err(_elapsed) => {
             return ModelOutcome::Transport {
-                detail: format!("retry-failed: timeout after {timeout:?}"),
+                detail: agent_timeout_message(true, timeout),
                 connection: false,
                 kind: RotationKind::Timeout,
             };
@@ -6844,5 +6870,77 @@ mod tests {
         // Returns a `Duration`, not a `Result`: the type is the assertion.
         let d: Duration = magi.worst_case_per_seat();
         assert!(d > Duration::ZERO);
+    }
+
+    /// The timeout message publishes the CONFIGURED ceiling, not only the elapsed time.
+    ///
+    /// Raising the default 300 -> 660 s crosses the range where infrastructure timeouts live
+    /// (60-600 s), so the cut an operator sees may come from THEIR proxy rather than from this
+    /// crate. With the ceiling in the message, "cut after 200ms, configured ceiling 200ms" says
+    /// by itself whose cut it was. Without it they are two numbers nobody has together, and the
+    /// operator comes to look at the crate.
+    ///
+    /// The helper uses a SHORT ceiling and the assertion is about that number, not about 660:
+    /// the property is "the message publishes the configured ceiling", true for any value, and a
+    /// test that waited 660 s is a test nobody runs.
+    ///
+    /// `Ok` is expected: one hung seat DEGRADES the run. All four timeout sites write into
+    /// `failed_agents` and none returns `Err`.
+    #[tokio::test]
+    async fn the_timeout_message_carries_the_configured_ceiling() {
+        let report = run_against_a_hanging_backend_with_ceiling(Duration::from_millis(200))
+            .await
+            .expect("one hung seat degrades the run; it does not abort it");
+        let s = report
+            .failed_agents
+            .values()
+            .next()
+            .expect("the hung seat is recorded");
+        assert!(
+            s.contains("200ms"),
+            "must publish the configured ceiling, whatever it is: {s}"
+        );
+        assert!(
+            s.contains("ceiling"),
+            "the elapsed time alone does not say whose cut it was: {s}"
+        );
+    }
+
+    /// Every agent-timeout site uses the shared message.
+    ///
+    /// SCOPE: this is a STRUCTURAL check and is fragile to a refactor that changes the spelling.
+    /// It does not replace the semantic test above; it catches the one thing that one cannot —
+    /// a FOURTH site nobody covered.
+    ///
+    /// It reads the file it lives in, so the test module is cut off before counting: otherwise
+    /// its own literals are counted and it fails for a reason that is not its own.
+    #[test]
+    fn every_timeout_site_uses_the_shared_message() {
+        let src = include_str!("orchestrator.rs");
+        // Cut at the test MODULE, not at the first `#[cfg(test)]`. That first one sits on a
+        // production helper, hundreds of lines before any timeout site, so cutting there left
+        // zero sites — which the plausibility assertion below caught rather than letting `0 == 0`
+        // report success.
+        let prod = &src[..src
+            .find(
+                "
+mod tests {",
+            )
+            .unwrap_or(src.len())];
+        // Only the AGENT timeouts. Counting every `tokio::time::timeout` would include any
+        // other one that exists or arrives later.
+        let sites = prod.matches("tokio::time::timeout(timeout,").count();
+        // Without this the test is VACUOUS if the cut lands early — a `#[cfg(test)]` over any
+        // production helper is enough — because `0 == 0` passes. A test reporting success having
+        // looked at nothing is the green-by-omission this project keeps finding.
+        assert!(
+            sites >= 4,
+            "the test-module cut left {sites} sites, which is not plausible"
+        );
+        let uses = prod.matches("agent_timeout_message(").count() - 1; // -1: the definition
+        assert_eq!(
+            uses, sites,
+            "{sites} timeout sites but {uses} use the shared message: the ones missing report a cut without naming the configured ceiling"
+        );
     }
 }
