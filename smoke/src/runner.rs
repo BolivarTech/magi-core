@@ -138,7 +138,8 @@ pub enum ErrorClass {
 /// The time budget as the crate SHIPS it, plus what it derives to.
 ///
 /// Not "as this session configured it": `worst_case_per_seat` comes from the built trio, but the
-/// rest are read from `MagiConfig::default()` and `RetryConfig::default()`. Saying otherwise
+/// rest are read from `MagiConfig::default()`, `RetryConfig::default()` and the standalone
+/// `DEFAULT_CLIENT_TIMEOUT`. Saying otherwise
 /// would promise something the code does not do.
 ///
 /// # Why a struct and not seven fields on `RunContext`
@@ -162,7 +163,11 @@ pub struct Timings {
     /// The per-agent ceiling the crate SHIPS (`MagiConfig::default().timeout`), not one this
     /// session set — `timings_of` reads it from the defaults.
     pub agent_ceiling: Duration,
-    /// The three `RetryConfig` values the chain-vs-ceiling arithmetic needs.
+    /// The three values the chain-vs-ceiling arithmetic needs. Two are `RetryConfig` fields;
+    /// `retry_client_timeout` is NOT — `client_timeout` belongs to each provider's HTTP client
+    /// and is read from the standalone `DEFAULT_CLIENT_TIMEOUT`. That invisibility from
+    /// `RetryConfig` is the premise the crate's own budget-window guard rests on, so naming it a
+    /// field here would contradict the thing this milestone is built around.
     pub retry_client_timeout: Duration,
     /// How many retries a limited class gets.
     pub retry_limited_max: u32,

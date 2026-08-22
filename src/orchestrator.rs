@@ -6922,7 +6922,8 @@ mod tests {
     ///
     /// SCOPE: this is a STRUCTURAL check and is fragile to a refactor that changes the spelling.
     /// It does not replace the semantic test above; it catches the one thing that one cannot —
-    /// a FOURTH site nobody covered.
+    /// a FIFTH site nobody covered. (There are four today, and the semantic test exercises the
+    /// behaviour of one of them; what is unguarded is a new one arriving with its own `format!`.)
     ///
     /// It reads the file it lives in, so the test module is cut off before counting: otherwise
     /// its own literals are counted and it fails for a reason that is not its own.

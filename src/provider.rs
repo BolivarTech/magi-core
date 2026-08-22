@@ -3422,8 +3422,12 @@ mod tests {
     /// starts — the old values fall inside it too — and that is not a Red phase, it is a task
     /// without one.
     ///
-    /// The four unchanged ones are asserted as well. Without them there is no way to tell "was
-    /// not touched" from "was touched by accident" while the other three moved.
+    /// The three unchanged ones are asserted as well — `DEFAULT_CLIENT_TIMEOUT`,
+    /// `retry_after_cap` and `max_retries`. Without them there is no way to tell "was not
+    /// touched" from "was touched by accident" while the other four moved or arrived.
+    ///
+    /// Six of the seven are here; the seventh is the agent ceiling, which belongs to
+    /// `MagiConfig` and is pinned by `the_agent_ceiling_covers_the_worst_case_of_the_chain`.
     #[test]
     fn the_seven_defaults_are_exactly_these() {
         let r = RetryConfig::default();
