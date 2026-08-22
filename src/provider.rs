@@ -3481,9 +3481,9 @@ mod tests {
 
     /// One honoured wait that eats the whole budget is flagged.
     ///
-    /// When a single wait is at least the budget, the backstop cuts before it can be honoured:
-    /// the cap is unreachable and the consumer believes they configured something that never
-    /// applies.
+    /// A wait at least as long as the budget runs IN FULL — the check is at the top of an
+    /// iteration and the sleep at the bottom, so it is never interrupted — and overruns the
+    /// budget, so the chain gets at most one of them before abandoning.
     #[test]
     fn a_single_honoured_wait_that_eats_the_whole_budget_is_flagged() {
         let c = RetryConfig {
@@ -3495,7 +3495,7 @@ mod tests {
             c.dangerous_settings()
                 .iter()
                 .any(|w| w.contains("retry_after_cap") && w.contains("operation_budget")),
-            "an unreachable cap must be reported"
+            "a cap that overruns the whole budget must be reported"
         );
     }
 
@@ -3511,7 +3511,7 @@ mod tests {
             c.dangerous_settings()
                 .iter()
                 .any(|w| w.contains("retry_after_cap")),
-            "at equality the backstop still cuts before the wait is honoured"
+            "at equality one honoured wait already consumes the whole budget"
         );
     }
 
@@ -3603,5 +3603,47 @@ mod tests {
                 "budget {secs}s should have warned"
             );
         }
+    }
+
+    /// The message's printed formula agrees with `budget_window`.
+    ///
+    /// The message hands the consumer a formula to compute their OWN window with, since the
+    /// guard can only assume the shipped client timeout. Nothing related the two before, so
+    /// changing `budget_window` would let the printed formula drift silently — the same "text
+    /// that outlived its code" class this round exists to remove.
+    #[test]
+    fn the_window_message_formula_agrees_with_budget_window() {
+        let bd = 1u64;
+        let c = RetryConfig {
+            operation_budget: Duration::from_secs(200), // outside, so the guard fires
+            base_delay: Duration::from_secs(bd),
+            ..Default::default()
+        };
+        let msg = c
+            .dangerous_settings()
+            .into_iter()
+            .find(|w| w.contains("second attempt"))
+            .expect("the guard fires for a budget under the floor");
+
+        // The window it printed, for the DEFAULT client timeout.
+        let shipped = budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), bd);
+        assert!(
+            msg.contains(&format!("[{}, {})", shipped.start, shipped.end)),
+            "the printed window must be the one the function computes: {msg}"
+        );
+
+        // And the formula it printed, substituted for a DIFFERENT client timeout, must reproduce
+        // what the function gives for that timeout. This is the half a consumer acts on.
+        let other_ct = 600u64;
+        let by_formula = (other_ct + bd + 1)..(2 * other_ct + 2 * bd + 1);
+        assert_eq!(
+            budget_window(other_ct, bd),
+            by_formula,
+            "the formula in the message and the function must be the same arithmetic"
+        );
+        assert!(
+            msg.contains(&format!("[ct + {bd} + 1, 2*ct + {} + 1)", 2 * bd)),
+            "the message must carry the formula a consumer substitutes into: {msg}"
+        );
     }
 }

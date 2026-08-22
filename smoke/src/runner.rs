@@ -135,11 +135,6 @@ pub enum ErrorClass {
     Environment,
 }
 
-/// What a scenario gets to look at: everything a run produced, and NOTHING it
-/// did not.
-///
-/// An assertion cannot reach the network on its own, which is what makes "one
-/// run, many assertions" cheap AND honest.
 /// The time budget as the crate SHIPS it, plus what it derives to.
 ///
 /// Not "as this session configured it": `worst_case_per_seat` comes from the built trio, but the
@@ -153,7 +148,8 @@ pub enum ErrorClass {
 ///
 /// # Why the names differ from the crate's
 ///
-/// `rotations_configured` is what THIS harness built into its pool, not `MagiConfig::max_rotations`
+/// `rotations_configured` is what THIS harness built into its pool. The crate's own count lives
+/// on the fallback POOL rather than on `MagiConfig`
 /// — the harness configures no fallbacks today, so it is `0`. Naming it after the crate's field
 /// would claim it reads that field.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -164,7 +160,8 @@ pub struct Timings {
     pub rotations_configured: u32,
     /// Whether the corrective schema retry is on, which doubles the calls per model.
     pub schema_retry: bool,
-    /// The per-agent ceiling this session used.
+    /// The per-agent ceiling the crate SHIPS (`MagiConfig::default().timeout`), not one this
+    /// session set — `timings_of` reads it from the defaults.
     pub agent_ceiling: Duration,
     /// The three `RetryConfig` values the chain-vs-ceiling arithmetic needs.
     pub retry_client_timeout: Duration,
@@ -174,6 +171,11 @@ pub struct Timings {
     pub retry_base_delay: Duration,
 }
 
+/// What a scenario gets to look at: everything a run produced, and NOTHING it
+/// did not.
+///
+/// An assertion cannot reach the network on its own, which is what makes "one
+/// run, many assertions" cheap AND honest.
 pub struct RunContext<'a> {
     /// Which shared run fed this assertion.
     pub run: RunId,
@@ -268,11 +270,11 @@ pub struct RunContext<'a> {
     /// harness for their own edits. What the scenario can honestly claim is that
     /// it added nothing.
     pub repo_status_before: Option<&'a str>,
-    /// The time budget this session configured, and what it derives to.
+    /// The time budget as the crate SHIPS it, and what it derives to.
     ///
     /// `None` when nothing built a trio — under `--no-backend` the session still constructs one
-    /// to read these off it, so the axis-F scenarios that are pure construction properties do
-    /// run there. A scenario reading `None` SKIPS: a budget nobody configured says nothing.
+    /// to read these off it, so the axis-F scenarios, which are all construction properties, do
+    /// run there. A scenario reading `None` SKIPS: with no trio there is nothing to read.
     pub timings: Option<Timings>,
 }
 
@@ -1418,16 +1420,17 @@ pub fn shipped_timings() -> Option<Timings> {
     let magi = MagiBuilder::new(Arc::new(external::AlwaysFailsExternally) as Arc<dyn LlmProvider>)
         .build()
         .ok()?;
-    Some(timings_of(&magi, 0))
+    Some(timings_of(&magi))
 }
 
 /// See [`shipped_timings`], its only caller. Private: a `pub` helper with one in-crate caller
 /// is surface without a consumer.
-fn timings_of(magi: &Magi, rotations: u32) -> Timings {
+fn timings_of(magi: &Magi) -> Timings {
     let r = RetryConfig::default();
     Timings {
         worst_case_per_seat: magi.worst_case_per_seat(),
-        rotations_configured: rotations,
+        // This harness configures no fallback pool, so there is nothing to rotate to.
+        rotations_configured: 0,
         schema_retry: MagiConfig::default().retry_on_schema_error,
         agent_ceiling: MagiConfig::default().timeout,
         retry_client_timeout: DEFAULT_CLIENT_TIMEOUT,

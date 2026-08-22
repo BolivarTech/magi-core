@@ -6882,7 +6882,7 @@ mod tests {
         assert!(d > Duration::ZERO);
     }
 
-    /// The timeout message publishes the CONFIGURED ceiling, not only the elapsed time.
+    /// The timeout message names the CONFIGURED ceiling as the ceiling.
     ///
     /// The message must name the ceiling AS the ceiling. It cannot report a measurement: this
     /// path is only reached when our own timeout fires, so elapsed is always exactly the ceiling

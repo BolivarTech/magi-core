@@ -61,9 +61,11 @@ async fn the_corrective_retry_produces_two_records_against_the_same_model() {
 #[tokio::test]
 #[cfg(feature = "openai-compat")]
 async fn a_transport_hang_produces_one_record_and_that_is_correct() {
+    let started = std::time::Instant::now();
     let r = common::run_against_a_hanging_backend()
         .await
         .expect("one hung seat degrades the run; it does not abort it");
+    let elapsed = started.elapsed();
     let recs = r
         .completions
         .get(&AgentName::Caspar)
@@ -72,5 +74,13 @@ async fn a_transport_hang_produces_one_record_and_that_is_correct() {
         recs.len(),
         1,
         "the RetryProvider absorbs its own retries: one call from the orchestrator's side"
+    );
+    // Pins that the absorption ACTUALLY HAPPENED rather than being asserted. The helper wraps a
+    // 300 ms client timeout with `limited_max_retries = 1`, so two internal attempts cost more
+    // than one. Without this, reclassifying the hang as non-retryable would leave this test green
+    // with its own claim unearned — which is how it read before review.
+    assert!(
+        elapsed >= std::time::Duration::from_millis(500),
+        "only one attempt was made ({elapsed:?}), so nothing was absorbed and the claim is unearned"
     );
 }

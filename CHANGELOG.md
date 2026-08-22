@@ -44,7 +44,9 @@ to leave alone.
   attempt count cuts first, and the budget exists so that if something escapes it the
   abandonment is typed rather than an opaque cut. `450` is not free choice — it is the only
   window that keeps both properties.
-- **The agent timeout message names the configured ceiling**, not only the elapsed time. The new
+- **The agent timeout message names the configured ceiling.** It cannot report a measurement —
+  this path is only reached when our own timeout fires, so elapsed is always exactly the ceiling —
+  so it publishes our number plainly rather than printing it twice as a false comparison. The new
   ceiling crosses the range where infrastructure timeouts live, so a cut an operator sees may
   come from their proxy; publishing our own number makes the difference legible.
 - **A hang now produces two requests where it produced four.** If you counted on four, set

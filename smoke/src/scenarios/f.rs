@@ -11,6 +11,11 @@
 //! shrinks cannot distinguish "not observable from here" from "passed", and MS2's closing
 //! criteria count them as NOT met rather than approved.
 //!
+//! **Every scenario here is `Source::Session` / `BackendNeed::None`**, so this axis exercises
+//! nothing against a live backend: its properties are all about CONSTRUCTION. That is a
+//! consequence of `S-F3` becoming out of scope, and it is said here so a later reader does not
+//! assume the axis covers runtime behaviour.
+//!
 //! `OUT_OF_SCOPE` and not `SKIP`: `Skip` means "could not be tested" and maps to exit 2, so three
 //! permanent skips would leave this harness inconclusive on every run forever — and a gate that
 //! is always red gets rationalised away. These three are answered by the crate's own tests, which
@@ -22,7 +27,6 @@ use crate::outcome::ScenarioState;
 use crate::runner::{assert_that, Assertion, BackendNeed, RunContext, Scenario, Source};
 
 const NAME_F1_PER_SEAT: &str = "the derived worst case is per seat and does not bound anything";
-const NAME_F1_FACTOR: &str = "the corrective retry is what doubles it";
 const NAME_F2A_CHAIN: &str = "the agent ceiling covers the chain worst case";
 const NAME_F2B: &str = "an exhausted budget is reported as a TYPED abandonment (OUT OF SCOPE here: the variant is stringified before it leaves the crate, and this harness does not wrap its providers in RetryProvider; the crate's own tests match it)";
 const NAME_F3_COUNT: &str = "an attempt-limited class stops at its own count (OUT OF SCOPE here: this harness does not wrap its providers in RetryProvider, so no attempt count reaches the wire; verified inside the crate instead)";
@@ -30,31 +34,34 @@ const NAME_F4: &str = "the configuration warning fires on a bad relation and not
 const NAME_F5_NO_ERR: &str = "no time value makes construction fail";
 
 /// `S-F1` — the worst case is readable and bounds nothing.
+///
+/// # One assertion, after two attempts at a second one both failed review
+///
+/// The first restated assertion 1's algebra and claimed to catch something it could not. The
+/// replacement was worse: implied by assertion 1 whenever the ceiling is a whole number of
+/// seconds, and a FALSE FAILURE against a correct crate when it is not — `as_secs()` truncation
+/// makes a 2500 ms ceiling times three fail a divisibility check.
+///
+/// Assertion 1 is the whole property: it pins the exact product, so it already fails if the
+/// corrective-retry factor, the model count or the ceiling is wrong. A second assertion here
+/// would have to build a second trio with `retry_on_schema_error` flipped and compare, which is
+/// a different scenario rather than a second reading of this one.
 fn s_f1(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let Some(t) = ctx.timings else {
-        let why = "no trio was built, so there is no configured budget to read";
-        return vec![
-            Assertion::skip(NAME_F1_PER_SEAT, why),
-            Assertion::skip(NAME_F1_FACTOR, why),
-        ];
+        return vec![Assertion::skip(
+            NAME_F1_PER_SEAT,
+            "no trio was built, so there is no configured budget to read",
+        )];
     };
 
     // Per seat: ceiling x calls x models, with NO factor of three. Whether the backend
     // parallelises or serialises the mages belongs to the deployment, not to this crate.
     let calls = if t.schema_retry { 2 } else { 1 };
     let expected = t.agent_ceiling * calls * (1 + t.rotations_configured);
-    let per_seat = assert_that(NAME_F1_PER_SEAT, t.worst_case_per_seat == expected);
-
-    // A DIFFERENT property, not the same algebra restated: that the value scales with the
-    // configured ceiling rather than being a constant. Review found the previous form was
-    // identical to the assertion above for both branches of `schema_retry`, so it carried a claim
-    // it did not earn.
-    let factor = assert_that(
-        NAME_F1_FACTOR,
-        t.worst_case_per_seat >= t.agent_ceiling
-            && t.worst_case_per_seat.as_secs() % t.agent_ceiling.as_secs().max(1) == 0,
-    );
-    vec![per_seat, factor]
+    vec![assert_that(
+        NAME_F1_PER_SEAT,
+        t.worst_case_per_seat == expected,
+    )]
 }
 
 /// `S-F2a` — the ceiling covers the chain.
@@ -84,7 +91,7 @@ fn s_f2a(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// The property is verified where it IS observable — the crate's own tests match the variant.
 fn s_f2b(_ctx: &RunContext<'_>) -> Vec<Assertion> {
     // OUT OF SCOPE rather than SKIP, and the distinction is load-bearing. `Skip` means "could
-    // not be tested" and maps to exit 2, so two permanent skips would leave this harness
+    // not be tested" and maps to exit 2, so three permanent skips would leave this harness
     // inconclusive on every run forever — and a gate that is always red gets rationalised away.
     // This property is not an unanswered question: it is answered inside the crate, and
     // deliberately not from here. The reason travels in the assertion NAME, which is printed, so
@@ -192,10 +199,10 @@ pub fn f_scenarios() -> Vec<Scenario> {
 mod tests {
     use super::*;
 
-    /// All six are registered, including the two that skip.
+    /// All six are registered, including the three that are out of scope.
     ///
-    /// The skipping rows stay in the table on purpose: a table that shrinks cannot distinguish
-    /// "could not be tested" from "passed".
+    /// Those rows stay in the table on purpose: one that shrinks cannot distinguish "not
+    /// observable from here" from "passed".
     #[test]
     fn all_six_axis_f_scenarios_are_registered() {
         assert_eq!(f_scenarios().len(), 6);
@@ -216,15 +223,18 @@ mod tests {
         }
     }
 
-    /// The two unobservable properties are OUT OF SCOPE, and each says why in its own name.
+    /// The THREE unobservable properties are OUT OF SCOPE, and each says why in its own name.
     ///
-    /// Not `Skip`: that means "could not be tested" and maps to exit 2, so two permanent skips
+    /// Not `Skip`: that means "could not be tested" and maps to exit 2, so three permanent skips
     /// would leave every run inconclusive — and a gate that is always red gets rationalised away.
     /// These are answered inside the crate, which is a different thing from unanswered.
+    ///
+    /// `s_f3` is in this loop because it was NOT: review found its name could lose its reason
+    /// with every test still green, which is the drift the module doc relies on not happening.
     #[test]
-    fn the_two_unobservable_properties_are_out_of_scope_and_say_why() {
+    fn the_three_unobservable_properties_are_out_of_scope_and_say_why() {
         let ctx = RunContext::blank(RunId::NoBackend);
-        for a in s_f2b(&ctx).into_iter().chain(s_f4(&ctx)) {
+        for a in s_f2b(&ctx).into_iter().chain(s_f3(&ctx)).chain(s_f4(&ctx)) {
             assert_eq!(
                 a.state,
                 ScenarioState::OutOfScope,
