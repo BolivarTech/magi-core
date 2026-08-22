@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787370610.7956266,
-    "ast_hash": "4ecbffdd880d70334bca7c4df85c8242",
+    "mtime": 1787376745.3320816,
+    "ast_hash": "958d590780314dda48abbd6d828f0a1b",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787370204.103191,
-    "ast_hash": "3094178914374e0df1b6064cb5a94c0f",
+    "mtime": 1787376462.0393744,
+    "ast_hash": "ecf638d077e364bc37fba4ad923f8671",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1787371024.024683,
-    "ast_hash": "c0b60cf915a272c17eb2876be44ac24a",
+    "mtime": 1787376461.985811,
+    "ast_hash": "81b3bf471153668a6b585b701d6a758e",
     "semantic_hash": ""
   },
   "README.md": {
@@ -585,8 +585,8 @@
     "semantic_hash": ""
   },
   "tests/common/mod.rs": {
-    "mtime": 1787366671.9460325,
-    "ast_hash": "cee1393206c4e73c28db54ceafd6cba1",
+    "mtime": 1787376802.4528866,
+    "ast_hash": "8e345a70179da7e972f277a0fe3715ed",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/README.md": {
@@ -775,8 +775,8 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787372104.4814317,
-    "ast_hash": "f2093044f141d2a97ff5dd5ea41adffa",
+    "mtime": 1787376580.898798,
+    "ast_hash": "a436d0ddc09f6a65b07954e78b0788c5",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787370955.62533,
-    "ast_hash": "e6a46fa71197668f836cdcb83e626d21",
+    "mtime": 1787376580.9027998,
+    "ast_hash": "7f6e6bbe37e8669112c615eaee22db50",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
@@ -935,8 +935,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/f.rs": {
-    "mtime": 1787372023.612097,
-    "ast_hash": "1e482cf8a4e727bfb76190eee105a420",
+    "mtime": 1787376663.049231,
+    "ast_hash": "1878dd05e29636ecb234f77474b54311",
     "semantic_hash": ""
   }
 }
