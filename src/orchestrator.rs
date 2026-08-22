@@ -44,6 +44,26 @@ pub const DEFAULT_MAX_INPUT_LEN: usize = 4 * 1024 * 1024;
 /// See [`MagiConfig::input_warn_tokens`] for why this warns rather than rejects, and for when to
 /// raise it.
 pub const DEFAULT_INPUT_WARN_TOKENS: usize = 150_000;
+/// The per-agent ceiling, sized to cover the worst case of ONE retry chain.
+///
+/// # Where the number comes from
+///
+/// `(1 + limited_max_retries) x client_timeout + backoffs` = `2 x 300 + 1` = **601 s** for a
+/// hang, and roughly **604 s** through the `Retry-After` path where the backstop cuts. 660 s is
+/// that worst case plus margin.
+///
+/// # This is NOT the old invariant, and the old one is deliberately not satisfied
+///
+/// `operation_budget + client_timeout <= timeout` would give `450 + 300 = 750 > 660`. That
+/// formulation dates from when the budget was the binding limit; with the attempt count binding
+/// it is a backstop, and adding it to the worst case would charge 25 minutes per seat of ceiling
+/// the chain cannot use.
+///
+/// # It is per CALL, not per chain
+///
+/// It wraps a single call and is applied twice per model (the call plus the corrective retry).
+/// The worst case per SEAT multiplies it further by `1 + max_rotations`.
+const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(660);
 
 /// Configuration for the MAGI orchestrator.
 ///
@@ -216,7 +236,7 @@ pub(crate) fn warn_threshold_is_unreachable(cfg: &MagiConfig) -> bool {
 impl Default for MagiConfig {
     fn default() -> Self {
         Self {
-            timeout: Duration::from_secs(300),
+            timeout: DEFAULT_AGENT_TIMEOUT,
             max_input_len: DEFAULT_MAX_INPUT_LEN,
             completion: CompletionConfig::default(),
             retry_on_schema_error: true,
@@ -4342,7 +4362,10 @@ mod tests {
     #[test]
     fn test_magi_config_default_values() {
         let config = MagiConfig::default();
-        assert_eq!(config.timeout, Duration::from_secs(300));
+        // 300 -> 660: the ceiling now covers the worst case of one retry chain rather than one
+        // attempt. `the_agent_ceiling_covers_the_worst_case_of_the_chain` carries the reasoning;
+        // this line moved with the value it pins.
+        assert_eq!(config.timeout, Duration::from_secs(660));
         assert_eq!(config.max_input_len, 4 * 1024 * 1024);
     }
 
@@ -6698,5 +6721,11 @@ mod tests {
             started.elapsed() < Duration::from_secs(5),
             "the ceiling passed in must be what ends the call, not the shipped default"
         );
+    }
+
+    /// The agent ceiling, pinned by its number for the same reason the other six are.
+    #[test]
+    fn the_agent_ceiling_covers_the_worst_case_of_the_chain() {
+        assert_eq!(MagiConfig::default().timeout, Duration::from_secs(660));
     }
 }

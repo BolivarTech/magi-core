@@ -955,7 +955,30 @@ const DEFAULT_LIMITED_MAX_RETRIES: u32 = 1;
 const DEFAULT_BASE_DELAY: Duration = Duration::from_secs(1);
 const DEFAULT_CAP: Duration = Duration::from_secs(60);
 const DEFAULT_RETRY_AFTER_CAP: Duration = Duration::from_secs(300);
-const DEFAULT_OPERATION_BUDGET: Duration = Duration::from_secs(600);
+/// The retry chain's BACKSTOP, not its operating limit.
+///
+/// # Why 450 and not any other number
+///
+/// With the per-class attempt count binding (see `DEFAULT_LIMITED_MAX_RETRIES`), the count cuts
+/// the chain before this budget does: its only check lands at roughly 301 s and does not fire on
+/// the normal path. It exists so that if something escapes the count, the abandonment is TYPED
+/// (`AbandonReason::OperationBudgetExhausted`) rather than an opaque timeout cut.
+///
+/// # It sits inside a window, and moving it out breaks something silently
+///
+/// `[302, 603)` is the ONLY range that preserves both properties at once:
+///
+/// - **Floor (302):** the check after the first attempt must NOT cut, so the second attempt of a
+///   hang actually runs. That is the determinism the attempt count was chosen for.
+/// - **Ceiling (603):** a `Retry-After` chain — whose waits count toward `elapsed` even though
+///   the sleep is not interrupted — is cut at its SECOND check (~604 s) rather than its third
+///   (~906 s). That is what bounds the `Retry-After` path without lowering `retry_after_cap`,
+///   which would turn honoured waits into abandonments.
+///
+/// A value below the floor costs the second attempt; above the ceiling costs ~5 more minutes per
+/// seat on the `Retry-After` path. Neither failure announces itself, which is why the window is
+/// written here and asserted by a test.
+const DEFAULT_OPERATION_BUDGET: Duration = Duration::from_secs(450);
 
 /// Default **total** request timeout for the HTTP providers.
 ///
@@ -2261,7 +2284,10 @@ mod tests {
         assert_eq!(c.base_delay, Duration::from_secs(1));
         assert_eq!(c.cap, Duration::from_secs(60));
         assert_eq!(c.retry_after_cap, Duration::from_secs(300));
-        assert_eq!(c.operation_budget, Duration::from_secs(600));
+        // 600 -> 450: the budget became a backstop rather than the operating limit, and 450 is
+        // the value that sits in the `[302, 603)` window. See the constant's rustdoc; the window
+        // itself is asserted by `the_backstop_sits_in_the_window_that_preserves_both_properties`.
+        assert_eq!(c.operation_budget, Duration::from_secs(450));
         assert_eq!(
             c.flat_classes,
             vec![RetryClass::Timeout, RetryClass::Network]
@@ -3300,5 +3326,43 @@ mod tests {
                 "{class:?} should also be attempt-limited; the lists govern different things"
             );
         }
+    }
+
+    /// The seven values of the time budget, each pinned by its NUMBER.
+    ///
+    /// Assertions on the value rather than on a range: a range test passes before the work
+    /// starts — the old values fall inside it too — and that is not a Red phase, it is a task
+    /// without one.
+    ///
+    /// The four unchanged ones are asserted as well. Without them there is no way to tell "was
+    /// not touched" from "was touched by accident" while the other three moved.
+    #[test]
+    fn the_seven_defaults_are_exactly_these() {
+        let r = RetryConfig::default();
+        // `client_timeout` is not a field of `RetryConfig`: it belongs to each provider's HTTP
+        // client, and the shared default is this constant.
+        assert_eq!(DEFAULT_CLIENT_TIMEOUT, Duration::from_secs(300)); // unchanged
+        assert_eq!(r.retry_after_cap, Duration::from_secs(300)); // unchanged
+        assert_eq!(r.max_retries, 3); // unchanged
+        assert_eq!(
+            r.limited_retry_classes,
+            vec![RetryClass::Timeout, RetryClass::Network]
+        );
+        assert_eq!(r.limited_max_retries, 1);
+        assert_eq!(r.operation_budget, Duration::from_secs(450)); // 600 -> 450
+    }
+
+    /// The backstop sits in the one window that preserves BOTH properties.
+    ///
+    /// `[302, 603)` is the only range where the budget lets the second attempt of a hang run
+    /// (determinism) AND cuts a `Retry-After` chain at its second check rather than its third.
+    /// Moving it outside breaks one of the two, silently.
+    #[test]
+    fn the_backstop_sits_in_the_window_that_preserves_both_properties() {
+        let b = RetryConfig::default().operation_budget.as_secs();
+        assert!(
+            (302..603).contains(&b),
+            "budget {b} fell outside [302, 603): one of the two properties is now broken"
+        );
     }
 }

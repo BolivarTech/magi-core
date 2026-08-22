@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787345179.415982,
-    "ast_hash": "2932d36ad85782f1dbb1f92f1284659e",
+    "mtime": 1787367799.0649405,
+    "ast_hash": "b6e3c48f8c98e6cb429e1d70c98d70cb",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -165,8 +165,8 @@
     "semantic_hash": ""
   },
   "tests/support/mock_server.rs": {
-    "mtime": 1787289077.800804,
-    "ast_hash": "6bc78586188e6f9e266e2599b6f461c8",
+    "mtime": 1787367607.2688277,
+    "ast_hash": "ea224bdea098671eda8b0239f66e3e10",
     "semantic_hash": ""
   },
   "tests/support/mod.rs": {
@@ -922,6 +922,11 @@
   "tests/retry_helpers.rs": {
     "mtime": 1787366179.7692604,
     "ast_hash": "8fe5b1860197277ed512bcf5b0882361",
+    "semantic_hash": ""
+  },
+  "tests/retry_class_transition.rs": {
+    "mtime": 1787367663.400317,
+    "ast_hash": "f7bc0c28af7f4fb20ec48fec5e233629",
     "semantic_hash": ""
   }
 }
