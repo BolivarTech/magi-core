@@ -6578,4 +6578,125 @@ mod tests {
         assert_eq!(rotation.chain.len(), 1);
         assert_eq!(rotation.chain[0].kind(), RotationKind::EmptyCompletion);
     }
+
+    // -----------------------------------------------------------------------
+    // MS2 — shared retry-budget helpers (Task 1a)
+    //
+    // Written here, once, because five MS2 tasks use them. A helper created twice is how
+    // two of them diverge.
+    // -----------------------------------------------------------------------
+
+    /// A `Magi` built with the three values the time-budget tasks vary, and nothing else.
+    ///
+    /// Touches no network: every seat is a `MockProvider`. `max_rotations` lives on the
+    /// fallback POOL rather than on `MagiConfig`, which is why it is threaded through here
+    /// instead of being set on the config alongside the other two.
+    pub(super) fn build_with(timeout: Duration, max_rotations: u32, schema_retry: bool) -> Magi {
+        let pool = FallbackPool::builder()
+            .max_rotations(max_rotations)
+            .push(
+                crate::test_support::ScriptProvider::new(
+                    "m-fallback",
+                    vec![crate::test_support::Beh::Ok],
+                ) as Arc<dyn LlmProvider>,
+                Lineage::new("zhipu"),
+            )
+            .build();
+
+        let mut builder = MagiBuilder::new(crate::test_support::ScriptProvider::new(
+            "m-default",
+            vec![crate::test_support::Beh::Ok],
+        ) as Arc<dyn LlmProvider>)
+        .with_timeout(timeout)
+        .with_fallback_pool(pool);
+
+        if !schema_retry {
+            builder = builder.with_retry_disabled();
+        }
+        builder
+            .build()
+            .expect("build_with: the mock trio always builds")
+    }
+
+    /// A provider that never answers, so the agent ceiling is what ends the call.
+    ///
+    /// Sleeps rather than opening a socket: the property under test is the CEILING, and a real
+    /// hanging server would add a second thing that can fail.
+    struct HangingProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for HangingProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<Completion, ProviderError> {
+            // Far longer than any ceiling a test sets; the timeout cancels this future.
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            unreachable!("the agent ceiling must cut this call before it returns")
+        }
+        fn name(&self) -> &str {
+            "hanging"
+        }
+        fn model(&self) -> &str {
+            "m-hanging"
+        }
+    }
+
+    /// Runs a trio whose Caspar hangs, with the agent ceiling set to `d`.
+    ///
+    /// Returns `Ok`: one hung seat DEGRADES the run, it does not abort it. Taking `d` is what
+    /// lets a test observe the ceiling message without waiting the shipped default.
+    pub(super) async fn run_against_a_hanging_backend_with_ceiling(
+        d: Duration,
+    ) -> Result<MagiReport, MagiError> {
+        let magi = MagiBuilder::new(crate::test_support::ScriptProvider::new(
+            "m-default",
+            vec![crate::test_support::Beh::Ok],
+        ) as Arc<dyn LlmProvider>)
+        .with_timeout(d)
+        .with_agent(
+            AgentName::Caspar,
+            Arc::new(HangingProvider) as Arc<dyn LlmProvider>,
+            Lineage::new("deepseek"),
+        )
+        .build()
+        .expect("the hanging trio always builds");
+        magi.analyze(&Mode::CodeReview, "fn main() {}").await
+    }
+
+    /// `build_with` must honour all three values it takes.
+    ///
+    /// A builder helper that quietly ignored one of its arguments would make every test built on
+    /// it assert against a configuration it did not ask for.
+    #[test]
+    fn build_with_honours_the_three_values_it_takes() {
+        let m = build_with(Duration::from_secs(42), 3, false);
+        assert_eq!(m.config.timeout, Duration::from_secs(42));
+        assert!(
+            !m.config.retry_on_schema_error,
+            "schema_retry = false must disable the corrective retry"
+        );
+    }
+
+    /// The hung seat DEGRADES the run rather than aborting it, and the ceiling is what ends it.
+    ///
+    /// Asserting `Ok` is the point: a hang that came back as `Err` would mean one unreachable
+    /// seat had taken the whole run down with it.
+    #[tokio::test]
+    async fn a_hanging_seat_degrades_the_run_within_the_given_ceiling() {
+        let started = std::time::Instant::now();
+        let report = run_against_a_hanging_backend_with_ceiling(Duration::from_millis(200))
+            .await
+            .expect("one hung seat degrades the run, it does not abort it");
+        assert!(
+            report.degraded,
+            "a seat lost to the ceiling must leave the run degraded"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the ceiling passed in must be what ends the call, not the shipped default"
+        );
+    }
 }
