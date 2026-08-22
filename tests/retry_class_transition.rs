@@ -13,7 +13,6 @@ mod support;
 
 use magi_core::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[tokio::test]
@@ -22,7 +21,7 @@ async fn the_limit_follows_the_class_of_the_error_that_just_happened() {
     // the second. The cap that governs is the one for what IS happening, so it abandons on the
     // second attempt rather than the fourth. Resolving the class once on entry would give four,
     // and that is the defect this test exists to catch.
-    let (url, handle, hits) = support::mock_server::spawn_429_then_hang().await;
+    let (url, handle, served) = support::mock_server::spawn_429_then_hang().await;
 
     // 200 ms rather than the 300 s default: the hang is ended by the CLIENT, and this task does
     // not change that default.
@@ -39,8 +38,22 @@ async fn the_limit_follows_the_class_of_the_error_that_just_happened() {
         .await
         .expect_err("every attempt failed");
 
+    let log = served
+        .lock()
+        .expect("the server task never panics while holding it")
+        .clone();
+
+    // The TRANSITION, which the count alone cannot show: the chain opened on a 429 — a class that
+    // is NOT attempt-limited — and met a hang on the second. Without this, two hangs would give
+    // the same count and the same final error, so the test would pass against a chain that never
+    // changed class: the very defect it is named for.
     assert_eq!(
-        hits.load(Ordering::SeqCst),
+        log,
+        vec!["429", "hang"],
+        "the chain must actually change class, not merely stop at two"
+    );
+    assert_eq!(
+        log.len(),
         2,
         "abandons on the Timeout cap, not the general one"
     );

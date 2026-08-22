@@ -965,7 +965,17 @@ pub(crate) fn budget_window(
     client_timeout_secs: u64,
     base_delay_secs: u64,
 ) -> std::ops::Range<u64> {
-    (client_timeout_secs + base_delay_secs + 1)..(2 * client_timeout_secs + 2 * base_delay_secs + 1)
+    // Saturating: `base_delay` is a `Duration` a consumer sets directly, so both terms are
+    // reachable from a public field. Panicking inside a WARNING path would take down the
+    // consumer's process for our own arithmetic.
+    let floor = client_timeout_secs
+        .saturating_add(base_delay_secs)
+        .saturating_add(1);
+    let ceiling = client_timeout_secs
+        .saturating_mul(2)
+        .saturating_add(base_delay_secs.saturating_mul(2))
+        .saturating_add(1);
+    floor..ceiling.max(floor)
 }
 
 /// Named default values (no magic numbers).
@@ -1143,6 +1153,15 @@ pub struct RetryConfig {
     /// "Do not retry, rotate straight away" is a valid choice. This crate imposes no artificial
     /// ceilings on the consumer's deployment.
     ///
+    /// # It cannot usefully exceed [`max_retries`]
+    ///
+    /// The retry loop is bounded by `0..=max_retries`, so a larger value here is capped there and
+    /// the limited classes get `max_retries + 1` attempts rather than the number asked for.
+    /// The crate reports that through its dangerous-configuration warnings rather than clamping
+    /// it: silently correcting a consumer's configuration is what this type refuses to do.
+    ///
+    /// [`max_retries`]: RetryConfig::max_retries
+    ///
     /// [`limited_retry_classes`]: RetryConfig::limited_retry_classes
     pub limited_max_retries: u32,
 }
@@ -1219,12 +1238,34 @@ impl RetryConfig {
         let bd = self.base_delay.as_secs();
         let window = budget_window(ct, bd);
         let budget = self.operation_budget.as_secs();
-        if self.operation_budget != Duration::MAX && !window.contains(&budget) {
+        // Only the FLOOR is reported, and that asymmetry is the point.
+        //
+        // Below it, the budget cuts before the second attempt of a hang starts — a silent loss of
+        // the determinism the per-class count exists for.
+        //
+        // ABOVE the ceiling costs wall clock and nothing else, and it is exactly what raising the
+        // client timeout produces — which the local-deployment guidance tells the consumer to do
+        // FIRST. Warning there fires on the configuration this crate's own rustdoc prescribes,
+        // and a notice that is noisy on correct configurations gets filtered, taking the genuinely
+        // broken case with it. That is the pattern F-10 was rewritten to remove; reintroducing it
+        // one guard later would be the same mistake.
+        if self.operation_budget != Duration::MAX && budget < window.start {
             out.push(format!(
-                "operation_budget ({budget}s) is outside [{}, {}), the window for the DEFAULT client timeout of {ct}s: below it the budget cuts before the second attempt starts, above it a Retry-After chain runs one check longer. If you set a different client timeout ct, your window is [ct + {bd} + 1, 2*ct + {} + 1)",
-                window.start,
-                window.end,
-                2 * bd
+                "operation_budget ({budget}s) is below {}, the floor for the DEFAULT client timeout of {ct}s: the budget cuts before the second attempt of a hang starts. If you set a different client timeout ct, your floor is ct + {bd} + 1",
+                window.start
+            ));
+        }
+        if self.limited_max_retries > self.max_retries {
+            // The retry loop is bounded by `0..=max_retries`, so a larger limited count is capped
+            // there and the consumer gets fewer attempts than they asked for, with nothing saying
+            // so. Reported rather than clamped: correcting a consumer's configuration silently is
+            // what this type's own rustdoc refuses to do.
+            out.push(format!(
+                "limited_max_retries ({}) is above max_retries ({}): the retry loop is bounded by max_retries, so the limited classes get {} attempts rather than the {} asked for",
+                self.limited_max_retries,
+                self.max_retries,
+                self.max_retries + 1,
+                self.limited_max_retries + 1
             ));
         }
         out
@@ -3597,17 +3638,31 @@ mod tests {
     /// consumer: without it the window would be a correct function that guards nothing.
     #[test]
     fn the_window_guard_is_wired_into_dangerous_settings() {
-        for secs in [301u64, 604] {
-            // one under the floor, one over the ceiling
+        // Both under the floor: one just below it, one far below. Over the CEILING no longer
+        // warns, deliberately — that is what a raised client timeout produces, and the guard
+        // stopped firing on the configuration its own documentation prescribes.
+        for secs in [301u64, 10] {
             let c = RetryConfig {
                 operation_budget: Duration::from_secs(secs),
                 ..Default::default()
             };
             assert!(
                 !c.dangerous_settings().is_empty(),
-                "budget {secs}s should have warned"
+                "budget {secs}s is below the floor and should have warned"
             );
         }
+        // And the counterpart, so this test also pins the narrowing rather than only the wiring.
+        let over = RetryConfig {
+            operation_budget: Duration::from_secs(900),
+            ..Default::default()
+        };
+        assert!(
+            !over
+                .dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "a budget above the ceiling is a legitimate raised-client-timeout configuration"
+        );
     }
 
     /// The message's printed formula agrees with `budget_window`.
@@ -3634,11 +3689,12 @@ mod tests {
             .find(|w| w.contains("second attempt"))
             .expect("the guard fires for a budget under the floor");
 
-        // The window it printed, for the DEFAULT client timeout.
+        // The FLOOR it printed must be the one the function computes. The message stopped
+        // carrying the ceiling when the guard stopped firing above it.
         let shipped = budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), bd);
         assert!(
-            msg.contains(&format!("[{}, {})", shipped.start, shipped.end)),
-            "the printed window must be the one the function computes: {msg}"
+            msg.contains(&format!("below {}", shipped.start)),
+            "the printed floor must be the one the function computes: {msg}"
         );
 
         // And the formula it printed must be the one a consumer substitutes their own client
@@ -3646,8 +3702,85 @@ mod tests {
         // `the_window_moves_with_client_timeout_and_base_delay`; repeating it here would be the
         // duplication this round removed elsewhere.)
         assert!(
-            msg.contains(&format!("[ct + {bd} + 1, 2*ct + {} + 1)", 2 * bd)),
+            msg.contains(&format!("ct + {bd} + 1")),
             "the message must carry the formula a consumer substitutes into: {msg}"
         );
+    }
+
+    /// Following the documented local-deployment recipe must NOT trip the guard.
+    ///
+    /// The guidance on `MagiConfig::timeout` says to raise `client_timeout` FIRST and then keep
+    /// the budget inside ITS window. A consumer who does exactly that — `ct = 600`, budget `900`
+    /// — was warned, because the guard compares against the shipped 300 s. A notice that fires on
+    /// the configuration its own documentation prescribes is filtered on day one, taking the
+    /// genuinely broken case with it. That is the pattern F-10 was rewritten to remove.
+    #[test]
+    fn the_documented_local_recipe_does_not_trip_the_window_guard() {
+        let c = RetryConfig {
+            operation_budget: Duration::from_secs(900),
+            ..Default::default()
+        };
+        assert!(
+            !c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "a budget correct for a raised client timeout must not be reported as broken"
+        );
+    }
+
+    /// A budget under the floor is still reported — that is the case worth having.
+    ///
+    /// Below the floor the budget cuts before the second attempt of a hang starts, losing the
+    /// determinism the per-class count exists for. Above the ceiling costs wall clock and is what
+    /// a legitimately raised client timeout produces, so only the floor is worth a notice.
+    #[test]
+    fn a_budget_under_the_floor_is_still_reported() {
+        let c = RetryConfig {
+            operation_budget: Duration::from_secs(200),
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "losing the second attempt is silent, so it must be announced"
+        );
+    }
+
+    /// `limited_max_retries` above `max_retries` is capped by the loop, so it must be reported.
+    ///
+    /// The loop is `0..=max_retries`, so a consumer asking for ten limited retries against three
+    /// general ones gets four attempts, not eleven — silently. All three reviewers raised this
+    /// independently.
+    #[test]
+    fn a_limited_count_above_the_general_one_is_reported() {
+        let c = RetryConfig {
+            max_retries: 3,
+            limited_max_retries: 10,
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("limited_max_retries") && w.contains("max_retries")),
+            "a knob that is silently ignored above a threshold must say so"
+        );
+    }
+
+    /// `budget_window` cannot overflow, however absurd its inputs.
+    ///
+    /// `base_delay` is a `Duration` a consumer sets directly, so `2 * bd` is reachable from a
+    /// public field. Panicking in a warning path would take down the consumer's process for our
+    /// own arithmetic.
+    #[test]
+    fn the_window_saturates_instead_of_overflowing() {
+        let w = budget_window(u64::MAX, u64::MAX);
+        assert!(w.start <= w.end, "a saturated window must stay well-formed");
+        // And the guard that calls it must not panic either.
+        let c = RetryConfig {
+            base_delay: Duration::from_secs(u64::MAX),
+            ..Default::default()
+        };
+        let _ = c.dangerous_settings();
     }
 }

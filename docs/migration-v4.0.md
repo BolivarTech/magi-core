@@ -407,7 +407,16 @@ kept generating. `Network` does so in its pathological case, a packet dropped in
 opposed to the immediate refusal. Everything else fails fast, so four attempts of it cost seconds.
 
 **Observable change:** a hang that used to produce four requests now produces two. If you counted
-on four, set `limited_max_retries` to match `max_retries`.
+on four, set `limited_max_retries` to match `max_retries` — note it cannot usefully go *above* it,
+because the retry loop is bounded by `max_retries`; the crate now warns if you try.
+
+**And one consequence worth stating, because it is not obvious from the number.** `Network` is one
+of the two limited classes, and `Network` is the only class that feeds the endpoint-down latch. So
+a seat now reaches its verdict on an unreachable endpoint in two attempts rather than four —
+**`MagiError::EndpointDown` becomes reachable sooner in wall-clock terms** for consumers who have
+rotation engaged. The threshold is unchanged (still two distinct lineages); what changed is how
+quickly a lineage gets there. If you relied on the longer chain to ride out transient network
+blips, raise `limited_max_retries`.
 
 **`0` is legitimate** — "do not retry, rotate straight away" — and is not rejected. Note that a
 `Timeout` condemns the lineage run-wide, so rotating on the first hang takes that lineage from the

@@ -192,32 +192,40 @@ pub async fn spawn_capturing(
 /// `1` where there were `2` — the helper would report success for an abandonment that did not
 /// happen.
 #[allow(dead_code)]
-pub async fn spawn_429_then_hang() -> (String, JoinHandle<()>, Arc<std::sync::atomic::AtomicU32>) {
-    use std::sync::atomic::{AtomicU32, Ordering};
+pub async fn spawn_429_then_hang() -> (
+    String,
+    JoinHandle<()>,
+    Arc<std::sync::Mutex<Vec<&'static str>>>,
+) {
+    use std::sync::Mutex;
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind ephemeral port");
     let addr = listener.local_addr().expect("local addr");
-    let hits = Arc::new(AtomicU32::new(0));
-    let counter = Arc::clone(&hits);
+    // What was SERVED, in order, rather than how many requests arrived. The count alone cannot
+    // show a class TRANSITION: two hangs would also produce two requests and a final `Timeout`,
+    // so a chain that never saw the 429 was indistinguishable from one that did — and the
+    // transition is the whole property.
+    let served_log: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&served_log);
 
     let handle = tokio::spawn(async move {
         let mut served = 0u32;
         while let Ok((mut sock, _)) = listener.accept().await {
-            let counter = Arc::clone(&counter);
+            let log = Arc::clone(&log);
             let hang = served > 0;
-            // Each connection is handled in its OWN task, and that is load-bearing rather than
-            // tidiness: a hung connection served inline never returns, so the loop would never
-            // call `accept()` again. The counter would then read 2 whatever attempt cap was in
-            // force -- the test would measure this server's serialisation instead of the code,
-            // and would pass against a deliberately broken cap. Found by mutation, not by review.
+            // Each connection in its OWN task: a hung connection served inline never returns, so
+            // the loop would never call `accept()` again and the log would stop at two entries
+            // whatever attempt cap was in force. Found by mutation, not by review.
             tokio::spawn(async move {
                 let mut buf = [0u8; 4096];
                 let _ = sock.read(&mut buf).await;
-                // Counted after reading and before hanging: a hung request is still a request
-                // the chain spent an attempt on. Counting when responding would never count it.
-                counter.fetch_add(1, Ordering::SeqCst);
+                // Recorded after reading and before hanging: a hung request is still a request
+                // the chain spent an attempt on.
+                if let Ok(mut g) = log.lock() {
+                    g.push(if hang { "hang" } else { "429" });
+                }
                 if hang {
                     let headers = "HTTP/1.1 200 OK
 Content-Type: application/json
@@ -237,5 +245,5 @@ Content-Length: 0
             served += 1;
         }
     });
-    (format!("http://{addr}"), handle, hits)
+    (format!("http://{addr}"), handle, served_log)
 }

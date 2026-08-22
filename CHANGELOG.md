@@ -50,7 +50,10 @@ to leave alone.
   ceiling crosses the range where infrastructure timeouts live, so a cut an operator sees may
   come from their proxy; publishing our own number makes the difference legible.
 - **A hang now produces two requests where it produced four.** If you counted on four, set
-  `limited_max_retries` to match `max_retries`.
+  `limited_max_retries` to match `max_retries`; it cannot usefully exceed it, and the crate now
+  warns if you try. Consequence worth knowing: `Network` is both attempt-limited and the only
+  class feeding the endpoint-down latch, so with rotation engaged a lineage reaches that verdict
+  in half the attempts — the threshold is unchanged, the wall clock to reach it is not.
 
 ### Fixed
 
