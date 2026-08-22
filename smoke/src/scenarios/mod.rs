@@ -2,12 +2,16 @@
 // Version: 1.0.0
 // Date: 2026-08-18
 
-//! The twelve E1 scenarios: `S1, S2, S2b, S4, S5, S6, S7, S14, S15, S16, S20, S21`.
+//! The scenario registry, one submodule per milestone that contributed scenarios.
 //!
-//! Split into its own `e1` submodule (rather than living directly here) so a
-//! later `e2` submodule — the six scenarios this stage deliberately does not
-//! implement (`S3`, `S8`-`S13` minus the ones already covered, `S17`-`S19`) —
-//! has a sibling to land in without reshaping this file.
+//! - `e1` — the twelve harness scenarios (`S1, S2, S2b, S4, S5, S6, S7, S14, S15, S16, S20, S21`).
+//! - `e2` — the ones `e1` deliberately deferred (`S3`, `S8`-`S13`, `S17`-`S19`), now implemented.
+//! - `f` — the axis-F scenarios of MS2 (`S-F1`, `S-F2a`, `S-F2b`, `S-F3`, `S-F4`, `S-F5`), three
+//!   of which run; the other three are out of scope from here, each with its reason in its own
+//!   name so the row still says why.
+//!
+//! Split per milestone rather than living directly here, so each has a sibling to land in
+//! without reshaping this file.
 
 mod e1;
 mod e2;

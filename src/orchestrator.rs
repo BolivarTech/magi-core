@@ -95,9 +95,13 @@ pub struct MagiConfig {
     ///
     /// This wraps a **single call** and is applied **twice per model** (the call plus the
     /// corrective schema retry), across `1 + max_rotations` models. The worst case **per seat**
-    /// is therefore `timeout * calls_per_model * (1 + max_rotations)` — with the defaults, about
-    /// 66 minutes. [`Magi::worst_case_per_seat`] computes it from the effective configuration
-    /// rather than from these defaults.
+    /// is therefore `timeout * calls_per_model * (1 + max_rotations)`.
+    ///
+    /// **With the crate's own defaults that is 22 minutes, not 66.** Rotation is engaged only
+    /// when a fallback pool or a primary probe was declared; without one there is a single model,
+    /// so `660 x 2 x 1 = 1320 s`. Declaring a pool brings `DEFAULT_MAX_ROTATIONS` into it and the
+    /// figure becomes `660 x 2 x 3 = 3960 s`. [`Magi::worst_case_per_seat`] computes it from the
+    /// effective configuration rather than from either of those numbers.
     ///
     /// **Per seat, never per run:** whether the backend serves the three mages in parallel or
     /// serialises them is a property of the deployment, and this crate does not know it.
@@ -6929,12 +6933,18 @@ mod tests {
         // production helper, hundreds of lines before any timeout site, so cutting there left
         // zero sites — which the plausibility assertion below caught rather than letting `0 == 0`
         // report success.
-        let prod = &src[..src
+        //
+        // The marker must be FOUND. Falling back to the whole file would make this test count its
+        // own literals, and it would disarm the day someone renames the module — silently, which
+        // is the direction that matters. (An earlier comment claimed the fallback would "fail for
+        // a reason that is not its own"; measured, it PASSED, which is worse.)
+        let cut = src
             .find(
                 "
 mod tests {",
             )
-            .unwrap_or(src.len())];
+            .expect("the test module marker must exist, or this test is counting its own literals");
+        let prod = &src[..cut];
         // Only the AGENT timeouts. Counting every `tokio::time::timeout` would include any
         // other one that exists or arrives later.
         let sites = prod.matches("tokio::time::timeout(timeout,").count();

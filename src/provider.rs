@@ -1098,8 +1098,9 @@ pub struct RetryConfig {
     /// (`elapsed >= budget` before each attempt), a zero budget is already met
     /// on the first check and yields **zero retries** — it behaves like
     /// `max_retries = 0`, not "start now". It is legitimate but almost always a
-    /// mistake, and unlike the other zero-valued settings it emits no warning of
-    /// its own — the symptom shows up at runtime. For "no cap" use `Duration::MAX`.
+    /// mistake. It now DOES warn — the window guard added in `4.0.0` names this field
+    /// directly, since `0` is outside any window — where before the symptom only showed up
+    /// at runtime. For "no cap" use `Duration::MAX`, which the guard skips.
     pub operation_budget: Duration,
     /// Classes that use **flat** backoff instead of exponential.
     pub flat_classes: Vec<RetryClass>,

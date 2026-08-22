@@ -148,8 +148,8 @@ pub enum ErrorClass {
 ///
 /// # Why the names differ from the crate's
 ///
-/// `rotations_configured` is what THIS harness built into its pool; the crate's own count lives
-/// on the fallback POOL rather than on `MagiConfig`.
+/// `rotations_configured` is what THIS harness built into its pool, which is zero — the crate's
+/// own count lives on the fallback POOL rather than on `MagiConfig`, and no pool is declared here.
 /// — the harness configures no fallbacks today, so it is `0`. Naming it after the crate's field
 /// would claim it reads that field.
 #[derive(Debug, Clone, Copy, PartialEq)]
