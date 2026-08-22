@@ -226,19 +226,20 @@ pub async fn spawn_429_then_hang() -> (
                 if let Ok(mut g) = log.lock() {
                     g.push(if hang { "hang" } else { "429" });
                 }
+                // CRLF, like the two servers above it. A bare LF is tolerated by most clients but
+                // is not HTTP, and a fixture that frames differently from its siblings becomes
+                // the pattern the next one is copied from.
                 if hang {
-                    let headers = "HTTP/1.1 200 OK
-Content-Type: application/json
-Content-Length: 512
-
-";
+                    let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 512\r\nConnection: close\r\n\r\n";
                     let _ = sock.write_all(headers.as_bytes()).await;
                     std::future::pending::<()>().await;
                 } else {
-                    let resp = "HTTP/1.1 429 Too Many Requests
-Content-Length: 0
-
-";
+                    // `Connection: close` is load-bearing, not tidiness. Under HTTP/1.1 its
+                    // absence advertises keep-alive, so the client may pool this socket — and the
+                    // task ends right after, closing it. The next attempt then fails as `Network`
+                    // instead of reaching the hang, and the class-transition test flakes into the
+                    // wrong error class: worse than no test on that property.
+                    let resp = "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
                     let _ = sock.write_all(resp.as_bytes()).await;
                 }
             });

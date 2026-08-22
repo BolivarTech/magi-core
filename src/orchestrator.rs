@@ -83,7 +83,19 @@ pub struct MagiConfig {
     ///
     /// With the shipped defaults that is `2 * 300 + 1 = 601 s` for a hang, and roughly `604 s`
     /// through the `Retry-After` path where the backstop cuts, against a ceiling of `660 s`.
-    /// The defaults satisfy it.
+    ///
+    /// # What it covers, and what it does NOT
+    ///
+    /// It covers a **homogeneous** chain of attempt-limited failures — the hang case the count
+    /// was chosen for. A **mixed** chain does not fit: a `429` is not attempt-limited, so it keeps
+    /// the general count and each honoured `Retry-After` runs in full, bounding such a chain by
+    /// `operation_budget + client_timeout` = `750 s`, **above** this ceiling.
+    ///
+    /// **Consequence, stated rather than left to be discovered:** there this timeout cuts first
+    /// and the abandonment is an opaque timeout rather than the typed
+    /// `AbandonReason::OperationBudgetExhausted`. Raising the ceiling past `750 s` would recover
+    /// it for mixed chains at the cost of a longer worst case for every seat; the shipped value
+    /// optimises for the common case and says so here instead of implying a guarantee.
     ///
     /// **The older form — `operation_budget + client_timeout <= timeout` — is deliberately NOT
     /// satisfied** (`450 + 300 = 750 > 660`). It was formulated when the budget was the binding

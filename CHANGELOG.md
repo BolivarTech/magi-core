@@ -32,9 +32,15 @@ to leave alone.
   and never rejects — the moment it refused a configuration it would be the cap this crate
   deliberately does not impose. **Per seat, never per run:** whether a backend parallelises or
   serialises the three mages belongs to the deployment.
-- **A warning when `operation_budget` leaves its window.** Below the floor the budget cuts before
-  the second attempt of a hang starts; above the ceiling a `Retry-After` chain runs one check
-  longer. Neither loss announces itself.
+- **A warning when `operation_budget` falls below its floor**, where the budget cuts before the
+  second attempt of a hang starts — a silent loss of the determinism the per-class count exists
+  for. Only the floor: being above the window's ceiling costs wall clock and is exactly what
+  raising `client_timeout` produces, which the local-deployment guidance prescribes, so warning
+  there would fire on a configuration this crate's own docs instruct. The floor is computed from
+  the SHIPPED client timeout, which `RetryConfig` cannot see — if you raised yours, your floor is
+  higher and the guard cannot know.
+- **A warning when `limited_max_retries` exceeds `max_retries`**, which the retry loop caps, so
+  the limited classes would silently get fewer attempts than asked for.
 
 ### Changed
 

@@ -374,10 +374,22 @@ completion path then reported as an exhausted output budget.
 
 ## 9. The time defaults change
 
+> **Read this first: most of this section applies only if you opted into the retry layer.**
+> `MagiBuilder::build` does **not** wrap your providers in a `RetryProvider` — you do, with
+> `RetryProvider::with_config`. If you never did, every `RetryConfig` value below is inert for
+> you and the only change you will observe is `MagiConfig::timeout`.
+
 `MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
 covers the retry chain's worst case and an exhausted budget is reported as a **typed** abandonment
 rather than an opaque timeout cut. Waiting times change for a consumer who never configured them,
 which is why this is a contract change and not an internal adjustment.
+
+**One limit of that "covers the worst case", stated here rather than found later:** it holds for a
+homogeneous chain of attempt-limited failures. A **mixed** chain — a `429`, which is not
+attempt-limited, followed by a hang — is bounded by `operation_budget + client_timeout` = `750 s`,
+above the `660 s` ceiling. There the outer timeout cuts first and you get an opaque timeout rather
+than the typed abandonment. Raise `MagiConfig::timeout` past `750 s` if you need the typed form in
+that case too.
 
 ### All seven values, including the ones that did not move
 
@@ -386,7 +398,7 @@ has no way to tell "left alone" from "moved and not mentioned".
 
 | value | before | after | what you do |
 |---|---|---|---|
-| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it inside the window its rustdoc documents — below the floor you lose the deterministic second attempt of a hang, above the ceiling a `Retry-After` chain runs one check longer. Neither loss announces itself. |
+| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it at or above the floor its rustdoc documents, or you lose the deterministic second attempt of a hang — silently. The crate warns below the floor only, and computes that floor from the SHIPPED 300 s client timeout: **if you raised your own, your real floor is higher and the guard cannot see it.** |
 | `MagiConfig::timeout` | 300 s | **660 s** | Read the Infrastructure Timeout Checklist below **before** upgrading. If you set it yourself, it should cover `(1 + limited_max_retries) * client_timeout + backoffs`. |
 | `RetryConfig::limited_retry_classes` | *(did not exist)* | **`[Timeout, Network]`** | See below — this is new behaviour, not a renamed value. |
 | `RetryConfig::limited_max_retries` | *(did not exist)* | **1** (two attempts) | See below. |

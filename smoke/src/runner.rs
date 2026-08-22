@@ -149,9 +149,12 @@ pub enum ErrorClass {
 ///
 /// # Why the names differ from the crate's
 ///
-/// `rotations_configured` is what THIS harness built into its pool, which is zero: no fallback
-/// pool is declared. The crate's own count lives on the fallback POOL rather than on
-/// `MagiConfig`, so naming this field after the crate's would claim it reads one it does not.
+/// `rotations_configured` is what the trio these `Timings` were read FROM has in its pool — zero,
+/// because `shipped_timings` builds its own poolless trio against the external stub. It is NOT a
+/// claim about the harness in general: `build_magi_against` does register the configured
+/// fallbacks for the runs that talk to a backend. The crate's own count lives on the fallback
+/// POOL rather than on `MagiConfig`, so naming this field after the crate's would claim it reads
+/// one it does not.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Timings {
     /// `Magi::worst_case_per_seat()` for the trio this session built.
@@ -1432,7 +1435,8 @@ fn timings_of(magi: &Magi) -> Timings {
     let r = RetryConfig::default();
     Timings {
         worst_case_per_seat: magi.worst_case_per_seat(),
-        // This harness configures no fallback pool, so there is nothing to rotate to.
+        // The trio `shipped_timings` builds has no fallback pool — unlike the ones
+        // `build_magi_against` makes for the backend runs — so there is nothing to rotate to.
         rotations_configured: 0,
         schema_retry: MagiConfig::default().retry_on_schema_error,
         agent_ceiling: MagiConfig::default().timeout,

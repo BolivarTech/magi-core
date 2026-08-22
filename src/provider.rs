@@ -1010,8 +1010,13 @@ const DEFAULT_RETRY_AFTER_CAP: Duration = Duration::from_secs(300);
 ///   which would turn honoured waits into abandonments.
 ///
 /// A value below the floor costs the second attempt; above the ceiling costs ~5 more minutes per
-/// seat on the `Retry-After` path. Neither failure announces itself, which is why the window is
-/// written here and asserted by a test.
+/// seat on the `Retry-After` path.
+///
+/// **Only the floor is reported.** Losing the second attempt is silent and irreversible within a
+/// run; being above the ceiling costs wall clock and is exactly what raising `client_timeout`
+/// produces — which the local-deployment guidance prescribes as step one. A notice that fires on
+/// a configuration the crate's own documentation instructs gets filtered, taking the real case
+/// with it.
 const DEFAULT_OPERATION_BUDGET: Duration = Duration::from_secs(450);
 
 /// Default **total** request timeout for the HTTP providers.
@@ -1056,8 +1061,15 @@ pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// MagiConfig::timeout >= (1 + limited_max_retries) * client_timeout + backoffs
 /// ```
 ///
-/// Which the defaults meet: `2 * 300 + 1 = 601 s` (and about `604 s` through the `Retry-After`
-/// path) against a `660 s` ceiling.
+/// Which the defaults meet for a HOMOGENEOUS limited-class chain: `2 * 300 + 1 = 601 s` (and
+/// about `604 s` through the `Retry-After` path) against a `660 s` ceiling.
+///
+/// **A MIXED chain does not fit, and the ceiling cuts first.** A `429` is not attempt-limited, so
+/// it keeps the general count and each honoured `Retry-After` runs in full; such a chain is
+/// bounded by `operation_budget + client_timeout` = `750 s`. Above the ceiling, so the outer
+/// timeout ends it and the abandonment is opaque rather than the typed
+/// `AbandonReason::OperationBudgetExhausted`. That trade is deliberate — see
+/// [`MagiConfig::timeout`] — and is stated rather than left as an implied guarantee.
 ///
 /// **The older form — `operation_budget + client_timeout <= MagiConfig::timeout` — is
 /// deliberately NOT satisfied** (`450 + 300 = 750 > 660`), and that is not an oversight. It was
@@ -1264,8 +1276,8 @@ impl RetryConfig {
                 "limited_max_retries ({}) is above max_retries ({}): the retry loop is bounded by max_retries, so the limited classes get {} attempts rather than the {} asked for",
                 self.limited_max_retries,
                 self.max_retries,
-                self.max_retries + 1,
-                self.limited_max_retries + 1
+                self.max_retries.saturating_add(1),
+                self.limited_max_retries.saturating_add(1)
             ));
         }
         out
@@ -3782,5 +3794,66 @@ mod tests {
             ..Default::default()
         };
         let _ = c.dangerous_settings();
+    }
+
+    /// The mixed-class chain does NOT fit under the agent ceiling, and the rustdoc says so.
+    ///
+    /// A `429` keeps the general count and each honoured `Retry-After` runs in full, so such a
+    /// chain is bounded by `operation_budget + client_timeout`, not by the limited-class formula.
+    /// Pinned so the prose cannot drift: if someone raises the ceiling past the mixed bound, this
+    /// test says the caveat about losing the typed abandonment can go.
+    #[test]
+    fn the_mixed_class_chain_exceeds_the_ceiling_which_the_rustdoc_states() {
+        let r = RetryConfig::default();
+        let ceiling = crate::orchestrator::MagiConfig::default().timeout.as_secs();
+        let homogeneous = (1 + r.limited_max_retries as u64) * DEFAULT_CLIENT_TIMEOUT.as_secs()
+            + r.limited_max_retries as u64 * r.base_delay.as_secs();
+        assert!(
+            homogeneous <= ceiling,
+            "the limited-class chain must fit: {homogeneous} vs {ceiling}"
+        );
+        let mixed = r.operation_budget.as_secs() + DEFAULT_CLIENT_TIMEOUT.as_secs();
+        assert!(
+            mixed > ceiling,
+            "if the mixed bound ({mixed}s) now fits under {ceiling}s, the rustdoc caveat about losing the typed abandonment is stale"
+        );
+    }
+
+    /// The floor guard cannot see a raised client timeout, and the blind spot is pinned.
+    ///
+    /// A consumer who follows step one of the local recipe (`ct = 600`) and leaves the budget at
+    /// 450 is genuinely below THEIR floor of 602 — and gets no warning, because the guard
+    /// computes from the shipped 300. Asserted deliberately: it is the documented limit of a
+    /// guard that cannot reach the provider's client, not an oversight to be found by a consumer.
+    #[test]
+    fn the_floor_guard_cannot_see_a_raised_client_timeout() {
+        let c = RetryConfig::default(); // budget 450, correct for ct = 300
+        let real_floor = budget_window(600, c.base_delay.as_secs()).start;
+        assert!(c.operation_budget.as_secs() < real_floor);
+        assert!(
+            !c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "silent by construction: below the real floor of {real_floor}s for ct = 600, and the guard cannot know"
+        );
+    }
+
+    /// With no fallback pool the worst case is one model, which is what the rustdoc publishes.
+    ///
+    /// The no-rotation arm was asserted nowhere: every existing case declared a pool.
+    #[test]
+    fn the_worst_case_with_no_pool_is_one_model() {
+        let magi = crate::orchestrator::MagiBuilder::new(crate::test_support::ScriptProvider::new(
+            "m-default",
+            vec![crate::test_support::Beh::Ok],
+        )
+            as std::sync::Arc<dyn LlmProvider>)
+        .build()
+        .expect("the default trio builds");
+        assert_eq!(
+            magi.worst_case_per_seat(),
+            Duration::from_secs(1320),
+            "660 x 2 x 1: rotation is not engaged without a pool, which MagiConfig::timeout publishes as 22 minutes"
+        );
     }
 }
