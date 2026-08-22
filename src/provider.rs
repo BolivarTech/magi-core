@@ -1065,9 +1065,16 @@ pub const DEFAULT_CLIENT_TIMEOUT: Duration = Duration::from_secs(300);
 /// about `604 s` through the `Retry-After` path) against a `660 s` ceiling.
 ///
 /// **A MIXED chain does not fit, and the ceiling cuts first.** A `429` is not attempt-limited, so
-/// it keeps the general count and each honoured `Retry-After` runs in full; such a chain is
-/// bounded by `operation_budget + client_timeout` = `750 s`. Above the ceiling, so the outer
-/// timeout ends it and the abandonment is opaque rather than the typed
+/// it keeps the general count and each honoured `Retry-After` runs in full. The bound is
+///
+/// ```text
+/// operation_budget + max(client_timeout, retry_after_cap + jitter)
+/// ```
+///
+/// = `751 s` with the shipped values. **The binding term is whichever of the two is larger**, and
+/// with both at 300 s they coincide — so writing it as `budget + client_timeout` would name the
+/// wrong parameter and mislead anyone who tunes only the cap. Above the ceiling either way, so
+/// the outer timeout ends it and the abandonment is opaque rather than the typed
 /// `AbandonReason::OperationBudgetExhausted`. That trade is deliberate — see
 /// [`MagiConfig::timeout`] — and is stated rather than left as an implied guarantee.
 ///
@@ -1140,8 +1147,12 @@ pub struct RetryConfig {
     /// it, substitute your own value into the formula above — your real floor is higher, and the
     /// guard will not tell you.
     ///
-    /// There is no upper bound worth warning about: a budget above the window costs wall clock on
-    /// the `Retry-After` path and nothing else, and it is what raising `client_timeout` produces.
+    /// There is no upper bound worth warning about: a budget above the window lets a `Retry-After`
+    /// chain run one check longer, which costs wall clock — and, on a mixed chain, can push the
+    /// total past the agent ceiling, where the abandonment stops being typed. That is a real
+    /// consequence rather than "nothing else", but it is not a silent one: it shows up as a
+    /// timeout, and it is what raising `client_timeout` produces, so warning on it would fire on
+    /// the configuration this crate's own guidance prescribes.
     pub operation_budget: Duration,
     /// Classes that use **flat** backoff instead of exponential.
     pub flat_classes: Vec<RetryClass>,
@@ -1274,7 +1285,9 @@ impl RetryConfig {
         // Below it, the budget cuts before the second attempt of a hang starts — a silent loss of
         // the determinism the per-class count exists for.
         //
-        // ABOVE the ceiling costs wall clock and nothing else, and it is exactly what raising the
+        // ABOVE the ceiling costs wall clock — and on a mixed chain can push the total past the
+        // agent ceiling, where the abandonment stops being typed. Real, but not silent: it shows
+        // up as a timeout. And it is exactly what raising the
         // client timeout produces — which the local-deployment guidance tells the consumer to do
         // FIRST. Warning there fires on the configuration this crate's own rustdoc prescribes,
         // and a notice that is noisy on correct configurations gets filtered, taking the genuinely
@@ -1695,9 +1708,11 @@ impl LlmProvider for RetryProvider {
                 // it. Two reviewers read this as sitting BEFORE the `Retry-After` abandonment
                 // decision and therefore changing the final error type. It does not: that match
                 // is above, and its `TooLong`/`Unintelligible` arms return before reaching here.
-                // Nor can the two interact — that match is on `ProviderError::Http`, which is not
-                // an attempt-limited class, so any error that reaches this break carries no
-                // `Retry-After` to discard.
+                // With the SHIPPED `limited_retry_classes` the two cannot interact either: that
+                // match is on `ProviderError::Http`, which is not in the default list, so no
+                // error reaching this break carries a `Retry-After` to discard. That list is
+                // CONFIGURABLE, though — a consumer who puts `Http` in it makes the two meet, and
+                // `the_two_exits_agree_for_a_configured_http_class` pins that they still agree.
                 last_error = Some(err);
                 break;
             }
@@ -3815,10 +3830,20 @@ mod tests {
             homogeneous <= ceiling,
             "the limited-class chain must fit: {homogeneous} vs {ceiling}"
         );
-        let mixed = r.operation_budget.as_secs() + DEFAULT_CLIENT_TIMEOUT.as_secs();
+        // The BINDING term is whichever of the two waits is larger, not `client_timeout`. With
+        // the shipped values they coincide at 300 s, so deriving it from the client timeout alone
+        // would pin a coincidence and stay green for a consumer who raised only the cap.
+        let longest_wait = DEFAULT_CLIENT_TIMEOUT
+            .as_secs()
+            .max(r.retry_after_cap.as_secs() + 1); // +1: RETRY_AFTER_JITTER
+        let mixed = r.operation_budget.as_secs() + longest_wait;
         assert!(
             mixed > ceiling,
             "if the mixed bound ({mixed}s) now fits under {ceiling}s, the rustdoc caveat about losing the typed abandonment is stale"
+        );
+        assert!(
+            longest_wait >= r.retry_after_cap.as_secs(),
+            "the bound must follow retry_after_cap when it exceeds the client timeout"
         );
     }
 
@@ -3930,6 +3955,55 @@ mod tests {
                 .iter()
                 .any(|w| w.contains("second attempt")),
             "correct for ct = 60 as well; the guard reports only what the shipped default implies"
+        );
+    }
+
+    /// The two exits agree even when a consumer puts `Http` in the limited list.
+    ///
+    /// The inline comment said the attempt cap and the `Retry-After` abandonment "cannot
+    /// interact" — true of the SHIPPED class list, and `limited_retry_classes` is configurable.
+    /// A consumer who adds `Http` makes them meet, so the agreement is asserted rather than
+    /// reasoned about, on the value that governs lineage condemnation.
+    #[tokio::test]
+    async fn the_two_exits_agree_for_a_configured_http_class() {
+        let make = |limited: u32, general: u32| {
+            let inner = Arc::new(FailingProvider::new(ProviderError::Http {
+                status: 503,
+                body: "err".into(),
+                retry_after_raw: vec![],
+                received_at: None,
+            }));
+            RetryProvider::with_config(
+                inner,
+                RetryConfig {
+                    base_delay: Duration::ZERO,
+                    max_retries: general,
+                    limited_max_retries: limited,
+                    // The consumer's choice, not the shipped one.
+                    limited_retry_classes: vec![RetryClass::Http],
+                    ..Default::default()
+                },
+            )
+        };
+        let via_cap = make(1, 5)
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        let via_exhaustion = make(5, 1)
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            classify(&via_cap),
+            classify(&via_exhaustion),
+            "both exits must surface the same class: {via_cap} vs {via_exhaustion}"
+        );
+        assert!(
+            matches!(
+                (&via_cap, &via_exhaustion),
+                (ProviderError::Http { .. }, ProviderError::Http { .. })
+            ),
+            "and the same shape, since Http.status drives lineage condemnation"
         );
     }
 }

@@ -394,10 +394,17 @@ which is why this is a contract change and not an internal adjustment.
 
 **One limit of that "covers the worst case", stated here rather than found later:** it holds for a
 homogeneous chain of attempt-limited failures. A **mixed** chain — a `429`, which is not
-attempt-limited, followed by a hang — is bounded by `operation_budget + client_timeout` = `750 s`,
-above the `660 s` ceiling. There the outer timeout cuts first and you get an opaque timeout rather
-than the typed abandonment. Raise `MagiConfig::timeout` past `750 s` if you need the typed form in
-that case too.
+attempt-limited, followed by a hang — is bounded by
+
+```text
+operation_budget + max(client_timeout, retry_after_cap + jitter)
+```
+
+= `751 s` with the shipped values, above the `660 s` ceiling. There the outer timeout cuts first
+and you get an opaque timeout rather than the typed abandonment. Raise `MagiConfig::timeout` past
+that sum if you need the typed form in that case too — and note **the binding term is whichever
+wait is longer**: both ship at 300 s, so if you raise only `retry_after_cap`, it is the one that
+moves the bound.
 
 ### All seven values, including the ones that did not move
 

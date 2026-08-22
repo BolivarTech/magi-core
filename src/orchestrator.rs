@@ -89,7 +89,9 @@ pub struct MagiConfig {
     /// It covers a **homogeneous** chain of attempt-limited failures — the hang case the count
     /// was chosen for. A **mixed** chain does not fit: a `429` is not attempt-limited, so it keeps
     /// the general count and each honoured `Retry-After` runs in full, bounding such a chain by
-    /// `operation_budget + client_timeout` = `750 s`, **above** this ceiling.
+    /// `operation_budget + max(client_timeout, retry_after_cap + jitter)` = `751 s`, **above**
+    /// this ceiling. The binding term is whichever wait is longer; with both shipped at 300 s
+    /// they coincide, so naming only the client timeout would mislead anyone tuning the cap.
     ///
     /// **Consequence, stated rather than left to be discovered:** there this timeout cuts first
     /// and the abandonment is an opaque timeout rather than the typed
