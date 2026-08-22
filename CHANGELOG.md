@@ -4,6 +4,72 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - Unreleased
+
+### One story, not two: the completion budget and the time budget
+
+These are presented together on purpose. The retry numbers changed **because** the token cap
+did, and reading them as two items that happened to land in the same release invites the next
+reader to decouple them.
+
+A reasoning model spent its entire output budget reasoning and returned empty content. Raising
+the cap to `16_384` is what makes a legitimate verdict fit — and it also more than doubles the
+wall clock a futile chain burns (~36 s per attempt at 4096 against ~87 s at 16384, three attempts
+deep). That is what made the time defaults, whose incoherence predates this release, impossible
+to leave alone.
+
+### Added
+
+- **`RetryConfig::limited_retry_classes` and `limited_max_retries`.** Classes that can each
+  consume a whole client timeout — `Timeout` and `Network` — get their own attempt count
+  (default `1`, two attempts) instead of `max_retries`. The cap is resolved from the class of the
+  error that **just** happened, so a chain opening with a `429` and meeting a hang on the second
+  attempt is governed by the hang. `0` is legitimate ("rotate straight away") and is not
+  rejected.
+- **`Magi::worst_case_per_seat()`** returns `timeout * calls_per_model * (1 + max_rotations)`
+  from the effective configuration. The ceiling used to be emergent: setting `timeout = 1800 s`,
+  sensible against a local backend, buys three hours per seat with nothing saying so. It informs
+  and never rejects — the moment it refused a configuration it would be the cap this crate
+  deliberately does not impose. **Per seat, never per run:** whether a backend parallelises or
+  serialises the three mages belongs to the deployment.
+- **A warning when `operation_budget` leaves its window.** Below the floor the budget cuts before
+  the second attempt of a hang starts; above the ceiling a `Retry-After` chain runs one check
+  longer. Neither loss announces itself.
+
+### Changed
+
+- **`RetryConfig::operation_budget` 600 s → 450 s** and **`MagiConfig::timeout` 300 s → 660 s.**
+  Waiting times change for a consumer who never configured them, which makes this a contract
+  change rather than an internal adjustment. The budget is now a **backstop**: the per-class
+  attempt count cuts first, and the budget exists so that if something escapes it the
+  abandonment is typed rather than an opaque cut. `450` is not free choice — it is the only
+  window that keeps both properties.
+- **The agent timeout message names the configured ceiling**, not only the elapsed time. The new
+  ceiling crosses the range where infrastructure timeouts live, so a cut an operator sees may
+  come from their proxy; publishing our own number makes the difference legible.
+- **A hang now produces two requests where it produced four.** If you counted on four, set
+  `limited_max_retries` to match `max_retries`.
+
+### Fixed
+
+- **The `retry_after_cap` warning relates the wait to the budget**, and fires at `>=`: at
+  equality the backstop already cuts before the wait can be honoured, so the configured cap is
+  unreachable. It deliberately does not compare the accumulated chain, which would fire on this
+  crate's own defaults and be silenced on day one.
+- **The budget symptom detection declares its scope.** It reads as though it covered the layering
+  invariant and does not: it fires at the second attempt, so when the outer timeout cancels the
+  call first — the shape of the defect — nothing is emitted. A guard that appears to cover more
+  than it does is worse than none.
+- **Two `3.3.0` references in published rustdoc are gone.** That version was absorbed by this
+  major and was lying to every docs.rs reader.
+
+### Migration
+
+`docs/migration-v4.0.md` covers every observable change, and its **Infrastructure Timeout
+Checklist** must be run before upgrading: a proxy that cuts at 600 s now reaches the crate as
+`Network`, the one class that feeds the endpoint-down latch, so two of them abort the run with an
+error that does not mention the proxy.
+
 ## [3.2.0] - 2026-08-10
 
 ### Added

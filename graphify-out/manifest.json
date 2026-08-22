@@ -928,5 +928,10 @@
     "mtime": 1787367663.400317,
     "ast_hash": "f7bc0c28af7f4fb20ec48fec5e233629",
     "semantic_hash": ""
+  },
+  "tests/cross_milestone.rs": {
+    "mtime": 1787370683.6608944,
+    "ast_hash": "5ace1aa0f1c9b326d537edfeea74c1e9",
+    "semantic_hash": ""
   }
 }

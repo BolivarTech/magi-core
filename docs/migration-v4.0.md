@@ -374,16 +374,49 @@ completion path then reported as an exhausted output budget.
 
 ## 9. The time defaults change
 
-<!-- PENDING: MS2 F-2 — the seven time values. Enforced by ci/check_pending.sh, which the
-     release workflow runs: the tag cannot be cut while this marker is here. -->
-
 `MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
 covers the retry chain's worst case and an exhausted budget is reported as a **typed** abandonment
 rather than an opaque timeout cut. Waiting times change for a consumer who never configured them,
 which is why this is a contract change and not an internal adjustment.
 
-The exact values ship with the milestone that derives them; this section is completed before the
-release is tagged.
+### All seven values, including the five that did not move
+
+The three that did not change are listed on purpose: a consumer who only reads the changed rows
+has no way to tell "left alone" from "moved and not mentioned".
+
+| value | before | after | what you do |
+|---|---|---|---|
+| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it inside the window its rustdoc documents — below the floor you lose the deterministic second attempt of a hang, above the ceiling a `Retry-After` chain runs one check longer. Neither loss announces itself. |
+| `MagiConfig::timeout` | 300 s | **660 s** | Read the Infrastructure Timeout Checklist below **before** upgrading. If you set it yourself, it should cover `(1 + limited_max_retries) * client_timeout + backoffs`. |
+| `RetryConfig::limited_retry_classes` | *(did not exist)* | **`[Timeout, Network]`** | See below — this is new behaviour, not a renamed value. |
+| `RetryConfig::limited_max_retries` | *(did not exist)* | **1** (two attempts) | See below. |
+| `DEFAULT_CLIENT_TIMEOUT` | 300 s | **300 s** — unchanged | Nothing. |
+| `RetryConfig::retry_after_cap` | 300 s | **300 s** — unchanged | Nothing. Lowering it would turn honoured waits into abandonments; what bounds a chain of them is the budget. |
+| `RetryConfig::max_retries` | 3 | **3** — unchanged | Nothing. It still governs every class NOT in `limited_retry_classes`. |
+
+### The two new fields change how long your chain runs, so read this row even if you set nothing
+
+`max_retries` is no longer the only attempt limit. Classes listed in `limited_retry_classes` use
+`limited_max_retries` instead, and the cap is resolved from the class of the error that **just**
+happened — a chain can open with a `429` (four attempts) and meet a hang on the second, and the
+cap that governs is the one for what is happening.
+
+**Why `[Timeout, Network]` and not others:** they are the two classes that can each consume a
+whole `client_timeout`. `Timeout` does so by definition — the model accepted the connection and
+kept generating. `Network` does so in its pathological case, a packet dropped in silence, as
+opposed to the immediate refusal. Everything else fails fast, so four attempts of it cost seconds.
+
+**Observable change:** a hang that used to produce four requests now produces two. If you counted
+on four, set `limited_max_retries` to match `max_retries`.
+
+**`0` is legitimate** — "do not retry, rotate straight away" — and is not rejected. Note that a
+`Timeout` condemns the lineage run-wide, so rotating on the first hang takes that lineage from the
+other two mages over what may be a transient spike; the default of `1` buys that second chance.
+
+**Reading back what you bought:** `Magi::worst_case_per_seat()` returns
+`timeout * calls_per_model * (1 + max_rotations)` from your effective configuration. It is a
+ceiling, not a prediction, and it is **per seat** — whether your backend serves the three mages in
+parallel or serialises them is something this crate does not know.
 
 > ### ⚠ Infrastructure Timeout Checklist — run this BEFORE you upgrade
 >
