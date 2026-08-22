@@ -1120,9 +1120,28 @@ pub struct RetryConfig {
     /// (`elapsed >= budget` before each attempt), a zero budget is already met
     /// on the first check and yields **zero retries** — it behaves like
     /// `max_retries = 0`, not "start now". It is legitimate but almost always a
-    /// mistake. It now DOES warn — the window guard added in `4.0.0` names this field
-    /// directly, since `0` is outside any window — where before the symptom only showed up
+    /// mistake. It now DOES warn — the floor guard added in `4.0.0` names this field
+    /// directly, since `0` is below any floor — where before the symptom only showed up
     /// at runtime. For "no cap" use `Duration::MAX`, which the guard skips.
+    ///
+    /// # The floor this value must respect
+    ///
+    /// ```text
+    /// operation_budget >= client_timeout + base_delay + 1
+    /// ```
+    ///
+    /// With the shipped `client_timeout` of 300 s and `base_delay` of 1 s that is **302 s**, and
+    /// the shipped `450` clears it. Below the floor the budget's first check cuts before the
+    /// second attempt of a hang starts, losing the determinism the per-class attempt count exists
+    /// for — silently, which is why the crate warns.
+    ///
+    /// **The warning computes that floor from the SHIPPED client timeout.** It cannot see yours:
+    /// `client_timeout` belongs to each provider's HTTP client, not to this type. If you raised
+    /// it, substitute your own value into the formula above — your real floor is higher, and the
+    /// guard will not tell you.
+    ///
+    /// There is no upper bound worth warning about: a budget above the window costs wall clock on
+    /// the `Retry-After` path and nothing else, and it is what raising `client_timeout` produces.
     pub operation_budget: Duration,
     /// Classes that use **flat** backoff instead of exponential.
     pub flat_classes: Vec<RetryClass>,
@@ -1671,6 +1690,14 @@ impl LlmProvider for RetryProvider {
                 // recorded and the post-loop code turns it into the caller's result. Returning
                 // a different error here would make an attempt-capped chain distinguishable
                 // from an exhausted one for no reason the consumer can act on.
+                //
+                // VERIFIED, not asserted — `the_attempt_cap_and_an_exhausted_chain_agree` pins
+                // it. Two reviewers read this as sitting BEFORE the `Retry-After` abandonment
+                // decision and therefore changing the final error type. It does not: that match
+                // is above, and its `TooLong`/`Unintelligible` arms return before reaching here.
+                // Nor can the two interact — that match is on `ProviderError::Http`, which is not
+                // an attempt-limited class, so any error that reaches this break carries no
+                // `Retry-After` to discard.
                 last_error = Some(err);
                 break;
             }
@@ -3618,21 +3645,6 @@ mod tests {
         assert_eq!(budget_window(300, 5), 306..611);
     }
 
-    /// The guard fires when the budget LEAVES its window.
-    #[test]
-    fn the_window_guard_fires_when_the_budget_leaves_its_window() {
-        let c = RetryConfig {
-            operation_budget: Duration::from_secs(200), // below the 302 floor
-            ..Default::default()
-        };
-        assert!(
-            c.dangerous_settings()
-                .iter()
-                .any(|w| w.contains("second attempt")),
-            "a budget under the floor costs the second attempt, silently"
-        );
-    }
-
     /// A budget INSIDE the window says nothing — the crate must not warn about itself.
     #[test]
     fn a_budget_inside_the_window_says_nothing() {
@@ -3663,18 +3675,9 @@ mod tests {
                 "budget {secs}s is below the floor and should have warned"
             );
         }
-        // And the counterpart, so this test also pins the narrowing rather than only the wiring.
-        let over = RetryConfig {
-            operation_budget: Duration::from_secs(900),
-            ..Default::default()
-        };
-        assert!(
-            !over
-                .dangerous_settings()
-                .iter()
-                .any(|w| w.contains("second attempt")),
-            "a budget above the ceiling is a legitimate raised-client-timeout configuration"
-        );
+        // The counterpart — a budget above the window staying silent — is
+        // `the_documented_local_recipe_does_not_trip_the_window_guard`, which asserts the same
+        // 900 s case with the reasoning attached. Repeating it here would be a third copy.
     }
 
     /// The message's printed formula agrees with `budget_window`.
@@ -3854,6 +3857,79 @@ mod tests {
             magi.worst_case_per_seat(),
             Duration::from_secs(1320),
             "660 x 2 x 1: rotation is not engaged without a pool, which MagiConfig::timeout publishes as 22 minutes"
+        );
+    }
+
+    /// The attempt cap and an exhausted general chain produce the SAME error for the same class.
+    ///
+    /// The break's "same exit path" was a comment, and the value it governs is consequential:
+    /// `ProviderError::Http`'s status drives lineage condemnation, so a divergence here would
+    /// change when a run aborts. Two reviewers flagged it as unverified; this is the verification.
+    #[tokio::test]
+    async fn the_attempt_cap_and_an_exhausted_chain_agree() {
+        // Same class, same failure, two routes out: once through the per-class cap, once through
+        // the general `attempt == max_retries` return.
+        let via_cap = {
+            let inner = Arc::new(FailingProvider::new(ProviderError::Timeout {
+                message: "hang".into(),
+            }));
+            let p = RetryProvider::with_config(
+                inner,
+                RetryConfig {
+                    base_delay: Duration::ZERO,
+                    max_retries: 5,
+                    limited_max_retries: 1, // the cap is what ends it
+                    ..Default::default()
+                },
+            );
+            p.complete("s", "u", &CompletionConfig::default())
+                .await
+                .unwrap_err()
+        };
+        let via_exhaustion = {
+            let inner = Arc::new(FailingProvider::new(ProviderError::Timeout {
+                message: "hang".into(),
+            }));
+            let p = RetryProvider::with_config(
+                inner,
+                RetryConfig {
+                    base_delay: Duration::ZERO,
+                    max_retries: 1,
+                    limited_max_retries: 5, // the general count is what ends it
+                    ..Default::default()
+                },
+            );
+            p.complete("s", "u", &CompletionConfig::default())
+                .await
+                .unwrap_err()
+        };
+        assert_eq!(
+            classify(&via_cap),
+            classify(&via_exhaustion),
+            "the two exits must be indistinguishable to a consumer: {via_cap} vs {via_exhaustion}"
+        );
+        assert!(
+            matches!(via_cap, ProviderError::Timeout { .. }),
+            "both surface the last raw error, not a synthesised one: {via_cap}"
+        );
+    }
+
+    /// The floor guard is silent for a LOWERED client timeout too, and the message says why.
+    ///
+    /// The raised direction is pinned by `the_floor_guard_cannot_see_a_raised_client_timeout`;
+    /// this is its mirror. With `ct = 60` the real floor is 62, so the shipped 450 is comfortably
+    /// above it and warning would be wrong — the guard cannot see either direction, which is the
+    /// premise, and the message now states the assumption rather than implying a verdict.
+    #[test]
+    fn the_floor_guard_is_also_blind_to_a_lowered_client_timeout() {
+        let c = RetryConfig::default();
+        let real_floor = budget_window(60, c.base_delay.as_secs()).start;
+        assert!(c.operation_budget.as_secs() > real_floor);
+        assert!(
+            !c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "correct for ct = 60 as well; the guard reports only what the shipped default implies"
         );
     }
 }

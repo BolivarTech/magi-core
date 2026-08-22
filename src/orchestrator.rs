@@ -997,10 +997,11 @@ impl Magi {
         } else {
             1
         };
-        let models: u32 = 1 + self
+        let models: u32 = self
             .rotation_config
             .as_ref()
-            .map_or(0, |r| r.pool.max_rotations());
+            .map_or(0, |r| r.pool.max_rotations())
+            .saturating_add(1);
         // Saturating rather than wrapping: an absurd configuration must produce an absurd
         // number, never a small one that reads as safe.
         self.config
@@ -6962,9 +6963,17 @@ mod tests {",
             )
             .expect("the test module marker must exist, or this test is counting its own literals");
         let prod = &src[..cut];
-        // Only the AGENT timeouts. Counting every `tokio::time::timeout` would include any
-        // other one that exists or arrives later.
+        // Only the AGENT timeouts — but counted so that an UNRECOGNISED one fails rather than
+        // ties. The previous form matched one exact spelling, so the fifth site this guard exists
+        // to catch is precisely the one it would miss: written as `timeout(self.config.timeout,`
+        // or across two lines, it counted zero and `uses == sites` still held. A guard that
+        // reports success while guarding nothing is this codebase's recurring defect.
+        let all = prod.matches("tokio::time::timeout(").count();
         let sites = prod.matches("tokio::time::timeout(timeout,").count();
+        assert_eq!(
+            all, sites,
+            "a `tokio::time::timeout(` this guard does not recognise was added: it counts by an              exact spelling, so an unrecognised one would be invisible to the check below rather              than failing it. Either use the `(timeout,` form or teach this test the new one"
+        );
         // Without this the test is VACUOUS if the cut lands early — a `#[cfg(test)]` over any
         // production helper is enough — because `0 == 0` passes. A test reporting success having
         // looked at nothing is the green-by-omission this project keeps finding.

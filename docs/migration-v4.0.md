@@ -378,6 +378,14 @@ completion path then reported as an exhausted output budget.
 > `MagiBuilder::build` does **not** wrap your providers in a `RetryProvider` — you do, with
 > `RetryProvider::with_config`. If you never did, every `RetryConfig` value below is inert for
 > you and the only change you will observe is `MagiConfig::timeout`.
+>
+> **And that one lands hardest on you, precisely because you have no retry layer.** Without a
+> `RetryProvider` there is nothing between your provider and the agent ceiling, so a seat that
+> would have failed at 300 s now occupies its slot for up to **660 s** before the run gives up on
+> it. Nothing retries in that time; the wait simply got longer. If your deployment sized anything
+> around the old 300 s — an outer request budget, a job timeout, an operator's expectation of how
+> long a degraded run takes — set `MagiConfig::timeout` back to a value that suits you. It is
+> configuration, and this crate imposes no ceiling of its own.
 
 `MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
 covers the retry chain's worst case and an exhausted budget is reported as a **typed** abandonment
