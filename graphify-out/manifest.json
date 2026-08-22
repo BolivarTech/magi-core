@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787383981.9038508,
-    "ast_hash": "c2d07ba854639fe8123a462b81b4f04e",
+    "mtime": 1787385004.4507346,
+    "ast_hash": "c013fd54c10eadcdbdc79703ead00b90",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787382496.0803607,
-    "ast_hash": "fa5e029c3e9b4f1aff3a69e304943778",
+    "mtime": 1787385004.4487333,
+    "ast_hash": "26489090e4fdef882d6d61b4d0479d17",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -775,8 +775,8 @@
     "semantic_hash": ""
   },
   "smoke/src/runner.rs": {
-    "mtime": 1787383981.9058511,
-    "ast_hash": "320646eebed0c4be60d30a1d8fd14437",
+    "mtime": 1787385004.5263329,
+    "ast_hash": "88eb7176af6b40140ac6da9f123c40f6",
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
