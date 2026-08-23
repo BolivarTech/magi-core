@@ -147,8 +147,11 @@ impl OllamaProvider {
     ///
     /// A consumer that derives its per-agent timeouts from a single ceiling needs the client
     /// timeout to fit under it — see the layering section on [`RetryConfig`](crate::provider::RetryConfig),
-    /// which spells out `operation_budget + client_timeout <= MagiConfig::timeout` and why the
-    /// shipped defaults do not satisfy it. Without this constructor such a consumer had to give
+    /// It gives the current form, and explains why the older
+    /// `operation_budget + client_timeout <= MagiConfig::timeout` is left unsatisfied by the
+    /// shipped defaults **on purpose**: since `4.0.0` the chain is bounded by an attempt count
+    /// and the budget is a backstop, so summing the two would buy a ceiling the chain cannot
+    /// reach. Without this constructor such a consumer had to give
     /// up this type entirely for completions, and this is the only provider here that can also
     /// probe — so a capability ended up dictating a provider. The sibling HTTP providers already
     /// offered the same knob; this one was the outlier.

@@ -37,6 +37,12 @@
 #
 # # THE ORDER OF THE STEPS BELOW IS LOAD-BEARING — do not sort or regroup them
 #
+#   0. "Doctests run LAST" holds among the steps that SHARE a gate target dir, which is what the
+#      ordering below is about. The packaged-consumer step runs after them and is exempt: it works
+#      out of `$ROOT/target` and `$TARGET/packaged-consumer`, touching neither `gate-all` nor
+#      `gate-default`, so it cannot contend with anything ordered here. Said explicitly because
+#      this block is what the next person reasons from when they reorder something.
+#
 #   1. Examples are built BEFORE the test runs. After them, linking failed on Windows against the
 #      example's own `.pdb`, because the harness had just written dozens of binaries into the same
 #      directory and had not released the handles.

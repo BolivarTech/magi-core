@@ -10,18 +10,20 @@
 //! Each agent analyzes content from a different perspective, then a
 //! consensus engine synthesizes their verdicts into a unified report.
 //!
-//! ## Retry & backoff (2.0)
+//! ## Retry, backoff and how long a run can take
 //!
 //! The opt-in [`RetryProvider`](crate::provider::RetryProvider) wraps any
-//! provider with capped, jittered backoff and honors `Retry-After`.
+//! provider with capped, jittered backoff and honors `Retry-After` (since 2.0).
 //!
-//! **Ask the crate how long a run can take; do not derive it.**
+//! **Ask the crate for the worst case; do not derive it.**
 //! [`Magi::worst_case_per_seat`](crate::orchestrator::Magi::worst_case_per_seat)
-//! reads the configuration you actually built, which with the `4.0.0` defaults
-//! is 66 minutes per seat. Whether a run costs that once or three times over
-//! depends on whether your backend serves the three mages in parallel, which
-//! this crate cannot know. Wrap the call in `tokio::time::timeout` if you need a
-//! harder bound.
+//! computes it from the configuration you actually built. Two figures get
+//! quoted and only one of them is the default: with no fallback pool there is a
+//! single model, so it is **22 minutes per seat**; declaring a pool brings
+//! rotation in and the same defaults give 66. Whether a run costs that once or
+//! three times over depends on whether your backend serves the three mages in
+//! parallel, which this crate cannot know. Wrap the call in
+//! `tokio::time::timeout` if you need a harder bound.
 //!
 //! Since `4.0.0` the retry chain is bounded by an attempt **count** rather than
 //! by elapsed time, so `operation_budget + client_timeout` is no longer how the
