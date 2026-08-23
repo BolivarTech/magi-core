@@ -52,6 +52,14 @@ async fn test_rotates_on_transport_to_next_lineage() {
         .with_fallback_pool(
             FallbackPool::builder()
                 .push(fallback_ok, Lineage::new("zhipu"))
+                // Declared AFTER the rotation target, so Caspar still reaches `zhipu`
+                // and nothing about the rotation changes. It is here to be INELIGIBLE:
+                // Melchior already holds `alibaba`, which is the one cause reachable
+                // before any seat has dispatched.
+                .push(
+                    ScriptProvider::new("dup", vec![Beh::Ok]),
+                    Lineage::new("alibaba"),
+                )
                 .max_rotations(2)
                 .build(),
         )
@@ -69,6 +77,48 @@ async fn test_rotates_on_transport_to_next_lineage() {
     assert_eq!(cas.chain.len(), 1);
     assert_eq!(cas.chain[0].kind(), RotationKind::Transport);
     assert_eq!(*cas.chain[0].to(), Lineage::new("zhipu"));
+
+    // The eligibility snapshot reaches the report from the ROTATING path, which is
+    // the only one that can emit a candidate row at all: a pool exists nowhere else.
+    //
+    // Pinned here rather than beside the clean-run test, which builds a `Magi` with no
+    // rotation config and therefore exercises the trivial seeder instead. Without this,
+    // replacing the real call with `BTreeMap::new()` left the entire suite green.
+    assert_eq!(
+        report.pool_eligibility.len(),
+        3,
+        "every seat is covered, including the two that never rotated: {:?}",
+        report.pool_eligibility
+    );
+    assert!(
+        report.pool_eligibility.values().all(|rows| rows.len() == 2),
+        "and each seat is measured against every candidate in the pool: {:?}",
+        report.pool_eligibility
+    );
+    // The snapshot is PRE-dispatch, so `zhipu` — held by nobody, measured by nobody,
+    // with the guard off — is eligible for all three, INCLUDING the seat that later
+    // rotates into it. That is the field's own contract, not a gap.
+    assert!(
+        report
+            .pool_eligibility
+            .values()
+            .all(|rows| rows[0].causes.is_empty()),
+        "the rotation target is eligible for every seat before anyone dispatches"
+    );
+    // And a cause really does travel: the second candidate carries a lineage Melchior
+    // holds, so the other two see it ruled out while Melchior does not — the exclusion
+    // counts OTHER seats, never the one being measured.
+    assert_eq!(
+        report.pool_eligibility[&AgentName::Caspar][1].causes,
+        vec![IneligibilityCause::LineageHeldByAnotherMage],
+        "a candidate whose lineage another mage holds is reported, with its cause"
+    );
+    assert!(
+        report.pool_eligibility[&AgentName::Melchior][1]
+            .causes
+            .is_empty(),
+        "and the holder itself is not excluded by its own lineage"
+    );
 }
 
 #[tokio::test]

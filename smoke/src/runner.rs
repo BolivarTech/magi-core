@@ -844,8 +844,8 @@ impl RunSpec {
                 // already runs. Any config produces it; none has to declare it.
                 //
                 // Both halves name things the backend already holds, so the candidate
-                // costs no completion: it is ineligible for every seat that could have
-                // reached it, and is never dispatched.
+                // costs no completion: it is ineligible for the second seat, and with
+                // nothing injected in this run nobody rotates, so it is never dispatched.
                 //
                 // It lives on the RUN and not in the config on purpose. The harness
                 // preflight rejects a CONFIG fallback that shares a seat's lineage —

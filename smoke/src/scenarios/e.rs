@@ -22,8 +22,8 @@
 //! **The coarse-bound naming of `E-4` is not asserted here either, and that is deliberate.** This
 //! run produces no window cause at all — its candidate is ineligible for lineage and model — so
 //! any check phrased over one would read an empty set and pass. It is asserted positively where
-//! the cause can be produced: a unit test that hands the snapshot a measured window and a bound
-//! it does not meet.
+//! the cause can be produced: `it_reports_every_failing_condition_not_only_the_first`, which
+//! hands the snapshot a measured window and a bound it does not meet.
 //!
 //! # Both read the same run, and that run exists for them
 //!
@@ -77,10 +77,7 @@ fn s_e2_why_a_candidate_was_not_eligible(ctx: &RunContext<'_>) -> Vec<Assertion>
         .flatten()
         .filter(|c| !c.causes.is_empty())
         .collect();
-    vec![assert_that(
-        NAME_WHY_INELIGIBLE,
-        !report.pool_eligibility.is_empty() && !ineligible.is_empty(),
-    )]
+    vec![assert_that(NAME_WHY_INELIGIBLE, !ineligible.is_empty())]
 }
 
 /// `S-E3` — every failing condition is reported, not only the first.
@@ -189,7 +186,7 @@ mod tests {
     /// short-circuited produces exactly that.
     #[test]
     fn s_e3_fails_when_only_one_condition_is_reported() {
-        let one = report_with(r#"["LineageHeldByAnotherMage"]"#);
+        let one = report_with(r#"["lineage_held_by_another_mage"]"#);
         let ctx = RunContext {
             report: Some(&one),
             ..RunContext::blank(RunId::PoolEligibility)
@@ -200,7 +197,8 @@ mod tests {
             "one cause where two are true must be a red row"
         );
 
-        let two = report_with(r#"["LineageHeldByAnotherMage","ModelAlreadyUsedByThisMage"]"#);
+        let two =
+            report_with(r#"["lineage_held_by_another_mage","model_already_used_by_this_mage"]"#);
         let ctx = RunContext {
             report: Some(&two),
             ..RunContext::blank(RunId::PoolEligibility)

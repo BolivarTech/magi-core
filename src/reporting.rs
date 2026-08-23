@@ -470,8 +470,9 @@ pub struct MagiReport {
     /// One row per seat per pool candidate, `causes` empty for an eligible one, so a
     /// report carries `seats × candidates` rows — **15 with the shipped trio and a
     /// five-candidate pool**, tens of bytes each. Stated rather than left to be
-    /// discovered: it is the same discipline MS1's completion telemetry follows, and
-    /// the shape is `O(A · C)` in a value that ships inside every serialized report.
+    /// discovered: it is the same discipline the completion telemetry follows, and the
+    /// shape is `O(seats · candidates)` in a value that ships inside every serialized
+    /// report.
     ///
     /// # Crossing it with `rotations`
     ///

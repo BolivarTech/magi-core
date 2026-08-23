@@ -20,6 +20,27 @@ to leave alone.
 
 ### Added
 
+- **`MagiReport.pool_eligibility` — which fallback candidates each seat could NOT have rotated
+  into, and why.** One row per seat per pool candidate, with `causes` empty meaning eligible.
+  Two new public types carry it: `CandidateEligibility` and `IneligibilityCause`, both exported
+  from the prelude.
+
+  **It covers seats that never rotated**, which is more than a record of what happened could
+  give: it is recomputed from the same inputs the candidate filter reads, not captured from the
+  filter as it ran. That also means it reports **every** failing condition rather than the first
+  — the real filter is a short-circuiting `&&` chain, so reporting what it saw would name an
+  arbitrary member of several true reasons.
+
+  Two things it deliberately does not do, both stated in its rustdoc. It is a **snapshot taken
+  before dispatch**, so a lineage that fails halfway through is not reflected here — that is what
+  `rotations` is for. And the window comparison it reports is a **coarse lower bound**
+  (`chars/4`), which the variant is named for: `WindowBelowCoarseEstimate`, not
+  `WindowTooSmall`, because no token count was performed.
+
+  An absent map means the snapshot was not computed, and an empty one for a seat means there was
+  nothing to reject. Keeping those distinguishable is why the field carries no
+  `skip_serializing_if`.
+
 - **`RetryConfig::limited_retry_classes` and `limited_max_retries`.** Classes that can each
   consume a whole client timeout — `Timeout` and `Network` — get their own attempt count
   (default `1`, two attempts) instead of `max_retries`. The cap is resolved from the class of the

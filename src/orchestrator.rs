@@ -4195,12 +4195,12 @@ mod tests {
 
         // The eligibility snapshot REACHES the report, seeded for every seat.
         //
-        // Asserted at `analyze()` level and not only in the snapshot's own unit tests:
-        // replace either producer with `BTreeMap::new()` and every one of those stays
-        // green, because they call the pure function directly. The field's contract —
-        // absent means "not computed", every seat is covered — lives in the wiring, so
-        // that is where it has to be pinned. The live smoke run sees it too, but it
-        // needs a backend and cannot gate CI.
+        // This `Magi` has no rotation config, so it pins the NO-ROTATION seeder and
+        // nothing else — an earlier form of this comment claimed it covered "either
+        // producer", which was false and would have told the next reader the wiring
+        // was pinned when half of it was not. The rotating producer, which is the only
+        // one that can emit a candidate row, is pinned by
+        // `rotation_integration::test_rotates_on_transport_to_next_lineage`.
         assert_eq!(
             report.pool_eligibility.len(),
             3,

@@ -266,8 +266,8 @@ impl RotationPolicy {
 /// uses it — a test does not count. They ship regardless, and the reason is that
 /// the subject of this enum is the **filter**, not the snapshot: every condition
 /// the filter applies has a cause, or the snapshot reports five of eight without
-/// saying which three it dropped. That is the failure mode `E-5` exists to prevent,
-/// one level up.
+/// saying which three it dropped — which is the failure this snapshot's report-every-
+/// cause rule exists to prevent, one level up.
 ///
 /// Recorded as a decision rather than left to be re-litigated: the asymmetry runs
 /// the other way here, since a variant added later is free on a `#[non_exhaustive]`
@@ -289,6 +289,11 @@ impl RotationPolicy {
 /// from "this field does not report it".
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// `snake_case` like `RotationKind`, its closest sibling: both are rotation causes and
+// both land in the same report, so a consumer reading `"kind": "empty_completion"`
+// beside `"causes": ["LineageHeldByAnotherMage"]` would be reading one convention in
+// two spellings. Fixed here because the casing freezes at tag time.
+#[serde(rename_all = "snake_case")]
 pub enum IneligibilityCause {
     /// The rotation budget is spent, so no candidate is claimable at all.
     ///
@@ -349,8 +354,10 @@ pub enum IneligibilityCause {
 
 /// What one seat has already spent and ruled out, for a snapshot taken mid-run.
 ///
-/// Every field is **empty or zero before dispatch**, which is the only state the
-/// orchestrator ever passes. It exists so the function models the whole candidate
+/// Every field is at its **fresh** value before dispatch — which for `used_models`
+/// means `None`, i.e. "the configured model and nothing else", not an empty set. The
+/// orchestrator passes no `SeatProgress` at all, so every seat reads as fresh. It
+/// exists so the function models the whole candidate
 /// filter rather than the five conditions that happen to be reachable pre-dispatch:
 /// a caller holding real per-seat state — the cross-milestone check does — gets the
 /// other three, and a variant nothing can construct is a promise the code does not
@@ -426,9 +433,11 @@ pub struct CandidateEligibility {
 ///
 /// # Complexity
 ///
-/// `O(A · C)` — every seat against every candidate, with the conditions a constant
-/// factor. It does **not** short-circuit: evaluating all of them is what buys
-/// reporting all the causes, and with `C` in the units the cost is nothing.
+/// `O(A² · C)` — every seat against every candidate, and the lineage-in-play check
+/// scans the seats again inside that loop. Left quadratic in `A` on purpose: `A` is
+/// the trio, and a lookup table to make it `O(A · C)` would trade a measurable
+/// nothing for a structure to keep in step. It does **not** short-circuit either:
+/// evaluating every condition is what buys reporting every cause.
 ///
 /// # It returns no `Result`, and an inconsistent input is a CAUSE, not an error
 ///
@@ -513,8 +522,10 @@ pub(crate) fn pool_eligibility_snapshot(
 /// The only reason a model lands in `digest_collisions`, so the call site does not
 /// restate it.
 ///
-/// The map keeps a value rather than being a set because the candidate filter takes
-/// it by that type; only membership is ever read.
+/// Nothing reads the value — only membership — so a `BTreeSet` would do. The map
+/// stays because `next_model` is `pub` and takes it by that type; narrowing it is a
+/// public signature change with no consumer asking for it, which is out of scope
+/// here rather than an oversight.
 pub(crate) const DIGEST_COLLISION_REASON: &str = "digest_collision";
 
 /// Number of DISTINCT connection-failing lineages that trips the run-wide

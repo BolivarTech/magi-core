@@ -218,7 +218,7 @@ invocation: putting two together leaves the second one unrun, which is green by 
 
 | invocation | what it covers |
 |---|---|
-| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, and both large-payload runs |
+| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, and both large-payload runs |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |
