@@ -1,14 +1,14 @@
 # Smoke Certificate
 
 - version: 3.2.0
-- commit: 44d1ce4
-- date: 2026-08-21 (UTC)
+- commit: b83fb7d
+- date: 2026-08-23 (UTC)
 - dependency mode: tree
-- real cost: 7 backend run(s) in 217.1s
-- rounds needed: 1
-- invocation: --smoke-2
+- real cost: 7 backend run(s) in 240.1s
+- rounds needed: 2
+- invocation: --smoke-2 --round 2
 - fixtures: 0 declared, 0 verified by a live scenario, 0 unverified
-- result: 45 passed, 5 not passed, 50 total
+- result: 48 passed, 8 not passed, 56 total
 
 > NOTE: this certificate covers the ONE invocation named above. A green release is the      union of several — the preflight stops at its first failure, so the scenarios that need      it to stop at different steps cannot share a command line.
 
@@ -62,3 +62,9 @@
 [PASS] S13 run=happy_small — every record names its model and the budget it ran under
 [PASS] S13 run=happy_small — every record carries the termination reason the backend reported
 [PASS] S13 run=happy_small — with the flag off, no record carries the trace text
+[PASS] S-F1 run=(no run) — the derived worst case is per seat and does not bound anything
+[PASS] S-F2a run=(no run) — the agent ceiling covers the chain worst case
+[OUT_OF_SCOPE] S-F2b run=(no run) — an exhausted budget is reported as a TYPED abandonment (OUT OF SCOPE here: the variant is stringified before it leaves the crate, and this harness does not wrap its providers in RetryProvider; the crate's own tests match it)
+[OUT_OF_SCOPE] S-F3 run=(no run) — an attempt-limited class stops at its own count (OUT OF SCOPE here: this harness does not wrap its providers in RetryProvider, so no attempt count reaches the wire; verified inside the crate instead)
+[OUT_OF_SCOPE] S-F4 run=(no run) — the configuration warning fires on a bad relation and not on the defaults (OUT OF SCOPE here: it leaves only through tracing and dangerous_settings is pub(crate); observing it would need a new dependency to re-check a construction property)
+[PASS] S-F5 run=(no run) — no time value makes construction fail
