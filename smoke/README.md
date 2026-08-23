@@ -54,6 +54,26 @@ The published mode matters because some defects only exist against the packaged 
 regression that made `ProviderError` unconstructible from another crate reached a consumer eight
 days after release precisely because, inside `src/`, the variants are always constructible.
 
+> ### That defect is now caught BEFORE publishing, and not by this mode
+>
+> **`ci/check_packaged_consumer.sh` packages the crate and compiles its examples against the
+> tarball**, as part of `ci/run_all_checks.sh`. An example compiles as a separate crate, so
+> `#[non_exhaustive]` applies to it exactly as it applies to a real consumer — and
+> `examples/external_provider.rs` exists for that reason and says so in its own header.
+>
+> **The `published` mode reaches the same source strictly later.** It resolves `magi-core` from
+> crates.io by version, so it can only run after `cargo publish` — at which point a red result
+> withdraws nothing, because crates.io is immutable. That is a post-mortem, not a gate, and this
+> project already spent a doc-only release (`3.0.2`) learning what finding out afterwards costs.
+> The tarball `cargo package` writes is the artifact that gets uploaded, so checking against it is
+> checking the same bytes, one step earlier, with no network and no publish.
+>
+> **What stays out of reach, said rather than implied:** whether **docs.rs built** the version.
+> That exists only after publishing and has nothing local to anticipate it. It is out of scope,
+> not deferred — a check that cannot stop anything is not a gate. So is the happy path run against
+> the real package with a live backend: reaching it from CI would mean an endpoint and a
+> credential as repository secrets, and this project's certification is deliberately local.
+
 **Release checklist item, because nothing enforces it:** the published mode pins a version in
 `smoke/Cargo.toml` (`magi_core_pub`), and that requirement is **not** derived from the crate's
 own version — cargo resolves optional dependencies whether or not their feature is enabled, so
@@ -183,10 +203,13 @@ sends someone looking for five problems.
 
 Anyone reading a certificate needs to know what was **not** verified.
 
-- **The `published` mode is not covered by the certificate.** Its scenarios verify a package
-  that does not exist yet when the certificate is emitted — they run after the publish that the
-  merge triggers. A certificate that stayed quiet about this would claim coverage it does not
-  have.
+- **The `published` mode is not covered by the certificate, and no longer runs at all.** Its
+  scenarios verify a package that does not exist yet when the certificate is emitted, so their
+  verdict could only ever arrive after the publish it was meant to gate. What replaced it is
+  `ci/check_packaged_consumer.sh`, which compiles outside consumers against the tarball
+  `cargo package` writes — the same artifact, before the publish, in the round gate. The mode's
+  wiring stays in this package because the compiler enforces the two are exclusive; nothing
+  selects it.
 - **Proxy transparency is verified only on the SMALL probe request**, not on a large-payload
   run. The comparison is by checksum over a request the harness itself sends and receives down
   both paths; the large-payload run is not part of this stage at all, so nothing here shows that

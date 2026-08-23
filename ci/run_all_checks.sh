@@ -133,4 +133,10 @@ bash ci/check_redaction.sh
 step "calibration seal"
 bash ci/check_calibration.sh
 
+# LAST, and deliberately so: it packages the crate and compiles the examples as
+# outside consumers against that tarball, which costs a full dependency build in
+# its own target dir. Everything cheaper has already spoken by the time it runs.
+step "packaged consumer (an outside crate compiles against the tarball)"
+sh ci/check_packaged_consumer.sh
+
 printf '\nall checks passed\n'
