@@ -915,8 +915,8 @@
     "semantic_hash": ""
   },
   "docs/test/smoke-certificate.md": {
-    "mtime": 1787462385.0848975,
-    "ast_hash": "8ec3bad96b4c11942595934fa2889c98",
+    "mtime": 1787482117.9328737,
+    "ast_hash": "e9c2622a2a7763030d8c97fe3d86fd99",
     "semantic_hash": ""
   },
   "tests/retry_helpers.rs": {
