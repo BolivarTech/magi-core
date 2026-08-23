@@ -2840,6 +2840,11 @@ mod tests {
     /// **The struct variants round-trip**, because `rename_all` on the enum does not
     /// reach their FIELDS and nothing else covers them.
     ///
+    /// **And the SET is pinned, not only the spellings.** The enum's header states a
+    /// variant count in prose, and a ninth variant would leave that sentence stale
+    /// with every string still correct — the drift that already went unnoticed once in
+    /// this file. The exhaustive `match` makes it a compile error instead.
+    ///
     /// It also subsumes the coarse-bound naming check this replaced, which asserted the
     /// same thing through a `Debug` string: `window_below_coarse_estimate` cannot
     /// survive a rename to anything that stops saying "coarse", and `WindowTooSmall`
@@ -2890,13 +2895,54 @@ mod tests {
             r#"{"window_below_coarse_estimate":{"measured_window":8192,"estimated_need":16000}}"#
         );
 
-        // And back, so a report this crate wrote still reads as what it wrote.
-        for cause in [budget, window] {
+        // And back, so a report this crate wrote still reads as what it wrote. The
+        // struct variants are the ones that can drift asymmetrically, since
+        // `rename_all` does not reach their fields.
+        for cause in [budget.clone(), window.clone()] {
             let json = serde_json::to_string(&cause).unwrap();
             assert_eq!(
                 serde_json::from_str::<IneligibilityCause>(&json).unwrap(),
                 cause
             );
+        }
+
+        // THE SET, not only the spellings. The header of this enum asserts "six
+        // conditions, EIGHT variants" in prose, and pinning the strings does not pin
+        // the count: a ninth variant would leave that sentence stale with every test
+        // green, which is exactly the defect a previous review found in this file and
+        // closed by correcting the number rather than fixing what let it drift.
+        //
+        // The exhaustive `match` with no `_ =>` is what makes it a COMPILE error: the
+        // same property `provider_err_outcome` keeps, for the same reason. The sibling
+        // `RotationKind` has both halves; this had only the first.
+        let all = [
+            IneligibilityCause::RotationBudgetExhausted {
+                rotations_done: 0,
+                max_rotations: 0,
+            },
+            IneligibilityCause::LineageHeldByAnotherMage,
+            IneligibilityCause::LineageFailedForThisMage,
+            IneligibilityCause::LineageCondemnedRunWide,
+            IneligibilityCause::ModelAlreadyUsedByThisMage,
+            IneligibilityCause::DigestCollision,
+            IneligibilityCause::WindowBelowCoarseEstimate {
+                measured_window: 0,
+                estimated_need: 0,
+            },
+            IneligibilityCause::WindowUnmeasuredUnderStrictGuard,
+        ];
+        assert_eq!(all.len(), 8, "the count the enum's own header states");
+        for cause in all {
+            match cause {
+                IneligibilityCause::RotationBudgetExhausted { .. }
+                | IneligibilityCause::LineageHeldByAnotherMage
+                | IneligibilityCause::LineageFailedForThisMage
+                | IneligibilityCause::LineageCondemnedRunWide
+                | IneligibilityCause::ModelAlreadyUsedByThisMage
+                | IneligibilityCause::DigestCollision
+                | IneligibilityCause::WindowBelowCoarseEstimate { .. }
+                | IneligibilityCause::WindowUnmeasuredUnderStrictGuard => {}
+            }
         }
     }
 
