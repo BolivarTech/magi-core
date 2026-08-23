@@ -62,7 +62,8 @@ by carrying the wrong type. That is what this release removes.
 - **`reasoning_trace`, opt-in and additive.** Off, the report carries the trace's **length**; on,
   the length **and** its text. The length never disappears. Turning it on accepts four things,
   stated in its rustdoc: the text is the model's, it does not pass the `Validator`, it is not
-  redacted, and it is unbounded — up to ~141 k characters per agent, multiplied by rotation.
+  redacted, and it is unbounded — measured at ~141 k characters per agent on the models
+  tested, multiplied by rotation, with no upper bound: another model reasons more.
 
 - **`MagiReport.pool_eligibility` — which fallback candidates each seat could NOT have rotated
   into, and why.** One row per seat per pool candidate, with `causes` empty meaning eligible.

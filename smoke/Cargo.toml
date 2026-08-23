@@ -16,21 +16,27 @@ published = ["dep:magi_core_pub"]
 
 [dependencies]
 magi_core_tree = { package = "magi-core", path = "..",     optional = true, features = ["ollama"] }
-# The requirement is the version that IS on crates.io while this stage runs, and
-# it is bumped in the SAME commit that bumps the crate's own version at release
-# time. Cargo resolves optional dependencies whether or not their feature is
-# enabled, so naming a version that does not exist yet does not merely break
-# `published` — it breaks EVERY build of this package, the default one included.
-# A forgotten bump is caught post-publish by the version-drift guard of
-# HARNESS-E3, which compares the job-resolved lock against the version just
-# published; it can never pass silently.
+# NOTHING SELECTS THIS ANY MORE, and nothing guards the pin either.
 #
-# UNAVAILABLE UNTIL 4.0.0 IS PUBLISHED, and that is a state rather than a defect. This harness
-# implements `LlmProvider`, whose `complete()` returns `Completion` since 4.0.0 — a type `3.2`
-# does not have — so `--features published` cannot COMPILE against the pinned version until the
-# release it is waiting for exists. The default `tree` mode is unaffected. The comment above
-# covers version DRIFT; this covers the interval where the two modes are genuinely incompatible,
-# which is every major with a trait break.
+# HARNESS-E3 was rescoped: its post-publish job — which is what would have compared the
+# job-resolved lock against the version just published — does not exist. An earlier version of
+# this comment promised that guard and instructed a bump in the SAME commit as the crate. Both
+# were wrong once the job was dropped, and the instruction was self-defeating regardless: cargo
+# resolves optional dependencies whether or not their feature is enabled, so naming a version
+# that is not on crates.io yet breaks EVERY build of this package, the default one included.
+# Verified in this tree — a path that does not exist gives `failed to load manifest for
+# dependency` even for the default build.
+#
+# So the pin moves AFTER the version it names is published, never with it, and it is left
+# deliberately behind the crate's own version. Its only remaining job is to keep resolving,
+# which any published version does.
+#
+# What replaced the job is `ci/check_packaged_consumer.sh`: it compiles this crate's examples
+# against the tarball `cargo package` writes, BEFORE publishing, in the round gate. Same class
+# of defect, caught while it can still be stopped.
+#
+# It also could not compile today: this harness implements `LlmProvider`, whose `complete()`
+# returns `Completion` since 4.0.0 — a type `3.2` does not have.
 magi_core_pub  = { package = "magi-core", version = "3.2", optional = true, features = ["ollama"] }
 tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
 hyper   = { version = "1", features = ["server", "http1"] }

@@ -74,13 +74,21 @@ days after release precisely because, inside `src/`, the variants are always con
 > the real package with a live backend: reaching it from CI would mean an endpoint and a
 > credential as repository secrets, and this project's certification is deliberately local.
 
-**Release checklist item, because nothing enforces it:** the published mode pins a version in
-`smoke/Cargo.toml` (`magi_core_pub`), and that requirement is **not** derived from the crate's
-own version — cargo resolves optional dependencies whether or not their feature is enabled, so
-naming a version that does not exist yet breaks EVERY build of this package, the default one
-included. **Bump it in the same commit that bumps the crate.** Forgetting it is caught after the
-publish, by the version-drift guard, which compares the job-resolved lock against the version
-just published; it can never pass silently, but it fails after the fact rather than before.
+**The pin, and what NO LONGER guards it.** The published mode pins a version in
+`smoke/Cargo.toml` (`magi_core_pub`), and cargo resolves optional dependencies whether or not
+their feature is enabled — so naming a version that does not exist yet breaks EVERY build of
+this package, the default one included.
+
+**This section used to say "bump it in the same commit that bumps the crate", and to promise a
+version-drift guard that would catch a forgotten bump after the publish. Both are now wrong.**
+The guard lived in the post-publish job that was removed, so **nothing catches a stale pin** —
+and the instruction was self-contradictory anyway: bumping the pin alongside the crate names a
+version that is not on crates.io yet, which is exactly the break described just above.
+
+**What is true instead:** the pin can only move AFTER the version it names is published, never
+with it. And since nothing selects `published` any more, its only remaining job is to keep
+resolving, which a published version always does. Leaving it behind the crate's own version is
+correct rather than sloppy.
 
 ## 3. What the proxy does, and why its red is never the crate's
 
