@@ -1,14 +1,14 @@
 # Smoke Certificate
 
 - version: 3.2.0
-- commit: b83fb7d
+- commit: 6f4cedd
 - date: 2026-08-23 (UTC)
 - dependency mode: tree
-- real cost: 7 backend run(s) in 240.1s
-- rounds needed: 2
-- invocation: --smoke-2 --round 2
+- real cost: 8 backend run(s) in 244.0s
+- rounds needed: 3
+- invocation: --smoke-2 --round 3
 - fixtures: 0 declared, 0 verified by a live scenario, 0 unverified
-- result: 48 passed, 8 not passed, 56 total
+- result: 50 passed, 8 not passed, 58 total
 
 > NOTE: this certificate covers the ONE invocation named above. A green release is the      union of several — the preflight stops at its first failure, so the scenarios that need      it to stop at different steps cannot share a command line.
 
@@ -68,3 +68,5 @@
 [OUT_OF_SCOPE] S-F3 run=(no run) — an attempt-limited class stops at its own count (OUT OF SCOPE here: this harness does not wrap its providers in RetryProvider, so no attempt count reaches the wire; verified inside the crate instead)
 [OUT_OF_SCOPE] S-F4 run=(no run) — the configuration warning fires on a bad relation and not on the defaults (OUT OF SCOPE here: it leaves only through tracing and dangerous_settings is pub(crate); observing it would need a new dependency to re-check a construction property)
 [PASS] S-F5 run=(no run) — no time value makes construction fail
+[PASS] S-E2 run=pool_eligibility — a seat that never rotated still reports which candidates were not eligible, and why
+[PASS] S-E3 run=pool_eligibility — every failing condition is reported, not only the first
