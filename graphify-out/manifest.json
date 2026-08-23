@@ -805,8 +805,8 @@
     "semantic_hash": ""
   },
   "smoke/README.md": {
-    "mtime": 1787251686.9363532,
-    "ast_hash": "c730f2e357451b83358773b4be2dd0aa",
+    "mtime": 1787462472.780171,
+    "ast_hash": "47161062b867c236ccb6b5519b19384e",
     "semantic_hash": ""
   },
   "smoke/src/git.rs": {
@@ -915,8 +915,8 @@
     "semantic_hash": ""
   },
   "docs/test/smoke-certificate.md": {
-    "mtime": 1787346398.8688815,
-    "ast_hash": "e952c61951cc2449d97ed8092fd33dae",
+    "mtime": 1787462385.0848975,
+    "ast_hash": "8ec3bad96b4c11942595934fa2889c98",
     "semantic_hash": ""
   },
   "tests/retry_helpers.rs": {
