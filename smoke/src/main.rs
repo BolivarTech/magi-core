@@ -950,7 +950,16 @@ const COMPILE_REFUSAL_MARKER: &str = "could not compile";
 
 pub(crate) const FEATURE_MATRIX: [(&str, Option<&str>); 4] = [
     ("tree", None),
-    ("published", None),
+    // `published` alone RESOLVES but no longer COMPILES: this harness implements
+    // `LlmProvider`, whose `complete()` returns `Completion` since `4.0.0`, and the
+    // pin is `3.2`. It is declared with the generic refusal marker rather than
+    // `None`, which reads as "expected to build".
+    //
+    // No verdict depended on it either way — `S21_ASSERTED` does not name this row,
+    // so nothing judged it — but a declared expectation that is false is the class
+    // this milestone exists to remove, and an unjudged row is exactly where such a
+    // thing survives unnoticed.
+    ("published", Some(COMPILE_REFUSAL_MARKER)),
     ("tree,published", Some(BOTH_MODES_MARKER)),
     ("", Some(NEITHER_MODE_MARKER)),
 ];

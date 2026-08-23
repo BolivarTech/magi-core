@@ -16,7 +16,9 @@ published = ["dep:magi_core_pub"]
 
 [dependencies]
 magi_core_tree = { package = "magi-core", path = "..",     optional = true, features = ["ollama"] }
-# NOTHING SELECTS THIS ANY MORE, and nothing guards the pin either.
+# NO SCENARIO RUNS THE HARNESS IN THIS MODE ANY MORE, and nothing guards the pin
+# either. `--build-matrix` still type-checks it, which is a build-time question and
+# not a run.
 #
 # HARNESS-E3 was rescoped: its post-publish job — which is what would have compared the
 # job-resolved lock against the version just published — does not exist. An earlier version of

@@ -86,7 +86,8 @@ and the instruction was self-contradictory anyway: bumping the pin alongside the
 version that is not on crates.io yet, which is exactly the break described just above.
 
 **What is true instead:** the pin can only move AFTER the version it names is published, never
-with it. And since nothing selects `published` any more, its only remaining job is to keep
+with it. And since no scenario runs the harness in `published` mode any more — `--build-matrix`
+still type-checks it, which is a build-time question — its only remaining job is to keep
 resolving, which a published version always does. Leaving it behind the crate's own version is
 correct rather than sloppy.
 
@@ -216,8 +217,8 @@ Anyone reading a certificate needs to know what was **not** verified.
   verdict could only ever arrive after the publish it was meant to gate. What replaced it is
   `ci/check_packaged_consumer.sh`, which compiles outside consumers against the tarball
   `cargo package` writes — the same artifact, before the publish, in the round gate. The mode's
-  wiring stays in this package because the compiler enforces the two are exclusive; nothing
-  selects it.
+  wiring stays in this package because the compiler enforces the two are exclusive; no scenario
+  runs the harness in that mode, though `--build-matrix` still type-checks it.
 - **Proxy transparency is verified only on the SMALL probe request**, not on a large-payload
   run. The comparison is by checksum over a request the harness itself sends and receives down
   both paths; the large-payload run is not part of this stage at all, so nothing here shows that

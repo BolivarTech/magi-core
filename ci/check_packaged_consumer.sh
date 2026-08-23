@@ -112,6 +112,8 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
   cargo build --manifest-path "$PKG_DIR/Cargo.toml" --examples --all-features
 
 # Reports what happened rather than asserting the property: a count is checkable,
-# a claim is not.
-BUILT="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
-echo "check_packaged_consumer: OK ($VERSION, $BUILT packaged example(s) compiled as outside crates)"
+# a claim is not. It counts DECLARATIONS and says so — `cargo build --examples`
+# silently skips a target whose `required-features` are unmet, so the day an
+# example gains one, "compiled" would overstate what this number knows.
+DECLARED="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
+echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared and built)"

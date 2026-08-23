@@ -1402,10 +1402,16 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 ///
 /// It is **not** left out for want of a version to resolve. `smoke/Cargo.toml`
 /// pins `magi_core_pub` at `version = "3.2"`, which is on crates.io, so the
-/// combination resolves and compiles today — and it must, since cargo resolves
-/// an optional dependency whether or not its feature is on, so a version that
-/// did not exist would break every build of this package rather than only this
-/// one combination.
+/// combination **resolves** — and it must, since cargo resolves an optional
+/// dependency whether or not its feature is on, so a version that did not exist
+/// would break every build of this package rather than only this one
+/// combination.
+///
+/// **It no longer COMPILES, and that is a state rather than a defect.** This
+/// harness implements `LlmProvider`, whose `complete()` returns `Completion`
+/// since `4.0.0` — a type `3.2` does not have. Resolving and compiling are
+/// different questions, and this paragraph used to answer the second with the
+/// first's answer.
 ///
 /// **Wire-precondition audit (module doc, "The companion rule"): not needed.**
 /// It reads the build matrix, never `report` or `records`; a matrix nobody asked
