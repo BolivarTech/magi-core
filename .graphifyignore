@@ -1,0 +1,73 @@
+# .graphifyignore — what the knowledge graph must NOT index.
+# Same syntax as .gitignore. Read `graphify-out/` is TRACKED in this repo, so
+# whatever this file lets through ships as the structure map that library
+# consumers see first.
+#
+# PREVENTIVE, NOT CORRECTIVE, AND MEASURED AS SUCH. On 2026-08-22 none of the
+# paths below was in the graph: graphify's own defaults already skipped them.
+# Proven neutral by running the rebuild twice, with this file and without it --
+# both produced 3399 nodes, so it adds nothing and removes nothing. It exists
+# because those defaults belong to the tool, not to us: an upgrade can widen
+# them, and a graph that quietly starts indexing build output degrades every
+# query while still reporting success.
+#
+# BEFORE ADDING A LINE, KNOW THIS TRAP: `graphify update` REFUSES to write a
+# rebuild that has fewer nodes than the current graph, as a guard against a
+# broken extraction. Excluding something that IS indexed therefore leaves the
+# graph stale WITHOUT an error -- it needs `graphify update --force`. Verify a
+# new entry the way this file was verified: rebuild with and without it and
+# compare the counts, rather than reasoning about what it ought to match.
+#
+# THAT REFUSAL IS ALREADY FIRING HERE, FOR REASONS THAT PREDATE THIS FILE.
+# The tracked graph carries 3617 nodes; a clean AST re-extraction yields 3399.
+# Until that gap is resolved deliberately, every `graphify update` -- including
+# the post-commit hook -- declines to write and the tracked graph stays frozen.
+
+# --- Build output -------------------------------------------------------
+# Two crates, two target dirs. Derived, enormous, and rebuilt from source.
+/target/
+/smoke/target/
+/smoke/target-matrix/
+
+# --- The graph's own output ---------------------------------------------
+# Tracked here (project decision), which means graphify can see it and index
+# itself. That is the one growth path the advisory in CLAUDE.md called out.
+/graphify-out/
+
+# --- SBTDD process artifacts --------------------------------------------
+# Specs, plans and agent config are gitignored and LOCAL to the developer.
+# They are also the class the graph is not meant to answer for: questions
+# about process go through grep, questions about code go through the graph.
+/sbtdd/
+/planning/
+/plans/
+/dev-docs/
+/scripts/
+/.claude/
+/.superpowers/
+/.remember/
+/CLAUDE.md
+/CLAUDE.local.md
+/run-tests.py
+/claude-usage.txt
+
+# --- VCS and editor ------------------------------------------------------
+/.git/
+/.idea/
+/.vscode/
+__pycache__/
+
+# --- Deliberately NOT ignored, so nobody adds them "for tidiness" --------
+# src/          the crate
+# smoke/src/    the smoke harness — a real consumer of the public API, which
+#               is exactly the perspective the graph is least likely to have
+# ci/           the invariant checkers are load-bearing logic, not scripts
+# tests/        including tests/fixtures/ (42 nodes)
+# examples/     the only place some public-API guarantees are proven
+# docs/, README.md, CHANGELOG.md, Cargo.toml
+#
+# ci/fixtures/ is the one open question: 245 nodes (~7% of the graph) of
+# redaction self-test fixture data that no code question ever asks about.
+# Pruning it would shrink the graph and so needs `update --force`. Left in
+# on purpose — that is a decision to take deliberately, not as a side effect
+# of adding this file.
