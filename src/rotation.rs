@@ -263,11 +263,11 @@ impl RotationPolicy {
 /// [`LineageFailedForThisMage`](Self::LineageFailedForThisMage),
 /// [`LineageCondemnedRunWide`](Self::LineageCondemnedRunWide) and
 /// [`DigestCollision`](Self::DigestCollision) are filled **during** a run, and the
-/// snapshot is taken **before** dispatch, so their inputs are empty there and the
-/// variants cannot be produced. They exist because the function that computes the
-/// snapshot is **pure** and takes those sets as parameters: a caller that passes a
-/// populated one does produce them. To see what happened *during* a run, read
-/// `rotations` instead.
+/// snapshot is taken **before** dispatch, so their inputs are empty there and this
+/// crate never emits them. They exist because the function that computes the
+/// snapshot is **pure** and reads that per-seat state through a parameter, so a
+/// caller holding a populated one — the cross-milestone check does — produces them.
+/// To see what happened *during* a run, read `rotations` instead.
 ///
 /// Saying so is the point. Left unsaid, a consumer would look for three variants
 /// in a report that can never carry them, with no way to tell "nothing failed"
@@ -275,6 +275,19 @@ impl RotationPolicy {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum IneligibilityCause {
+    /// The rotation budget is spent, so no candidate is claimable at all.
+    ///
+    /// The gate the filter applies **before** its six conditions. With a pool
+    /// declared and `max_rotations` at zero, every candidate would otherwise be
+    /// reported eligible for a run in which none can ever be claimed — an inert
+    /// pool described as a healthy one, which is the failure this telemetry exists
+    /// to make visible.
+    RotationBudgetExhausted {
+        /// How many rotations the seat has already made.
+        rotations_done: u32,
+        /// The cap it is measured against. `0` means rotation is disabled.
+        max_rotations: u32,
+    },
     /// Condition #1: another live mage is already running this lineage.
     LineageHeldByAnotherMage,
     /// Condition #2: this mage already failed this lineage.
@@ -317,12 +330,62 @@ pub enum IneligibilityCause {
     WindowUnmeasuredUnderStrictGuard,
 }
 
+/// What one seat has already spent and ruled out, for a snapshot taken mid-run.
+///
+/// Every field is **empty or zero before dispatch**, which is the only state the
+/// orchestrator ever passes. It exists so the function models the whole candidate
+/// filter rather than the five conditions that happen to be reachable pre-dispatch:
+/// a caller holding real per-seat state — the cross-milestone check does — gets the
+/// other three, and a variant nothing can construct is a promise the code does not
+/// keep.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SeatProgress {
+    /// Lineages this seat gave up on (condition #2).
+    pub failed_lineages: BTreeSet<Lineage>,
+    /// Models this seat already ran (condition #4).
+    ///
+    /// Read instead of comparing against the seat's configured model, because that
+    /// comparison only agrees with the real filter before dispatch. Empty means
+    /// "not stated", and the configured model is then taken as the one in use.
+    pub used_models: BTreeSet<String>,
+    /// Models this seat turned down over a proven digest collision (condition #5).
+    ///
+    /// The keys of [`AgentRotationState::digest_collisions`]; only membership is
+    /// read, so the reason string does not travel.
+    pub digest_collisions: BTreeSet<String>,
+    /// How many rotations this seat has already made.
+    pub rotations_done: u32,
+}
+
+/// Everything [`pool_eligibility_snapshot`] reads.
+///
+/// A named struct rather than eight positional parameters: the call site reads as
+/// the conditions it models, and nothing has to be silenced to build it.
+pub(crate) struct EligibilityInputs<'a> {
+    /// Each seat's lineage and model. The OUTER loop runs over this.
+    pub seats: &'a BTreeMap<AgentName, ActiveEntry>,
+    /// Per-seat state; a seat absent from the map is treated as fresh.
+    pub progress: &'a BTreeMap<AgentName, SeatProgress>,
+    /// Lineages condemned run-wide (condition #3).
+    pub run_failed_lineages: &'a BTreeSet<Lineage>,
+    /// What the preflight measured, keyed by model.
+    pub capabilities: &'a BTreeMap<String, ModelCapability>,
+    /// The shared pool every seat draws from.
+    pub candidates: &'a [FallbackCandidate],
+    /// The per-seat rotation cap. `0` disables rotation entirely.
+    pub max_rotations: u32,
+    /// The payload's coarse lower bound, in `chars/4` units.
+    pub min_window_tokens: usize,
+    /// Whether a candidate whose window could not be measured is refused.
+    pub strict_context_guard: bool,
+}
+
 /// One candidate's eligibility for one seat, computed **before** dispatch.
 ///
-/// No builder, unlike `Completion` and `CompletionRecord`: those are constructed
+/// No builder, unlike `Completion` and `CompletionTelemetry`: those are constructed
 /// by an **external** implementor, whom `#[non_exhaustive]` forbids from using a
-/// literal. This one is built only by the crate, from a `pub(crate)` function, so
-/// the literal works and a builder would be ceremony with no consumer.
+/// literal. This one is built only by the crate, so the literal works and a builder
+/// would be ceremony with no consumer.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CandidateEligibility {
@@ -334,7 +397,7 @@ pub struct CandidateEligibility {
     ///
     /// A recalculation rather than a capture of the filter, which short-circuits:
     /// reporting "ruled out by the first condition that failed" would name an
-    /// arbitrary one of several.
+    /// arbitrary one of several true reasons.
     pub causes: Vec<IneligibilityCause>,
 }
 
@@ -343,9 +406,9 @@ pub struct CandidateEligibility {
 ///
 /// # Complexity
 ///
-/// `O(A · C)` — every seat against every candidate, with the six conditions a
-/// constant factor. It does **not** short-circuit: evaluating all of them is what
-/// buys reporting all the causes, and with `C` in the units the cost is nothing.
+/// `O(A · C)` — every seat against every candidate, with the conditions a constant
+/// factor. It does **not** short-circuit: evaluating all of them is what buys
+/// reporting all the causes, and with `C` in the units the cost is nothing.
 ///
 /// # It returns no `Result`, and an inconsistent input is a CAUSE, not an error
 ///
@@ -361,47 +424,61 @@ pub struct CandidateEligibility {
 /// would silently omit a seat whose pool is empty, and that omission reads as
 /// "the snapshot was not computed". Absent means exactly one thing.
 pub(crate) fn pool_eligibility_snapshot(
-    seats: &BTreeMap<AgentName, ActiveEntry>,
-    failed_lineages: &BTreeMap<AgentName, BTreeSet<Lineage>>,
-    run_failed_lineages: &BTreeSet<Lineage>,
-    capabilities: &BTreeMap<String, ModelCapability>,
-    candidates: &[FallbackCandidate],
-    min_window_tokens: usize,
-    strict_context_guard: bool,
+    inputs: &EligibilityInputs<'_>,
 ) -> BTreeMap<AgentName, Vec<CandidateEligibility>> {
     let mut out = BTreeMap::new();
-    for (seat, entry) in seats {
-        let rows = candidates
+    let fresh = SeatProgress::default();
+    for (seat, entry) in inputs.seats {
+        let progress = inputs.progress.get(seat).unwrap_or(&fresh);
+        let rows = inputs
+            .candidates
             .iter()
             .map(|c| {
                 let model = c.provider.model().to_string();
                 let mut causes = Vec::new();
-                if seats
+                // Condition #0 — the gate `next_model` applies BEFORE any of the six,
+                // and the reason it is modelled: with a pool declared and this cap at
+                // zero, every candidate is filterable but unclaimable, and a snapshot
+                // reporting them all eligible would describe an inert pool as a healthy
+                // one. That is the failure this axis exists to make visible.
+                if progress.rotations_done >= inputs.max_rotations {
+                    causes.push(IneligibilityCause::RotationBudgetExhausted {
+                        rotations_done: progress.rotations_done,
+                        max_rotations: inputs.max_rotations,
+                    });
+                }
+                if inputs
+                    .seats
                     .iter()
                     .any(|(other, e)| other != seat && e.lineage == c.lineage)
                 {
                     causes.push(IneligibilityCause::LineageHeldByAnotherMage);
                 }
-                if failed_lineages
-                    .get(seat)
-                    .is_some_and(|f| f.contains(&c.lineage))
-                {
+                if progress.failed_lineages.contains(&c.lineage) {
                     causes.push(IneligibilityCause::LineageFailedForThisMage);
                 }
-                if run_failed_lineages.contains(&c.lineage) {
+                if inputs.run_failed_lineages.contains(&c.lineage) {
                     causes.push(IneligibilityCause::LineageCondemnedRunWide);
                 }
-                if entry.model == model {
+                let already_used = if progress.used_models.is_empty() {
+                    entry.model == model
+                } else {
+                    progress.used_models.contains(&model)
+                };
+                if already_used {
                     causes.push(IneligibilityCause::ModelAlreadyUsedByThisMage);
                 }
-                match capabilities.get(&model).and_then(|cap| cap.window) {
-                    Some(w) if w < min_window_tokens => {
+                if progress.digest_collisions.contains(&model) {
+                    causes.push(IneligibilityCause::DigestCollision);
+                }
+                match inputs.capabilities.get(&model).and_then(|cap| cap.window) {
+                    Some(w) if w < inputs.min_window_tokens => {
                         causes.push(IneligibilityCause::WindowBelowCoarseEstimate {
                             measured_window: w,
-                            estimated_need: min_window_tokens,
+                            estimated_need: inputs.min_window_tokens,
                         });
                     }
-                    None if strict_context_guard => {
+                    None if inputs.strict_context_guard => {
                         causes.push(IneligibilityCause::WindowUnmeasuredUnderStrictGuard);
                     }
                     _ => {}
@@ -2482,6 +2559,35 @@ mod tests {
         assert!(s.digest_collisions.contains_key("md"));
     }
 
+    /// The inputs a test varies, with everything else at its neutral value.
+    ///
+    /// A helper rather than eight fields per call: a test that has to restate six
+    /// irrelevant values buries the one it is about.
+    fn inputs<'a>(
+        seats: &'a BTreeMap<AgentName, ActiveEntry>,
+        caps: &'a BTreeMap<String, ModelCapability>,
+        candidates: &'a [FallbackCandidate],
+        min_window_tokens: usize,
+        strict_context_guard: bool,
+    ) -> EligibilityInputs<'a> {
+        EligibilityInputs {
+            seats,
+            progress: EMPTY_PROGRESS.get_or_init(BTreeMap::new),
+            run_failed_lineages: EMPTY_LINEAGES.get_or_init(BTreeSet::new),
+            capabilities: caps,
+            candidates,
+            // Two, the shipped default: zero would make every candidate ineligible
+            // for the rotation budget and mask what each test is actually about.
+            max_rotations: 2,
+            min_window_tokens,
+            strict_context_guard,
+        }
+    }
+
+    static EMPTY_PROGRESS: std::sync::OnceLock<BTreeMap<AgentName, SeatProgress>> =
+        std::sync::OnceLock::new();
+    static EMPTY_LINEAGES: std::sync::OnceLock<BTreeSet<Lineage>> = std::sync::OnceLock::new();
+
     fn seat(agent: AgentName, lineage: &str, model: &str) -> (AgentName, ActiveEntry) {
         (
             agent,
@@ -2525,15 +2631,13 @@ mod tests {
             },
         )]
         .into();
-        let snap = pool_eligibility_snapshot(
+        let snap = pool_eligibility_snapshot(&inputs(
             &seats,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
             &caps,
             &[cand("deepseek", "md")],
             16_000,
             true,
-        );
+        ));
         let row = &snap[&AgentName::Caspar][0];
         assert_eq!(
             row.causes.len(),
@@ -2560,15 +2664,13 @@ mod tests {
             seat(AgentName::Melchior, "alibaba", "mm"),
         ]
         .into();
-        let snap = pool_eligibility_snapshot(
+        let snap = pool_eligibility_snapshot(&inputs(
             &seats,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
             &BTreeMap::new(),
             &[cand("deepseek", "md")],
             16_000,
             false,
-        );
+        ));
         assert!(
             snap.contains_key(&AgentName::Melchior),
             "a seat that never rotated is still reported on"
@@ -2584,32 +2686,93 @@ mod tests {
     #[test]
     fn a_seat_with_no_candidates_gets_an_empty_entry_not_a_missing_one() {
         let seats = [seat(AgentName::Melchior, "alibaba", "mm")].into();
-        let snap = pool_eligibility_snapshot(
-            &seats,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
-            &BTreeMap::new(),
-            &[],
-            16_000,
-            false,
-        );
+        let snap = pool_eligibility_snapshot(&inputs(&seats, &BTreeMap::new(), &[], 16_000, false));
         assert!(snap.contains_key(&AgentName::Melchior), "present");
         assert!(snap[&AgentName::Melchior].is_empty(), "and empty");
+    }
+
+    /// The three causes a mid-run caller produces, which the pre-dispatch call cannot.
+    ///
+    /// They exist because the function is pure and reads per-seat state through a
+    /// parameter. Without this test they are three public variants that nothing in
+    /// the crate constructs — a promise the code does not keep, which is the exact
+    /// defect this milestone renamed a field to close.
+    #[test]
+    fn a_caller_holding_real_seat_state_produces_the_three_mid_run_causes() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let candidates = [cand("deepseek", "md")];
+        let progress = [(
+            AgentName::Caspar,
+            SeatProgress {
+                failed_lineages: [Lineage::new("deepseek")].into(),
+                used_models: ["md".to_string()].into(),
+                digest_collisions: ["md".to_string()].into(),
+                rotations_done: 0,
+            },
+        )]
+        .into();
+        let snap = pool_eligibility_snapshot(&EligibilityInputs {
+            seats: &seats,
+            progress: &progress,
+            run_failed_lineages: &BTreeSet::new(),
+            capabilities: &BTreeMap::new(),
+            candidates: &candidates,
+            max_rotations: 2,
+            min_window_tokens: 0,
+            strict_context_guard: false,
+        });
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![
+                IneligibilityCause::LineageFailedForThisMage,
+                IneligibilityCause::ModelAlreadyUsedByThisMage,
+                IneligibilityCause::DigestCollision,
+            ],
+            "all three, in filter order, and none of them by accident"
+        );
+    }
+
+    /// A spent rotation budget makes every candidate ineligible, and says which.
+    ///
+    /// The gate the filter applies BEFORE its six conditions. With a pool declared
+    /// and the cap at zero, a snapshot that ignored it would report every candidate
+    /// eligible for a run in which none can ever be claimed — an inert pool
+    /// described as a healthy one.
+    #[test]
+    fn a_spent_rotation_budget_is_reported_rather_than_read_as_eligible() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let candidates = [cand("deepseek", "md")];
+        let snap = pool_eligibility_snapshot(&EligibilityInputs {
+            seats: &seats,
+            progress: &BTreeMap::new(),
+            run_failed_lineages: &BTreeSet::new(),
+            capabilities: &BTreeMap::new(),
+            candidates: &candidates,
+            max_rotations: 0,
+            min_window_tokens: 0,
+            strict_context_guard: false,
+        });
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![IneligibilityCause::RotationBudgetExhausted {
+                rotations_done: 0,
+                max_rotations: 0,
+            }],
+            "rotation disabled is a cause, not silence"
+        );
     }
 
     /// An unmeasured candidate is told apart from a measured-but-small one.
     #[test]
     fn an_unmeasured_candidate_under_a_strict_guard_says_so() {
         let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
-        let snap = pool_eligibility_snapshot(
+        let snap = pool_eligibility_snapshot(&inputs(
             &seats,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
             &BTreeMap::new(),
             &[cand("deepseek", "md")],
             16_000,
             true,
-        );
+        ));
         assert_eq!(
             snap[&AgentName::Caspar][0].causes,
             vec![IneligibilityCause::WindowUnmeasuredUnderStrictGuard],

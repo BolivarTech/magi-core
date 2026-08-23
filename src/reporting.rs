@@ -472,7 +472,7 @@ pub struct MagiReport {
     /// is what lets a consumer answer "the candidate skipped for its window, is it
     /// the one the seat later rotated into?".
     ///
-    /// **No `skip_serializing_if`, unlike `rotations` or `retried_agents.`** An
+    /// **No `skip_serializing_if`, unlike `retried_agents` or `completions`.** An
     /// absent map and a map where every candidate is eligible mean different
     /// things — "not computed" and "computed, nothing to reject" — and a
     /// consumer has to be able to tell them apart. Same reason
@@ -2442,6 +2442,25 @@ mod tests {
     /// retried_agents=BTreeSet::new(), serialized form is byte-identical
     /// to what v0.3.1 produced for the same MagiReport shape (since
     /// skip_serializing_if omits the empty field).
+    /// `pool_eligibility` is EMITTED even when empty, which is the whole reason it
+    /// carries no `skip_serializing_if`.
+    ///
+    /// The field's contract is that absent means exactly one thing — the snapshot was
+    /// not computed — and that holds only while an empty map still reaches the wire.
+    /// Add `skip_serializing_if = "BTreeMap::is_empty"` "for consistency with
+    /// `completions`" and every other test stays green while the contract dies
+    /// silently. This is the one that goes red.
+    #[test]
+    fn an_empty_pool_eligibility_is_still_written_to_the_wire() {
+        let report = report_with_no_telemetry();
+        assert!(report.pool_eligibility.is_empty(), "precondition");
+        let json = serde_json::to_string(&report).expect("the report serializes");
+        assert!(
+            json.contains("\"pool_eligibility\""),
+            "an empty map must still be emitted, or absent stops meaning 'not computed': {json}"
+        );
+    }
+
     #[test]
     fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
         let json = include_str!("../tests/fixtures/magi_report_v0_3_1.json");

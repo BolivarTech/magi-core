@@ -19,6 +19,12 @@
 //!
 //! Hosting either one here would cost harness machinery for coverage that already exists.
 //!
+//! **The coarse-bound naming of `E-4` is not asserted here either, and that is deliberate.** This
+//! run produces no window cause at all — its candidate is ineligible for lineage and model — so
+//! any check phrased over one would read an empty set and pass. It is asserted positively where
+//! the cause can be produced: a unit test that hands the snapshot a measured window and a bound
+//! it does not meet.
+//!
 //! # Both read the same run, and that run exists for them
 //!
 //! [`RunId::PoolEligibility`] is a small payload with nothing injected — the snapshot is
@@ -44,8 +50,6 @@ use crate::runner::{assert_that, Assertion, BackendNeed, RunContext, Scenario, S
 
 const NAME_WHY_INELIGIBLE: &str =
     "a seat that never rotated still reports which candidates were not eligible, and why";
-const NAME_COARSE_BOUND: &str =
-    "the window cause names itself a coarse lower bound, not a token count";
 const NAME_ALL_CONDITIONS: &str = "every failing condition is reported, not only the first";
 
 /// `S-E2` — the snapshot answers for seats that never rotated.
@@ -65,10 +69,7 @@ fn s_e2_why_a_candidate_was_not_eligible(ctx: &RunContext<'_>) -> Vec<Assertion>
             .error
             .map(str::to_string)
             .unwrap_or_else(|| "the run never happened".to_string());
-        return vec![
-            Assertion::skip(NAME_WHY_INELIGIBLE, reason.clone()),
-            Assertion::skip(NAME_COARSE_BOUND, reason),
-        ];
+        return vec![Assertion::skip(NAME_WHY_INELIGIBLE, reason)];
     };
     let ineligible: Vec<_> = report
         .pool_eligibility
@@ -76,22 +77,10 @@ fn s_e2_why_a_candidate_was_not_eligible(ctx: &RunContext<'_>) -> Vec<Assertion>
         .flatten()
         .filter(|c| !c.causes.is_empty())
         .collect();
-    vec![
-        assert_that(
-            NAME_WHY_INELIGIBLE,
-            !report.pool_eligibility.is_empty() && !ineligible.is_empty(),
-        ),
-        // The type is what carries the qualification, so the type is what is read. A consumer
-        // matching on the variant learns that the comparison was against `chars/4` without
-        // having to find the rustdoc that says so.
-        assert_that(
-            NAME_COARSE_BOUND,
-            ineligible
-                .iter()
-                .flat_map(|c| &c.causes)
-                .all(|c| !format!("{c:?}").contains("WindowTooSmall")),
-        ),
-    ]
+    vec![assert_that(
+        NAME_WHY_INELIGIBLE,
+        !report.pool_eligibility.is_empty() && !ineligible.is_empty(),
+    )]
 }
 
 /// `S-E3` — every failing condition is reported, not only the first.
@@ -101,7 +90,7 @@ fn s_e2_why_a_candidate_was_not_eligible(ctx: &RunContext<'_>) -> Vec<Assertion>
 /// name an arbitrary member of several true reasons, and the consumer would act on it.
 ///
 /// The run carries a candidate that fails **two** conditions at once — its lineage belongs to
-/// another seat, and it has no measured window under a strict guard — so a snapshot that
+/// another seat, and its model is one that seat already runs — so a snapshot that
 /// short-circuited would show one cause where two are true.
 fn s_e3_all_failing_conditions(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let Some(report) = ctx.report else {

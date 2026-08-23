@@ -852,6 +852,10 @@ impl RunSpec {
                 // rightly, since rotating to it would reach the lineage the run was
                 // leaving — and this candidate exists precisely to be rejected by the
                 // crate, not to be rotated into.
+                // A config with fewer than two seats builds no candidate and this run's
+                // scenarios go RED rather than SKIP. Left that way on purpose: every
+                // other check here assumes the trio the harness is built around, and a
+                // silent skip would be the one outcome that says nothing.
                 fallbacks: {
                     let mut f = cfg.fallbacks.clone();
                     if let (Some(first), Some(second)) = (cfg.seats.first(), cfg.seats.get(1)) {

@@ -1325,15 +1325,16 @@ impl Magi {
             });
         }
 
+        // Taken BEFORE `default_rotations` consumes the map.
+        let pool_eligibility = agent_models.keys().map(|a| (*a, Vec::new())).collect();
         let rotations = default_rotations(agent_models);
         // No pool on this path, so no candidate can be rejected. Seeded per seat rather
         // than left empty: absent means "not computed", which is a different claim.
-        let pool_eligibility = successful
-            .iter()
-            .map(|o| o.agent)
-            .chain(failed.keys().copied())
-            .map(|a| (a, Vec::new()))
-            .collect();
+        //
+        // From `agent_models`, the same source its sibling `extraction_failures` uses.
+        // Deriving it from `successful` plus `failed` reaches the same set, but only
+        // because every handle lands in exactly one of them — a proof the reader has to
+        // redo, where this states the property.
         Ok((
             successful,
             failed,
@@ -1432,15 +1433,20 @@ impl Magi {
         // claims. `&BTreeMap::new()` / `&BTreeSet::new()` are not placeholders: nobody
         // has failed anything yet, and reading the registry here would make the snapshot
         // depend on when it was called and falsify the one thing its rustdoc promises.
-        let pool_eligibility = crate::rotation::pool_eligibility_snapshot(
-            &initial_for_snapshot,
-            &BTreeMap::new(),
-            &BTreeSet::new(),
-            &capabilities,
-            rotation.pool.candidates(),
-            min_window_tokens,
-            strict_context_guard,
-        );
+        let pool_eligibility =
+            crate::rotation::pool_eligibility_snapshot(&crate::rotation::EligibilityInputs {
+                seats: &initial_for_snapshot,
+                // Empty, and not a placeholder: nobody has failed anything yet. Reading
+                // the registry here would make the snapshot depend on when it was called
+                // and falsify the one thing its rustdoc promises.
+                progress: &BTreeMap::new(),
+                run_failed_lineages: &BTreeSet::new(),
+                capabilities: &capabilities,
+                candidates: rotation.pool.candidates(),
+                max_rotations: rotation.pool.max_rotations(),
+                min_window_tokens,
+                strict_context_guard,
+            });
 
         // A strict guard rejects every UNMEASURED candidate, so with nothing measured the pool
         // is declared and never eligible: rotation does nothing, and until now it did so in
@@ -6851,11 +6857,19 @@ x
         .await;
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
-        // MS1's decision, read from where MS1 makes it.
+        // MS1's decision, read from where MS1 makes it. Asserted directly as well as
+        // fed onward: the crossing is only meaningful if this half is stated.
         let condemned = registry.run_failed_lineages().await;
+        assert!(
+            condemned.is_empty(),
+            "MS1: a mage-local failure must not enter the run-wide set: {condemned:?}"
+        );
 
-        // MS3's report, fed that exact set. Melchior is a DIFFERENT seat: the
-        // lineage Caspar gave up on must still be eligible for it.
+        // MS3's report, fed that exact set. Melchior is a DIFFERENT seat, and the
+        // candidate carries the lineage CASPAR gave up on — which is the only way this
+        // assertion can fail. An earlier form used an unrelated lineage, so injecting
+        // the regression it exists to catch left it green: `LineageCondemnedRunWide`
+        // only fires when the condemned set holds the CANDIDATE's lineage.
         let seats = [(
             AgentName::Melchior,
             ActiveEntry {
@@ -6864,41 +6878,36 @@ x
             },
         )]
         .into_iter()
-        .collect();
+        .collect::<BTreeMap<_, _>>();
         let candidates = [crate::rotation::FallbackCandidate {
             provider: Arc::clone(&fallback),
-            lineage: Lineage::new("zhipu"),
+            lineage: Lineage::new("deepseek"),
             probe: None,
         }];
-        let snap = crate::rotation::pool_eligibility_snapshot(
-            &seats,
-            &BTreeMap::new(),
-            &condemned,
-            &BTreeMap::new(),
-            &candidates,
-            0,
-            false,
-        );
+        let snapshot = |condemned: &BTreeSet<Lineage>| {
+            crate::rotation::pool_eligibility_snapshot(&crate::rotation::EligibilityInputs {
+                seats: &seats,
+                progress: &BTreeMap::new(),
+                run_failed_lineages: condemned,
+                capabilities: &BTreeMap::new(),
+                candidates: &candidates,
+                max_rotations: 2,
+                min_window_tokens: 0,
+                strict_context_guard: false,
+            })[&AgentName::Melchior][0]
+                .causes
+                .clone()
+        };
         assert!(
-            snap[&AgentName::Melchior][0].causes.is_empty(),
+            snapshot(&condemned).is_empty(),
             "a lineage one seat failed locally stays eligible for the others: {:?}",
-            snap[&AgentName::Melchior][0].causes
+            snapshot(&condemned)
         );
 
-        // THE POSITIVE HALF. Without it the assertion above passes even if the
-        // cause were never emitted at all, because the set it read was empty.
-        let run_wide = BTreeSet::from([Lineage::new("zhipu")]);
-        let snap = crate::rotation::pool_eligibility_snapshot(
-            &seats,
-            &BTreeMap::new(),
-            &run_wide,
-            &BTreeMap::new(),
-            &candidates,
-            0,
-            false,
-        );
+        // THE POSITIVE HALF. Without it the assertion above passes even if the cause
+        // were never emitted at all, because the set it read was empty.
         assert_eq!(
-            snap[&AgentName::Melchior][0].causes,
+            snapshot(&BTreeSet::from([Lineage::new("deepseek")])),
             vec![crate::rotation::IneligibilityCause::LineageCondemnedRunWide],
             "and a run-wide condemnation IS reported, exactly and alone"
         );

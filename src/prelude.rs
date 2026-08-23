@@ -51,7 +51,8 @@ pub use crate::orchestrator::{
 
 // Rotation (MS2): declare fallbacks/lineages and read rotation telemetry.
 pub use crate::rotation::{
-    AgentRotation, FallbackPool, Lineage, ProviderProbe, RotationEvent, RotationKind,
+    AgentRotation, CandidateEligibility, FallbackPool, IneligibilityCause, Lineage, ProviderProbe,
+    RotationEvent, RotationKind,
 };
 
 // Feature-gated providers
