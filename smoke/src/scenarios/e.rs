@@ -23,8 +23,15 @@
 //!
 //! [`RunId::PoolEligibility`] is a small payload with nothing injected — the snapshot is
 //! **pre-dispatch**, so nothing has to rotate for it to be populated. What the run does carry is
-//! a candidate built to be ineligible for two reasons at once, and a strict context guard to make
-//! the second of them bite.
+//! a candidate built to be ineligible for two reasons at once: it takes the first seat's lineage
+//! and the second seat's model, so the second seat sees both that another mage already holds the
+//! lineage and that the model is one it already runs.
+//!
+//! **An earlier form of this run tried to use the "unmeasured window" cause instead, and it could
+//! not fire.** The candidate reused a seat's model, and a seat's model is probed — so the
+//! capability map already had a measured window for it and the cause was unreachable by
+//! construction. `S-E3` went red on the first live run and said so. The unmeasured cause is
+//! covered where it can be produced: a unit test that passes the capability map directly.
 //!
 //! **It is a run of its own rather than a rider on the happy one.** The precondition needs a
 //! candidate whose lineage duplicates a seat's, and the harness config says in as many words that
