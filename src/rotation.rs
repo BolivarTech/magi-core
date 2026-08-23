@@ -252,7 +252,7 @@ impl RotationPolicy {
 /// Why a fallback candidate was **not eligible** for a seat.
 ///
 /// One variant per condition of the eligibility chain in
-/// [`RotationPolicy::next_model`], plus one: `window_ok` turns a candidate down
+/// the rotation policy's candidate filter, plus one: `window_ok` turns a candidate down
 /// for **two** different reasons — measured and too small, or unmeasured under a
 /// strict guard — and a consumer diagnosing an inert pool needs to know which.
 /// Six conditions, seven variants; merging the last two would report "window"

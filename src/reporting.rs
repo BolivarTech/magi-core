@@ -453,6 +453,25 @@ pub struct MagiReport {
     /// Which pool candidates each seat could and could not have rotated into,
     /// as of **before dispatch**.
     ///
+    /// # It is a snapshot, and it does NOT see what changes during the run
+    ///
+    /// Taken once, before any seat is dispatched. A lineage that fails halfway
+    /// through stops being eligible for the rotations that follow, and **that does
+    /// not appear here** — for what actually happened during the run, read
+    /// [`rotations`](Self::rotations).
+    ///
+    /// Saying so is not a footnote. The field is called "eligibility", and a
+    /// reader would otherwise take it for the truth of the whole run; a claim that
+    /// covers less than its name suggests is worse than none, because nobody goes
+    /// looking for the part that is missing.
+    ///
+    /// # Crossing it with `rotations`
+    ///
+    /// A candidate is identified by the **same model string** the rotation events
+    /// carry — `provider.model()`, which is also the key of the capability map. It
+    /// is what lets a consumer answer "the candidate skipped for its window, is it
+    /// the one the seat later rotated into?".
+    ///
     /// **No `skip_serializing_if`, unlike `rotations` or `retried_agents.`** An
     /// absent map and a map where every candidate is eligible mean different
     /// things — "not computed" and "computed, nothing to reject" — and a
