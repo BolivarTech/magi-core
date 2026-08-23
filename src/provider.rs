@@ -1716,8 +1716,13 @@ impl LlmProvider for RetryProvider {
                 // With the SHIPPED `limited_retry_classes` the two cannot interact either: that
                 // match is on `ProviderError::Http`, which is not in the default list, so no
                 // error reaching this break carries a `Retry-After` to discard. That list is
-                // CONFIGURABLE, though — a consumer who puts `Http` in it makes the two meet, and
-                // `the_two_exits_agree_for_a_configured_http_class` pins that they still agree.
+                // CONFIGURABLE, though — a consumer who puts `Http` in it makes the two meet.
+                // `a_present_retry_after_meets_the_attempt_cap_for_a_configured_http_class` pins
+                // BOTH directions of that meeting on a non-empty header: an honoured wait still
+                // stops where this cap says, and a `TooLong` one abandons above instead. Its
+                // sibling `the_two_exits_agree_for_a_configured_http_class` sends an EMPTY header,
+                // so it crosses the two exits without ever crossing the header — it was cited
+                // here as the pin for this interaction and could not have been.
                 last_error = Some(err);
                 break;
             }
@@ -4035,6 +4040,75 @@ mod tests {
                 (ProviderError::Http { .. }, ProviderError::Http { .. })
             ),
             "and the same shape, since Http.status drives lineage condemnation"
+        );
+    }
+
+    /// The attempt cap and a PRESENT `Retry-After` actually meet, which the sibling never made
+    /// them do.
+    ///
+    /// `the_two_exits_agree_for_a_configured_http_class` sends `retry_after_raw: vec![]`, so the
+    /// header match resolves to `Absent` and both arms that could preempt the cap are skipped —
+    /// the two exits it claims to cross never touch. The guard's own comment cited it as the pin
+    /// for exactly this interaction, which made it a test that proved something adjacent to what
+    /// it was credited with. Both directions are asserted here on a NON-empty header.
+    #[tokio::test]
+    async fn a_present_retry_after_meets_the_attempt_cap_for_a_configured_http_class() {
+        let make = |raw: &str, cap: Duration| {
+            let inner = Arc::new(FailingProvider::new(ProviderError::Http {
+                status: 503,
+                body: "err".into(),
+                retry_after_raw: vec![raw.to_string()],
+                received_at: None,
+            }));
+            let retry = RetryProvider::with_config(
+                inner.clone(),
+                RetryConfig {
+                    max_retries: 5,
+                    limited_max_retries: 1,
+                    limited_retry_classes: vec![RetryClass::Http],
+                    retry_after_cap: cap,
+                    ..Default::default()
+                },
+            );
+            (inner, retry)
+        };
+
+        // HONOURED: the wait is obeyed and the chain still stops where the LIMITED count says,
+        // not where `max_retries` would. Without the cap governing, this would be six attempts.
+        let (inner, retry) = make("1", Duration::from_secs(300));
+        let honoured = retry
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            inner.calls(),
+            2,
+            "the limited count governs a chain whose every failure carries an honourable header"
+        );
+        assert!(
+            matches!(honoured, ProviderError::Http { .. }),
+            "and the shape survives, since Http.status drives lineage condemnation: {honoured}"
+        );
+
+        // TOO LONG: the abandonment wins over the cap, and that ordering is deliberate — the
+        // header match sits ABOVE the `attempt >= limit` break. A server asking for longer than
+        // the consumer allows is actionable, so it is named instead of being flattened into the
+        // attempt-capped exit. The cost is real and stated: this exit does NOT carry a status.
+        let (inner, retry) = make("999", Duration::from_secs(10));
+        let too_long = retry
+            .complete("s", "u", &CompletionConfig::default())
+            .await
+            .unwrap_err();
+        assert_eq!(inner.calls(), 1, "abandoning happens on the first failure");
+        assert!(
+            matches!(
+                too_long,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::RetryAfterTooLong { .. },
+                    ..
+                }
+            ),
+            "the abandonment names the cause rather than deferring to the attempt cap: {too_long}"
         );
     }
 }
