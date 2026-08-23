@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787426310.2816343,
-    "ast_hash": "ee422c410c8dcf200908969e22f8a1fd",
+    "mtime": 1787428631.3120873,
+    "ast_hash": "e171778851bdefa3493e80658db85352",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -45,8 +45,8 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787426380.2346232,
-    "ast_hash": "973fbf81baeb57f55ec44439f8a8c576",
+    "mtime": 1787428804.4709532,
+    "ast_hash": "1c71988a0ade5be87a56d8145a7fe2c0",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787426529.6357863,
-    "ast_hash": "31633415ad1f74195f6773751198ee9e",
+    "mtime": 1787428670.2026541,
+    "ast_hash": "6608caa8b6aebb61fb6561dd40245535",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
