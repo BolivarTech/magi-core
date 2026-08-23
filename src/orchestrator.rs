@@ -1325,16 +1325,15 @@ impl Magi {
             });
         }
 
-        // Taken BEFORE `default_rotations` consumes the map.
-        let pool_eligibility = agent_models.keys().map(|a| (*a, Vec::new())).collect();
-        let rotations = default_rotations(agent_models);
         // No pool on this path, so no candidate can be rejected. Seeded per seat rather
         // than left empty: absent means "not computed", which is a different claim.
         //
-        // From `agent_models`, the same source its sibling `extraction_failures` uses.
-        // Deriving it from `successful` plus `failed` reaches the same set, but only
-        // because every handle lands in exactly one of them — a proof the reader has to
-        // redo, where this states the property.
+        // From `agent_models` — the same source its sibling `extraction_failures` uses,
+        // and taken before `default_rotations` consumes it. Deriving it from `successful`
+        // plus `failed` reaches the same set, but only because every handle lands in
+        // exactly one of them: a proof the reader has to redo, where this states it.
+        let pool_eligibility = agent_models.keys().map(|a| (*a, Vec::new())).collect();
+        let rotations = default_rotations(agent_models);
         Ok((
             successful,
             failed,
@@ -1436,9 +1435,6 @@ impl Magi {
         let pool_eligibility =
             crate::rotation::pool_eligibility_snapshot(&crate::rotation::EligibilityInputs {
                 seats: &initial_for_snapshot,
-                // Empty, and not a placeholder: nobody has failed anything yet. Reading
-                // the registry here would make the snapshot depend on when it was called
-                // and falsify the one thing its rustdoc promises.
                 progress: &BTreeMap::new(),
                 run_failed_lineages: &BTreeSet::new(),
                 capabilities: &capabilities,
@@ -4195,6 +4191,25 @@ mod tests {
         assert!(
             !report.report.contains("Extraction Failures"),
             "a clean run must not grow a section: the text stays byte-identical"
+        );
+
+        // The eligibility snapshot REACHES the report, seeded for every seat.
+        //
+        // Asserted at `analyze()` level and not only in the snapshot's own unit tests:
+        // replace either producer with `BTreeMap::new()` and every one of those stays
+        // green, because they call the pure function directly. The field's contract —
+        // absent means "not computed", every seat is covered — lives in the wiring, so
+        // that is where it has to be pinned. The live smoke run sees it too, but it
+        // needs a backend and cannot gate CI.
+        assert_eq!(
+            report.pool_eligibility.len(),
+            3,
+            "every seat is covered, including the ones that never rotated: {:?}",
+            report.pool_eligibility
+        );
+        assert!(
+            report.pool_eligibility.values().all(|rows| rows.is_empty()),
+            "with no pool declared there is no candidate to rule out"
         );
         // And the formatter agrees when asked directly with a fully-seeded clean map.
         let seeded: BTreeMap<AgentName, Vec<ExtractionFailure>> = report

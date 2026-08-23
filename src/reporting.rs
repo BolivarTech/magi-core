@@ -465,6 +465,14 @@ pub struct MagiReport {
     /// covers less than its name suggests is worse than none, because nobody goes
     /// looking for the part that is missing.
     ///
+    /// # What it costs
+    ///
+    /// One row per seat per pool candidate, `causes` empty for an eligible one, so a
+    /// report carries `seats × candidates` rows — **15 with the shipped trio and a
+    /// five-candidate pool**, tens of bytes each. Stated rather than left to be
+    /// discovered: it is the same discipline MS1's completion telemetry follows, and
+    /// the shape is `O(A · C)` in a value that ships inside every serialized report.
+    ///
     /// # Crossing it with `rotations`
     ///
     /// A candidate is identified by the **same model string** the rotation events
@@ -2435,13 +2443,6 @@ mod tests {
         );
     }
 
-    /// v0.3.1 JSON fixture (no retried_agents key) deserializes with the
-    /// field defaulted to empty. Backward-compatibility contract.
-    ///
-    /// Fixture capture path: C — constructed from v0.4 with
-    /// retried_agents=BTreeSet::new(), serialized form is byte-identical
-    /// to what v0.3.1 produced for the same MagiReport shape (since
-    /// skip_serializing_if omits the empty field).
     /// `pool_eligibility` is EMITTED even when empty, which is the whole reason it
     /// carries no `skip_serializing_if`.
     ///
@@ -2461,6 +2462,15 @@ mod tests {
         );
     }
 
+    /// v0.3.1 JSON fixture (no retried_agents key) deserializes with the
+    /// field defaulted to empty. Backward-compatibility contract.
+    ///
+    /// Fixture capture path: C — constructed from v0.4 with
+    /// retried_agents=BTreeSet::new(). The serialized form is NO LONGER
+    /// byte-identical to what v0.3.1 produced: `pool_eligibility` is always
+    /// emitted, deliberately, so that an absent key keeps meaning "not
+    /// computed". What this test pins is the READING direction — an older
+    /// document still deserializes — which is the contract that matters here.
     #[test]
     fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
         let json = include_str!("../tests/fixtures/magi_report_v0_3_1.json");

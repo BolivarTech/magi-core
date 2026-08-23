@@ -251,12 +251,27 @@ impl RotationPolicy {
 
 /// Why a fallback candidate was **not eligible** for a seat.
 ///
-/// One variant per condition of the eligibility chain in
-/// the rotation policy's candidate filter, plus one: `window_ok` turns a candidate down
-/// for **two** different reasons — measured and too small, or unmeasured under a
-/// strict guard — and a consumer diagnosing an inert pool needs to know which.
-/// Six conditions, seven variants; merging the last two would report "window"
-/// for a candidate nobody ever measured.
+/// **Six conditions, EIGHT variants**: one per condition of the rotation policy's
+/// candidate filter, plus the gate the filter applies *before* them
+/// ([`RotationBudgetExhausted`](Self::RotationBudgetExhausted)), plus the split of
+/// the window condition — `window_ok` turns a candidate down for **two** different
+/// reasons, measured and too small or unmeasured under a strict guard, and a
+/// consumer diagnosing an inert pool needs to know which. Merging those two would
+/// report "window" for a candidate nobody ever measured.
+///
+/// # Why the variants this crate never emits are here anyway
+///
+/// Three of the eight are unreachable from `analyze()` (see below), and the
+/// standing rule is that a public variant ships only when something that exists
+/// uses it — a test does not count. They ship regardless, and the reason is that
+/// the subject of this enum is the **filter**, not the snapshot: every condition
+/// the filter applies has a cause, or the snapshot reports five of eight without
+/// saying which three it dropped. That is the failure mode `E-5` exists to prevent,
+/// one level up.
+///
+/// Recorded as a decision rather than left to be re-litigated: the asymmetry runs
+/// the other way here, since a variant added later is free on a `#[non_exhaustive]`
+/// enum while one removed later breaks every consumer that matched it.
 ///
 /// # THREE of these never appear in the pre-dispatch snapshot
 ///
@@ -282,6 +297,7 @@ pub enum IneligibilityCause {
     /// reported eligible for a run in which none can ever be claimed — an inert
     /// pool described as a healthy one, which is the failure this telemetry exists
     /// to make visible.
+    #[non_exhaustive]
     RotationBudgetExhausted {
         /// How many rotations the seat has already made.
         rotations_done: u32,
@@ -316,6 +332,7 @@ pub enum IneligibilityCause {
     /// not a token count** — the same crude estimate whose −16/−22 % error made a
     /// consumer refuse to predict it downstream. The name carries "coarse" for
     /// that reason: `WindowTooSmall` would assert a measurement nobody performed.
+    #[non_exhaustive]
     WindowBelowCoarseEstimate {
         /// The window the probe measured for this candidate, in tokens.
         measured_window: usize,
@@ -344,10 +361,13 @@ pub(crate) struct SeatProgress {
     pub failed_lineages: BTreeSet<Lineage>,
     /// Models this seat already ran (condition #4).
     ///
-    /// Read instead of comparing against the seat's configured model, because that
-    /// comparison only agrees with the real filter before dispatch. Empty means
-    /// "not stated", and the configured model is then taken as the one in use.
-    pub used_models: BTreeSet<String>,
+    /// `None` means **not stated**, and the seat's configured model is taken as the
+    /// one in use — which is what the real `used` set holds before dispatch. An
+    /// `Option` rather than an empty set because the two are different claims: a
+    /// caller that states an empty set is saying the seat has run nothing, and
+    /// collapsing that into "not stated" would silently restore an exclusion it
+    /// asked to drop.
+    pub used_models: Option<BTreeSet<String>>,
     /// Models this seat turned down over a proven digest collision (condition #5).
     ///
     /// The keys of [`AgentRotationState::digest_collisions`]; only membership is
@@ -460,10 +480,9 @@ pub(crate) fn pool_eligibility_snapshot(
                 if inputs.run_failed_lineages.contains(&c.lineage) {
                     causes.push(IneligibilityCause::LineageCondemnedRunWide);
                 }
-                let already_used = if progress.used_models.is_empty() {
-                    entry.model == model
-                } else {
-                    progress.used_models.contains(&model)
+                let already_used = match &progress.used_models {
+                    Some(used) => used.contains(&model),
+                    None => entry.model == model,
                 };
                 if already_used {
                     causes.push(IneligibilityCause::ModelAlreadyUsedByThisMage);
@@ -490,6 +509,13 @@ pub(crate) fn pool_eligibility_snapshot(
     }
     out
 }
+
+/// The only reason a model lands in `digest_collisions`, so the call site does not
+/// restate it.
+///
+/// The map keeps a value rather than being a set because the candidate filter takes
+/// it by that type; only membership is ever read.
+pub(crate) const DIGEST_COLLISION_REASON: &str = "digest_collision";
 
 /// Number of DISTINCT connection-failing lineages that trips the run-wide
 /// endpoint-down fast-fail.
@@ -853,8 +879,9 @@ impl AgentRotationState {
     /// there, which is exactly how a map called `window_rejected` came to hold
     /// nothing but collisions. Naming the intention makes the next wrong use read
     /// wrong **at the call site**.
-    pub(crate) fn record_digest_collision(&mut self, model: &str, reason: &'static str) {
-        self.digest_collisions.insert(model.to_string(), reason);
+    pub(crate) fn record_digest_collision(&mut self, model: &str) {
+        self.digest_collisions
+            .insert(model.to_string(), DIGEST_COLLISION_REASON);
     }
 }
 
@@ -913,7 +940,7 @@ impl LineageRegistry {
                 digests.push(policy.digest_of(&entry.model));
             }
             if matches!(digest_collision(&digests), Some((0, _))) {
-                state.record_digest_collision(&chosen.model, "digest_collision");
+                state.record_digest_collision(&chosen.model);
                 continue; // re-propose the next eligible candidate
             }
 
@@ -2671,9 +2698,20 @@ mod tests {
             16_000,
             false,
         ));
+        assert_eq!(
+            snap.len(),
+            2,
+            "every seat is reported on, not only the ones that rotated"
+        );
+        assert_eq!(
+            snap[&AgentName::Melchior].len(),
+            1,
+            "and its row carries the candidate it was measured against"
+        );
         assert!(
-            snap.contains_key(&AgentName::Melchior),
-            "a seat that never rotated is still reported on"
+            snap[&AgentName::Melchior][0].causes.is_empty(),
+            "which for this seat is eligible: {:?}",
+            snap[&AgentName::Melchior][0].causes
         );
     }
 
@@ -2705,7 +2743,7 @@ mod tests {
             AgentName::Caspar,
             SeatProgress {
                 failed_lineages: [Lineage::new("deepseek")].into(),
-                used_models: ["md".to_string()].into(),
+                used_models: Some(["md".to_string()].into()),
                 digest_collisions: ["md".to_string()].into(),
                 rotations_done: 0,
             },
@@ -2794,25 +2832,7 @@ mod tests {
         assert!(format!("{c:?}").contains("Coarse"));
     }
 
-    /// Every condition of the eligibility chain has a cause, and the two ways the
-    /// window condition fails are told apart.
-    ///
-    /// The chain has SIX conditions and this enum has SEVEN variants: `window_ok`
-    /// turns a candidate down for two different reasons — measured and too small,
-    /// or unmeasured under a strict guard — and a consumer diagnosing an inert pool
-    /// needs to know which. Merging them would report "window" for a candidate
-    /// nobody ever measured.
-    #[test]
-    fn the_two_ways_the_window_condition_fails_are_distinguishable() {
-        let small = IneligibilityCause::WindowBelowCoarseEstimate {
-            measured_window: 8192,
-            estimated_need: 16000,
-        };
-        let unmeasured = IneligibilityCause::WindowUnmeasuredUnderStrictGuard;
-        assert_ne!(small, unmeasured);
-    }
-
-    /// The field name describes what the code actually writes into it.
+    /// `record_digest_collision` writes into the map that is named after it.
     ///
     /// `window_rejected` promised a record of window rejections and its only
     /// `insert` in the whole crate wrote `"digest_collision"`; condition #6
@@ -2821,9 +2841,9 @@ mod tests {
     /// consumer a deferred requirement. No identifier in this subsystem may
     /// promise a record the code never writes.
     #[test]
-    fn the_field_name_describes_what_it_actually_holds() {
+    fn record_digest_collision_writes_into_the_collision_map() {
         let mut st = state("m0");
-        st.record_digest_collision("m1", "digest_collision");
+        st.record_digest_collision("m1");
         assert_eq!(st.digest_collisions.len(), 1);
         assert!(st.digest_collisions.contains_key("m1"));
     }

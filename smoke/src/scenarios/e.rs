@@ -127,3 +127,105 @@ pub fn e_scenarios() -> Vec<Scenario> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::alias::magi_core::reporting::MagiReport;
+    use crate::outcome::ScenarioState;
+
+    /// A report carrying one candidate with the given causes, and nothing else of
+    /// interest.
+    ///
+    /// Deserialized from a literal rather than constructed: `MagiReport` is
+    /// `#[non_exhaustive]`, so an outside crate cannot build one with a literal —
+    /// which is the same door the harness proves is open for `ProviderError`.
+    fn report_with(causes_json: &str) -> MagiReport {
+        let json = format!(
+            r#"{{
+              "agents":[],
+              "consensus":{{
+                "consensus":"","consensus_verdict":"approve","confidence":1.0,"score":1.0,
+                "agent_count":0,"votes":{{}},"majority_summary":"","dissent":[],
+                "findings":[],"conditions":[],"recommendations":{{}}
+              }},
+              "banner":"","report":"","degraded":false,"failed_agents":{{}},
+              "pool_eligibility":{{"caspar":[{{"model":"md","causes":{causes_json}}}]}}
+            }}"#
+        );
+        serde_json::from_str(&json).expect("test fixture JSON must deserialize into MagiReport")
+    }
+
+    /// Both scenarios are registered.
+    #[test]
+    fn both_axis_e_scenarios_are_registered() {
+        assert_eq!(e_scenarios().len(), 2);
+    }
+
+    /// A context with no report SKIPS rather than passing.
+    ///
+    /// Without this, both scenarios against a run that never happened would report
+    /// success having read nothing — the outcome this harness exists to make
+    /// impossible.
+    #[test]
+    fn no_report_skips_instead_of_passing() {
+        let ctx = RunContext::blank(RunId::PoolEligibility);
+        for a in s_e2_why_a_candidate_was_not_eligible(&ctx)
+            .into_iter()
+            .chain(s_e3_all_failing_conditions(&ctx))
+        {
+            assert!(
+                matches!(a.state, ScenarioState::Skip(_)),
+                "{} must skip, not report a reading it never made",
+                a.name
+            );
+        }
+    }
+
+    /// `S-E3` goes RED when only one condition is reported, and green on two.
+    ///
+    /// The half that matters. A scenario that only ever sees a two-cause report
+    /// cannot show it would notice a one-cause one — and a snapshot that
+    /// short-circuited produces exactly that.
+    #[test]
+    fn s_e3_fails_when_only_one_condition_is_reported() {
+        let one = report_with(r#"["LineageHeldByAnotherMage"]"#);
+        let ctx = RunContext {
+            report: Some(&one),
+            ..RunContext::blank(RunId::PoolEligibility)
+        };
+        assert_eq!(
+            s_e3_all_failing_conditions(&ctx)[0].state,
+            ScenarioState::Fail,
+            "one cause where two are true must be a red row"
+        );
+
+        let two = report_with(r#"["LineageHeldByAnotherMage","ModelAlreadyUsedByThisMage"]"#);
+        let ctx = RunContext {
+            report: Some(&two),
+            ..RunContext::blank(RunId::PoolEligibility)
+        };
+        assert_eq!(
+            s_e3_all_failing_conditions(&ctx)[0].state,
+            ScenarioState::Pass
+        );
+    }
+
+    /// `S-E2` goes RED when nothing was ruled out.
+    ///
+    /// An empty `causes` list is what a run whose precondition failed to materialise
+    /// produces, and it is precisely the case that must not read as coverage.
+    #[test]
+    fn s_e2_fails_when_nothing_was_ruled_out() {
+        let none = report_with("[]");
+        let ctx = RunContext {
+            report: Some(&none),
+            ..RunContext::blank(RunId::PoolEligibility)
+        };
+        assert_eq!(
+            s_e2_why_a_candidate_was_not_eligible(&ctx)[0].state,
+            ScenarioState::Fail,
+            "a report with nothing ruled out proves nothing about the field"
+        );
+    }
+}
