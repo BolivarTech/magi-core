@@ -249,6 +249,74 @@ impl RotationPolicy {
     }
 }
 
+/// Why a fallback candidate was **not eligible** for a seat.
+///
+/// One variant per condition of the eligibility chain in
+/// [`RotationPolicy::next_model`], plus one: `window_ok` turns a candidate down
+/// for **two** different reasons — measured and too small, or unmeasured under a
+/// strict guard — and a consumer diagnosing an inert pool needs to know which.
+/// Six conditions, seven variants; merging the last two would report "window"
+/// for a candidate nobody ever measured.
+///
+/// # THREE of these never appear in the pre-dispatch snapshot
+///
+/// [`LineageFailedForThisMage`](Self::LineageFailedForThisMage),
+/// [`LineageCondemnedRunWide`](Self::LineageCondemnedRunWide) and
+/// [`DigestCollision`](Self::DigestCollision) are filled **during** a run, and the
+/// snapshot is taken **before** dispatch, so their inputs are empty there and the
+/// variants cannot be produced. They exist because the function that computes the
+/// snapshot is **pure** and takes those sets as parameters: a caller that passes a
+/// populated one does produce them. To see what happened *during* a run, read
+/// `rotations` instead.
+///
+/// Saying so is the point. Left unsaid, a consumer would look for three variants
+/// in a report that can never carry them, with no way to tell "nothing failed"
+/// from "this field does not report it".
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum IneligibilityCause {
+    /// Condition #1: another live mage is already running this lineage.
+    LineageHeldByAnotherMage,
+    /// Condition #2: this mage already failed this lineage.
+    ///
+    /// **Never in the pre-dispatch snapshot** — the set is empty until a seat has
+    /// failed something. Named for *this mage* rather than plain "already failed"
+    /// because [`LineageCondemnedRunWide`](Self::LineageCondemnedRunWide) is also a
+    /// prior failure, and the two differ only in how far the condemnation reaches.
+    LineageFailedForThisMage,
+    /// Condition #3: the lineage was condemned run-wide by a transport failure.
+    ///
+    /// **Never in the pre-dispatch snapshot**, for the same reason as #2.
+    LineageCondemnedRunWide,
+    /// Condition #4: this mage already ran this model.
+    ModelAlreadyUsedByThisMage,
+    /// Condition #5: the candidate's digest **provably** collided with an active
+    /// mage's.
+    ///
+    /// **Never in the pre-dispatch snapshot**: the map is populated inside
+    /// `claim_next`, which runs during dispatch.
+    DigestCollision,
+    /// Condition #6a: the candidate's **measured** window is below the payload's
+    /// coarse lower bound.
+    ///
+    /// `estimated_need` is `chars/4` (`CHARS_PER_TOKEN_EST`), a **pre-filter and
+    /// not a token count** — the same crude estimate whose −16/−22 % error made a
+    /// consumer refuse to predict it downstream. The name carries "coarse" for
+    /// that reason: `WindowTooSmall` would assert a measurement nobody performed.
+    WindowBelowCoarseEstimate {
+        /// The window the probe measured for this candidate, in tokens.
+        measured_window: usize,
+        /// The coarse lower bound the payload implies, in `chars/4` units.
+        estimated_need: usize,
+    },
+    /// Condition #6b: the candidate has **no measured window** and the strict
+    /// context guard rejects what it cannot measure.
+    ///
+    /// Distinct from [`WindowBelowCoarseEstimate`](Self::WindowBelowCoarseEstimate)
+    /// on purpose: nothing here was compared, so there is no size to report.
+    WindowUnmeasuredUnderStrictGuard,
+}
+
 /// Number of DISTINCT connection-failing lineages that trips the run-wide
 /// endpoint-down fast-fail.
 pub(crate) const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
@@ -2315,6 +2383,38 @@ mod tests {
         let got = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
         assert_eq!(got.model, "me"); // d (proven collision) rejected, e reserved
         assert!(s.digest_collisions.contains_key("md"));
+    }
+
+    /// The type says the comparison is a COARSE LOWER BOUND, not a token count.
+    ///
+    /// `estimated_need` comes from `chars/4` — the same crude estimate whose
+    /// -16/-22 % error made the consumer refuse to predict it downstream. A name
+    /// like `WindowTooSmall` would assert a token count nobody performed.
+    #[test]
+    fn the_type_says_the_comparison_is_a_coarse_lower_bound() {
+        let c = IneligibilityCause::WindowBelowCoarseEstimate {
+            measured_window: 8192,
+            estimated_need: 16000,
+        };
+        assert!(format!("{c:?}").contains("Coarse"));
+    }
+
+    /// Every condition of the eligibility chain has a cause, and the two ways the
+    /// window condition fails are told apart.
+    ///
+    /// The chain has SIX conditions and this enum has SEVEN variants: `window_ok`
+    /// turns a candidate down for two different reasons — measured and too small,
+    /// or unmeasured under a strict guard — and a consumer diagnosing an inert pool
+    /// needs to know which. Merging them would report "window" for a candidate
+    /// nobody ever measured.
+    #[test]
+    fn the_two_ways_the_window_condition_fails_are_distinguishable() {
+        let small = IneligibilityCause::WindowBelowCoarseEstimate {
+            measured_window: 8192,
+            estimated_need: 16000,
+        };
+        let unmeasured = IneligibilityCause::WindowUnmeasuredUnderStrictGuard;
+        assert_ne!(small, unmeasured);
     }
 
     /// The field name describes what the code actually writes into it.
