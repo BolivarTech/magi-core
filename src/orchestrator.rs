@@ -853,7 +853,7 @@ type DispatchOutcome = (
     // seeded: an absent entry means the seat made no attempt at all, which is a different
     // claim from an empty one.
     BTreeMap<AgentName, Vec<CompletionRecord>>,
-    // MS3 — which pool candidates each seat could and could not have rotated into, as of
+    // Axis E — which pool candidates each seat could and could not have rotated into, as of
     // BEFORE dispatch. Seeded for every dispatched seat: an empty Vec means "nothing to
     // reject", and an absent seat would mean the snapshot was never computed.
     BTreeMap<AgentName, Vec<CandidateEligibility>>,
@@ -6800,12 +6800,13 @@ mod tests {
         assert_eq!(rotation.chain[0].kind(), RotationKind::EmptyCompletion);
     }
 
-    /// `21-bis` — the MS1 x MS3 crossing: what MS1 decided is what MS3 reports.
+    /// The cross-milestone crossing: what the classifier decided is what the
+    /// eligibility snapshot reports.
     ///
     /// Each milestone passes its own gate and both touch `rotation.rs`, so their
-    /// interaction is verified by neither. The crossing is concrete: MS1 decides
-    /// whether a mage-local failure condemns a lineage run-wide, and MS3's snapshot
-    /// reads exactly that set to decide whether the other seats may still use it.
+    /// interaction is verified by neither. The crossing is concrete: the classifier
+    /// decides whether a mage-local failure condemns a lineage run-wide, and the
+    /// snapshot reads exactly that set to decide whether the other seats may use it.
     ///
     /// # Why both halves, and why the second one is not decoration
     ///
@@ -6872,15 +6873,15 @@ x
         .await;
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
-        // MS1's decision, read from where MS1 makes it. Asserted directly as well as
-        // fed onward: the crossing is only meaningful if this half is stated.
+        // The classifier's decision, read from where it is made. Asserted directly as
+        // well as fed onward: the crossing is only meaningful if this half is stated.
         let condemned = registry.run_failed_lineages().await;
         assert!(
             condemned.is_empty(),
-            "MS1: a mage-local failure must not enter the run-wide set: {condemned:?}"
+            "a mage-local failure must not enter the run-wide set: {condemned:?}"
         );
 
-        // MS3's report, fed that exact set. Melchior is a DIFFERENT seat, and the
+        // The snapshot, fed that exact set. Melchior is a DIFFERENT seat, and the
         // candidate carries the lineage CASPAR gave up on — which is the only way this
         // assertion can fail. An earlier form used an unrelated lineage, so injecting
         // the regression it exists to catch left it green: `LineageCondemnedRunWide`

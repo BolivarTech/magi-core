@@ -281,8 +281,8 @@ impl RotationPolicy {
 /// snapshot is taken **before** dispatch, so their inputs are empty there and this
 /// crate never emits them. They exist because the function that computes the
 /// snapshot is **pure** and reads that per-seat state through a parameter, so a
-/// caller holding a populated one — the cross-milestone check does — produces them.
-/// To see what happened *during* a run, read `rotations` instead.
+/// caller that supplies real per-seat state does produce them. To see what happened
+/// *during* a run, read `rotations` instead.
 ///
 /// Saying so is the point. Left unsaid, a consumer would look for three variants
 /// in a report that can never carry them, with no way to tell "nothing failed"
@@ -2829,18 +2829,75 @@ mod tests {
         );
     }
 
-    /// The type says the comparison is a COARSE LOWER BOUND, not a token count.
+    /// Every variant's WIRE FORM is pinned as an exact string, field names included.
     ///
-    /// `estimated_need` comes from `chars/4` — the same crude estimate whose
-    /// -16/-22 % error made the consumer refuse to predict it downstream. A name
-    /// like `WindowTooSmall` would assert a token count nobody performed.
+    /// The enum carries `#[serde(rename_all = "snake_case")]` so it reads the same way
+    /// as `RotationKind` beside it in the report. Nothing enforced that: delete the
+    /// attribute or rename a variant and the whole gate stays green while a format
+    /// that becomes immutable at the tag changes underneath. Its sibling has had this
+    /// test for exactly that reason.
+    ///
+    /// **The struct variants round-trip**, because `rename_all` on the enum does not
+    /// reach their FIELDS and nothing else covers them.
+    ///
+    /// It also subsumes the coarse-bound naming check this replaced, which asserted the
+    /// same thing through a `Debug` string: `window_below_coarse_estimate` cannot
+    /// survive a rename to anything that stops saying "coarse", and `WindowTooSmall`
+    /// would claim a token count nobody performed.
     #[test]
-    fn the_type_says_the_comparison_is_a_coarse_lower_bound() {
-        let c = IneligibilityCause::WindowBelowCoarseEstimate {
-            measured_window: 8192,
-            estimated_need: 16000,
+    fn every_cause_pins_its_wire_form_including_the_struct_variant_fields() {
+        let cases = [
+            (
+                IneligibilityCause::LineageHeldByAnotherMage,
+                r#""lineage_held_by_another_mage""#,
+            ),
+            (
+                IneligibilityCause::LineageFailedForThisMage,
+                r#""lineage_failed_for_this_mage""#,
+            ),
+            (
+                IneligibilityCause::LineageCondemnedRunWide,
+                r#""lineage_condemned_run_wide""#,
+            ),
+            (
+                IneligibilityCause::ModelAlreadyUsedByThisMage,
+                r#""model_already_used_by_this_mage""#,
+            ),
+            (IneligibilityCause::DigestCollision, r#""digest_collision""#),
+            (
+                IneligibilityCause::WindowUnmeasuredUnderStrictGuard,
+                r#""window_unmeasured_under_strict_guard""#,
+            ),
+        ];
+        for (cause, expected) in cases {
+            assert_eq!(serde_json::to_string(&cause).unwrap(), expected);
+        }
+
+        let budget = IneligibilityCause::RotationBudgetExhausted {
+            rotations_done: 1,
+            max_rotations: 2,
         };
-        assert!(format!("{c:?}").contains("Coarse"));
+        assert_eq!(
+            serde_json::to_string(&budget).unwrap(),
+            r#"{"rotation_budget_exhausted":{"rotations_done":1,"max_rotations":2}}"#
+        );
+        let window = IneligibilityCause::WindowBelowCoarseEstimate {
+            measured_window: 8_192,
+            estimated_need: 16_000,
+        };
+        assert_eq!(
+            serde_json::to_string(&window).unwrap(),
+            r#"{"window_below_coarse_estimate":{"measured_window":8192,"estimated_need":16000}}"#
+        );
+
+        // And back, so a report this crate wrote still reads as what it wrote.
+        for cause in [budget, window] {
+            let json = serde_json::to_string(&cause).unwrap();
+            assert_eq!(
+                serde_json::from_str::<IneligibilityCause>(&json).unwrap(),
+                cause
+            );
+        }
     }
 
     /// `record_digest_collision` writes into the map that is named after it.
