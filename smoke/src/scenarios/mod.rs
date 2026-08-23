@@ -6,8 +6,12 @@
 //!
 //! - `e1` — the twelve harness scenarios (`S1, S2, S2b, S4, S5, S6, S7, S14, S15, S16, S20, S21`).
 //! - `e2` — the ones `e1` deferred that this stage does implement (`S3`, `S8`-`S13`).
-//!   `S17`-`S19` belong to stage E3 — the `published` mode, which cannot run before `4.0.0` is
-//!   on crates.io — and are deliberately absent here.
+//!   `S17`-`S19` were stage E3's and none of them will arrive. `S17` was REDESIGNED into
+//!   `ci/check_packaged_consumer.sh`, a local pre-publish gate that compiles the crate's
+//!   examples against the `cargo package` tarball — it has nothing to do with the `published`
+//!   mode and waits for nothing. `S18` (did docs.rs build this version) is out of scope
+//!   permanently: it exists only after publishing, so it is a gate that cannot stop anything.
+//!   `S19` was cancelled with the rest of the post-publish scope.
 //! - `e` — the axis-E scenarios of MS3 (`S-E2`, `S-E3`). `S-E1` and `S-E4` are not here on
 //!   purpose: one is a grep over the source and the other is the absence of state, and neither
 //!   is visible from a run.

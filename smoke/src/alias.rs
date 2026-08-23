@@ -19,8 +19,9 @@ compile_error!(
 #[cfg(not(any(feature = "tree", feature = "published")))]
 compile_error!(
     "one of `tree` or `published` must be enabled: without a source for magi-core there is \
-     nothing to smoke-test. `tree` is the default; use \
-     `--no-default-features --features published` for the other mode."
+     nothing to smoke-test. `tree` is the default. The `published` mode still RESOLVES but \
+     no longer COMPILES: this harness implements LlmProvider, whose complete() returns \
+     Completion since 4.0.0, and the pin is 3.2. See the FEATURE_MATRIX note in main.rs."
 );
 
 #[cfg(feature = "tree")]

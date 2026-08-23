@@ -797,11 +797,15 @@ fn evaluate_preflight_only(
 ///
 /// # A refusal is only DATA when it is the refusal under test
 ///
-/// For the two combinations that must NOT compile, `expected` carries the
-/// distinctive text their own `compile_error!` prints. A failure whose output
-/// does not contain it failed for some OTHER reason — an unreachable registry is
-/// the realistic one, since one of those combinations is the only one that has
-/// to resolve the published dependency — and that teaches nothing about the
+/// For every combination that must NOT compile, `expected` carries the text its
+/// refusal is expected to contain. There are THREE such rows and they do not all
+/// refuse the same way: two are this package's own `compile_error!`s (`tree` and
+/// `published` together, and neither of them), each with its own distinctive
+/// wording, while `published` alone is refused by rustc itself — `E0432`, since
+/// `Completion` does not exist in the pinned `3.2` — and so carries the generic
+/// refusal marker. A failure whose output contains neither failed for some OTHER
+/// reason — an unreachable registry is the realistic one, since two of the three
+/// have to resolve the published dependency — and that teaches nothing about the
 /// guard. Reading it as `DidNotBuild` would let the scenario report `Pass` while
 /// the `compile_error!` was broken: green by omission, arrived at through the
 /// network. Such a failure is `CouldNotRun`, whose documented meaning is exactly

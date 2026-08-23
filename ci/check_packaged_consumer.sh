@@ -95,12 +95,28 @@ fi
 # would then be a false statement, which is the false-negative class this project
 # has paid for repeatedly.
 #
-# The packaged manifest is the witness, and it is list-free: it does not name which
-# examples must exist, only that the artifact declares some.
-if ! grep -q '^\[\[example\]\]' "$PKG_DIR/Cargo.toml"; then
-  echo "check_packaged_consumer: the packaged manifest declares NO examples, so this" >&2
-  echo "check would have compiled nothing and reported success. Did an 'exclude' or" >&2
-  echo "'include' entry stop examples/ from reaching the package?" >&2
+# The packaged manifest is the witness, and it NAMES the example it requires.
+#
+# An earlier version of this guard was deliberately list-free — it asked only that
+# the artifact declare SOME example — and that was wrong, found by executing the
+# mutation rather than by reading the guard. Cargo drops the `[[example]]` block of
+# a file that did not reach the tarball, so excluding examples ONE AT A TIME slipped
+# straight through: with `exclude = [.., "examples/external_provider.rs"]` this
+# script packaged the crate, compiled the two survivors, and printed OK.
+#
+# What that loses is the entire point. `external_provider.rs` is the crate's only
+# proof that `ProviderError` is constructible from ANOTHER crate — the measured
+# `E0639` escape this script exists for, named by path in the header above. The
+# other two examples are coverage; this one is the property. A guard that lets its
+# own subject be removed while reporting success is not list-free, it is blind — and
+# the tension was already on the page, in a header that named the file the guard
+# refused to name.
+if ! grep -q '^name = "external_provider"$' "$PKG_DIR/Cargo.toml"; then
+  echo "check_packaged_consumer: the packaged manifest does not declare the" >&2
+  echo "'external_provider' example, which is the ONLY proof that ProviderError is" >&2
+  echo "constructible from outside this crate. Without it this check compiles the" >&2
+  echo "remaining examples and proves nothing it was written to prove. Did an" >&2
+  echo "'exclude' or 'include' entry stop it from reaching the package?" >&2
   exit 1
 fi
 
@@ -115,5 +131,9 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # a claim is not. It counts DECLARATIONS and says so — `cargo build --examples`
 # silently skips a target whose `required-features` are unmet, so the day an
 # example gains one, "compiled" would overstate what this number knows.
+#
+# The count is REPORTING, not a guard: the guard is the named witness above. A count
+# compared against nothing cannot fail, and a human diffing two logs to notice that
+# 3 became 2 is not a gate.
 DECLARED="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
 echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; cargo build --examples reported success)"

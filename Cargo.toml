@@ -41,8 +41,9 @@ openai-compat = ["dep:reqwest"]
 # is what supplies `reqwest` and the shared provider-URL machinery, NOT because the completions
 # path is shared any more. HTTP-thin, no new deps.
 ollama = ["openai-compat"]
-# v0.4.0: exposes RoutingMockProvider for downstream integration tests.
-# Stable only within v0.4.x.
+# Exposes RoutingMockProvider for downstream integration tests. Its surface is
+# covered by the crate's stability policy like any other public item (ADR 005), so
+# it moves on a minor at the earliest.
 test-utils = []
 
 [dev-dependencies]
