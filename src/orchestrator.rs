@@ -6779,6 +6779,131 @@ mod tests {
         assert_eq!(rotation.chain[0].kind(), RotationKind::EmptyCompletion);
     }
 
+    /// `21-bis` — the MS1 x MS3 crossing: what MS1 decided is what MS3 reports.
+    ///
+    /// Each milestone passes its own gate and both touch `rotation.rs`, so their
+    /// interaction is verified by neither. The crossing is concrete: MS1 decides
+    /// whether a mage-local failure condemns a lineage run-wide, and MS3's snapshot
+    /// reads exactly that set to decide whether the other seats may still use it.
+    ///
+    /// # Why both halves, and why the second one is not decoration
+    ///
+    /// The first half alone would be **vacuous**: the condemned set comes back
+    /// empty, so no cause is emitted and the assertion holds whatever the snapshot
+    /// does — including if it never emitted that cause at all. The second half
+    /// feeds a populated set, which is the only path by which the variant can
+    /// appear, since the normal pre-dispatch call passes an empty one.
+    #[tokio::test]
+    async fn a_mage_local_failure_does_not_condemn_the_lineage_for_the_other_seats() {
+        let registry = Arc::new(LineageRegistry::new(
+            [(
+                AgentName::Caspar,
+                ActiveEntry {
+                    lineage: Lineage::new("deepseek"),
+                    model: "deepseek".to_string(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ));
+        let primary = Arc::new(MockProvider::mixed(
+            "mock",
+            "deepseek",
+            vec![Err(ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
+                cap: 16_384,
+            })],
+        )) as Arc<dyn LlmProvider>;
+        let fallback = Arc::new(MockProvider::success(
+            "mock",
+            "glm",
+            vec![mock_agent_json("caspar", "approve", 0.95)],
+        )) as Arc<dyn LlmProvider>;
+        let pool = FallbackPool::builder()
+            .push(Arc::clone(&fallback), Lineage::new("zhipu"))
+            .max_rotations(2)
+            .build();
+        let (result, _rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
+            Agent::new(AgentName::Caspar, primary),
+            "MODE: code-review
+---BEGIN USER CONTEXT n---
+x
+---END USER CONTEXT n---"
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
+        assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
+
+        // MS1's decision, read from where MS1 makes it.
+        let condemned = registry.run_failed_lineages().await;
+
+        // MS3's report, fed that exact set. Melchior is a DIFFERENT seat: the
+        // lineage Caspar gave up on must still be eligible for it.
+        let seats = [(
+            AgentName::Melchior,
+            ActiveEntry {
+                lineage: Lineage::new("alibaba"),
+                model: "mm".to_string(),
+            },
+        )]
+        .into_iter()
+        .collect();
+        let candidates = [crate::rotation::FallbackCandidate {
+            provider: Arc::clone(&fallback),
+            lineage: Lineage::new("zhipu"),
+            probe: None,
+        }];
+        let snap = crate::rotation::pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &condemned,
+            &BTreeMap::new(),
+            &candidates,
+            0,
+            false,
+        );
+        assert!(
+            snap[&AgentName::Melchior][0].causes.is_empty(),
+            "a lineage one seat failed locally stays eligible for the others: {:?}",
+            snap[&AgentName::Melchior][0].causes
+        );
+
+        // THE POSITIVE HALF. Without it the assertion above passes even if the
+        // cause were never emitted at all, because the set it read was empty.
+        let run_wide = BTreeSet::from([Lineage::new("zhipu")]);
+        let snap = crate::rotation::pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &run_wide,
+            &BTreeMap::new(),
+            &candidates,
+            0,
+            false,
+        );
+        assert_eq!(
+            snap[&AgentName::Melchior][0].causes,
+            vec![crate::rotation::IneligibilityCause::LineageCondemnedRunWide],
+            "and a run-wide condemnation IS reported, exactly and alone"
+        );
+    }
+
     // -----------------------------------------------------------------------
     // MS2 — shared retry-budget helpers (Task 1a)
     //
