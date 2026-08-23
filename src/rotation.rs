@@ -317,6 +317,103 @@ pub enum IneligibilityCause {
     WindowUnmeasuredUnderStrictGuard,
 }
 
+/// One candidate's eligibility for one seat, computed **before** dispatch.
+///
+/// No builder, unlike `Completion` and `CompletionRecord`: those are constructed
+/// by an **external** implementor, whom `#[non_exhaustive]` forbids from using a
+/// literal. This one is built only by the crate, from a `pub(crate)` function, so
+/// the literal works and a builder would be ceremony with no consumer.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CandidateEligibility {
+    /// The **same string** `rotations` uses — `provider.model()`, which is also the
+    /// key of the capability map and of `digest_of`. It is what lets a consumer
+    /// cross the two report fields.
+    pub model: String,
+    /// EVERY failing condition, not the first. **Empty means eligible.**
+    ///
+    /// A recalculation rather than a capture of the filter, which short-circuits:
+    /// reporting "ruled out by the first condition that failed" would name an
+    /// arbitrary one of several.
+    pub causes: Vec<IneligibilityCause>,
+}
+
+/// Which pool candidates each seat could and could not have rotated into, as of
+/// **before dispatch**.
+///
+/// # Complexity
+///
+/// `O(A · C)` — every seat against every candidate, with the six conditions a
+/// constant factor. It does **not** short-circuit: evaluating all of them is what
+/// buys reporting all the causes, and with `C` in the units the cost is nothing.
+///
+/// # It returns no `Result`, and an inconsistent input is a CAUSE, not an error
+///
+/// A candidate with no entry in the capability map is not a failure of this
+/// function: it is an **unmeasured** candidate, which is one of the very causes
+/// this snapshot exists to name. Returning `Err` would hand the caller half a run
+/// to reason about, and the caller is `analyze()`, which must not abort over
+/// telemetry.
+///
+/// # A seat with nothing to reject gets an EMPTY list, never a missing one
+///
+/// The outer loop is over `seats`, not over the candidates: iterating candidates
+/// would silently omit a seat whose pool is empty, and that omission reads as
+/// "the snapshot was not computed". Absent means exactly one thing.
+pub(crate) fn pool_eligibility_snapshot(
+    seats: &BTreeMap<AgentName, ActiveEntry>,
+    failed_lineages: &BTreeMap<AgentName, BTreeSet<Lineage>>,
+    run_failed_lineages: &BTreeSet<Lineage>,
+    capabilities: &BTreeMap<String, ModelCapability>,
+    candidates: &[FallbackCandidate],
+    min_window_tokens: usize,
+    strict_context_guard: bool,
+) -> BTreeMap<AgentName, Vec<CandidateEligibility>> {
+    let mut out = BTreeMap::new();
+    for (seat, entry) in seats {
+        let rows = candidates
+            .iter()
+            .map(|c| {
+                let model = c.provider.model().to_string();
+                let mut causes = Vec::new();
+                if seats
+                    .iter()
+                    .any(|(other, e)| other != seat && e.lineage == c.lineage)
+                {
+                    causes.push(IneligibilityCause::LineageHeldByAnotherMage);
+                }
+                if failed_lineages
+                    .get(seat)
+                    .is_some_and(|f| f.contains(&c.lineage))
+                {
+                    causes.push(IneligibilityCause::LineageFailedForThisMage);
+                }
+                if run_failed_lineages.contains(&c.lineage) {
+                    causes.push(IneligibilityCause::LineageCondemnedRunWide);
+                }
+                if entry.model == model {
+                    causes.push(IneligibilityCause::ModelAlreadyUsedByThisMage);
+                }
+                match capabilities.get(&model).and_then(|cap| cap.window) {
+                    Some(w) if w < min_window_tokens => {
+                        causes.push(IneligibilityCause::WindowBelowCoarseEstimate {
+                            measured_window: w,
+                            estimated_need: min_window_tokens,
+                        });
+                    }
+                    None if strict_context_guard => {
+                        causes.push(IneligibilityCause::WindowUnmeasuredUnderStrictGuard);
+                    }
+                    _ => {}
+                }
+                CandidateEligibility { model, causes }
+            })
+            .collect();
+        out.insert(*seat, rows);
+    }
+    out
+}
+
 /// Number of DISTINCT connection-failing lineages that trips the run-wide
 /// endpoint-down fast-fail.
 pub(crate) const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
@@ -2383,6 +2480,141 @@ mod tests {
         let got = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
         assert_eq!(got.model, "me"); // d (proven collision) rejected, e reserved
         assert!(s.digest_collisions.contains_key("md"));
+    }
+
+    fn seat(agent: AgentName, lineage: &str, model: &str) -> (AgentName, ActiveEntry) {
+        (
+            agent,
+            ActiveEntry {
+                lineage: Lineage::new(lineage.to_string()),
+                model: model.to_string(),
+            },
+        )
+    }
+
+    fn cand(lineage: &str, model: &str) -> FallbackCandidate {
+        FallbackCandidate {
+            provider: Arc::new(MockProvider::new("p", model, "r")),
+            lineage: Lineage::new(lineage.to_string()),
+            probe: None,
+        }
+    }
+
+    /// It reports EVERY failing condition, not only the first.
+    ///
+    /// Being a recalculation and not a capture, it evaluates the conditions
+    /// independently instead of short-circuiting. "First failure wins" is what a
+    /// capture of the real filter would give, and it is what this must avoid: a
+    /// candidate ruled out by condition #1 never evaluates the window one, so the
+    /// consumer would be told an arbitrary member of several true reasons.
+    #[test]
+    fn it_reports_every_failing_condition_not_only_the_first() {
+        let seats = [
+            seat(AgentName::Caspar, "zhipu", "mc"),
+            seat(AgentName::Melchior, "deepseek", "mm"),
+        ]
+        .into();
+        // The candidate's lineage is held by Melchior AND its measured window is
+        // below the coarse bound: two causes, both true.
+        let caps = [(
+            "md".to_string(),
+            ModelCapability {
+                window: Some(8_192),
+                digest: None,
+                supports_completion: true,
+            },
+        )]
+        .into();
+        let snap = pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &caps,
+            &[cand("deepseek", "md")],
+            16_000,
+            true,
+        );
+        let row = &snap[&AgentName::Caspar][0];
+        assert_eq!(
+            row.causes.len(),
+            2,
+            "the candidate fails the in-play condition AND the window one: {:?}",
+            row.causes
+        );
+        assert!(
+            row.causes
+                .contains(&IneligibilityCause::LineageHeldByAnotherMage)
+        );
+        assert!(
+            row.causes
+                .iter()
+                .any(|c| matches!(c, IneligibilityCause::WindowBelowCoarseEstimate { .. }))
+        );
+    }
+
+    /// It covers seats that never rotated, which is strictly more than was asked.
+    #[test]
+    fn it_covers_seats_that_never_rotated() {
+        let seats = [
+            seat(AgentName::Caspar, "zhipu", "mc"),
+            seat(AgentName::Melchior, "alibaba", "mm"),
+        ]
+        .into();
+        let snap = pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &[cand("deepseek", "md")],
+            16_000,
+            false,
+        );
+        assert!(
+            snap.contains_key(&AgentName::Melchior),
+            "a seat that never rotated is still reported on"
+        );
+    }
+
+    /// A seat with NO candidates gets an EMPTY entry, never a missing one.
+    ///
+    /// Empty and absent mean different things, and absent means exactly one:
+    /// the snapshot was not computed. It is the whole reason the outer loop runs
+    /// over the SEATS and not over the candidates — iterating candidates would
+    /// omit a seat with an empty pool, and that omission reads as "not computed".
+    #[test]
+    fn a_seat_with_no_candidates_gets_an_empty_entry_not_a_missing_one() {
+        let seats = [seat(AgentName::Melchior, "alibaba", "mm")].into();
+        let snap = pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &[],
+            16_000,
+            false,
+        );
+        assert!(snap.contains_key(&AgentName::Melchior), "present");
+        assert!(snap[&AgentName::Melchior].is_empty(), "and empty");
+    }
+
+    /// An unmeasured candidate is told apart from a measured-but-small one.
+    #[test]
+    fn an_unmeasured_candidate_under_a_strict_guard_says_so() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let snap = pool_eligibility_snapshot(
+            &seats,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &BTreeMap::new(),
+            &[cand("deepseek", "md")],
+            16_000,
+            true,
+        );
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![IneligibilityCause::WindowUnmeasuredUnderStrictGuard],
+            "nothing was compared, so no size is reported"
+        );
     }
 
     /// The type says the comparison is a COARSE LOWER BOUND, not a token count.

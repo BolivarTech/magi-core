@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
 use crate::provider::{CompletionTelemetry, FinishReason, ReasoningState};
-use crate::rotation::AgentRotation;
+use crate::rotation::{AgentRotation, CandidateEligibility};
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::verdict_markers::ExtractionFailureCause;
 
@@ -449,6 +449,23 @@ pub struct MagiReport {
     /// answers *"was the cap the binding constraint?"* alone.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
+
+    /// Which pool candidates each seat could and could not have rotated into,
+    /// as of **before dispatch**.
+    ///
+    /// **No `skip_serializing_if`, unlike `rotations` or `retried_agents.`** An
+    /// absent map and a map where every candidate is eligible mean different
+    /// things — "not computed" and "computed, nothing to reject" — and a
+    /// consumer has to be able to tell them apart. Same reason
+    /// `extraction_failures` does not carry it either: its emptiness certifies.
+    ///
+    /// `#[serde(default)]` is for READING documents this crate never wrote — a
+    /// report serialized before the field existed. On the way out it is always
+    /// emitted, so on any document this crate produces, absent is not a state that
+    /// occurs. Reading an older one back does collapse "not computed" into an
+    /// empty map, and that loss is in the old document, not in this field.
+    #[serde(default)]
+    pub pool_eligibility: BTreeMap<AgentName, Vec<CandidateEligibility>>,
 }
 
 /// One completion ATTEMPT, with whatever the provider could measure about it.
@@ -2176,6 +2193,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         }
     }
 
@@ -2205,6 +2223,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2241,6 +2260,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -2267,6 +2287,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -2289,6 +2310,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2319,6 +2341,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2372,6 +2395,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -2441,6 +2465,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         assert!(report.degraded);
@@ -3070,6 +3095,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -3103,6 +3129,7 @@ mod tests {
             extraction_failures: BTreeMap::new(),
             input_size: None,
             completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.

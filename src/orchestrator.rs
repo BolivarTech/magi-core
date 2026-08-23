@@ -18,9 +18,9 @@ use crate::reporting::{
     TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 use crate::rotation::{
-    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, CrateDefectRecord,
-    FallbackPool, Lineage, LineageRegistry, ModelCapability, ProviderProbe, RotationConfig,
-    RotationEvent, RotationKind, RotationPolicy, digest_collision, run_preflight,
+    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, CandidateEligibility,
+    CrateDefectRecord, FallbackPool, Lineage, LineageRegistry, ModelCapability, ProviderProbe,
+    RotationConfig, RotationEvent, RotationKind, RotationPolicy, digest_collision, run_preflight,
     strict_guard_is_inert,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
@@ -853,6 +853,10 @@ type DispatchOutcome = (
     // seeded: an absent entry means the seat made no attempt at all, which is a different
     // claim from an empty one.
     BTreeMap<AgentName, Vec<CompletionRecord>>,
+    // MS3 — which pool candidates each seat could and could not have rotated into, as of
+    // BEFORE dispatch. Seeded for every dispatched seat: an empty Vec means "nothing to
+    // reject", and an absent seat would mean the snapshot was never computed.
+    BTreeMap<AgentName, Vec<CandidateEligibility>>,
 );
 
 struct AbortGuard(Vec<AbortHandle>);
@@ -1125,6 +1129,7 @@ impl Magi {
             rotations,
             extraction_failures,
             completions,
+            pool_eligibility,
         ) = self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
@@ -1163,6 +1168,7 @@ impl Magi {
             extraction_failures,
             input_size: Some(input_size),
             completions,
+            pool_eligibility,
         })
     }
 
@@ -1320,6 +1326,14 @@ impl Magi {
         }
 
         let rotations = default_rotations(agent_models);
+        // No pool on this path, so no candidate can be rejected. Seeded per seat rather
+        // than left empty: absent means "not computed", which is a different claim.
+        let pool_eligibility = successful
+            .iter()
+            .map(|o| o.agent)
+            .chain(failed.keys().copied())
+            .map(|a| (a, Vec::new()))
+            .collect();
         Ok((
             successful,
             failed,
@@ -1327,6 +1341,7 @@ impl Magi {
             rotations,
             extraction_failures,
             completions,
+            pool_eligibility,
         ))
     }
 
@@ -1371,6 +1386,10 @@ impl Magi {
             );
             primary_lineages.insert(*name, lineage);
         }
+        // Cloned before the registry takes ownership: the snapshot needs each seat's
+        // lineage and model, and taking them back out of the registry would mean an
+        // `await` under its lock for data we already hold here.
+        let initial_for_snapshot = initial.clone();
         let registry = Arc::new(LineageRegistry::new(initial));
 
         // Preflight (R15): probe every probe-capable model (trio primaries + pool
@@ -1407,6 +1426,21 @@ impl Magi {
         // the standard rough token estimate — a pre-filter, not precise budgeting.
         let min_window_tokens = user_prompt.chars().count().div_ceil(CHARS_PER_TOKEN_EST);
         let strict_context_guard = rotation.strict_context_guard;
+
+        // MS3 — computed ONCE per run, here: the prompt exists (so `min_window_tokens`
+        // does) and no seat has been dispatched yet, which is exactly what the field
+        // claims. `&BTreeMap::new()` / `&BTreeSet::new()` are not placeholders: nobody
+        // has failed anything yet, and reading the registry here would make the snapshot
+        // depend on when it was called and falsify the one thing its rustdoc promises.
+        let pool_eligibility = crate::rotation::pool_eligibility_snapshot(
+            &initial_for_snapshot,
+            &BTreeMap::new(),
+            &BTreeSet::new(),
+            &capabilities,
+            rotation.pool.candidates(),
+            min_window_tokens,
+            strict_context_guard,
+        );
 
         // A strict guard rejects every UNMEASURED candidate, so with nothing measured the pool
         // is declared and never eligible: rotation does nothing, and until now it did so in
@@ -1575,6 +1609,7 @@ impl Magi {
             rotations,
             extraction_failures,
             completions,
+            pool_eligibility,
         ))
     }
 
