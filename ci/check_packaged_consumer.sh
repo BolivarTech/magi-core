@@ -118,6 +118,30 @@ fi
 # the packaged manifest; an example added tomorrow is covered with no edit, and any
 # single one going missing fails loudly and by name. Both target shapes count, the
 # flat `examples/x.rs` and the directory `examples/x/main.rs`.
+# The packaged names are read from the `[[example]]` SECTIONS, not from the file
+# at large. A bare `grep '^name = "x"'` over the whole manifest was wrong and the
+# mutation that proves it is routine rather than exotic: `[package]`, `[lib]` and
+# every one of the thirteen `[[test]]` blocks also carry a `name =` key, so an
+# example named after an existing test satisfied the grep from the test's own
+# block. Adding `examples/cross_milestone.rs` next to `tests/cross_milestone.rs`
+# and excluding it from the package made cargo print `ignoring example
+# cross_milestone` on stderr while this script printed OK — executed, not reasoned.
+#
+# That is the third time this guard has been holed by the same shape, so it is
+# worth naming: each earlier version was correct for the tree in front of it and
+# wrong for a tree someone would plausibly create next. Anonymous, then one name,
+# then every name but matched too loosely.
+PKG_EXAMPLES="$(awk '
+  /^\[\[example\]\]/ { in_example = 1; next }
+  /^\[/                 { in_example = 0 }
+  in_example && /^name = "/ {
+    line = $0
+    sub(/^name = "/, "", line)
+    sub(/"$/, "", line)
+    print line
+  }
+' "$PKG_DIR/Cargo.toml")"
+
 TREE_EXAMPLES=0
 MISSING=''
 for f in examples/*.rs examples/*/main.rs; do
@@ -127,7 +151,7 @@ for f in examples/*.rs examples/*/main.rs; do
     *) n="$(basename "$f" .rs)" ;;
   esac
   TREE_EXAMPLES=$((TREE_EXAMPLES + 1))
-  grep -q "^name = \"$n\"$" "$PKG_DIR/Cargo.toml" || MISSING="$MISSING $n"
+  printf '%s\n' "$PKG_EXAMPLES" | grep -Fqx "$n" || MISSING="$MISSING $n"
 done
 
 # Zero examples in the tree is itself a failure. Without this the loop would find
@@ -165,5 +189,8 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # The count is REPORTING, not a guard: the guard is the derived witness above, which
 # already failed if any of them were missing. A count compared against nothing cannot
 # fail, and a human diffing two logs to notice that 3 became 2 is not a gate.
-DECLARED="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
+# Counted off the same parsed list the guard used, so the number cannot describe a
+# different set from the one that was checked. `|| true` because grep exits 1 on an
+# empty list, which `set -e` would turn into a silent death with no message at all.
+DECLARED="$(printf '%s\n' "$PKG_EXAMPLES" | grep -c . || true)"
 echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; cargo build --examples reported success)"

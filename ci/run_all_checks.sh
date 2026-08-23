@@ -27,8 +27,13 @@
 # constructible from outside lives ONLY in an example — inside the crate the variants are always
 # constructible, so an in-crate test would pass while the published API stayed broken.
 #
-# Not included: `cargo audit`, which needs a generated lockfile and network access, so it stays a
-# separate job in each workflow.
+# Not included: `cargo audit`. The reason USED to be "it needs a generated lockfile and network
+# access", and that stopped discriminating the moment the packaged-consumer step below was added:
+# `cargo package` resolves its own lockfile and touches the registry index, so this script is no
+# longer offline. The real reason it stays a separate job is that it depends on the RustSec
+# advisory DATABASE — a third-party service whose outage would turn this gate red for a reason
+# that has nothing to do with the tree, which is the ambiguous-red this project refuses to build
+# into its own gate. Everything here answers a question about THIS source.
 #
 # # THE ORDER OF THE STEPS BELOW IS LOAD-BEARING — do not sort or regroup them
 #

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! # magi-core
 //!
@@ -13,10 +13,21 @@
 //! ## Retry & backoff (2.0)
 //!
 //! The opt-in [`RetryProvider`](crate::provider::RetryProvider) wraps any
-//! provider with capped, jittered backoff and honors `Retry-After`. **Worst-case
-//! latency with the defaults is ~15 minutes** per `complete()` call (a 10-minute
-//! `operation_budget` plus one 5-minute request timeout). Wrap the call in
-//! `tokio::time::timeout` if you need a harder bound.
+//! provider with capped, jittered backoff and honors `Retry-After`.
+//!
+//! **Ask the crate how long a run can take; do not derive it.**
+//! [`Magi::worst_case_per_seat`](crate::orchestrator::Magi::worst_case_per_seat)
+//! reads the configuration you actually built, which with the `4.0.0` defaults
+//! is 66 minutes per seat. Whether a run costs that once or three times over
+//! depends on whether your backend serves the three mages in parallel, which
+//! this crate cannot know. Wrap the call in `tokio::time::timeout` if you need a
+//! harder bound.
+//!
+//! Since `4.0.0` the retry chain is bounded by an attempt **count** rather than
+//! by elapsed time, so `operation_budget + client_timeout` is no longer how the
+//! per-call bound is computed — that relation is deliberately unsatisfied by
+//! the shipped defaults, and `operation_budget` is now a backstop. See the
+//! [`RetryConfig`](crate::provider::RetryConfig) rustdoc for the current form.
 //!
 //! ## Quick Start
 //!
