@@ -30,21 +30,6 @@ mage had seen. The operator was told "transport" and went to look at a network t
 **A contract failure had been wearing an HTTP error's clothes**, and inherited run-wide semantics
 by carrying the wrong type. That is what this release removes.
 
-### Removed
-
-- **`ProviderError::Http { status: 0 }` no longer exists.** The synthetic status is deleted
-  outright, so `Http.status` now only ever holds a real HTTP status — which makes lineage
-  condemnation honest **by construction** rather than by comment.
-
-  Response-contract failures split by **consequence**, not by case: `ResponseContract` (the
-  endpoint returned something unusable) and `EmptyCompletion` (the model produced no content) are
-  both **mage-local**, while `NoGeneration` — the backend accepted the request and generated
-  nothing, with the token counters **absent** rather than zero — is raised to
-  `MagiError::CrateDefect` and **aborts the run**. A defect of ours must not hide in
-  `failed_agents`, where model failures land every day.
-
-- **`ClaudeProvider::parse_response` is gone**, absorbed by the shared completion path.
-
 ### Added
 
 - **`CompletionConfig::reasoning` — a `ReasoningControl`, and a provider that cannot honour it
@@ -162,6 +147,21 @@ by carrying the wrong type. That is what this release removes.
   ceiling varies. The three aliases this crate resolves are all 4.x and sit far above it, so a
   consumer on the default configuration cannot trip on this; a consumer pinning a literal pre-4.x
   model id and never touching `max_tokens` can. See the migration guide.
+
+### Removed
+
+- **`ProviderError::Http { status: 0 }` no longer exists.** The synthetic status is deleted
+  outright, so `Http.status` now only ever holds a real HTTP status — which makes lineage
+  condemnation honest **by construction** rather than by comment.
+
+  Response-contract failures split by **consequence**, not by case: `ResponseContract` (the
+  endpoint returned something unusable) and `EmptyCompletion` (the model produced no content) are
+  both **mage-local**, while `NoGeneration` — the backend accepted the request and generated
+  nothing, with the token counters **absent** rather than zero — is raised to
+  `MagiError::CrateDefect` and **aborts the run**. A defect of ours must not hide in
+  `failed_agents`, where model failures land every day.
+
+- **`ClaudeProvider::parse_response` is gone**, absorbed by the shared completion path.
 
 ### Fixed
 

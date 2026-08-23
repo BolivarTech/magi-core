@@ -116,4 +116,4 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # silently skips a target whose `required-features` are unmet, so the day an
 # example gains one, "compiled" would overstate what this number knows.
 DECLARED="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
-echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared and built)"
+echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; cargo build --examples reported success)"

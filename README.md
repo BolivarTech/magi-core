@@ -33,17 +33,22 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
 - **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via an immutable `RetryConfig`.
 
-> ⚠️ **Upgrading to 2.0?** The HTTP providers now apply a **300 s total request
-> timeout** where there was none before — a `complete()` call that used to hang
-> forever (or take >300 s) will now fail with `ProviderError::Timeout`. Raise it
-> with `OpenAiCompatibleProvider::with_timeout(...)`. The **worst-case latency
-> with the defaults is ~15 minutes** per call (10 min `operation_budget` + one
-> 5 min timeout); wrap in `tokio::time::timeout` for a harder bound. The complete list
-> of 2.0 breaking changes is in the `[2.0.0]` entry of `CHANGELOG.md`.
+> ⚠️ **How long a call can take.** The HTTP providers apply a **300 s total request
+> timeout** (`with_timeout(...)` to change it), and since `4.0.0` the retry chain is
+> bounded by an attempt **count** rather than by elapsed time: the classes that can
+> each burn a whole client timeout get two attempts, so the worst case per call is
+> `(1 + limited_max_retries) × client_timeout + backoffs` ≈ **601 s**, against an
+> agent ceiling of 660 s.
+>
+> **Do not compute it as `operation_budget + client_timeout`.** That relation held
+> before `4.0.0` and is now deliberately unsatisfied — the budget became a backstop
+> rather than the operating limit. `Magi::worst_case_per_seat()` derives the number
+> from the configuration you actually built, which is what to read instead of any
+> figure written here. Full table and the reasoning: `docs/migration-v4.0.md` §9.
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
 - **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to the reference implementation's verdict-sentinel release, applied verbatim with no local divergence, verified via SHA-256 fixture in CI
-- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), and `openai-compat` (OpenAI Chat Completions — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server) ship as optional features
+- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), `openai-compat` (OpenAI Chat Completions — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server) and `ollama` (the native `/api/chat` path, since `4.0.0`) ship as optional features
 - **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
 - **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
 
@@ -53,12 +58,12 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "3.0"
+magi-core = "4.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # Enable one or both built-in providers:
-# magi-core = { version = "3.0", features = ["claude-cli"] }
-# magi-core = { version = "3.0", features = ["claude-api"] }
+# magi-core = { version = "4.0", features = ["claude-cli"] }
+# magi-core = { version = "4.0", features = ["claude-api"] }
 ```
 
 ### Basic Usage
