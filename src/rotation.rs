@@ -26,7 +26,7 @@
 //! `LineageRegistry::claim_next` does the whole read-decide-commit under that
 //! single lock; its postcondition is strict: `Some` → the mage's active entry was
 //! **replaced**; `None` → the registry is left **intact**. Its digest re-propose
-//! loop terminates because each rejection grows `window_rejected` (which
+//! loop terminates because each rejection grows `digest_collisions` (which
 //! `next_model` excludes) over a finite pool. Slot cleanup runs on **every** mage
 //! exit — success, error, panic, and cancellation — via the succeeded-flag guard
 //! (`AgentSlotGuard`): a valid verdict keeps the lineage; anything else releases
@@ -202,7 +202,7 @@ impl RotationPolicy {
 
     /// Returns the first eligible candidate in declared order, or `None`.
     ///
-    /// Total: no I/O, no `await`, no panic, no `Err`. `window_rejected`
+    /// Total: no I/O, no `await`, no panic, no `Err`. `digest_collisions`
     /// (condition #5) is honored from the start so a later re-propose loop
     /// cannot spin. Deterministic in its arguments.
     pub fn next_model(
@@ -211,7 +211,7 @@ impl RotationPolicy {
         run_failed_lineages: &BTreeSet<Lineage>,
         lineages_in_play: &BTreeSet<Lineage>,
         used: &BTreeSet<String>,
-        window_rejected: &BTreeMap<String, &'static str>,
+        digest_collisions: &BTreeMap<String, &'static str>,
         rotations_done: u32,
     ) -> Option<&Candidate> {
         // Gate first: `max_rotations` reached (or 0 = disabled) → no candidate.
@@ -219,7 +219,7 @@ impl RotationPolicy {
             return None;
         }
         // First eligible candidate in declared order. Conditions 1-4 are the pure
-        // core; #5 (`window_rejected`) is empty without a probe but honored so the
+        // core; #5 (`digest_collisions`) is empty without a probe but honored so the
         // digest re-propose loop cannot spin; #6 (window) reads the cached probe
         // capabilities (a model without a capability entry — no probe — passes,
         // preserving no-probe behavior).
@@ -228,7 +228,7 @@ impl RotationPolicy {
                 && !failed_lineages.contains(&c.lineage)    // 2: this mage schema-failed it
                 && !run_failed_lineages.contains(&c.lineage) // 3: condemned run-wide (transport)
                 && !used.contains(&c.model)                 // 4: this mage already ran this model
-                && !window_rejected.contains_key(&c.model)  // 5: rejected by window/digest verify
+                && !digest_collisions.contains_key(&c.model) // 5: proven digest collision with an active mage
                 && self.window_admits(&c.model) // 6: context window large enough (or unknown)
         })
     }
@@ -588,7 +588,7 @@ impl AgentRotationState {
 /// Per-mage, per-run rotation state — **local to each mage, never shared**.
 ///
 /// `used`/`failed_lineages`/`rotations_done` persist across a mage's rotation
-/// attempts; `window_rejected` is cleared at the start of each `claim_next`
+/// attempts; `digest_collisions` is cleared at the start of each `claim_next`
 /// (dynamic rejections must be re-evaluated). Cleanup is gated by the
 /// [`AgentSlotGuard`]'s own succeeded-flag, not by this state.
 pub(crate) struct AgentRotationState {
@@ -597,9 +597,23 @@ pub(crate) struct AgentRotationState {
     pub chain: Vec<RotationEvent>,
     pub used: BTreeSet<String>,
     pub failed_lineages: BTreeSet<Lineage>,
-    pub window_rejected: BTreeMap<String, &'static str>,
+    pub digest_collisions: BTreeMap<String, &'static str>,
     pub rotations_done: u32,
     pub ran_unmeasured: bool,
+}
+
+impl AgentRotationState {
+    /// Records that `model` was rejected because its digest **provably** collided
+    /// with an active mage's.
+    ///
+    /// A method rather than an `insert` on the field, and the difference is the
+    /// point of this rename: a bare `insert` lets the next writer put anything in
+    /// there, which is exactly how a map called `window_rejected` came to hold
+    /// nothing but collisions. Naming the intention makes the next wrong use read
+    /// wrong **at the call site**.
+    pub(crate) fn record_digest_collision(&mut self, model: &str, reason: &'static str) {
+        self.digest_collisions.insert(model.to_string(), reason);
+    }
 }
 
 impl LineageRegistry {
@@ -607,7 +621,7 @@ impl LineageRegistry {
     /// single lock (read-decide-commit).
     ///
     /// Postcondition: `Some` → the mage's `active` entry was **replaced** by the
-    /// chosen candidate; `None` → the registry is left **intact**. `window_rejected`
+    /// chosen candidate; `None` → the registry is left **intact**. `digest_collisions`
     /// is cleared at entry so a dynamic (digest) rejection is re-evaluated on the
     /// next call.
     ///
@@ -616,7 +630,7 @@ impl LineageRegistry {
     /// **resolvable** ACTIVE mage's digest (the calling agent is excluded). An
     /// unresolvable (`None`) digest — candidate or active — never collides, so it is
     /// trusted by the declared lineage. A rejected candidate is marked in
-    /// `window_rejected` and the loop re-proposes the next eligible one; the set
+    /// `digest_collisions` and the loop re-proposes the next eligible one; the set
     /// only grows over a finite pool, so the loop terminates. The whole
     /// read-decide-commit runs under the single lock (no `await` inside — the probe
     /// ran in the preflight).
@@ -627,7 +641,7 @@ impl LineageRegistry {
         state: &mut AgentRotationState,
     ) -> Option<Candidate> {
         let mut g = self.lock.lock().await;
-        state.window_rejected.clear();
+        state.digest_collisions.clear();
         loop {
             let in_play: BTreeSet<Lineage> = g
                 .active
@@ -641,7 +655,7 @@ impl LineageRegistry {
                     &g.run_failed,
                     &in_play,
                     &state.used,
-                    &state.window_rejected,
+                    &state.digest_collisions,
                     state.rotations_done,
                 )?
                 .clone();
@@ -657,9 +671,7 @@ impl LineageRegistry {
                 digests.push(policy.digest_of(&entry.model));
             }
             if matches!(digest_collision(&digests), Some((0, _))) {
-                state
-                    .window_rejected
-                    .insert(chosen.model.clone(), "digest_collision");
+                state.record_digest_collision(&chosen.model, "digest_collision");
                 continue; // re-propose the next eligible candidate
             }
 
@@ -1291,7 +1303,7 @@ mod tests {
                 .as_str(),
             "d"
         );
-        // 'md' in window_rejected (cond #5) → d skipped → None (re-propose loop can terminate, W12)
+        // 'md' in digest_collisions (cond #5) → d skipped → None (re-propose loop can terminate, W12)
         let wr: BTreeMap<String, &'static str> = [("md".to_string(), "digest_collision")].into();
         assert!(
             p.next_model(&failed, &runf, &in_play, &empty_s(), &wr, 0)
@@ -1440,7 +1452,7 @@ mod tests {
             chain: vec![],
             used: [configured.to_string()].into(),
             failed_lineages: BTreeSet::new(),
-            window_rejected: BTreeMap::new(),
+            digest_collisions: BTreeMap::new(),
             rotations_done: 0,
             ran_unmeasured: false,
         }
@@ -2302,7 +2314,23 @@ mod tests {
         );
         let got = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
         assert_eq!(got.model, "me"); // d (proven collision) rejected, e reserved
-        assert!(s.window_rejected.contains_key("md"));
+        assert!(s.digest_collisions.contains_key("md"));
+    }
+
+    /// The field name describes what the code actually writes into it.
+    ///
+    /// `window_rejected` promised a record of window rejections and its only
+    /// `insert` in the whole crate wrote `"digest_collision"`; condition #6
+    /// (`window_admits`) is evaluated inline in `next_model`'s `find` and its
+    /// result is DISCARDED. The name stated an intention, and that gap cost a
+    /// consumer a deferred requirement. No identifier in this subsystem may
+    /// promise a record the code never writes.
+    #[test]
+    fn the_field_name_describes_what_it_actually_holds() {
+        let mut st = state("m0");
+        st.record_digest_collision("m1", "digest_collision");
+        assert_eq!(st.digest_collisions.len(), 1);
+        assert!(st.digest_collisions.contains_key("m1"));
     }
 
     #[tokio::test]
@@ -2326,7 +2354,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_window_rejected_cleared_so_dynamic_r5a_reevaluated() {
+    async fn test_digest_collisions_cleared_so_dynamic_r5a_reevaluated() {
         // W1 — d collides with Melchior (sha:x) in call 1 → e reserved. Melchior
         // departs, e spent → call 2 must RE-EVALUATE d (no longer colliding).
         let (r, p, mut s) = digest_case_two_active(

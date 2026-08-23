@@ -2470,7 +2470,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
         chain: Vec::new(),
         used: [model_configured].into_iter().collect(),
         failed_lineages: std::collections::BTreeSet::new(),
-        window_rejected: BTreeMap::new(),
+        digest_collisions: BTreeMap::new(),
         rotations_done: 0,
         ran_unmeasured: false,
     };
