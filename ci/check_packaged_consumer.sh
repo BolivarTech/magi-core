@@ -95,28 +95,58 @@ fi
 # would then be a false statement, which is the false-negative class this project
 # has paid for repeatedly.
 #
-# The packaged manifest is the witness, and it NAMES the example it requires.
+# The witness is EVERY example the working tree declares, and the list is DERIVED
+# rather than written down.
 #
-# An earlier version of this guard was deliberately list-free — it asked only that
-# the artifact declare SOME example — and that was wrong, found by executing the
-# mutation rather than by reading the guard. Cargo drops the `[[example]]` block of
-# a file that did not reach the tarball, so excluding examples ONE AT A TIME slipped
-# straight through: with `exclude = [.., "examples/external_provider.rs"]` this
-# script packaged the crate, compiled the two survivors, and printed OK.
+# Two earlier shapes were wrong, and the pair of them is the lesson. The first was
+# deliberately list-free: it asked only that the artifact declare SOME example. That
+# fails because cargo drops the `[[example]]` block of a file that did not reach the
+# tarball, so excluding examples ONE AT A TIME slipped straight through — the script
+# packaged the crate, compiled the survivors, and printed OK. The second named the
+# single example whose property justified the check. That closed the hole for
+# `external_provider.rs` and left it open for `decoupled_probe.rs`, which carries a
+# second separate-crate property its own module doc states: that a probe can be
+# declared apart from the provider serving completions, a coupling that cannot be
+# exercised from inside `src/`, where a test double satisfies both bounds at once.
 #
-# What that loses is the entire point. `external_provider.rs` is the crate's only
-# proof that `ProviderError` is constructible from ANOTHER crate — the measured
-# `E0639` escape this script exists for, named by path in the header above. The
-# other two examples are coverage; this one is the property. A guard that lets its
-# own subject be removed while reporting success is not list-free, it is blind — and
-# the tension was already on the page, in a header that named the file the guard
-# refused to name.
-if ! grep -q '^name = "external_provider"$' "$PKG_DIR/Cargo.toml"; then
-  echo "check_packaged_consumer: the packaged manifest does not declare the" >&2
-  echo "'external_provider' example, which is the ONLY proof that ProviderError is" >&2
-  echo "constructible from outside this crate. Without it this check compiles the" >&2
-  echo "remaining examples and proves nothing it was written to prove. Did an" >&2
-  echo "'exclude' or 'include' entry stop it from reaching the package?" >&2
+# Both mutations were found by RUNNING them, not by reading the guard. Naming files
+# was the defect, not which file got named: a hand-kept list is wrong the moment
+# someone adds an example, and wrong silently, which is the failure mode of every
+# hand-maintained selection this project has been bitten by.
+#
+# So the tree is asked what it has. Every example present here must be declared by
+# the packaged manifest; an example added tomorrow is covered with no edit, and any
+# single one going missing fails loudly and by name. Both target shapes count, the
+# flat `examples/x.rs` and the directory `examples/x/main.rs`.
+TREE_EXAMPLES=0
+MISSING=''
+for f in examples/*.rs examples/*/main.rs; do
+  [ -e "$f" ] || continue
+  case "$f" in
+    examples/*/main.rs) n="$(basename "$(dirname "$f")")" ;;
+    *) n="$(basename "$f" .rs)" ;;
+  esac
+  TREE_EXAMPLES=$((TREE_EXAMPLES + 1))
+  grep -q "^name = \"$n\"$" "$PKG_DIR/Cargo.toml" || MISSING="$MISSING $n"
+done
+
+# Zero examples in the tree is itself a failure. Without this the loop would find
+# nothing, `MISSING` would stay empty, and the check would pass having verified
+# nothing — the same exit-0-on-an-empty-set shape that made `cargo build --examples`
+# unsafe to trust in the first place.
+if [ "$TREE_EXAMPLES" -eq 0 ]; then
+  echo "check_packaged_consumer: the working tree declares NO examples, so this check" >&2
+  echo "has nothing to compile as an outside crate and would report success having" >&2
+  echo "verified nothing. Was examples/ renamed or removed?" >&2
+  exit 1
+fi
+
+if [ -n "$MISSING" ]; then
+  echo "check_packaged_consumer: the packaged manifest is missing example(s):$MISSING" >&2
+  echo "They exist in the working tree, so the tree build compiles them and this gate" >&2
+  echo "would have reported success while the artifact crates.io serves cannot build" >&2
+  echo "them. Each example is here because it proves something only a SEPARATE crate" >&2
+  echo "can prove. Did an 'exclude' or 'include' entry stop them reaching the package?" >&2
   exit 1
 fi
 
@@ -132,8 +162,8 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # silently skips a target whose `required-features` are unmet, so the day an
 # example gains one, "compiled" would overstate what this number knows.
 #
-# The count is REPORTING, not a guard: the guard is the named witness above. A count
-# compared against nothing cannot fail, and a human diffing two logs to notice that
-# 3 became 2 is not a gate.
+# The count is REPORTING, not a guard: the guard is the derived witness above, which
+# already failed if any of them were missing. A count compared against nothing cannot
+# fail, and a human diffing two logs to notice that 3 became 2 is not a gate.
 DECLARED="$(grep -c '^\[\[example\]\]' "$PKG_DIR/Cargo.toml")"
 echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; cargo build --examples reported success)"

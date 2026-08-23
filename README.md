@@ -187,7 +187,10 @@ structured output on that provider.
 
 ### Cost Control with Complexity Gate
 
-*(v0.5+)* `analyze` always costs 3 Claude calls. To avoid spending on
+*(v0.5+)* `analyze` dispatches one call per mage, and more when a mage has to be
+recovered: a corrective retry doubles a seat's calls and each rotation adds another
+model, so the ceiling with the defaults and a fallback pool is 18 rather than 3. To
+avoid spending on
 trivial inputs, install a caller-supplied predicate via
 `MagiBuilder::with_complexity_gate`. When it returns `false`, `analyze`
 returns `MagiError::SkippedByComplexityGate` with **zero LLM dispatch**.
@@ -321,7 +324,7 @@ orchestrator  (Magi, MagiBuilder — composes everything)
 providers/
   claude          [feature: claude-api]      — HTTP via reqwest
   claude_cli      [feature: claude-cli]      — subprocess via tokio::process
-  openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + Ollama/LocalAI/vLLM/LM Studio)
+  openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + LocalAI/vLLM/LM Studio)
 ```
 
 ### Prompt Injection Defense
@@ -430,7 +433,7 @@ When a mage's model goes dead during a run, the crate rotates that single agent 
 > - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages abort the whole run before consensus; a genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could over-abort — accepted (YAGNI).
 > - **A hanging/slow endpoint is NOT fast-failed.** A hung endpoint surfaces as `Timeout`/`RetryAbandoned`, which by design does NOT count toward endpoint-down (only connection-refused `Network` does); it is condemned and rotated, not aborted.
 > - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected — so your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
-> - **No built-in hard cap on total run time.** Worst case per mage is about `(max_rotations + 1) × operation_budget`; wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling (an optional builder run-timeout is backlog).
+> - **No built-in hard cap on total run time.** Ask the crate rather than deriving it: `Magi::worst_case_per_seat()` returns `timeout × calls_per_model × (1 + max_rotations)` read off the configuration you actually built, which with the `4.0.0` defaults is 66 minutes per seat. Whether the run costs that once or three times over depends on whether your backend serves the three mages in parallel, which the crate cannot know. Wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling.
 > - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down — the same boundary as the hanging-endpoint note.
 
 ### Declaring fallbacks
@@ -551,9 +554,9 @@ is retried, and how far the condemnation reaches). A complete implementation is 
 |------------------|---------|--------------------------------------|
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
-| `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
+| `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. For Ollama use the `ollama` feature below: since `4.0.0` it completes on the native `/api/chat` path, not through this one. |
 | `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe`. Still enables `openai-compat` (for `reqwest` and the shared URL machinery, **not** for the completions path), so `OpenAiCompatibleProvider` is exported too (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
-| `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
+| `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Its surface is covered by the crate's stability policy like any other public item, so it moves on a minor at the earliest. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
 no optional features enabled.
