@@ -275,6 +275,7 @@ pub enum RunId {
     CrateDefect,
     MixedTrio,
     Large62kNoReasoning,
+    PoolEligibility,
     NoBackend,
 }
 
@@ -290,6 +291,7 @@ impl RunId {
             Self::CrateDefect => "crate_defect",
             Self::MixedTrio => "mixed_trio",
             Self::Large62kNoReasoning => "large_62k_no_reasoning",
+            Self::PoolEligibility => "pool_eligibility",
             Self::NoBackend => "no_backend",
         }
     }
@@ -307,7 +309,8 @@ impl RunId {
             | Self::Degradation
             | Self::CrateDefect
             | Self::MixedTrio
-            | Self::Large62kNoReasoning => true,
+            | Self::Large62kNoReasoning
+            | Self::PoolEligibility => true,
             Self::NoBackend => false,
         }
     }
@@ -482,6 +485,9 @@ impl Config {
             RunId::Rotation | RunId::Degradation | RunId::CrateDefect | RunId::MixedTrio => {
                 self.budgets.injected_secs
             }
+            // The same shape of run as the happy one — small payload, nothing injected —
+            // so it borrows that budget rather than inventing a knob nobody would tune.
+            RunId::PoolEligibility => self.budgets.happy_secs,
             RunId::NoBackend => self.budgets.no_backend_secs,
         };
         Duration::from_secs(secs)

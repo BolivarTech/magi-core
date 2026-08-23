@@ -2089,6 +2089,7 @@ mod tests {
             RunId::CrateDefect,
             RunId::MixedTrio,
             RunId::Large62kNoReasoning,
+            RunId::PoolEligibility,
             RunId::NoBackend,
         ];
         for id in all {
@@ -2100,6 +2101,7 @@ mod tests {
                 | RunId::CrateDefect
                 | RunId::MixedTrio
                 | RunId::Large62kNoReasoning
+                | RunId::PoolEligibility
                 | RunId::NoBackend => {}
             }
         }
@@ -2266,6 +2268,7 @@ mod tests {
             Err("skip again"),
             Err("cannot test twice"),
             Ok("pass"),
+            Ok("pass again"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");
         for outcome in outcomes {

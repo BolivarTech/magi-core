@@ -145,9 +145,17 @@ The order is enforced rather than conventional: the ledger refuses to produce a 
 estimate was announced first. Before the spend the number is a decision the operator can still
 make; after it, the same number is only a receipt.
 
-The default invocation runs **seven** backend runs: five over a small payload — happy path,
-rotation, degradation, mixed trio, and the crate-defect replay — plus **two** over the large one,
-and one run with no backend at all. Against a cloud backend that is on the order of four minutes
+The default invocation runs **eight** backend runs: six over a small payload — happy path,
+rotation, degradation, mixed trio, the crate-defect replay and the pool-eligibility one — plus
+**two** over the large one, and one run with no backend at all.
+
+**The eighth is declared here rather than folded into the happy one, and the reason is the
+tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
+reasons at once, which means a candidate whose lineage duplicates a seat's — something the
+config's own rustdoc says buys nothing, because rotation exists to reach a DIFFERENT lineage.
+Injecting that into a shared run would change the world for every scenario reading it and
+contradict a decision already written down. One more run costs a small payload and says what it
+costs. Against a cloud backend that is on the order of four minutes
 and a few hundred thousand tokens; against a local model it is bounded by your hardware, not by
 the harness.
 

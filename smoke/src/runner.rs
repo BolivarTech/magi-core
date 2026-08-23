@@ -422,6 +422,18 @@ pub struct RunSpec {
     pub injection: Option<Injection>,
     /// The rotation candidates available to every seat during this run.
     pub fallbacks: Vec<Fallback>,
+    /// Candidates registered WITHOUT a probe, so the preflight measures nothing
+    /// for them.
+    ///
+    /// Separate from `fallbacks` rather than a flag on `Fallback`: the config a
+    /// user writes has no business declaring an unmeasurable candidate, and the
+    /// only run that wants one wants it to produce a specific ineligibility.
+    pub unprobed_fallbacks: Vec<Fallback>,
+    /// Whether this run rejects a candidate whose window it could not measure.
+    ///
+    /// Per run, because it is the switch that makes an unmeasured candidate
+    /// ineligible, and only one run is about that.
+    pub strict_context_guard: bool,
     /// Which provider backs the seats.
     pub providers: ProviderKind,
     /// What this run asks the backend to do with its reasoning channel.
@@ -557,10 +569,13 @@ pub fn attempts_for(first: &RunOutcome) -> u32 {
 /// `ProviderError`, a seat name that is not a mage, and `MagiError`, and
 /// flattening them at the boundary keeps the caller from needing three `From`
 /// impls for a message it only ever prints.
+#[allow(clippy::too_many_arguments)]
 pub fn build_magi_against(
     base_url: &str,
     seats: &[Seat],
     fallbacks: &[Fallback],
+    unprobed_fallbacks: &[Fallback],
+    strict_context_guard: bool,
     kind: ProviderKind,
     reasoning: ReasoningControl,
     trace: bool,
@@ -598,8 +613,18 @@ pub fn build_magi_against(
                 );
                 pool = pool.push_probing(provider, Lineage::new(candidate.lineage.clone()));
             }
+            // Pushed through the NON-probing door on purpose: the preflight then has
+            // no capability entry for them, which under a strict guard is precisely
+            // the "unmeasured" ineligibility one run exists to observe.
+            for candidate in unprobed_fallbacks {
+                let provider = Arc::new(
+                    OllamaProvider::new(base_url, &candidate.model).map_err(|e| e.to_string())?,
+                ) as Arc<dyn LlmProvider>;
+                pool = pool.push(provider, Lineage::new(candidate.lineage.clone()));
+            }
             builder
                 .with_fallback_pool(pool.build())
+                .with_strict_context_guard(strict_context_guard)
                 // The control reaches the seats ONLY through here. A run that wants reasoning
                 // disabled and does not set it would still converge often enough to look
                 // configured, which is why the run declares it and the scenario reads what came
@@ -694,6 +719,7 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::Rotation,
         RunId::Degradation,
         RunId::Large62kNoReasoning,
+        RunId::PoolEligibility,
         RunId::MixedTrio,
         RunId::Large62k,
         RunId::CrateDefect,
@@ -754,6 +780,8 @@ impl RunSpec {
             fallbacks: cfg.fallbacks.clone(),
             payload: small.clone(),
             injection: None,
+            unprobed_fallbacks: Vec::new(),
+            strict_context_guard: false,
             providers: ProviderKind::ExternalStub,
             reasoning: ReasoningControl::Default,
             trace: false,
@@ -769,6 +797,9 @@ impl RunSpec {
         let injected_seat_defect = injected_seat.clone();
         let small_for_defect = small.clone();
         let small_for_mixed = small.clone();
+        // The eligibility snapshot is PRE-DISPATCH, so the cheapest payload serves:
+        // nothing about it has to make a seat rotate.
+        let small_for_eligibility = small.clone();
         let large_no_reasoning = payload::generate(repo_root, cfg.payload_target_bytes)?;
         Ok(vec![
             RunSpec {
@@ -777,6 +808,8 @@ impl RunSpec {
                 fallbacks: cfg.fallbacks.clone(),
                 payload: small.clone(),
                 injection: None,
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
                 trace: false,
@@ -790,6 +823,8 @@ impl RunSpec {
                     model: injected_seat.clone(),
                     status: INJECTED_FAILURE_STATUS,
                 }),
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
                 trace: false,
@@ -809,6 +844,8 @@ impl RunSpec {
                     model: injected_seat,
                     status: INJECTED_FAILURE_STATUS,
                 }),
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
                 trace: false,
@@ -819,6 +856,8 @@ impl RunSpec {
                 fallbacks: cfg.fallbacks.clone(),
                 payload: large_no_reasoning,
                 injection: None,
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 // The reproduction of the one run that proves the C axis works. It cannot share
                 // the other large run: that one needs the channel ON — `S10` reads a completion
@@ -829,6 +868,43 @@ impl RunSpec {
                 trace: false,
             },
             RunSpec {
+                id: RunId::PoolEligibility,
+                seats: cfg.seats.clone(),
+                fallbacks: cfg.fallbacks.clone(),
+                // ONE extra candidate, and it is built to be ineligible for two
+                // reasons at once — which is the property the scenarios read.
+                //
+                // It reuses the FIRST SEAT's lineage and model, derived rather than
+                // written down: for any other seat the lineage is held by that first
+                // one (condition #1), for the first seat the model is one it already
+                // runs (condition #4), and being unprobed it has no measured window
+                // under the strict guard below (condition #6). Every seat therefore
+                // sees at least two causes, whatever the config names.
+                //
+                // Reusing a model the backend already holds is deliberate: the
+                // candidate is never dispatched — it is ineligible — so it costs no
+                // completion, and naming a model that does not exist would turn a
+                // telemetry scenario into a preflight failure.
+                unprobed_fallbacks: cfg
+                    .seats
+                    .first()
+                    .map(|s| {
+                        vec![Fallback {
+                            model: s.model.clone(),
+                            lineage: s.lineage.clone(),
+                        }]
+                    })
+                    .unwrap_or_default(),
+                // The switch that makes an unmeasured candidate ineligible. Off
+                // everywhere else, and this run is the only one about that.
+                strict_context_guard: true,
+                payload: small_for_eligibility,
+                injection: None,
+                providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            RunSpec {
                 id: RunId::MixedTrio,
                 seats: cfg.seats.clone(),
                 // No pool: a rotation would replace the seat whose declaration this run exists
@@ -836,6 +912,8 @@ impl RunSpec {
                 fallbacks: Vec::new(),
                 payload: small_for_mixed,
                 injection: None,
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Mixed,
                 // Asked ONCE, for the whole run. One seat honours it and one cannot, which is
                 // the entire property.
@@ -851,6 +929,8 @@ impl RunSpec {
                 // other runs exist to exercise paths cheaply.
                 payload: payload::generate(repo_root, cfg.payload_target_bytes)?,
                 injection: None,
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
                 // The ONE run that asks for the trace text, and the one where it is worth
@@ -872,6 +952,8 @@ impl RunSpec {
                     status: 200,
                     body: CRATE_DEFECT_BODY.as_bytes().to_vec(),
                 }),
+                unprobed_fallbacks: Vec::new(),
+                strict_context_guard: false,
                 providers: ProviderKind::Ollama,
                 reasoning: ReasoningControl::Default,
                 trace: false,
@@ -1155,6 +1237,8 @@ impl Runner {
             &proxy.base_url(),
             &spec.seats,
             &spec.fallbacks,
+            &spec.unprobed_fallbacks,
+            spec.strict_context_guard,
             spec.providers,
             spec.reasoning,
             spec.trace,

@@ -247,6 +247,7 @@ async fn main() -> std::process::ExitCode {
     let mut scenarios = scenarios::e1_scenarios();
     scenarios.extend(scenarios::e2_scenarios());
     scenarios.extend(scenarios::f_scenarios());
+    scenarios.extend(scenarios::e_scenarios());
 
     // 1. Config, printed BEFORE anything runs: a run whose configuration is
     //    unstated cannot be read afterwards.

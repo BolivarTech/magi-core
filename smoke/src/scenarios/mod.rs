@@ -8,6 +8,9 @@
 //! - `e2` — the ones `e1` deferred that this stage does implement (`S3`, `S8`-`S13`).
 //!   `S17`-`S19` belong to stage E3 — the `published` mode, which cannot run before `4.0.0` is
 //!   on crates.io — and are deliberately absent here.
+//! - `e` — the axis-E scenarios of MS3 (`S-E2`, `S-E3`). `S-E1` and `S-E4` are not here on
+//!   purpose: one is a grep over the source and the other is the absence of state, and neither
+//!   is visible from a run.
 //! - `f` — the axis-F scenarios of MS2 (`S-F1`, `S-F2a`, `S-F2b`, `S-F3`, `S-F4`, `S-F5`), three
 //!   of which run; the other three are out of scope from here, each with its reason in its own
 //!   name so the row still says why.
@@ -15,10 +18,12 @@
 //! Split per milestone rather than living directly here, so each has a sibling to land in
 //! without reshaping this file.
 
+mod e;
 mod e1;
 mod e2;
 mod f;
 
+pub use e::e_scenarios;
 pub use e1::e1_scenarios;
 pub use e2::e2_scenarios;
 pub use f::f_scenarios;
