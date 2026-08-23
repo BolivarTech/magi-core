@@ -962,21 +962,26 @@ pub fn default_model_for_mode(mode: Mode) -> &'static str {
 /// two formulas that can diverge, and the tests would stay green while the guard did something
 /// else.
 pub(crate) fn budget_window(
-    client_timeout_secs: u64,
-    base_delay_secs: u64,
-) -> std::ops::Range<u64> {
+    client_timeout: Duration,
+    base_delay: Duration,
+) -> std::ops::Range<Duration> {
     // Saturating: `base_delay` is a `Duration` a consumer sets directly, so both terms are
     // reachable from a public field. Panicking inside a WARNING path would take down the
     // consumer's process for our own arithmetic.
-    let floor = client_timeout_secs
-        .saturating_add(base_delay_secs)
-        .saturating_add(1);
-    let ceiling = client_timeout_secs
+    let floor = client_timeout
+        .saturating_add(base_delay)
+        .saturating_add(WINDOW_STRICTNESS_MARGIN);
+    let ceiling = client_timeout
         .saturating_mul(2)
-        .saturating_add(base_delay_secs.saturating_mul(2))
-        .saturating_add(1);
+        .saturating_add(base_delay.saturating_mul(2))
+        .saturating_add(WINDOW_STRICTNESS_MARGIN);
     floor..ceiling.max(floor)
 }
+
+/// The `+ 1` of the window formula: what makes the floor comparison strict rather than exact.
+///
+/// A whole second on a scale of hundreds, so it never competes with the terms it guards.
+const WINDOW_STRICTNESS_MARGIN: Duration = Duration::from_secs(1);
 
 /// Named default values (no magic numbers).
 const DEFAULT_MAX_RETRIES: u32 = 3;
@@ -1276,10 +1281,10 @@ impl RetryConfig {
         // negative for the genuinely broken case, and a false positive for a correct one. The
         // formula is spelled out for the same reason: `budget_window` is `pub(crate)`, so
         // pointing the reader at it would name an item they cannot reach.
-        let ct = DEFAULT_CLIENT_TIMEOUT.as_secs();
-        let bd = self.base_delay.as_secs();
+        let ct = DEFAULT_CLIENT_TIMEOUT;
+        let bd = self.base_delay;
         let window = budget_window(ct, bd);
-        let budget = self.operation_budget.as_secs();
+        let budget = self.operation_budget;
         // Only the FLOOR is reported, and that asymmetry is the point.
         //
         // Below it, the budget cuts before the second attempt of a hang starts — a silent loss of
@@ -1295,7 +1300,7 @@ impl RetryConfig {
         // one guard later would be the same mistake.
         if self.operation_budget != Duration::MAX && budget < window.start {
             out.push(format!(
-                "operation_budget ({budget}s) is below {}, the floor for the DEFAULT client timeout of {ct}s: the budget cuts before the second attempt of a hang starts. If you set a different client timeout ct, your floor is ct + {bd} + 1",
+                "operation_budget ({budget:?}) is below {:?}, the floor for the DEFAULT client timeout of {ct:?}: the budget cuts before the second attempt of a hang starts. If you set a different client timeout ct, your floor is ct + {bd:?} + {WINDOW_STRICTNESS_MARGIN:?}",
                 window.start
             ));
         }
@@ -3641,10 +3646,7 @@ mod tests {
     #[test]
     fn the_default_budget_lands_inside_its_own_window() {
         let c = RetryConfig::default();
-        assert!(
-            budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), c.base_delay.as_secs())
-                .contains(&c.operation_budget.as_secs())
-        );
+        assert!(budget_window(DEFAULT_CLIENT_TIMEOUT, c.base_delay).contains(&c.operation_budget));
     }
 
     /// The window MOVES with both of its inputs.
@@ -3653,11 +3655,17 @@ mod tests {
     /// `base_delay` has to move the window, or the guard lies for anyone who changes it.
     #[test]
     fn the_window_moves_with_client_timeout_and_base_delay() {
-        assert_eq!(budget_window(300, 1), 302..603);
-        assert_eq!(budget_window(600, 1), 602..1203);
+        let secs = Duration::from_secs;
+        assert_eq!(budget_window(secs(300), secs(1)), secs(302)..secs(603));
+        assert_eq!(budget_window(secs(600), secs(1)), secs(602)..secs(1203));
         // With a 600 s client timeout the shipped 450 no longer serves, and the guard must say so.
-        assert!(!budget_window(600, 1).contains(&450));
-        assert_eq!(budget_window(300, 5), 306..611);
+        assert!(!budget_window(secs(600), secs(1)).contains(&secs(450)));
+        assert_eq!(budget_window(secs(300), secs(5)), secs(306)..secs(611));
+        // And the sub-second term survives instead of collapsing into the zero case.
+        assert_eq!(
+            budget_window(secs(300), Duration::from_millis(500)).start,
+            Duration::from_millis(301_500)
+        );
     }
 
     /// A sub-second `base_delay` MOVES the floor; the guard must not round it away.
@@ -3730,10 +3738,10 @@ mod tests {
         // number the message could hardcode equals the number the function computes, so a message
         // carrying the literals `302`/`603` would pass this test while calling `budget_window`
         // never — which is precisely the drift it exists to catch.
-        let bd = 5u64;
+        let bd = Duration::from_secs(5);
         let c = RetryConfig {
             operation_budget: Duration::from_secs(200), // outside, so the guard fires
-            base_delay: Duration::from_secs(bd),
+            base_delay: bd,
             ..Default::default()
         };
         let msg = c
@@ -3744,9 +3752,9 @@ mod tests {
 
         // The FLOOR it printed must be the one the function computes. The message stopped
         // carrying the ceiling when the guard stopped firing above it.
-        let shipped = budget_window(DEFAULT_CLIENT_TIMEOUT.as_secs(), bd);
+        let shipped = budget_window(DEFAULT_CLIENT_TIMEOUT, bd);
         assert!(
-            msg.contains(&format!("below {}", shipped.start)),
+            msg.contains(&format!("below {:?}", shipped.start)),
             "the printed floor must be the one the function computes: {msg}"
         );
 
@@ -3755,7 +3763,7 @@ mod tests {
         // `the_window_moves_with_client_timeout_and_base_delay`; repeating it here would be the
         // duplication this round removed elsewhere.)
         assert!(
-            msg.contains(&format!("ct + {bd} + 1")),
+            msg.contains(&format!("ct + {bd:?} + {WINDOW_STRICTNESS_MARGIN:?}")),
             "the message must carry the formula a consumer substitutes into: {msg}"
         );
     }
@@ -3827,7 +3835,7 @@ mod tests {
     /// own arithmetic.
     #[test]
     fn the_window_saturates_instead_of_overflowing() {
-        let w = budget_window(u64::MAX, u64::MAX);
+        let w = budget_window(Duration::MAX, Duration::MAX);
         assert!(w.start <= w.end, "a saturated window must stay well-formed");
         // And the guard that calls it must not panic either.
         let c = RetryConfig {
@@ -3879,13 +3887,13 @@ mod tests {
     #[test]
     fn the_floor_guard_cannot_see_a_raised_client_timeout() {
         let c = RetryConfig::default(); // budget 450, correct for ct = 300
-        let real_floor = budget_window(600, c.base_delay.as_secs()).start;
-        assert!(c.operation_budget.as_secs() < real_floor);
+        let real_floor = budget_window(Duration::from_secs(600), c.base_delay).start;
+        assert!(c.operation_budget < real_floor);
         assert!(
             !c.dangerous_settings()
                 .iter()
                 .any(|w| w.contains("second attempt")),
-            "silent by construction: below the real floor of {real_floor}s for ct = 600, and the guard cannot know"
+            "silent by construction: below the real floor of {real_floor:?} for ct = 600, and the guard cannot know"
         );
     }
 
@@ -3971,8 +3979,8 @@ mod tests {
     #[test]
     fn the_floor_guard_is_also_blind_to_a_lowered_client_timeout() {
         let c = RetryConfig::default();
-        let real_floor = budget_window(60, c.base_delay.as_secs()).start;
-        assert!(c.operation_budget.as_secs() > real_floor);
+        let real_floor = budget_window(Duration::from_secs(60), c.base_delay).start;
+        assert!(c.operation_budget > real_floor);
         assert!(
             !c.dangerous_settings()
                 .iter()
