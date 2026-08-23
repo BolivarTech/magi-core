@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-08-20
+// Version: 4.0.0
+// Date: 2026-08-23
 #![cfg(feature = "ollama")]
 
 //! The native `/api/chat` completion path, end to end against a real socket.

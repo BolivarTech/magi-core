@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-05-25
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! OpenAI Chat Completions-compatible provider.
 //!

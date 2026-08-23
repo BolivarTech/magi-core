@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Author: Julian Bolivar
-# Version: 2.0.0
-# Date: 2026-08-21
+# Version: 4.0.0
+# Date: 2026-08-23
 #
 # RELEASE gate: published documentation must carry no unfinished sections.
 #

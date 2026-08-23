@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-26
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! MS2 rotation integration tests (S2, S4, S6, S7, S10 + W17).
 //!

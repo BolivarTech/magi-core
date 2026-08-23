@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-08-21
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! The attempt cap follows the class of the error that JUST happened (MS2, Task 1).
 //!

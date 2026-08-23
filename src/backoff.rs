@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-25
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Pure, total helpers for retry backoff and `Retry-After` parsing. No I/O, no
 //! clock, no global state. Every function here is total: never panics, never

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-05-16
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Test-only support utilities. Gated `#[cfg(any(test, feature = "test-utils"))]`
 //! at the module declaration in `lib.rs`.

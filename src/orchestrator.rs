@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-18
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! User prompt construction with defense-in-depth against injection.
 //!
