@@ -220,28 +220,67 @@ invocation: putting two together leaves the second one unrun, which is green by 
 ### The slow stub the saturated-endpoint invocation needs
 
 That row used to say `<slow stub>` and stop there, which left the twelve-green claim
-unreproducible by anyone who was not its author. The stub is four lines and no dependency — run
-it in another terminal, leave it running, then issue the invocation above:
+unreproducible by anyone who was not its author. Then it carried a four-line stub that accepted
+every connection and answered nothing, which was worse than saying nothing at all: it ran, it
+printed no red, and it tested the wrong thing. §9.1 below is that story.
+
+**The stub has to answer one endpoint and stall on the other**, because the preflight asks two
+different questions in two different places. Step 5 is reachability, a `GET /api/tags`, and it
+has to succeed or nothing downstream runs. The contention probe comes after it and asks for a
+completion. `S7` is about the second one. Run this in another terminal, leave it running, then
+issue the invocation above:
 
 ```sh
-python -c "import socket
-s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('127.0.0.1', 8099)); s.listen(16)
+python -c "
+import json, socket, threading
+MODELS = ['qwen3.5:397b-cloud', 'kimi-k2.6:cloud', 'glm-5.2:cloud', 'deepseek-v4-pro:cloud']
+TAGS = json.dumps({'models': [{'name': m, 'model': m, 'digest': 'a'*64} for m in MODELS]})
 held = []
-while True: held.append(s.accept()[0])"
+def serve(c):
+    try:
+        if '/api/tags' in c.recv(65535).decode('latin-1', 'replace').split(chr(13)+chr(10))[0]:
+            b = TAGS.encode()
+            c.sendall(('HTTP/1.1 200 OK'+chr(13)+chr(10)+'Content-Type: application/json'+chr(13)+chr(10)+'Content-Length: '+str(len(b))+chr(13)+chr(10)+'Connection: close'+chr(13)+chr(10)+chr(13)+chr(10)).encode()+b)
+            c.close(); return
+    except Exception: pass
+    held.append(c)
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 8099)); s.listen(64)
+while True:
+    threading.Thread(target=serve, args=(s.accept()[0],), daemon=True).start()"
 ```
 
-It **accepts** every connection and answers none, which is the condition `S7` is about: a
-backend that is reachable and saturated, not one that is down. The accepted sockets are kept in
-`held` so nothing closes them — dropping one sends a reset, and a reset is the *unreachable*
-case the second row already covers. `Ctrl-C` when done; it leaves nothing behind.
+It serves the listing off a hard-coded array and then holds every other socket open, answering
+never. That is the condition `S7` is about: a backend that is **reachable and saturated**, not
+one that is down. A listing reads files off disk and never touches the GPU (§4), so a real
+saturated Ollama answers it instantly too. The held sockets are kept in `held` so nothing closes
+them; dropping one sends a reset, and a reset is the *unreachable* case the second row already
+covers. `Ctrl-C` when done, and it leaves nothing behind.
+
+**`MODELS` is the built-in default trio plus its one rotation candidate.** Point `seats` or
+`fallbacks` somewhere else and this list has to follow, or reachability fails on the models the
+listing does not name and you are back at step 5.
 
 `MAGI_SMOKE_PROBE_TIMEOUT_SECS=1` is what keeps the invocation short: without it the probe waits
 its full default before reporting, and the scenario's answer is the same either way.
 
-Any listener that behaves the same way works — `nc -l 8099` will do on a system whose netcat
-holds the connection open. Python is spelled out because this repository already depends on it,
-and because a recipe that only runs on one platform is the problem this section exists to fix.
+`nc -l 8099` no longer does. It used to be offered as an equivalent, and it cannot serve the
+listing, so it produces exactly the failure §9.1 describes. Python is spelled out because this
+repository already depends on it, and because a recipe that only runs on one platform is the
+problem this section exists to fix.
+
+### 9.1 What the answers-nothing stub actually tested, which was nothing
+
+The four-line version never got past step 5. The preflight reported `Backend: backend at
+http://127.0.0.1:8099 did not answer` and cut, so `S6` passed a **second** time (the `:1`
+invocation already covers it) and `S7` came back `OUT_OF_SCOPE`, which by §1 means *a question
+this invocation never asked*. The one invocation that exists to ask about a saturated endpoint
+did not ask.
+
+**None of that shows up as a failure.** No red rows, and exit `2`, which is the expected code
+there because every other scenario skips. Run the six, count no failures, conclude the six
+covered their subjects. It is the green-by-omission this same section warns about two
+paragraphs up, and it survived in writing here for one release.
 
 `--build-matrix` builds each combination into its own directory under the system temp
 directory (`<temp>/magi-smoke-feature-matrix/<combination>`), never inside the checkout: one
