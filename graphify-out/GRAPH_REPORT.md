@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-08-23)
 
 ## Corpus Check
-- 188 files · ~365,015 words
+- 188 files · ~366,206 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `32c3f89d`
+- Built from commit: `3ff59c24`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1079,20 +1079,20 @@ Cohesion: 0.67
 Nodes (3): [1.1.1] - 2026-07-17, Changed, Fixed
 
 ## Knowledge Gaps
-- **244 isolated node(s):** `One story, not two: the completion budget and the time budget`, `The defect this release exists for`, `Added`, `Changed`, `Removed` (+239 more)
+- **244 isolated node(s):** `check_packaged_consumer.sh script`, `melchior`, `report`, `X`, `8. Evangelion Correspondence Table` (+239 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **243 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ProviderError` connect `ProviderError` to `test_support.rs`, `HostedModel`, `validate.rs`, `.build`, `LlmProvider`, `ollama_wire.rs`, `orchestrator.rs`, `claude_cli.rs`, `ProviderResponse`, `ollama.rs`, `Self`, `MagiBuilder`, `compose_transport_message`, `String`, `resolve_claude_alias`, `.new`, `CompletionConfig`, `MockProvider`, `ProviderRequest`, `provider_url.rs`, `SlowFailingProvider`, `rotation.rs`, `MockProbe`, `Magi`, `claude.rs`, `run_preflight`, `openai_compat.rs`?**
-  _High betweenness centrality (0.065) - this node is a cross-community bridge._
-- **Why does `MagiError` connect `validate.rs` to `prompts/mod.rs`, `consensus.rs`, `.build`, `build_with`, `LlmProvider`, `build_user_prompt`, `orchestrator.rs`, `user_prompt.rs`, `common/mod.rs`, `ProviderError`, `Lineage`, `runner.rs`, `Magi`?**
-  _High betweenness centrality (0.062) - this node is a cross-community bridge._
 - **Why does `Config` connect `Config` to `config.rs`, `String`, `.default`, `runner.rs`, `preflight.rs`?**
-  _High betweenness centrality (0.055) - this node is a cross-community bridge._
-- **What connects `One story, not two: the completion budget and the time budget`, `The defect this release exists for`, `Added` to the rest of the system?**
+  _High betweenness centrality (0.085) - this node is a cross-community bridge._
+- **Why does `ProviderError` connect `ProviderError` to `test_support.rs`, `HostedModel`, `validate.rs`, `.build`, `LlmProvider`, `ollama_wire.rs`, `orchestrator.rs`, `claude_cli.rs`, `ProviderResponse`, `ollama.rs`, `Self`, `MagiBuilder`, `compose_transport_message`, `String`, `resolve_claude_alias`, `.new`, `CompletionConfig`, `MockProvider`, `ProviderRequest`, `provider_url.rs`, `SlowFailingProvider`, `rotation.rs`, `MockProbe`, `Magi`, `claude.rs`, `run_preflight`, `openai_compat.rs`?**
+  _High betweenness centrality (0.073) - this node is a cross-community bridge._
+- **Why does `MagiError` connect `validate.rs` to `prompts/mod.rs`, `consensus.rs`, `.build`, `build_with`, `LlmProvider`, `build_user_prompt`, `orchestrator.rs`, `user_prompt.rs`, `common/mod.rs`, `ProviderError`, `Lineage`, `runner.rs`, `Magi`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+- **What connects `check_packaged_consumer.sh script`, `melchior`, `report` to the rest of the system?**
   _244 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `test_support.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.10101010101010101 - nodes in this community are weakly interconnected._

@@ -15,7 +15,7 @@
     "semantic_hash": ""
   },
   "src/error.rs": {
-    "mtime": 1787517314.774888,
+    "mtime": 1787523254.5200827,
     "ast_hash": "a0194b4a3b8a82c7b8751feae0f9f8a3",
     "semantic_hash": ""
   },
@@ -25,8 +25,8 @@
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1787198968.5217388,
-    "ast_hash": "2286269ff2a7b216d22c4fa7fca93e06",
+    "mtime": 1787525899.7602682,
+    "ast_hash": "1f5a9cfca4892386601c34f95fbe4ded",
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
@@ -130,8 +130,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1787519726.1254332,
-    "ast_hash": "1be82cafb663a17752e61f8e147c7186",
+    "mtime": 1787524063.374859,
+    "ast_hash": "eb4574cfddaf2507d50fc5d8806e5a4a",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
@@ -665,8 +665,8 @@
     "semantic_hash": ""
   },
   "ci/run_all_checks.sh": {
-    "mtime": 1787517314.7482915,
-    "ast_hash": "8c89a5ff9859486643525f799950b356",
+    "mtime": 1787525899.7622707,
+    "ast_hash": "d2bda449234711ad53d1968c1adb1335",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern7builderalias_bad.rs": {
@@ -710,8 +710,8 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1787515849.7205377,
-    "ast_hash": "b742d10ae302a6ff4533716dec2d3631",
+    "mtime": 1787525924.3758478,
+    "ast_hash": "16436667f1d3a6ddd13177dacc71d9a6",
     "semantic_hash": ""
   },
   "smoke/Cargo.toml": {
@@ -720,8 +720,8 @@
     "semantic_hash": ""
   },
   "smoke/src/alias.rs": {
-    "mtime": 1787517314.7523015,
-    "ast_hash": "4f36be125e4733462b33a12bc52f0e94",
+    "mtime": 1787522335.2078853,
+    "ast_hash": "77ecaf182a2f077b9485bd24fd45b824",
     "semantic_hash": ""
   },
   "smoke/src/config.rs": {
@@ -740,8 +740,8 @@
     "semantic_hash": ""
   },
   "smoke/src/main.rs": {
-    "mtime": 1787517796.5401056,
-    "ast_hash": "aa6f621e85a3484a8a371fc36d3ffa36",
+    "mtime": 1787522335.2093875,
+    "ast_hash": "6f34a1a97d1ee48e3c3b41ca8fc81ddd",
     "semantic_hash": ""
   },
   "smoke/src/outcome.rs": {
@@ -780,8 +780,8 @@
     "semantic_hash": ""
   },
   "smoke/src/scenarios/mod.rs": {
-    "mtime": 1787517314.770384,
-    "ast_hash": "a02b72433c7bc195824f0e347dd76a06",
+    "mtime": 1787522335.2078853,
+    "ast_hash": "4ebce6ee45db39da7e25cb177c5085f2",
     "semantic_hash": ""
   },
   "smoke/src/testkit.rs": {
@@ -945,8 +945,8 @@
     "semantic_hash": ""
   },
   "ci/check_packaged_consumer.sh": {
-    "mtime": 1787519744.471109,
-    "ast_hash": "c10e4abbc57594b80ccdbe1b1b831049",
+    "mtime": 1787525899.7612677,
+    "ast_hash": "2453c866ce334094ad5db86e47217f54",
     "semantic_hash": ""
   }
 }

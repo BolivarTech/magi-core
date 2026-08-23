@@ -2704,10 +2704,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "changelog",
       "community": 108,
       "community_name": "Self",
-      "norm_label": "changelog.md"
+      "norm_label": "changelog.md",
+      "id": "changelog"
     },
     {
       "label": "MAGI-System-Documentation.md",
@@ -2770,10 +2770,10 @@
       "source_file": "README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "readme",
       "community": 108,
       "community_name": "Self",
-      "norm_label": "readme.md"
+      "norm_label": "readme.md",
+      "id": "readme"
     },
     {
       "label": "Barrier",
@@ -3735,10 +3735,10 @@
       "source_file": "README.md",
       "source_location": "L69",
       "_origin": "ast",
-      "id": "readme_basic_usage",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "basic usage"
+      "norm_label": "basic usage",
+      "id": "readme_basic_usage"
     },
     {
       "label": "Cost Control with Complexity Gate",
@@ -3746,10 +3746,10 @@
       "source_file": "README.md",
       "source_location": "L188",
       "_origin": "ast",
-      "id": "readme_cost_control_with_complexity_gate",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "cost control with complexity gate"
+      "norm_label": "cost control with complexity gate",
+      "id": "readme_cost_control_with_complexity_gate"
     },
     {
       "label": "Custom System Prompts",
@@ -3757,10 +3757,10 @@
       "source_file": "README.md",
       "source_location": "L111",
       "_origin": "ast",
-      "id": "readme_custom_system_prompts",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "custom system prompts"
+      "norm_label": "custom system prompts",
+      "id": "readme_custom_system_prompts"
     },
     {
       "label": "Quick Start",
@@ -3768,10 +3768,10 @@
       "source_file": "README.md",
       "source_location": "L55",
       "_origin": "ast",
-      "id": "readme_quick_start",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "quick start"
+      "norm_label": "quick start",
+      "id": "readme_quick_start"
     },
     {
       "label": "The Output Contract",
@@ -3779,10 +3779,10 @@
       "source_file": "README.md",
       "source_location": "L140",
       "_origin": "ast",
-      "id": "readme_the_output_contract",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "the output contract"
+      "norm_label": "the output contract",
+      "id": "readme_the_output_contract"
     },
     {
       "label": "Using the Built-in Claude CLI Provider",
@@ -3790,10 +3790,10 @@
       "source_file": "README.md",
       "source_location": "L265",
       "_origin": "ast",
-      "id": "readme_using_the_built_in_claude_cli_provider",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "using the built-in claude cli provider"
+      "norm_label": "using the built-in claude cli provider",
+      "id": "readme_using_the_built_in_claude_cli_provider"
     },
     {
       "label": "With Builder",
@@ -3801,10 +3801,10 @@
       "source_file": "README.md",
       "source_location": "L88",
       "_origin": "ast",
-      "id": "readme_with_builder",
       "community": 115,
       "community_name": "Sync",
-      "norm_label": "with builder"
+      "norm_label": "with builder",
+      "id": "readme_with_builder"
     },
     {
       "label": "openai_compat.rs",
@@ -7663,10 +7663,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "changelog_4_0_0_2026_08_23",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "[4.0.0] - 2026-08-23"
+      "norm_label": "[4.0.0] - 2026-08-23",
+      "id": "changelog_4_0_0_2026_08_23"
     },
     {
       "label": "Added",
@@ -7674,10 +7674,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L33",
       "_origin": "ast",
-      "id": "changelog_added",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added"
     },
     {
       "label": "Changed",
@@ -7685,10 +7685,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L96",
       "_origin": "ast",
-      "id": "changelog_changed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed"
     },
     {
       "label": "Fixed",
@@ -7696,10 +7696,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L166",
       "_origin": "ast",
-      "id": "changelog_fixed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed"
     },
     {
       "label": "Migration",
@@ -7707,10 +7707,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L179",
       "_origin": "ast",
-      "id": "changelog_migration",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "migration"
+      "norm_label": "migration",
+      "id": "changelog_migration"
     },
     {
       "label": "One story, not two: the completion budget and the time budget",
@@ -7718,10 +7718,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L9",
       "_origin": "ast",
-      "id": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "one story, not two: the completion budget and the time budget"
+      "norm_label": "one story, not two: the completion budget and the time budget",
+      "id": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget"
     },
     {
       "label": "Removed",
@@ -7729,10 +7729,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L151",
       "_origin": "ast",
-      "id": "changelog_removed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "removed"
+      "norm_label": "removed",
+      "id": "changelog_removed"
     },
     {
       "label": "The defect this release exists for",
@@ -7740,10 +7740,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L21",
       "_origin": "ast",
-      "id": "changelog_the_defect_this_release_exists_for",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-23",
-      "norm_label": "the defect this release exists for"
+      "norm_label": "the defect this release exists for",
+      "id": "changelog_the_defect_this_release_exists_for"
     },
     {
       "label": "Declaring fallbacks",
@@ -7751,10 +7751,10 @@
       "source_file": "README.md",
       "source_location": "L436",
       "_origin": "ast",
-      "id": "readme_declaring_fallbacks",
       "community": 166,
       "community_name": "Result",
-      "norm_label": "declaring fallbacks"
+      "norm_label": "declaring fallbacks",
+      "id": "readme_declaring_fallbacks"
     },
     {
       "label": "Model Rotation",
@@ -7762,10 +7762,10 @@
       "source_file": "README.md",
       "source_location": "L425",
       "_origin": "ast",
-      "id": "readme_model_rotation",
       "community": 166,
       "community_name": "Result",
-      "norm_label": "model rotation"
+      "norm_label": "model rotation",
+      "id": "readme_model_rotation"
     },
     {
       "label": "Ollama probe (feature `ollama`)",
@@ -7773,10 +7773,10 @@
       "source_file": "README.md",
       "source_location": "L488",
       "_origin": "ast",
-      "id": "readme_ollama_probe_feature_ollama",
       "community": 166,
       "community_name": "Result",
-      "norm_label": "ollama probe (feature `ollama`)"
+      "norm_label": "ollama probe (feature `ollama`)",
+      "id": "readme_ollama_probe_feature_ollama"
     },
     {
       "label": "What a rotation looks like",
@@ -7784,10 +7784,10 @@
       "source_file": "README.md",
       "source_location": "L478",
       "_origin": "ast",
-      "id": "readme_what_a_rotation_looks_like",
       "community": 166,
       "community_name": "Result",
-      "norm_label": "what a rotation looks like"
+      "norm_label": "what a rotation looks like",
+      "id": "readme_what_a_rotation_looks_like"
     },
     {
       "label": "[1.0.1] - 2026-05-25",
@@ -7795,10 +7795,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L675",
       "_origin": "ast",
-      "id": "changelog_1_0_1_2026_05_25",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "[1.0.1] - 2026-05-25"
+      "norm_label": "[1.0.1] - 2026-05-25",
+      "id": "changelog_1_0_1_2026_05_25"
     },
     {
       "label": "Fixed",
@@ -7806,10 +7806,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L677",
       "_origin": "ast",
-      "id": "changelog_fixed_677",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_677"
     },
     {
       "label": "Internal",
@@ -7817,10 +7817,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L686",
       "_origin": "ast",
-      "id": "changelog_internal",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "internal"
+      "norm_label": "internal",
+      "id": "changelog_internal"
     },
     {
       "label": "RunId",
@@ -8753,10 +8753,10 @@
       "source_file": "README.md",
       "source_location": "L282",
       "_origin": "ast",
-      "id": "readme_architecture",
       "community": 173,
       "community_name": "F",
-      "norm_label": "architecture"
+      "norm_label": "architecture",
+      "id": "readme_architecture"
     },
     {
       "label": "Module Dependency Graph",
@@ -8764,10 +8764,10 @@
       "source_file": "README.md",
       "source_location": "L306",
       "_origin": "ast",
-      "id": "readme_module_dependency_graph",
       "community": 173,
       "community_name": "F",
-      "norm_label": "module dependency graph"
+      "norm_label": "module dependency graph",
+      "id": "readme_module_dependency_graph"
     },
     {
       "label": "Prompt Injection Defense",
@@ -8775,10 +8775,10 @@
       "source_file": "README.md",
       "source_location": "L327",
       "_origin": "ast",
-      "id": "readme_prompt_injection_defense",
       "community": 173,
       "community_name": "F",
-      "norm_label": "prompt injection defense"
+      "norm_label": "prompt injection defense",
+      "id": "readme_prompt_injection_defense"
     },
     {
       "label": "TcpListener",
@@ -13197,10 +13197,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L473",
       "_origin": "ast",
-      "id": "changelog_2_2_0_2026_07_27",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "[2.2.0] - 2026-07-27"
+      "norm_label": "[2.2.0] - 2026-07-27",
+      "id": "changelog_2_2_0_2026_07_27"
     },
     {
       "label": "Changed",
@@ -13208,10 +13208,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L525",
       "_origin": "ast",
-      "id": "changelog_changed_525",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_525"
     },
     {
       "label": "Fixed",
@@ -13219,10 +13219,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L490",
       "_origin": "ast",
-      "id": "changelog_fixed_490",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_490"
     },
     {
       "label": "AgentName",
@@ -15969,10 +15969,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "smoke_readme",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "smoke/readme.md"
+      "norm_label": "smoke/readme.md",
+      "id": "smoke_readme"
     },
     {
       "label": "10. `cargo audit` for the harness",
@@ -15980,10 +15980,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L353",
       "_origin": "ast",
-      "id": "smoke_readme_10_cargo_audit_for_the_harness",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "10. `cargo audit` for the harness"
+      "norm_label": "10. `cargo audit` for the harness",
+      "id": "smoke_readme_10_cargo_audit_for_the_harness"
     },
     {
       "label": "11. The reproduction that justifies the harness",
@@ -15991,10 +15991,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L367",
       "_origin": "ast",
-      "id": "smoke_readme_11_the_reproduction_that_justifies_the_harness",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "11. the reproduction that justifies the harness"
+      "norm_label": "11. the reproduction that justifies the harness",
+      "id": "smoke_readme_11_the_reproduction_that_justifies_the_harness"
     },
     {
       "label": "1. Three exit codes, and the difference between two of them",
@@ -16002,10 +16002,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L12",
       "_origin": "ast",
-      "id": "smoke_readme_1_three_exit_codes_and_the_difference_between_two_of_them",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "1. three exit codes, and the difference between two of them"
+      "norm_label": "1. three exit codes, and the difference between two of them",
+      "id": "smoke_readme_1_three_exit_codes_and_the_difference_between_two_of_them"
     },
     {
       "label": "2. Two dependency modes",
@@ -16013,10 +16013,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L40",
       "_origin": "ast",
-      "id": "smoke_readme_2_two_dependency_modes",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "2. two dependency modes"
+      "norm_label": "2. two dependency modes",
+      "id": "smoke_readme_2_two_dependency_modes"
     },
     {
       "label": "3. What the proxy does, and why its red is never the crate's",
@@ -16024,10 +16024,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L94",
       "_origin": "ast",
-      "id": "smoke_readme_3_what_the_proxy_does_and_why_its_red_is_never_the_crate_s",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "3. what the proxy does, and why its red is never the crate's"
+      "norm_label": "3. what the proxy does, and why its red is never the crate's",
+      "id": "smoke_readme_3_what_the_proxy_does_and_why_its_red_is_never_the_crate_s"
     },
     {
       "label": "4. The contention probe, and its declared scope",
@@ -16035,10 +16035,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L117",
       "_origin": "ast",
-      "id": "smoke_readme_4_the_contention_probe_and_its_declared_scope",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "4. the contention probe, and its declared scope"
+      "norm_label": "4. the contention probe, and its declared scope",
+      "id": "smoke_readme_4_the_contention_probe_and_its_declared_scope"
     },
     {
       "label": "5. Where it fits in the cycle",
@@ -16046,10 +16046,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L142",
       "_origin": "ast",
-      "id": "smoke_readme_5_where_it_fits_in_the_cycle",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "5. where it fits in the cycle"
+      "norm_label": "5. where it fits in the cycle",
+      "id": "smoke_readme_5_where_it_fits_in_the_cycle"
     },
     {
       "label": "6. Cost per run",
@@ -16057,10 +16057,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L170",
       "_origin": "ast",
-      "id": "smoke_readme_6_cost_per_run",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "6. cost per run"
+      "norm_label": "6. cost per run",
+      "id": "smoke_readme_6_cost_per_run"
     },
     {
       "label": "7. The coverage cliff: several SKIPs sharing a run-id are ONE failure",
@@ -16068,10 +16068,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L202",
       "_origin": "ast",
-      "id": "smoke_readme_7_the_coverage_cliff_several_skips_sharing_a_run_id_are_one_failure",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "7. the coverage cliff: several skips sharing a run-id are one failure"
+      "norm_label": "7. the coverage cliff: several skips sharing a run-id are one failure",
+      "id": "smoke_readme_7_the_coverage_cliff_several_skips_sharing_a_run_id_are_one_failure"
     },
     {
       "label": "8. Known limitations",
@@ -16079,10 +16079,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L211",
       "_origin": "ast",
-      "id": "smoke_readme_8_known_limitations",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "8. known limitations"
+      "norm_label": "8. known limitations",
+      "id": "smoke_readme_8_known_limitations"
     },
     {
       "label": "9.1 What the answers-nothing stub actually tested, which was nothing",
@@ -16090,10 +16090,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L312",
       "_origin": "ast",
-      "id": "smoke_readme_9_1_what_the_answers_nothing_stub_actually_tested_which_was_nothing",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "9.1 what the answers-nothing stub actually tested, which was nothing"
+      "norm_label": "9.1 what the answers-nothing stub actually tested, which was nothing",
+      "id": "smoke_readme_9_1_what_the_answers_nothing_stub_actually_tested_which_was_nothing"
     },
     {
       "label": "9. Running it \u2014 six invocations, not one",
@@ -16101,10 +16101,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L245",
       "_origin": "ast",
-      "id": "smoke_readme_9_running_it_six_invocations_not_one",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "9. running it \u2014 six invocations, not one"
+      "norm_label": "9. running it \u2014 six invocations, not one",
+      "id": "smoke_readme_9_running_it_six_invocations_not_one"
     },
     {
       "label": "magi-smoke \u2014 the smoke harness",
@@ -16112,10 +16112,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "smoke_readme_magi_smoke_the_smoke_harness",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "magi-smoke \u2014 the smoke harness"
+      "norm_label": "magi-smoke \u2014 the smoke harness",
+      "id": "smoke_readme_magi_smoke_the_smoke_harness"
     },
     {
       "label": "The slow stub the saturated-endpoint invocation needs",
@@ -16123,10 +16123,10 @@
       "source_file": "smoke/README.md",
       "source_location": "L260",
       "_origin": "ast",
-      "id": "smoke_readme_the_slow_stub_the_saturated_endpoint_invocation_needs",
       "community": 220,
       "community_name": "magi-smoke \u2014 the smoke harness",
-      "norm_label": "the slow stub the saturated-endpoint invocation needs"
+      "norm_label": "the slow stub the saturated-endpoint invocation needs",
+      "id": "smoke_readme_the_slow_stub_the_saturated_endpoint_invocation_needs"
     },
     {
       "label": "ScenarioState",
@@ -17116,10 +17116,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L588",
       "_origin": "ast",
-      "id": "changelog_2_0_0_2026_07_25",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "[2.0.0] - 2026-07-25"
+      "norm_label": "[2.0.0] - 2026-07-25",
+      "id": "changelog_2_0_0_2026_07_25"
     },
     {
       "label": "Added",
@@ -17127,10 +17127,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L612",
       "_origin": "ast",
-      "id": "changelog_added_612",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_612"
     },
     {
       "label": "BREAKING",
@@ -17138,10 +17138,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L593",
       "_origin": "ast",
-      "id": "changelog_breaking_593",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "breaking"
+      "norm_label": "breaking",
+      "id": "changelog_breaking_593"
     },
     {
       "label": "Changed",
@@ -17149,10 +17149,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L624",
       "_origin": "ast",
-      "id": "changelog_changed_624",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_624"
     },
     {
       "label": "Output",
@@ -17644,10 +17644,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L658",
       "_origin": "ast",
-      "id": "changelog_1_1_0_2026_05_25",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "[1.1.0] - 2026-05-25"
+      "norm_label": "[1.1.0] - 2026-05-25",
+      "id": "changelog_1_1_0_2026_05_25"
     },
     {
       "label": "Added",
@@ -17655,10 +17655,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L660",
       "_origin": "ast",
-      "id": "changelog_added_660",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_660"
     },
     {
       "label": "Notes",
@@ -17666,10 +17666,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L668",
       "_origin": "ast",
-      "id": "changelog_notes_668",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes_668"
     },
     {
       "label": "B",
@@ -18879,10 +18879,10 @@
       "source_location": "L1",
       "version": "0.1.0",
       "_origin": "ast",
-      "id": "pkg_magi_smoke",
       "community": 243,
       "community_name": "magi-smoke",
-      "norm_label": "magi-smoke"
+      "norm_label": "magi-smoke",
+      "id": "pkg_magi_smoke"
     },
     {
       "label": "Self",
@@ -20038,10 +20038,10 @@
         "kind": "file"
       },
       "_origin": "ast",
+      "id": "ci_run_all_checks",
       "community": 263,
       "community_name": "Duration",
-      "norm_label": "run_all_checks.sh",
-      "id": "ci_run_all_checks"
+      "norm_label": "run_all_checks.sh"
     },
     {
       "label": "run_all_checks.sh script",
@@ -20053,25 +20053,25 @@
         "kind": "bash_entrypoint"
       },
       "_origin": "ast",
+      "id": "ci_run_all_checks_sh__entry",
       "community": 263,
       "community_name": "Duration",
-      "norm_label": "run_all_checks.sh script",
-      "id": "ci_run_all_checks_sh__entry"
+      "norm_label": "run_all_checks.sh script"
     },
     {
       "label": "step()",
       "file_type": "code",
       "source_file": "ci/run_all_checks.sh",
-      "source_location": "L45",
+      "source_location": "L50",
       "metadata": {
         "language": "bash",
         "kind": "bash_function"
       },
       "_origin": "ast",
+      "id": "ci_run_all_checks_step",
       "community": 263,
       "community_name": "Duration",
-      "norm_label": "step()",
-      "id": "ci_run_all_checks_step"
+      "norm_label": "step()"
     },
     {
       "label": "pattern0boundary_bad.rs",
@@ -20233,10 +20233,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L329",
       "_origin": "ast",
-      "id": "changelog_3_0_2_2026_07_30",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "[3.0.2] - 2026-07-30"
+      "norm_label": "[3.0.2] - 2026-07-30",
+      "id": "changelog_3_0_2_2026_07_30"
     },
     {
       "label": "Changed",
@@ -20244,10 +20244,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L342",
       "_origin": "ast",
-      "id": "changelog_changed_342",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_342"
     },
     {
       "label": "Fixed",
@@ -20255,10 +20255,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L335",
       "_origin": "ast",
-      "id": "changelog_fixed_335",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_335"
     },
     {
       "label": "ProviderUrl",
@@ -20794,10 +20794,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L795",
       "_origin": "ast",
-      "id": "changelog_0_5_0_2026_05_16",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "[0.5.0] - 2026-05-16"
+      "norm_label": "[0.5.0] - 2026-05-16",
+      "id": "changelog_0_5_0_2026_05_16"
     },
     {
       "label": "Added",
@@ -20805,10 +20805,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L797",
       "_origin": "ast",
-      "id": "changelog_added_797",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_797"
     },
     {
       "label": "Backward compatibility",
@@ -20816,10 +20816,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L853",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility_853",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility_853"
     },
     {
       "label": "Changed (breaking)",
@@ -20827,10 +20827,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L819",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_819",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_819"
     },
     {
       "label": "Documentation",
@@ -20838,10 +20838,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L834",
       "_origin": "ast",
-      "id": "changelog_documentation",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "documentation"
+      "norm_label": "documentation",
+      "id": "changelog_documentation"
     },
     {
       "label": "Performance",
@@ -20849,10 +20849,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L826",
       "_origin": "ast",
-      "id": "changelog_performance",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "performance"
+      "norm_label": "performance",
+      "id": "changelog_performance"
     },
     {
       "label": "Pre-merge gates (CLAUDE.local.md \u00a76)",
@@ -20860,10 +20860,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L863",
       "_origin": "ast",
-      "id": "changelog_pre_merge_gates_claude_local_md_6_863",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "pre-merge gates (claude.local.md \u00a76)"
+      "norm_label": "pre-merge gates (claude.local.md \u00a76)",
+      "id": "changelog_pre_merge_gates_claude_local_md_6_863"
     },
     {
       "label": "Test count",
@@ -20871,10 +20871,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L844",
       "_origin": "ast",
-      "id": "changelog_test_count_844",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count_844"
     },
     {
       "label": "CompletionConfig",
@@ -24281,10 +24281,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1046",
       "_origin": "ast",
-      "id": "changelog_0_2_0_2026_04_18",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "[0.2.0] - 2026-04-18"
+      "norm_label": "[0.2.0] - 2026-04-18",
+      "id": "changelog_0_2_0_2026_04_18"
     },
     {
       "label": "Added",
@@ -24292,10 +24292,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1096",
       "_origin": "ast",
-      "id": "changelog_added_1096",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_1096"
     },
     {
       "label": "Changed (breaking)",
@@ -24303,10 +24303,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1048",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_1048",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_1048"
     },
     {
       "label": "Dependencies",
@@ -24314,10 +24314,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1122",
       "_origin": "ast",
-      "id": "changelog_dependencies_1122",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "dependencies"
+      "norm_label": "dependencies",
+      "id": "changelog_dependencies_1122"
     },
     {
       "label": "Deprecated",
@@ -24325,10 +24325,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1112",
       "_origin": "ast",
-      "id": "changelog_deprecated",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "deprecated"
+      "norm_label": "deprecated",
+      "id": "changelog_deprecated"
     },
     {
       "label": "Not included (deferred to v0.3.0)",
@@ -24336,10 +24336,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1128",
       "_origin": "ast",
-      "id": "changelog_not_included_deferred_to_v0_3_0",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "not included (deferred to v0.3.0)"
+      "norm_label": "not included (deferred to v0.3.0)",
+      "id": "changelog_not_included_deferred_to_v0_3_0"
     },
     {
       "label": "Security considerations",
@@ -24347,10 +24347,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1083",
       "_origin": "ast",
-      "id": "changelog_security_considerations_1083",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "security considerations"
+      "norm_label": "security considerations",
+      "id": "changelog_security_considerations_1083"
     },
     {
       "label": "pattern5nestedwatched_bad.rs",
@@ -24787,10 +24787,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L352",
       "_origin": "ast",
-      "id": "changelog_3_0_1_2026_07_30",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "[3.0.1] - 2026-07-30"
+      "norm_label": "[3.0.1] - 2026-07-30",
+      "id": "changelog_3_0_1_2026_07_30"
     },
     {
       "label": "Changed",
@@ -24798,10 +24798,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L375",
       "_origin": "ast",
-      "id": "changelog_changed_375",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_375"
     },
     {
       "label": "Fixed",
@@ -24809,10 +24809,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L358",
       "_origin": "ast",
-      "id": "changelog_fixed_358",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_358"
     },
     {
       "label": "Notes",
@@ -24820,10 +24820,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L384",
       "_origin": "ast",
-      "id": "changelog_notes",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes"
     },
     {
       "label": "ExternalErrorKind",
@@ -25227,10 +25227,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L868",
       "_origin": "ast",
-      "id": "changelog_0_4_0_2026_05_16",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "[0.4.0] - 2026-05-16"
+      "norm_label": "[0.4.0] - 2026-05-16",
+      "id": "changelog_0_4_0_2026_05_16"
     },
     {
       "label": "Added",
@@ -25238,10 +25238,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L870",
       "_origin": "ast",
-      "id": "changelog_added_870",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_870"
     },
     {
       "label": "Backward compatibility",
@@ -25249,10 +25249,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L928",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility_928",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility_928"
     },
     {
       "label": "Changed",
@@ -25260,10 +25260,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L898",
       "_origin": "ast",
-      "id": "changelog_changed_898",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_898"
     },
     {
       "label": "Documentation",
@@ -25271,10 +25271,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L943",
       "_origin": "ast",
-      "id": "changelog_documentation_943",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "documentation"
+      "norm_label": "documentation",
+      "id": "changelog_documentation_943"
     },
     {
       "label": "Performance",
@@ -25282,10 +25282,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L935",
       "_origin": "ast",
-      "id": "changelog_performance_935",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "performance"
+      "norm_label": "performance",
+      "id": "changelog_performance_935"
     },
     {
       "label": "Test count",
@@ -25293,10 +25293,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L950",
       "_origin": "ast",
-      "id": "changelog_test_count_950",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count_950"
     },
     {
       "label": "FinishReason",
@@ -26481,10 +26481,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L744",
       "_origin": "ast",
-      "id": "changelog_0_6_0_2026_05_21",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "[0.6.0] - 2026-05-21"
+      "norm_label": "[0.6.0] - 2026-05-21",
+      "id": "changelog_0_6_0_2026_05_21"
     },
     {
       "label": "Backward compatibility",
@@ -26492,10 +26492,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L771",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility"
     },
     {
       "label": "Changed",
@@ -26503,10 +26503,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L746",
       "_origin": "ast",
-      "id": "changelog_changed_746",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_746"
     },
     {
       "label": "Pre-merge gates (CLAUDE.local.md \u00a76)",
@@ -26514,10 +26514,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L788",
       "_origin": "ast",
-      "id": "changelog_pre_merge_gates_claude_local_md_6",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "pre-merge gates (claude.local.md \u00a76)"
+      "norm_label": "pre-merge gates (claude.local.md \u00a76)",
+      "id": "changelog_pre_merge_gates_claude_local_md_6"
     },
     {
       "label": "Security",
@@ -26525,10 +26525,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L761",
       "_origin": "ast",
-      "id": "changelog_security_761",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security_761"
     },
     {
       "label": "Test count",
@@ -26536,10 +26536,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L779",
       "_origin": "ast",
-      "id": "changelog_test_count",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count"
     },
     {
       "label": "Lineage",
@@ -26646,10 +26646,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L693",
       "_origin": "ast",
-      "id": "changelog_1_0_0_2026_05_24",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "[1.0.0] - 2026-05-24"
+      "norm_label": "[1.0.0] - 2026-05-24",
+      "id": "changelog_1_0_0_2026_05_24"
     },
     {
       "label": "Added",
@@ -26657,10 +26657,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L699",
       "_origin": "ast",
-      "id": "changelog_added_699",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_699"
     },
     {
       "label": "Changed (breaking)",
@@ -26668,10 +26668,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L718",
       "_origin": "ast",
-      "id": "changelog_changed_breaking",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking"
     },
     {
       "label": "Notes",
@@ -26679,10 +26679,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L737",
       "_origin": "ast",
-      "id": "changelog_notes_737",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes_737"
     },
     {
       "label": "Security",
@@ -26690,10 +26690,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L729",
       "_origin": "ast",
-      "id": "changelog_security_729",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security_729"
     },
     {
       "label": "MagiError",
@@ -28682,10 +28682,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1133",
       "_origin": "ast",
-      "id": "changelog_0_1_2_2026_04_05",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[0.1.2] - 2026-04-05"
+      "norm_label": "[0.1.2] - 2026-04-05",
+      "id": "changelog_0_1_2_2026_04_05"
     },
     {
       "label": "[0.3.1] - 2026-04-19",
@@ -28693,10 +28693,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L957",
       "_origin": "ast",
-      "id": "changelog_0_3_1_2026_04_19",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[0.3.1] - 2026-04-19"
+      "norm_label": "[0.3.1] - 2026-04-19",
+      "id": "changelog_0_3_1_2026_04_19"
     },
     {
       "label": "[2.1.0] - 2026-07-27",
@@ -28704,10 +28704,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L545",
       "_origin": "ast",
-      "id": "changelog_2_1_0_2026_07_27",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[2.1.0] - 2026-07-27"
+      "norm_label": "[2.1.0] - 2026-07-27",
+      "id": "changelog_2_1_0_2026_07_27"
     },
     {
       "label": "[3.2.0] - 2026-08-10",
@@ -28715,10 +28715,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L187",
       "_origin": "ast",
-      "id": "changelog_3_2_0_2026_08_10",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[3.2.0] - 2026-08-10"
+      "norm_label": "[3.2.0] - 2026-08-10",
+      "id": "changelog_3_2_0_2026_08_10"
     },
     {
       "label": "Added",
@@ -28726,10 +28726,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L189",
       "_origin": "ast",
-      "id": "changelog_added_189",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_189"
     },
     {
       "label": "Added",
@@ -28737,10 +28737,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L551",
       "_origin": "ast",
-      "id": "changelog_added_551",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_551"
     },
     {
       "label": "Changelog",
@@ -28748,10 +28748,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "changelog_changelog",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "changelog"
+      "norm_label": "changelog",
+      "id": "changelog_changelog"
     },
     {
       "label": "Compatibility",
@@ -28759,10 +28759,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L581",
       "_origin": "ast",
-      "id": "changelog_compatibility",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "compatibility"
+      "norm_label": "compatibility",
+      "id": "changelog_compatibility"
     },
     {
       "label": "Fixed",
@@ -28770,10 +28770,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L235",
       "_origin": "ast",
-      "id": "changelog_fixed_235",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_235"
     },
     {
       "label": "Fixed",
@@ -28781,10 +28781,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L959",
       "_origin": "ast",
-      "id": "changelog_fixed_959",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_959"
     },
     {
       "label": "Yanked",
@@ -28792,10 +28792,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L968",
       "_origin": "ast",
-      "id": "changelog_yanked",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "yanked"
+      "norm_label": "yanked",
+      "id": "changelog_yanked"
     },
     {
       "label": "RetryClass",
@@ -29837,10 +29837,10 @@
       "source_file": "README.md",
       "source_location": "L577",
       "_origin": "ast",
-      "id": "readme_changelog",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "changelog"
+      "norm_label": "changelog",
+      "id": "readme_changelog"
     },
     {
       "label": "Consensus Labels",
@@ -29848,10 +29848,10 @@
       "source_file": "README.md",
       "source_location": "L359",
       "_origin": "ast",
-      "id": "readme_consensus_labels",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "consensus labels"
+      "norm_label": "consensus labels",
+      "id": "readme_consensus_labels"
     },
     {
       "label": "Contribution",
@@ -29859,10 +29859,10 @@
       "source_file": "README.md",
       "source_location": "L590",
       "_origin": "ast",
-      "id": "readme_contribution",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "contribution"
+      "norm_label": "contribution",
+      "id": "readme_contribution"
     },
     {
       "label": "Credentials in a provider URL",
@@ -29870,10 +29870,10 @@
       "source_file": "README.md",
       "source_location": "L509",
       "_origin": "ast",
-      "id": "readme_credentials_in_a_provider_url",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "credentials in a provider url"
+      "norm_label": "credentials in a provider url",
+      "id": "readme_credentials_in_a_provider_url"
     },
     {
       "label": "Example",
@@ -29881,10 +29881,10 @@
       "source_file": "README.md",
       "source_location": "L561",
       "_origin": "ast",
-      "id": "readme_example",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "example"
+      "norm_label": "example",
+      "id": "readme_example"
     },
     {
       "label": "Feature Flags",
@@ -29892,10 +29892,10 @@
       "source_file": "README.md",
       "source_location": "L548",
       "_origin": "ast",
-      "id": "readme_feature_flags",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "feature flags"
+      "norm_label": "feature flags",
+      "id": "readme_feature_flags"
     },
     {
       "label": "Features",
@@ -29903,10 +29903,10 @@
       "source_file": "README.md",
       "source_location": "L25",
       "_origin": "ast",
-      "id": "readme_features",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "features"
+      "norm_label": "features",
+      "id": "readme_features"
     },
     {
       "label": "Implementing a Custom Provider",
@@ -29914,10 +29914,10 @@
       "source_file": "README.md",
       "source_location": "L374",
       "_origin": "ast",
-      "id": "readme_implementing_a_custom_provider",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "implementing a custom provider"
+      "norm_label": "implementing a custom provider",
+      "id": "readme_implementing_a_custom_provider"
     },
     {
       "label": "Implementing your own provider",
@@ -29925,10 +29925,10 @@
       "source_file": "README.md",
       "source_location": "L531",
       "_origin": "ast",
-      "id": "readme_implementing_your_own_provider",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "implementing your own provider"
+      "norm_label": "implementing your own provider",
+      "id": "readme_implementing_your_own_provider"
     },
     {
       "label": "License",
@@ -29936,10 +29936,10 @@
       "source_file": "README.md",
       "source_location": "L581",
       "_origin": "ast",
-      "id": "readme_license",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "license"
+      "norm_label": "license",
+      "id": "readme_license"
     },
     {
       "label": "magi-core",
@@ -29947,10 +29947,10 @@
       "source_file": "README.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "readme_magi_core",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "magi-core"
+      "norm_label": "magi-core",
+      "id": "readme_magi_core"
     },
     {
       "label": "Minimum Supported Rust Version",
@@ -29958,10 +29958,10 @@
       "source_file": "README.md",
       "source_location": "L573",
       "_origin": "ast",
-      "id": "readme_minimum_supported_rust_version",
       "community": 41,
       "community_name": "magi-core",
-      "norm_label": "minimum supported rust version"
+      "norm_label": "minimum supported rust version",
+      "id": "readme_minimum_supported_rust_version"
     },
     {
       "label": "MagiReport",
@@ -31740,10 +31740,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L635",
       "_origin": "ast",
-      "id": "changelog_1_1_1_2026_07_17",
       "community": 446,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "[1.1.1] - 2026-07-17"
+      "norm_label": "[1.1.1] - 2026-07-17",
+      "id": "changelog_1_1_1_2026_07_17"
     },
     {
       "label": "Changed",
@@ -31751,10 +31751,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L648",
       "_origin": "ast",
-      "id": "changelog_changed_648",
       "community": 446,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_648"
     },
     {
       "label": "Fixed",
@@ -31762,10 +31762,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L637",
       "_origin": "ast",
-      "id": "changelog_fixed_637",
       "community": 446,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_637"
     },
     {
       "label": "LlmProvider",
@@ -33871,10 +33871,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L975",
       "_origin": "ast",
-      "id": "changelog_0_3_0_2026_04_18",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "[0.3.0] - 2026-04-18"
+      "norm_label": "[0.3.0] - 2026-04-18",
+      "id": "changelog_0_3_0_2026_04_18"
     },
     {
       "label": "Added",
@@ -33882,10 +33882,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1001",
       "_origin": "ast",
-      "id": "changelog_added_1001",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_1001"
     },
     {
       "label": "Changed (breaking)",
@@ -33893,10 +33893,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L977",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_977",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_977"
     },
     {
       "label": "Dependencies",
@@ -33904,10 +33904,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1034",
       "_origin": "ast",
-      "id": "changelog_dependencies",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "dependencies"
+      "norm_label": "dependencies",
+      "id": "changelog_dependencies"
     },
     {
       "label": "Not included (deferred beyond v0.3.0)",
@@ -33915,10 +33915,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1039",
       "_origin": "ast",
-      "id": "changelog_not_included_deferred_beyond_v0_3_0",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "not included (deferred beyond v0.3.0)"
+      "norm_label": "not included (deferred beyond v0.3.0)",
+      "id": "changelog_not_included_deferred_beyond_v0_3_0"
     },
     {
       "label": "Security considerations",
@@ -33926,10 +33926,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1013",
       "_origin": "ast",
-      "id": "changelog_security_considerations",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "security considerations"
+      "norm_label": "security considerations",
+      "id": "changelog_security_considerations"
     },
     {
       "label": "pattern5testmod_good.rs",
@@ -34982,10 +34982,10 @@
       "source_file": "src/lib.rs",
       "source_location": "L1",
       "_origin": "ast",
+      "id": "src_lib",
       "community": 63,
-      "norm_label": "lib.rs",
       "community_name": "lib.rs",
-      "id": "src_lib"
+      "norm_label": "lib.rs"
     },
     {
       "label": "pattern5braced_good.rs",
@@ -37468,10 +37468,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L389",
       "_origin": "ast",
-      "id": "changelog_3_0_0_2026_07_30",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "[3.0.0] - 2026-07-30"
+      "norm_label": "[3.0.0] - 2026-07-30",
+      "id": "changelog_3_0_0_2026_07_30"
     },
     {
       "label": "Added",
@@ -37479,10 +37479,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L440",
       "_origin": "ast",
-      "id": "changelog_added_440",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_440"
     },
     {
       "label": "BREAKING",
@@ -37490,10 +37490,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L412",
       "_origin": "ast",
-      "id": "changelog_breaking",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "breaking"
+      "norm_label": "breaking",
+      "id": "changelog_breaking"
     },
     {
       "label": "Changed",
@@ -37501,10 +37501,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L466",
       "_origin": "ast",
-      "id": "changelog_changed_466",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_466"
     },
     {
       "label": "check_redaction.sh",
@@ -39117,10 +39117,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L244",
       "_origin": "ast",
-      "id": "changelog_3_1_0_2026_07_31",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "[3.1.0] - 2026-07-31"
+      "norm_label": "[3.1.0] - 2026-07-31",
+      "id": "changelog_3_1_0_2026_07_31"
     },
     {
       "label": "Changed",
@@ -39128,10 +39128,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L292",
       "_origin": "ast",
-      "id": "changelog_changed_292",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_292"
     },
     {
       "label": "Documented",
@@ -39139,10 +39139,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L316",
       "_origin": "ast",
-      "id": "changelog_documented",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "documented"
+      "norm_label": "documented",
+      "id": "changelog_documented"
     },
     {
       "label": "Fixed",
@@ -39150,10 +39150,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L264",
       "_origin": "ast",
-      "id": "changelog_fixed_264",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_264"
     },
     {
       "label": "Security",
@@ -39161,10 +39161,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L246",
       "_origin": "ast",
-      "id": "changelog_security",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security"
     },
     {
       "label": "pattern2b_bad.rs",
@@ -40570,13 +40570,13 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/run_all_checks.sh",
-      "source_location": "L66",
+      "source_location": "L71",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_run_all_checks_sh__entry",
-      "target": "ci_run_all_checks_step"
+      "target": "ci_run_all_checks_step",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -102973,9 +102973,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog",
-      "target": "changelog_changelog",
-      "confidence_score": 1.0
+      "target": "changelog_changelog"
     },
     {
       "relation": "contains",
@@ -102984,9 +102984,9 @@
       "source_location": "L1048",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_changed_breaking_1048",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_1048"
     },
     {
       "relation": "contains",
@@ -102995,9 +102995,9 @@
       "source_location": "L1083",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_security_considerations_1083",
-      "confidence_score": 1.0
+      "target": "changelog_security_considerations_1083"
     },
     {
       "relation": "contains",
@@ -103006,9 +103006,9 @@
       "source_location": "L1096",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_added_1096",
-      "confidence_score": 1.0
+      "target": "changelog_added_1096"
     },
     {
       "relation": "contains",
@@ -103017,9 +103017,9 @@
       "source_location": "L1112",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_deprecated",
-      "confidence_score": 1.0
+      "target": "changelog_deprecated"
     },
     {
       "relation": "contains",
@@ -103028,9 +103028,9 @@
       "source_location": "L1122",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_dependencies_1122",
-      "confidence_score": 1.0
+      "target": "changelog_dependencies_1122"
     },
     {
       "relation": "contains",
@@ -103039,9 +103039,9 @@
       "source_location": "L1128",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_not_included_deferred_to_v0_3_0",
-      "confidence_score": 1.0
+      "target": "changelog_not_included_deferred_to_v0_3_0"
     },
     {
       "relation": "contains",
@@ -103050,9 +103050,9 @@
       "source_location": "L1001",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_added_1001",
-      "confidence_score": 1.0
+      "target": "changelog_added_1001"
     },
     {
       "relation": "contains",
@@ -103061,9 +103061,9 @@
       "source_location": "L1013",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_security_considerations",
-      "confidence_score": 1.0
+      "target": "changelog_security_considerations"
     },
     {
       "relation": "contains",
@@ -103072,9 +103072,9 @@
       "source_location": "L1034",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_dependencies",
-      "confidence_score": 1.0
+      "target": "changelog_dependencies"
     },
     {
       "relation": "contains",
@@ -103083,9 +103083,9 @@
       "source_location": "L1039",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_not_included_deferred_beyond_v0_3_0",
-      "confidence_score": 1.0
+      "target": "changelog_not_included_deferred_beyond_v0_3_0"
     },
     {
       "relation": "contains",
@@ -103094,9 +103094,9 @@
       "source_location": "L977",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_changed_breaking_977",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_977"
     },
     {
       "relation": "contains",
@@ -103105,9 +103105,9 @@
       "source_location": "L959",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_1_2026_04_19",
-      "target": "changelog_fixed_959",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_959"
     },
     {
       "relation": "contains",
@@ -103116,9 +103116,9 @@
       "source_location": "L968",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_1_2026_04_19",
-      "target": "changelog_yanked",
-      "confidence_score": 1.0
+      "target": "changelog_yanked"
     },
     {
       "relation": "contains",
@@ -103127,9 +103127,9 @@
       "source_location": "L870",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_added_870",
-      "confidence_score": 1.0
+      "target": "changelog_added_870"
     },
     {
       "relation": "contains",
@@ -103138,9 +103138,9 @@
       "source_location": "L898",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_changed_898",
-      "confidence_score": 1.0
+      "target": "changelog_changed_898"
     },
     {
       "relation": "contains",
@@ -103149,9 +103149,9 @@
       "source_location": "L928",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_backward_compatibility_928",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility_928"
     },
     {
       "relation": "contains",
@@ -103160,9 +103160,9 @@
       "source_location": "L935",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_performance_935",
-      "confidence_score": 1.0
+      "target": "changelog_performance_935"
     },
     {
       "relation": "contains",
@@ -103171,9 +103171,9 @@
       "source_location": "L943",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_documentation_943",
-      "confidence_score": 1.0
+      "target": "changelog_documentation_943"
     },
     {
       "relation": "contains",
@@ -103182,9 +103182,9 @@
       "source_location": "L950",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_test_count_950",
-      "confidence_score": 1.0
+      "target": "changelog_test_count_950"
     },
     {
       "relation": "contains",
@@ -103193,9 +103193,9 @@
       "source_location": "L797",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_added_797",
-      "confidence_score": 1.0
+      "target": "changelog_added_797"
     },
     {
       "relation": "contains",
@@ -103204,9 +103204,9 @@
       "source_location": "L819",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_changed_breaking_819",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_819"
     },
     {
       "relation": "contains",
@@ -103215,9 +103215,9 @@
       "source_location": "L826",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_performance",
-      "confidence_score": 1.0
+      "target": "changelog_performance"
     },
     {
       "relation": "contains",
@@ -103226,9 +103226,9 @@
       "source_location": "L834",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_documentation",
-      "confidence_score": 1.0
+      "target": "changelog_documentation"
     },
     {
       "relation": "contains",
@@ -103237,9 +103237,9 @@
       "source_location": "L844",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_test_count_844",
-      "confidence_score": 1.0
+      "target": "changelog_test_count_844"
     },
     {
       "relation": "contains",
@@ -103248,9 +103248,9 @@
       "source_location": "L853",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_backward_compatibility_853",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility_853"
     },
     {
       "relation": "contains",
@@ -103259,9 +103259,9 @@
       "source_location": "L863",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_pre_merge_gates_claude_local_md_6_863",
-      "confidence_score": 1.0
+      "target": "changelog_pre_merge_gates_claude_local_md_6_863"
     },
     {
       "relation": "contains",
@@ -103270,9 +103270,9 @@
       "source_location": "L746",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_changed_746",
-      "confidence_score": 1.0
+      "target": "changelog_changed_746"
     },
     {
       "relation": "contains",
@@ -103281,9 +103281,9 @@
       "source_location": "L761",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_security_761",
-      "confidence_score": 1.0
+      "target": "changelog_security_761"
     },
     {
       "relation": "contains",
@@ -103292,9 +103292,9 @@
       "source_location": "L771",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_backward_compatibility",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility"
     },
     {
       "relation": "contains",
@@ -103303,9 +103303,9 @@
       "source_location": "L779",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_test_count",
-      "confidence_score": 1.0
+      "target": "changelog_test_count"
     },
     {
       "relation": "contains",
@@ -103314,9 +103314,9 @@
       "source_location": "L788",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_pre_merge_gates_claude_local_md_6",
-      "confidence_score": 1.0
+      "target": "changelog_pre_merge_gates_claude_local_md_6"
     },
     {
       "relation": "contains",
@@ -103325,9 +103325,9 @@
       "source_location": "L699",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_added_699",
-      "confidence_score": 1.0
+      "target": "changelog_added_699"
     },
     {
       "relation": "contains",
@@ -103336,9 +103336,9 @@
       "source_location": "L718",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_changed_breaking",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking"
     },
     {
       "relation": "contains",
@@ -103347,9 +103347,9 @@
       "source_location": "L729",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_security_729",
-      "confidence_score": 1.0
+      "target": "changelog_security_729"
     },
     {
       "relation": "contains",
@@ -103358,9 +103358,9 @@
       "source_location": "L737",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_notes_737",
-      "confidence_score": 1.0
+      "target": "changelog_notes_737"
     },
     {
       "relation": "contains",
@@ -103369,9 +103369,9 @@
       "source_location": "L677",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_1_2026_05_25",
-      "target": "changelog_fixed_677",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_677"
     },
     {
       "relation": "contains",
@@ -103380,9 +103380,9 @@
       "source_location": "L686",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_1_2026_05_25",
-      "target": "changelog_internal",
-      "confidence_score": 1.0
+      "target": "changelog_internal"
     },
     {
       "relation": "contains",
@@ -103391,9 +103391,9 @@
       "source_location": "L660",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_0_2026_05_25",
-      "target": "changelog_added_660",
-      "confidence_score": 1.0
+      "target": "changelog_added_660"
     },
     {
       "relation": "contains",
@@ -103402,9 +103402,9 @@
       "source_location": "L668",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_0_2026_05_25",
-      "target": "changelog_notes_668",
-      "confidence_score": 1.0
+      "target": "changelog_notes_668"
     },
     {
       "relation": "contains",
@@ -103413,9 +103413,9 @@
       "source_location": "L637",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_1_2026_07_17",
-      "target": "changelog_fixed_637",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_637"
     },
     {
       "relation": "contains",
@@ -103424,9 +103424,9 @@
       "source_location": "L648",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_1_2026_07_17",
-      "target": "changelog_changed_648",
-      "confidence_score": 1.0
+      "target": "changelog_changed_648"
     },
     {
       "relation": "contains",
@@ -103435,9 +103435,9 @@
       "source_location": "L593",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_breaking_593",
-      "confidence_score": 1.0
+      "target": "changelog_breaking_593"
     },
     {
       "relation": "contains",
@@ -103446,9 +103446,9 @@
       "source_location": "L612",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_added_612",
-      "confidence_score": 1.0
+      "target": "changelog_added_612"
     },
     {
       "relation": "contains",
@@ -103457,9 +103457,9 @@
       "source_location": "L624",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_changed_624",
-      "confidence_score": 1.0
+      "target": "changelog_changed_624"
     },
     {
       "relation": "contains",
@@ -103468,9 +103468,9 @@
       "source_location": "L551",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_1_0_2026_07_27",
-      "target": "changelog_added_551",
-      "confidence_score": 1.0
+      "target": "changelog_added_551"
     },
     {
       "relation": "contains",
@@ -103479,9 +103479,9 @@
       "source_location": "L581",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_1_0_2026_07_27",
-      "target": "changelog_compatibility",
-      "confidence_score": 1.0
+      "target": "changelog_compatibility"
     },
     {
       "relation": "contains",
@@ -103490,9 +103490,9 @@
       "source_location": "L490",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_2_0_2026_07_27",
-      "target": "changelog_fixed_490",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_490"
     },
     {
       "relation": "contains",
@@ -103501,9 +103501,9 @@
       "source_location": "L525",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_2_0_2026_07_27",
-      "target": "changelog_changed_525",
-      "confidence_score": 1.0
+      "target": "changelog_changed_525"
     },
     {
       "relation": "contains",
@@ -103512,9 +103512,9 @@
       "source_location": "L412",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_breaking",
-      "confidence_score": 1.0
+      "target": "changelog_breaking"
     },
     {
       "relation": "contains",
@@ -103523,9 +103523,9 @@
       "source_location": "L440",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_added_440",
-      "confidence_score": 1.0
+      "target": "changelog_added_440"
     },
     {
       "relation": "contains",
@@ -103534,9 +103534,9 @@
       "source_location": "L466",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_changed_466",
-      "confidence_score": 1.0
+      "target": "changelog_changed_466"
     },
     {
       "relation": "contains",
@@ -103545,9 +103545,9 @@
       "source_location": "L358",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_fixed_358",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_358"
     },
     {
       "relation": "contains",
@@ -103556,9 +103556,9 @@
       "source_location": "L375",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_changed_375",
-      "confidence_score": 1.0
+      "target": "changelog_changed_375"
     },
     {
       "relation": "contains",
@@ -103567,9 +103567,9 @@
       "source_location": "L384",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_notes",
-      "confidence_score": 1.0
+      "target": "changelog_notes"
     },
     {
       "relation": "contains",
@@ -103578,9 +103578,9 @@
       "source_location": "L335",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_2_2026_07_30",
-      "target": "changelog_fixed_335",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_335"
     },
     {
       "relation": "contains",
@@ -103589,9 +103589,9 @@
       "source_location": "L342",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_2_2026_07_30",
-      "target": "changelog_changed_342",
-      "confidence_score": 1.0
+      "target": "changelog_changed_342"
     },
     {
       "relation": "contains",
@@ -103600,9 +103600,9 @@
       "source_location": "L246",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_security",
-      "confidence_score": 1.0
+      "target": "changelog_security"
     },
     {
       "relation": "contains",
@@ -103611,9 +103611,9 @@
       "source_location": "L264",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_fixed_264",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_264"
     },
     {
       "relation": "contains",
@@ -103622,9 +103622,9 @@
       "source_location": "L292",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_changed_292",
-      "confidence_score": 1.0
+      "target": "changelog_changed_292"
     },
     {
       "relation": "contains",
@@ -103633,9 +103633,9 @@
       "source_location": "L316",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_documented",
-      "confidence_score": 1.0
+      "target": "changelog_documented"
     },
     {
       "relation": "contains",
@@ -103644,9 +103644,9 @@
       "source_location": "L189",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_2_0_2026_08_10",
-      "target": "changelog_added_189",
-      "confidence_score": 1.0
+      "target": "changelog_added_189"
     },
     {
       "relation": "contains",
@@ -103655,9 +103655,9 @@
       "source_location": "L235",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_2_0_2026_08_10",
-      "target": "changelog_fixed_235",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_235"
     },
     {
       "relation": "contains",
@@ -103666,9 +103666,9 @@
       "source_location": "L151",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_removed",
-      "confidence_score": 1.0
+      "target": "changelog_removed"
     },
     {
       "relation": "contains",
@@ -103677,9 +103677,9 @@
       "source_location": "L166",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_fixed",
-      "confidence_score": 1.0
+      "target": "changelog_fixed"
     },
     {
       "relation": "contains",
@@ -103688,9 +103688,9 @@
       "source_location": "L179",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_migration",
-      "confidence_score": 1.0
+      "target": "changelog_migration"
     },
     {
       "relation": "contains",
@@ -103699,9 +103699,9 @@
       "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_the_defect_this_release_exists_for",
-      "confidence_score": 1.0
+      "target": "changelog_the_defect_this_release_exists_for"
     },
     {
       "relation": "contains",
@@ -103710,9 +103710,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_added",
-      "confidence_score": 1.0
+      "target": "changelog_added"
     },
     {
       "relation": "contains",
@@ -103721,9 +103721,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget",
-      "confidence_score": 1.0
+      "target": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget"
     },
     {
       "relation": "contains",
@@ -103732,9 +103732,9 @@
       "source_location": "L96",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_23",
-      "target": "changelog_changed",
-      "confidence_score": 1.0
+      "target": "changelog_changed"
     },
     {
       "relation": "contains",
@@ -103743,9 +103743,9 @@
       "source_location": "L1046",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_2_0_2026_04_18",
-      "confidence_score": 1.0
+      "target": "changelog_0_2_0_2026_04_18"
     },
     {
       "relation": "contains",
@@ -103754,9 +103754,9 @@
       "source_location": "L1133",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_1_2_2026_04_05",
-      "confidence_score": 1.0
+      "target": "changelog_0_1_2_2026_04_05"
     },
     {
       "relation": "contains",
@@ -103765,9 +103765,9 @@
       "source_location": "L187",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_2_0_2026_08_10",
-      "confidence_score": 1.0
+      "target": "changelog_3_2_0_2026_08_10"
     },
     {
       "relation": "contains",
@@ -103776,9 +103776,9 @@
       "source_location": "L244",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_1_0_2026_07_31",
-      "confidence_score": 1.0
+      "target": "changelog_3_1_0_2026_07_31"
     },
     {
       "relation": "contains",
@@ -103787,9 +103787,9 @@
       "source_location": "L329",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_2_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_2_2026_07_30"
     },
     {
       "relation": "contains",
@@ -103798,9 +103798,9 @@
       "source_location": "L352",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_1_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_1_2026_07_30"
     },
     {
       "relation": "contains",
@@ -103809,9 +103809,9 @@
       "source_location": "L389",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_0_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_0_2026_07_30"
     },
     {
       "relation": "contains",
@@ -103820,9 +103820,9 @@
       "source_location": "L473",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_2_0_2026_07_27",
-      "confidence_score": 1.0
+      "target": "changelog_2_2_0_2026_07_27"
     },
     {
       "relation": "contains",
@@ -103831,9 +103831,9 @@
       "source_location": "L545",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_1_0_2026_07_27",
-      "confidence_score": 1.0
+      "target": "changelog_2_1_0_2026_07_27"
     },
     {
       "relation": "contains",
@@ -103842,9 +103842,9 @@
       "source_location": "L588",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_0_0_2026_07_25",
-      "confidence_score": 1.0
+      "target": "changelog_2_0_0_2026_07_25"
     },
     {
       "relation": "contains",
@@ -103853,9 +103853,9 @@
       "source_location": "L635",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_1_1_2026_07_17",
-      "confidence_score": 1.0
+      "target": "changelog_1_1_1_2026_07_17"
     },
     {
       "relation": "contains",
@@ -103864,9 +103864,9 @@
       "source_location": "L658",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_1_0_2026_05_25",
-      "confidence_score": 1.0
+      "target": "changelog_1_1_0_2026_05_25"
     },
     {
       "relation": "contains",
@@ -103875,9 +103875,9 @@
       "source_location": "L675",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_0_1_2026_05_25",
-      "confidence_score": 1.0
+      "target": "changelog_1_0_1_2026_05_25"
     },
     {
       "relation": "contains",
@@ -103886,9 +103886,9 @@
       "source_location": "L693",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_0_0_2026_05_24",
-      "confidence_score": 1.0
+      "target": "changelog_1_0_0_2026_05_24"
     },
     {
       "relation": "contains",
@@ -103897,9 +103897,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_4_0_0_2026_08_23",
-      "confidence_score": 1.0
+      "target": "changelog_4_0_0_2026_08_23"
     },
     {
       "relation": "contains",
@@ -103908,9 +103908,9 @@
       "source_location": "L744",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_6_0_2026_05_21",
-      "confidence_score": 1.0
+      "target": "changelog_0_6_0_2026_05_21"
     },
     {
       "relation": "contains",
@@ -103919,9 +103919,9 @@
       "source_location": "L795",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_5_0_2026_05_16",
-      "confidence_score": 1.0
+      "target": "changelog_0_5_0_2026_05_16"
     },
     {
       "relation": "contains",
@@ -103930,9 +103930,9 @@
       "source_location": "L868",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_4_0_2026_05_16",
-      "confidence_score": 1.0
+      "target": "changelog_0_4_0_2026_05_16"
     },
     {
       "relation": "contains",
@@ -103941,9 +103941,9 @@
       "source_location": "L957",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_3_1_2026_04_19",
-      "confidence_score": 1.0
+      "target": "changelog_0_3_1_2026_04_19"
     },
     {
       "relation": "contains",
@@ -103952,9 +103952,9 @@
       "source_location": "L975",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_3_0_2026_04_18",
-      "confidence_score": 1.0
+      "target": "changelog_0_3_0_2026_04_18"
     },
     {
       "relation": "contains",
@@ -105426,9 +105426,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_run_all_checks",
-      "target": "ci_run_all_checks_sh__entry"
+      "target": "ci_run_all_checks_sh__entry",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -106196,9 +106196,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme",
-      "target": "readme_magi_core",
-      "confidence_score": 1.0
+      "target": "readme_magi_core"
     },
     {
       "relation": "contains",
@@ -106207,9 +106207,9 @@
       "source_location": "L306",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_architecture",
-      "target": "readme_module_dependency_graph",
-      "confidence_score": 1.0
+      "target": "readme_module_dependency_graph"
     },
     {
       "relation": "contains",
@@ -106218,9 +106218,9 @@
       "source_location": "L327",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_architecture",
-      "target": "readme_prompt_injection_defense",
-      "confidence_score": 1.0
+      "target": "readme_prompt_injection_defense"
     },
     {
       "relation": "contains",
@@ -106229,9 +106229,9 @@
       "source_location": "L590",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_license",
-      "target": "readme_contribution",
-      "confidence_score": 1.0
+      "target": "readme_contribution"
     },
     {
       "relation": "contains",
@@ -106240,9 +106240,9 @@
       "source_location": "L25",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_features",
-      "confidence_score": 1.0
+      "target": "readme_features"
     },
     {
       "relation": "contains",
@@ -106251,9 +106251,9 @@
       "source_location": "L282",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_architecture",
-      "confidence_score": 1.0
+      "target": "readme_architecture"
     },
     {
       "relation": "contains",
@@ -106262,9 +106262,9 @@
       "source_location": "L359",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_consensus_labels",
-      "confidence_score": 1.0
+      "target": "readme_consensus_labels"
     },
     {
       "relation": "contains",
@@ -106273,9 +106273,9 @@
       "source_location": "L374",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_implementing_a_custom_provider",
-      "confidence_score": 1.0
+      "target": "readme_implementing_a_custom_provider"
     },
     {
       "relation": "contains",
@@ -106284,9 +106284,9 @@
       "source_location": "L425",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_model_rotation",
-      "confidence_score": 1.0
+      "target": "readme_model_rotation"
     },
     {
       "relation": "contains",
@@ -106295,9 +106295,9 @@
       "source_location": "L509",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_credentials_in_a_provider_url",
-      "confidence_score": 1.0
+      "target": "readme_credentials_in_a_provider_url"
     },
     {
       "relation": "contains",
@@ -106306,9 +106306,9 @@
       "source_location": "L531",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_implementing_your_own_provider",
-      "confidence_score": 1.0
+      "target": "readme_implementing_your_own_provider"
     },
     {
       "relation": "contains",
@@ -106317,9 +106317,9 @@
       "source_location": "L548",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_feature_flags",
-      "confidence_score": 1.0
+      "target": "readme_feature_flags"
     },
     {
       "relation": "contains",
@@ -106328,9 +106328,9 @@
       "source_location": "L55",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_quick_start",
-      "confidence_score": 1.0
+      "target": "readme_quick_start"
     },
     {
       "relation": "contains",
@@ -106339,9 +106339,9 @@
       "source_location": "L561",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_example",
-      "confidence_score": 1.0
+      "target": "readme_example"
     },
     {
       "relation": "contains",
@@ -106350,9 +106350,9 @@
       "source_location": "L573",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_minimum_supported_rust_version",
-      "confidence_score": 1.0
+      "target": "readme_minimum_supported_rust_version"
     },
     {
       "relation": "contains",
@@ -106361,9 +106361,9 @@
       "source_location": "L577",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_changelog",
-      "confidence_score": 1.0
+      "target": "readme_changelog"
     },
     {
       "relation": "contains",
@@ -106372,9 +106372,9 @@
       "source_location": "L581",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_magi_core",
-      "target": "readme_license",
-      "confidence_score": 1.0
+      "target": "readme_license"
     },
     {
       "relation": "contains",
@@ -106383,9 +106383,9 @@
       "source_location": "L436",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_model_rotation",
-      "target": "readme_declaring_fallbacks",
-      "confidence_score": 1.0
+      "target": "readme_declaring_fallbacks"
     },
     {
       "relation": "contains",
@@ -106394,9 +106394,9 @@
       "source_location": "L478",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_model_rotation",
-      "target": "readme_what_a_rotation_looks_like",
-      "confidence_score": 1.0
+      "target": "readme_what_a_rotation_looks_like"
     },
     {
       "relation": "contains",
@@ -106405,9 +106405,9 @@
       "source_location": "L488",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_model_rotation",
-      "target": "readme_ollama_probe_feature_ollama",
-      "confidence_score": 1.0
+      "target": "readme_ollama_probe_feature_ollama"
     },
     {
       "relation": "contains",
@@ -106416,9 +106416,9 @@
       "source_location": "L111",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_custom_system_prompts",
-      "confidence_score": 1.0
+      "target": "readme_custom_system_prompts"
     },
     {
       "relation": "contains",
@@ -106427,9 +106427,9 @@
       "source_location": "L140",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_the_output_contract",
-      "confidence_score": 1.0
+      "target": "readme_the_output_contract"
     },
     {
       "relation": "contains",
@@ -106438,9 +106438,9 @@
       "source_location": "L188",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_cost_control_with_complexity_gate",
-      "confidence_score": 1.0
+      "target": "readme_cost_control_with_complexity_gate"
     },
     {
       "relation": "contains",
@@ -106449,9 +106449,9 @@
       "source_location": "L265",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_using_the_built_in_claude_cli_provider",
-      "confidence_score": 1.0
+      "target": "readme_using_the_built_in_claude_cli_provider"
     },
     {
       "relation": "contains",
@@ -106460,9 +106460,9 @@
       "source_location": "L69",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_basic_usage",
-      "confidence_score": 1.0
+      "target": "readme_basic_usage"
     },
     {
       "relation": "contains",
@@ -106471,9 +106471,9 @@
       "source_location": "L88",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme_quick_start",
-      "target": "readme_with_builder",
-      "confidence_score": 1.0
+      "target": "readme_with_builder"
     },
     {
       "relation": "contains",
@@ -106482,9 +106482,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme",
-      "target": "smoke_readme_magi_smoke_the_smoke_harness",
-      "confidence_score": 1.0
+      "target": "smoke_readme_magi_smoke_the_smoke_harness"
     },
     {
       "relation": "contains",
@@ -106493,9 +106493,9 @@
       "source_location": "L260",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_9_running_it_six_invocations_not_one",
-      "target": "smoke_readme_the_slow_stub_the_saturated_endpoint_invocation_needs",
-      "confidence_score": 1.0
+      "target": "smoke_readme_the_slow_stub_the_saturated_endpoint_invocation_needs"
     },
     {
       "relation": "contains",
@@ -106504,9 +106504,9 @@
       "source_location": "L312",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_9_running_it_six_invocations_not_one",
-      "target": "smoke_readme_9_1_what_the_answers_nothing_stub_actually_tested_which_was_nothing",
-      "confidence_score": 1.0
+      "target": "smoke_readme_9_1_what_the_answers_nothing_stub_actually_tested_which_was_nothing"
     },
     {
       "relation": "contains",
@@ -106515,9 +106515,9 @@
       "source_location": "L117",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_4_the_contention_probe_and_its_declared_scope",
-      "confidence_score": 1.0
+      "target": "smoke_readme_4_the_contention_probe_and_its_declared_scope"
     },
     {
       "relation": "contains",
@@ -106526,9 +106526,9 @@
       "source_location": "L12",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_1_three_exit_codes_and_the_difference_between_two_of_them",
-      "confidence_score": 1.0
+      "target": "smoke_readme_1_three_exit_codes_and_the_difference_between_two_of_them"
     },
     {
       "relation": "contains",
@@ -106537,9 +106537,9 @@
       "source_location": "L142",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_5_where_it_fits_in_the_cycle",
-      "confidence_score": 1.0
+      "target": "smoke_readme_5_where_it_fits_in_the_cycle"
     },
     {
       "relation": "contains",
@@ -106548,9 +106548,9 @@
       "source_location": "L170",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_6_cost_per_run",
-      "confidence_score": 1.0
+      "target": "smoke_readme_6_cost_per_run"
     },
     {
       "relation": "contains",
@@ -106559,9 +106559,9 @@
       "source_location": "L202",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_7_the_coverage_cliff_several_skips_sharing_a_run_id_are_one_failure",
-      "confidence_score": 1.0
+      "target": "smoke_readme_7_the_coverage_cliff_several_skips_sharing_a_run_id_are_one_failure"
     },
     {
       "relation": "contains",
@@ -106570,9 +106570,9 @@
       "source_location": "L211",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_8_known_limitations",
-      "confidence_score": 1.0
+      "target": "smoke_readme_8_known_limitations"
     },
     {
       "relation": "contains",
@@ -106581,9 +106581,9 @@
       "source_location": "L245",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_9_running_it_six_invocations_not_one",
-      "confidence_score": 1.0
+      "target": "smoke_readme_9_running_it_six_invocations_not_one"
     },
     {
       "relation": "contains",
@@ -106592,9 +106592,9 @@
       "source_location": "L353",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_10_cargo_audit_for_the_harness",
-      "confidence_score": 1.0
+      "target": "smoke_readme_10_cargo_audit_for_the_harness"
     },
     {
       "relation": "contains",
@@ -106603,9 +106603,9 @@
       "source_location": "L367",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_11_the_reproduction_that_justifies_the_harness",
-      "confidence_score": 1.0
+      "target": "smoke_readme_11_the_reproduction_that_justifies_the_harness"
     },
     {
       "relation": "contains",
@@ -106614,9 +106614,9 @@
       "source_location": "L40",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_2_two_dependency_modes",
-      "confidence_score": 1.0
+      "target": "smoke_readme_2_two_dependency_modes"
     },
     {
       "relation": "contains",
@@ -106625,9 +106625,9 @@
       "source_location": "L94",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
-      "target": "smoke_readme_3_what_the_proxy_does_and_why_its_red_is_never_the_crate_s",
-      "confidence_score": 1.0
+      "target": "smoke_readme_3_what_the_proxy_does_and_why_its_red_is_never_the_crate_s"
     },
     {
       "relation": "contains",
@@ -127962,12 +127962,12 @@
       "relation": "defines",
       "confidence": "EXTRACTED",
       "source_file": "ci/run_all_checks.sh",
-      "source_location": "L45",
+      "source_location": "L50",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_run_all_checks",
-      "target": "ci_run_all_checks_step"
+      "target": "ci_run_all_checks_step",
+      "confidence_score": 1.0
     },
     {
       "relation": "defines",
@@ -134048,9 +134048,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme",
-      "target": "docs_magi_system_documentation",
-      "confidence_score": 1.0
+      "target": "docs_magi_system_documentation"
     },
     {
       "relation": "references",
@@ -134059,9 +134059,9 @@
       "source_location": "L579",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "readme",
-      "target": "changelog",
-      "confidence_score": 1.0
+      "target": "changelog"
     },
     {
       "relation": "calls",
@@ -135469,5 +135469,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "32c3f89d7c4d904d5a1073694dc34326359a5070"
+  "built_at_commit": "3ff59c24c49251881b6711aa04823cf867eb2cc4"
 }
