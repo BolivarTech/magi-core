@@ -4,7 +4,7 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.0.0] - Unreleased
+## [4.0.0] - 2026-08-23
 
 ### One story, not two: the completion budget and the time budget
 
@@ -18,7 +18,51 @@ wall clock a futile chain burns (~36 s per attempt at 4096 against ~87 s at 1638
 deep). That is what made the time defaults, whose incoherence predates this release, impossible
 to leave alone.
 
+### The defect this release exists for
+
+A reasoning model, against a large payload, spent its whole output budget reasoning and returned
+`content: ""` with `finish_reason: "length"`. The crate never read `finish_reason`, turned that
+into an HTTP error carrying a synthetic status of zero, and from there into a **transport**
+failure — which condemns a lineage **run-wide**, taking it from the other two mages over what one
+mage had seen. The operator was told "transport" and went to look at a network that had answered
+`HTTP 200` perfectly.
+
+**A contract failure had been wearing an HTTP error's clothes**, and inherited run-wide semantics
+by carrying the wrong type. That is what this release removes.
+
+### Removed
+
+- **`ProviderError::Http { status: 0 }` no longer exists.** The synthetic status is deleted
+  outright, so `Http.status` now only ever holds a real HTTP status — which makes lineage
+  condemnation honest **by construction** rather than by comment.
+
+  Response-contract failures split by **consequence**, not by case: `ResponseContract` (the
+  endpoint returned something unusable) and `EmptyCompletion` (the model produced no content) are
+  both **mage-local**, while `NoGeneration` — the backend accepted the request and generated
+  nothing, with the token counters **absent** rather than zero — is raised to
+  `MagiError::CrateDefect` and **aborts the run**. A defect of ours must not hide in
+  `failed_agents`, where model failures land every day.
+
+- **`ClaudeProvider::parse_response` is gone**, absorbed by the shared completion path.
+
 ### Added
+
+- **`CompletionConfig::reasoning` — a `ReasoningControl`, and a provider that cannot honour it
+  DECLARES so** rather than ignoring it in silence. The declaration travels as a typed state in
+  the telemetry, distinguishable from "supported, and the model did not reason". Failing instead
+  would break a heterogeneous trio where the consumer only wanted the channel off where it could
+  be; what was never acceptable is doing it silently.
+
+- **`MagiReport.completions` — one record per completion ATTEMPT**, not only the ones that were
+  cut. Model, termination reason, cap in force, tokens spent and the reasoning state. Records
+  rather than counters: with rotation, *which model* is the question that decides what leaves the
+  pool. Recording every one is what tells a consumer **how close** it came, which is the blindness
+  this whole release came out of — `4096` did not fail suddenly, it had been scraping by.
+
+- **`reasoning_trace`, opt-in and additive.** Off, the report carries the trace's **length**; on,
+  the length **and** its text. The length never disappears. Turning it on accepts four things,
+  stated in its rustdoc: the text is the model's, it does not pass the `Validator`, it is not
+  redacted, and it is unbounded — up to ~141 k characters per agent, multiplied by rotation.
 
 - **`MagiReport.pool_eligibility` — which fallback candidates each seat could NOT have rotated
   into, and why.** One row per seat per pool candidate, with `causes` empty meaning eligible.
@@ -81,6 +125,42 @@ to leave alone.
   warns if you try. Consequence worth knowing: `Network` is both attempt-limited and the only
   class feeding the endpoint-down latch, so with rotation engaged a lineage reaches that verdict
   in half the attempts — the threshold is unchanged, the wall clock to reach it is not.
+
+- **`LlmProvider::complete()` returns `Completion`, not `String`.** The trait break that gave
+  telemetry a channel: nothing else could carry the termination reason, the tokens spent, the cap
+  in force and whether the backend even supports a reasoning control. An outside implementor
+  migrates with **two** changes — the signature and the return (`Ok(text.into())`) — and reports
+  `NotMeasured`, never zeros. A zero that means "could not measure" is the same lie a defaulted
+  `estimated_tokens: 0` would be.
+
+- **`OllamaProvider` completes on native `/api/chat`, unconditionally**, and its
+  `OpenAiCompatibleProvider` wrapper is gone. Measured, not assumed: `think: false` is **inert**
+  on the `/v1` compatibility layer and effective natively — 602 tokens and a valid verdict in
+  7.7 s, against 32 768 tokens and nothing in 2 m 13 s. Shipping the flag on `/v1` would have
+  shipped a knob that appears to work.
+
+  Unconditional rather than routed, because a second mode shipped into a public surface costs
+  another major to remove, so it does not get removed. `OpenAiCompatibleProvider` is untouched and
+  remains the path for OpenAI cloud, LocalAI, vLLM, LM Studio and llama.cpp-server.
+
+- **`RotationKind` is typed per cause and `#[non_exhaustive]`, with `is_mage_local()`.** Three
+  causes were mage-local while reporting `Transport`, which everywhere else means the run was
+  condemned; `3.1.0` carried the distinction in a `mage-local:` prefix inside a `detail` string
+  because a frozen enum allowed nothing better. **That prefix is gone.** The accessor is not
+  sugar: with `#[non_exhaustive]` a consumer must write a `_ =>` arm, and that arm would classify
+  the next cause into the wrong category with nothing failing.
+
+- **`CompletionConfig::max_tokens` defaults to `16_384`, up from `4096`.** Not hygiene for its own
+  sake: `glm-5.2` needed **4 864** completion tokens for a valid verdict on a 62k payload, so the
+  old default truncated a legitimate verdict from a model that is not even the pathological case.
+  In a degraded run captured before this change, the second candidate of a seat's rotation chain
+  is **measured converging** at both 8 192 and 16 384 — that run would have been 3/3 instead of
+  2/3.
+
+  **The Anthropic provider forwards this value without clamping**, and the per-model output
+  ceiling varies. The three aliases this crate resolves are all 4.x and sit far above it, so a
+  consumer on the default configuration cannot trip on this; a consumer pinning a literal pre-4.x
+  model id and never touching `max_tokens` can. See the migration guide.
 
 ### Fixed
 
