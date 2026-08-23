@@ -3660,6 +3660,29 @@ mod tests {
         assert_eq!(budget_window(300, 5), 306..611);
     }
 
+    /// A sub-second `base_delay` MOVES the floor; the guard must not round it away.
+    ///
+    /// `budget_window` took whole seconds, so a `base_delay` of 500 ms collapsed into the same
+    /// window as a `base_delay` of ZERO, and a budget genuinely below the floor drew no warning.
+    /// The blind band is under a second wide on a 300 s scale — which is exactly why it would
+    /// never be found by reading the output, only by asserting the property.
+    #[test]
+    fn the_floor_guard_does_not_round_a_sub_second_base_delay_away() {
+        // Shipped `ct` of 300 s and a 500 ms base delay put the floor at 301.5 s, so 301 s is
+        // below it and must warn. Truncation moves that floor to 301 s and the warning vanishes.
+        let c = RetryConfig {
+            base_delay: Duration::from_millis(500),
+            operation_budget: Duration::from_secs(301),
+            ..Default::default()
+        };
+        assert!(
+            c.dangerous_settings()
+                .iter()
+                .any(|w| w.contains("second attempt")),
+            "301s is below the 301.5s floor a 500ms base_delay implies, and must warn"
+        );
+    }
+
     /// A budget INSIDE the window says nothing — the crate must not warn about itself.
     #[test]
     fn a_budget_inside_the_window_says_nothing() {
