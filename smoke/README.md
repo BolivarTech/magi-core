@@ -199,6 +199,59 @@ share a run. Naming the cost is better than quietly weakening one of them.
 size but never analysed, because no assertion read it — the only honest claim available before
 the telemetry that would justify running it existed. It exists now.
 
+## 6.1 Which models to run it with — cheap every time but the last
+
+**Two rules, and the second one is not "use the expensive ones".**
+
+**1. Every ordinary run uses the cheapest models that still exercise the property under test.**
+That covers SMOKE #1 and every working iteration of SMOKE #2. The harness hits a real backend, so
+every run is billed, and it is run many times per milestone. An ordinary run exists to answer
+*does the code do what it says* — a cheap model answers that as well as an expensive one.
+
+**The restriction is part of the rule, not a caveat on it:** cheap that does NOT exercise the
+property is not economy, it is a scenario that proves nothing. `S11` needs a model that actually
+reasons; a model that never does turns that row green by omission.
+
+**The axis is COST, not locality.** Local models are one way to be cheap; economical `:cloud`
+tags are equally valid and are often the better pick — faster, no VRAM, and they leave the local
+GPU free. Mixing local and cloud in one trio is fine.
+
+**2. The LAST run of SMOKE #2 — the one that emits the certificate — uses the PRODUCT DEFAULTS.**
+No profile, no override.
+
+**The criterion is not the price.** It is that a certificate has to certify **the configuration
+the user actually receives**. That the defaults happen to be the expensive models is a
+consequence, not the motive.
+
+### The hard invariant
+
+**Only the run with the defaults emits a certificate.** A cheap-profile run never certifies,
+however green it comes back. `docs/test/smoke-certificate.md` records the models it ran with, so
+a certificate produced any other way is a document that describes a configuration nobody ships.
+
+### The corollary, which is accepted rather than hidden
+
+A scenario that passes **only** with the defaults is certified by that run and by no other. It is
+declared in the cheap profile with its cause written down. And the reverse case is information
+about the PROFILE, not a regression in the product: **a scenario that fails only under the cheap
+profile says something about the profile**, and the report has to say it that way.
+
+**A deterministic red with a written cause beats an intermittent one.** The cheap profile declares
+what it expects to fail and why; a different red, or an unexpected green, means something changed
+and deserves reading. An intermittent one gets rationalised, then ignored, and then the whole gate
+gets skipped.
+
+**Never declare a cheap model without having MEASURED it against the real prompts.** The failure
+modes are specific and cannot be guessed: one model never reasons, another ignores the flag that
+turns reasoning off, another truncates once in three. And **model tables do not transfer between
+projects** — the prompts are different.
+
+### Not to be confused with the MAGI gate's economy
+
+The review panel that gates a merge (`/magi:magi`) **keeps its expensive models deliberately**.
+It judges architecture, and a cheap judge there costs a defect in `main`. Nothing in this section
+applies to it. Confusing the two economies is the mistake this paragraph exists to prevent.
+
 ## 7. The coverage cliff: several SKIPs sharing a run-id are ONE failure
 
 Scenarios share runs. When a shared run does not produce a report, every scenario reading it
