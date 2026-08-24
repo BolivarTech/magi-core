@@ -2291,10 +2291,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "changelog",
       "community": 108,
       "community_name": "Self",
-      "norm_label": "changelog.md"
+      "norm_label": "changelog.md",
+      "id": "changelog"
     },
     {
       "label": "MAGI-System-Documentation.md",
@@ -6997,10 +6997,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L7",
       "_origin": "ast",
-      "id": "changelog_4_0_0_2026_08_24",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "[4.0.0] - 2026-08-24"
+      "norm_label": "[4.0.0] - 2026-08-24",
+      "id": "changelog_4_0_0_2026_08_24"
     },
     {
       "label": "Added",
@@ -7008,10 +7008,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L33",
       "_origin": "ast",
-      "id": "changelog_added",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added"
     },
     {
       "label": "Changed",
@@ -7019,10 +7019,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L100",
       "_origin": "ast",
-      "id": "changelog_changed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed"
     },
     {
       "label": "Fixed",
@@ -7030,10 +7030,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L175",
       "_origin": "ast",
-      "id": "changelog_fixed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed"
     },
     {
       "label": "Migration",
@@ -7041,10 +7041,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L188",
       "_origin": "ast",
-      "id": "changelog_migration",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "migration"
+      "norm_label": "migration",
+      "id": "changelog_migration"
     },
     {
       "label": "One story, not two: the completion budget and the time budget",
@@ -7052,10 +7052,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L9",
       "_origin": "ast",
-      "id": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "one story, not two: the completion budget and the time budget"
+      "norm_label": "one story, not two: the completion budget and the time budget",
+      "id": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget"
     },
     {
       "label": "Removed",
@@ -7063,10 +7063,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L160",
       "_origin": "ast",
-      "id": "changelog_removed",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "removed"
+      "norm_label": "removed",
+      "id": "changelog_removed"
     },
     {
       "label": "The defect this release exists for",
@@ -7074,10 +7074,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L21",
       "_origin": "ast",
-      "id": "changelog_the_defect_this_release_exists_for",
       "community": 165,
       "community_name": "[4.0.0] - 2026-08-24",
-      "norm_label": "the defect this release exists for"
+      "norm_label": "the defect this release exists for",
+      "id": "changelog_the_defect_this_release_exists_for"
     },
     {
       "label": "Declaring fallbacks",
@@ -7129,10 +7129,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L684",
       "_origin": "ast",
-      "id": "changelog_1_0_1_2026_05_25",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "[1.0.1] - 2026-05-25"
+      "norm_label": "[1.0.1] - 2026-05-25",
+      "id": "changelog_1_0_1_2026_05_25"
     },
     {
       "label": "Fixed",
@@ -7140,10 +7140,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L686",
       "_origin": "ast",
-      "id": "changelog_fixed_686",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_686"
     },
     {
       "label": "Internal",
@@ -7151,10 +7151,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L695",
       "_origin": "ast",
-      "id": "changelog_internal",
       "community": 167,
       "community_name": "[1.0.1] - 2026-05-25",
-      "norm_label": "internal"
+      "norm_label": "internal",
+      "id": "changelog_internal"
     },
     {
       "label": "e1_contains_exactly_the_scenarios_valid_against_3_2_0()",
@@ -12300,10 +12300,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L482",
       "_origin": "ast",
-      "id": "changelog_2_2_0_2026_07_27",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "[2.2.0] - 2026-07-27"
+      "norm_label": "[2.2.0] - 2026-07-27",
+      "id": "changelog_2_2_0_2026_07_27"
     },
     {
       "label": "Changed",
@@ -12311,10 +12311,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L534",
       "_origin": "ast",
-      "id": "changelog_changed_534",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_534"
     },
     {
       "label": "Fixed",
@@ -12322,10 +12322,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L499",
       "_origin": "ast",
-      "id": "changelog_fixed_499",
       "community": 200,
       "community_name": "[2.2.0] - 2026-07-27",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_499"
     },
     {
       "label": "cross_milestone.rs",
@@ -12641,10 +12641,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "into",
       "community": 21,
       "community_name": "String",
-      "norm_label": "into"
+      "norm_label": "into",
+      "id": "into"
     },
     {
       "label": "Option",
@@ -12652,10 +12652,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "option",
       "community": 21,
       "community_name": "String",
-      "norm_label": "option"
+      "norm_label": "option",
+      "id": "option"
     },
     {
       "label": "ProviderProbe",
@@ -12663,10 +12663,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "providerprobe",
       "community": 21,
       "community_name": "String",
-      "norm_label": "providerprobe"
+      "norm_label": "providerprobe",
+      "id": "providerprobe"
     },
     {
       "label": "Result",
@@ -12674,10 +12674,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "result",
       "community": 21,
       "community_name": "String",
-      "norm_label": "result"
+      "norm_label": "result",
+      "id": "result"
     },
     {
       "label": "empty_completion_remedy()",
@@ -12784,10 +12784,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "src_providers_ollama",
       "community": 21,
       "community_name": "String",
-      "norm_label": "ollama.rs"
+      "norm_label": "ollama.rs",
+      "id": "src_providers_ollama"
     },
     {
       "label": "a_mounted_prefix_survives_both_spellings()",
@@ -12795,10 +12795,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L431",
       "_origin": "ast",
-      "id": "src_providers_ollama_a_mounted_prefix_survives_both_spellings",
       "community": 21,
       "community_name": "String",
-      "norm_label": "a_mounted_prefix_survives_both_spellings()"
+      "norm_label": "a_mounted_prefix_survives_both_spellings()",
+      "id": "src_providers_ollama_a_mounted_prefix_survives_both_spellings"
     },
     {
       "label": "a_root_that_really_ends_in_v1_is_read_as_the_prefix()",
@@ -12806,10 +12806,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L477",
       "_origin": "ast",
-      "id": "src_providers_ollama_a_root_that_really_ends_in_v1_is_read_as_the_prefix",
       "community": 21,
       "community_name": "String",
-      "norm_label": "a_root_that_really_ends_in_v1_is_read_as_the_prefix()"
+      "norm_label": "a_root_that_really_ends_in_v1_is_read_as_the_prefix()",
+      "id": "src_providers_ollama_a_root_that_really_ends_in_v1_is_read_as_the_prefix"
     },
     {
       "label": "construction_keeps_the_real_credentials_on_the_authority()",
@@ -12817,10 +12817,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L451",
       "_origin": "ast",
-      "id": "src_providers_ollama_construction_keeps_the_real_credentials_on_the_authority",
       "community": 21,
       "community_name": "String",
-      "norm_label": "construction_keeps_the_real_credentials_on_the_authority()"
+      "norm_label": "construction_keeps_the_real_credentials_on_the_authority()",
+      "id": "src_providers_ollama_construction_keeps_the_real_credentials_on_the_authority"
     },
     {
       "label": "every_accepted_spelling_yields_the_same_endpoints()",
@@ -12828,10 +12828,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L412",
       "_origin": "ast",
-      "id": "src_providers_ollama_every_accepted_spelling_yields_the_same_endpoints",
       "community": 21,
       "community_name": "String",
-      "norm_label": "every_accepted_spelling_yields_the_same_endpoints()"
+      "norm_label": "every_accepted_spelling_yields_the_same_endpoints()",
+      "id": "src_providers_ollama_every_accepted_spelling_yields_the_same_endpoints"
     },
     {
       "label": "OllamaProvider",
@@ -12839,10 +12839,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L55",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider",
       "community": 21,
       "community_name": "String",
-      "norm_label": "ollamaprovider"
+      "norm_label": "ollamaprovider",
+      "id": "src_providers_ollama_ollamaprovider"
     },
     {
       "label": ".complete()",
@@ -12850,10 +12850,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L266",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_complete",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".complete()"
+      "norm_label": ".complete()",
+      "id": "src_providers_ollama_ollamaprovider_complete"
     },
     {
       "label": ".declared_model()",
@@ -12861,10 +12861,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L341",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_declared_model",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".declared_model()"
+      "norm_label": ".declared_model()",
+      "id": "src_providers_ollama_ollamaprovider_declared_model"
     },
     {
       "label": ".digest()",
@@ -12872,10 +12872,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L373",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_digest",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".digest()"
+      "norm_label": ".digest()",
+      "id": "src_providers_ollama_ollamaprovider_digest"
     },
     {
       "label": ".model()",
@@ -12883,10 +12883,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L331",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_model",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".model()"
+      "norm_label": ".model()",
+      "id": "src_providers_ollama_ollamaprovider_model"
     },
     {
       "label": ".name()",
@@ -12894,10 +12894,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L327",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_name",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".name()"
+      "norm_label": ".name()",
+      "id": "src_providers_ollama_ollamaprovider_name"
     },
     {
       "label": ".new()",
@@ -12905,10 +12905,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L127",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_new",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".new()"
+      "norm_label": ".new()",
+      "id": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "label": ".parse_show_window()",
@@ -12916,10 +12916,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L195",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_parse_show_window",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".parse_show_window()"
+      "norm_label": ".parse_show_window()",
+      "id": "src_providers_ollama_ollamaprovider_parse_show_window"
     },
     {
       "label": ".parse_tags_digest()",
@@ -12927,10 +12927,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L211",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_parse_tags_digest",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".parse_tags_digest()"
+      "norm_label": ".parse_tags_digest()",
+      "id": "src_providers_ollama_ollamaprovider_parse_tags_digest"
     },
     {
       "label": ".window()",
@@ -12938,10 +12938,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L345",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_window",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".window()"
+      "norm_label": ".window()",
+      "id": "src_providers_ollama_ollamaprovider_window"
     },
     {
       "label": ".with_timeout()",
@@ -12949,10 +12949,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L161",
       "_origin": "ast",
-      "id": "src_providers_ollama_ollamaprovider_with_timeout",
       "community": 21,
       "community_name": "String",
-      "norm_label": ".with_timeout()"
+      "norm_label": ".with_timeout()",
+      "id": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "label": "start_unresponsive_server()",
@@ -12960,10 +12960,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L574",
       "_origin": "ast",
-      "id": "src_providers_ollama_start_unresponsive_server",
       "community": 21,
       "community_name": "String",
-      "norm_label": "start_unresponsive_server()"
+      "norm_label": "start_unresponsive_server()",
+      "id": "src_providers_ollama_start_unresponsive_server"
     },
     {
       "label": "test_declared_model_answers_the_model_it_probes_for()",
@@ -12971,10 +12971,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L589",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_declared_model_answers_the_model_it_probes_for",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_declared_model_answers_the_model_it_probes_for()"
+      "norm_label": "test_declared_model_answers_the_model_it_probes_for()",
+      "id": "src_providers_ollama_test_declared_model_answers_the_model_it_probes_for"
     },
     {
       "label": "test_new_keeps_the_default_client_timeout()",
@@ -12982,10 +12982,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L599",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_new_keeps_the_default_client_timeout",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_new_keeps_the_default_client_timeout()"
+      "norm_label": "test_new_keeps_the_default_client_timeout()",
+      "id": "src_providers_ollama_test_new_keeps_the_default_client_timeout"
     },
     {
       "label": "test_parse_show_window_malformed_is_none_never_panics()",
@@ -12993,10 +12993,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L493",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_parse_show_window_malformed_is_none_never_panics",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_parse_show_window_malformed_is_none_never_panics()"
+      "norm_label": "test_parse_show_window_malformed_is_none_never_panics()",
+      "id": "src_providers_ollama_test_parse_show_window_malformed_is_none_never_panics"
     },
     {
       "label": "test_parse_show_window_scans_arch_prefixed_context_length()",
@@ -13004,10 +13004,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L487",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_parse_show_window_scans_arch_prefixed_context_length",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_parse_show_window_scans_arch_prefixed_context_length()"
+      "norm_label": "test_parse_show_window_scans_arch_prefixed_context_length()",
+      "id": "src_providers_ollama_test_parse_show_window_scans_arch_prefixed_context_length"
     },
     {
       "label": "test_parse_tags_digest_absent_or_malformed_is_none_never_panics()",
@@ -13015,10 +13015,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L519",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_parse_tags_digest_absent_or_malformed_is_none_never_panics",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_parse_tags_digest_absent_or_malformed_is_none_never_panics()"
+      "norm_label": "test_parse_tags_digest_absent_or_malformed_is_none_never_panics()",
+      "id": "src_providers_ollama_test_parse_tags_digest_absent_or_malformed_is_none_never_panics"
     },
     {
       "label": "test_parse_tags_digest_finds_by_name()",
@@ -13026,10 +13026,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L507",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_parse_tags_digest_finds_by_name",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_parse_tags_digest_finds_by_name()"
+      "norm_label": "test_parse_tags_digest_finds_by_name()",
+      "id": "src_providers_ollama_test_parse_tags_digest_finds_by_name"
     },
     {
       "label": "test_push_within_cap_bounds_accumulator()",
@@ -13037,10 +13037,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L537",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_push_within_cap_bounds_accumulator",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_push_within_cap_bounds_accumulator()"
+      "norm_label": "test_push_within_cap_bounds_accumulator()",
+      "id": "src_providers_ollama_test_push_within_cap_bounds_accumulator"
     },
     {
       "label": "test_with_timeout_bounds_a_completion_that_never_answers()",
@@ -13048,10 +13048,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L626",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_with_timeout_bounds_a_completion_that_never_answers()"
+      "norm_label": "test_with_timeout_bounds_a_completion_that_never_answers()",
+      "id": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers"
     },
     {
       "label": "test_with_timeout_bounds_a_probe_that_never_answers()",
@@ -13059,10 +13059,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L650",
       "_origin": "ast",
-      "id": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers",
       "community": 21,
       "community_name": "String",
-      "norm_label": "test_with_timeout_bounds_a_probe_that_never_answers()"
+      "norm_label": "test_with_timeout_bounds_a_probe_that_never_answers()",
+      "id": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers"
     },
     {
       "label": "the_probe_authority_keeps_the_credentials_and_stays_at_the_root()",
@@ -13070,10 +13070,10 @@
       "source_file": "src/providers/ollama.rs",
       "source_location": "L463",
       "_origin": "ast",
-      "id": "src_providers_ollama_the_probe_authority_keeps_the_credentials_and_stays_at_the_root",
       "community": 21,
       "community_name": "String",
-      "norm_label": "the_probe_authority_keeps_the_credentials_and_stays_at_the_root()"
+      "norm_label": "the_probe_authority_keeps_the_credentials_and_stays_at_the_root()",
+      "id": "src_providers_ollama_the_probe_authority_keeps_the_credentials_and_stays_at_the_root"
     },
     {
       "label": "String",
@@ -13081,10 +13081,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "string",
       "community": 21,
       "community_name": "String",
-      "norm_label": "string"
+      "norm_label": "string",
+      "id": "string"
     },
     {
       "label": "is_privilege_refusal()",
@@ -13950,10 +13950,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "client",
       "community": 217,
       "community_name": "claude.rs",
-      "norm_label": "client"
+      "norm_label": "client",
+      "id": "client"
     },
     {
       "label": "Completion",
@@ -13961,10 +13961,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "completion",
       "community": 217,
       "community_name": "claude.rs",
-      "norm_label": "completion"
+      "norm_label": "completion",
+      "id": "completion"
     },
     {
       "label": "CompletionConfig",
@@ -13972,10 +13972,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "completionconfig",
       "community": 217,
       "community_name": "claude.rs",
-      "norm_label": "completionconfig"
+      "norm_label": "completionconfig",
+      "id": "completionconfig"
     },
     {
       "label": "Instant",
@@ -13994,10 +13994,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "llmprovider",
       "community": 217,
       "community_name": "claude.rs",
-      "norm_label": "llmprovider"
+      "norm_label": "llmprovider",
+      "id": "llmprovider"
     },
     {
       "label": "ProviderUrl",
@@ -14005,10 +14005,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "providerurl",
       "community": 217,
       "community_name": "claude.rs",
-      "norm_label": "providerurl"
+      "norm_label": "providerurl",
+      "id": "providerurl"
     },
     {
       "label": "ReasoningControl",
@@ -14720,10 +14720,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "self",
       "community": 22,
       "community_name": "Completion",
-      "norm_label": "self"
+      "norm_label": "self",
+      "id": "self"
     },
     {
       "label": ".complete()",
@@ -16252,10 +16252,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L597",
       "_origin": "ast",
-      "id": "changelog_2_0_0_2026_07_25",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "[2.0.0] - 2026-07-25"
+      "norm_label": "[2.0.0] - 2026-07-25",
+      "id": "changelog_2_0_0_2026_07_25"
     },
     {
       "label": "Added",
@@ -16263,10 +16263,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L621",
       "_origin": "ast",
-      "id": "changelog_added_621",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_621"
     },
     {
       "label": "BREAKING",
@@ -16274,10 +16274,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L602",
       "_origin": "ast",
-      "id": "changelog_breaking_602",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "breaking"
+      "norm_label": "breaking",
+      "id": "changelog_breaking_602"
     },
     {
       "label": "Changed",
@@ -16285,10 +16285,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L633",
       "_origin": "ast",
-      "id": "changelog_changed_633",
       "community": 230,
       "community_name": "[2.0.0] - 2026-07-25",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_633"
     },
     {
       "label": "Instant",
@@ -17055,10 +17055,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L667",
       "_origin": "ast",
-      "id": "changelog_1_1_0_2026_05_25",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "[1.1.0] - 2026-05-25"
+      "norm_label": "[1.1.0] - 2026-05-25",
+      "id": "changelog_1_1_0_2026_05_25"
     },
     {
       "label": "Added",
@@ -17066,10 +17066,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L669",
       "_origin": "ast",
-      "id": "changelog_added_669",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_669"
     },
     {
       "label": "Notes",
@@ -17077,10 +17077,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L677",
       "_origin": "ast",
-      "id": "changelog_notes_677",
       "community": 239,
       "community_name": "[1.1.0] - 2026-05-25",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes_677"
     },
     {
       "label": "B",
@@ -19831,10 +19831,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L338",
       "_origin": "ast",
-      "id": "changelog_3_0_2_2026_07_30",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "[3.0.2] - 2026-07-30"
+      "norm_label": "[3.0.2] - 2026-07-30",
+      "id": "changelog_3_0_2_2026_07_30"
     },
     {
       "label": "Changed",
@@ -19842,10 +19842,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L351",
       "_origin": "ast",
-      "id": "changelog_changed_351",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_351"
     },
     {
       "label": "Fixed",
@@ -19853,10 +19853,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L344",
       "_origin": "ast",
-      "id": "changelog_fixed_344",
       "community": 267,
       "community_name": "[3.0.2] - 2026-07-30",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_344"
     },
     {
       "label": "Instant",
@@ -20330,10 +20330,10 @@
         "kind": "file"
       },
       "_origin": "ast",
+      "id": "ci_check_prose_artifacts",
       "community": 276,
       "community_name": "check_prose_artifacts.sh",
-      "norm_label": "check_prose_artifacts.sh",
-      "id": "ci_check_prose_artifacts"
+      "norm_label": "check_prose_artifacts.sh"
     },
     {
       "label": "assert_no_whitespace_paths()",
@@ -20345,10 +20345,10 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
+      "id": "ci_check_prose_artifacts_assert_no_whitespace_paths",
       "community": 276,
       "community_name": "check_prose_artifacts.sh",
-      "norm_label": "assert_no_whitespace_paths()",
-      "id": "ci_check_prose_artifacts_assert_no_whitespace_paths"
+      "norm_label": "assert_no_whitespace_paths()"
     },
     {
       "label": "scan()",
@@ -20360,10 +20360,10 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
+      "id": "ci_check_prose_artifacts_scan",
       "community": 276,
       "community_name": "check_prose_artifacts.sh",
-      "norm_label": "scan()",
-      "id": "ci_check_prose_artifacts_scan"
+      "norm_label": "scan()"
     },
     {
       "label": "scan_targets()",
@@ -20375,10 +20375,10 @@
         "kind": "bash_function"
       },
       "_origin": "ast",
+      "id": "ci_check_prose_artifacts_scan_targets",
       "community": 276,
       "community_name": "check_prose_artifacts.sh",
-      "norm_label": "scan_targets()",
-      "id": "ci_check_prose_artifacts_scan_targets"
+      "norm_label": "scan_targets()"
     },
     {
       "label": "check_prose_artifacts.sh script",
@@ -20390,10 +20390,10 @@
         "kind": "bash_entrypoint"
       },
       "_origin": "ast",
+      "id": "ci_check_prose_artifacts_sh__entry",
       "community": 276,
       "community_name": "check_prose_artifacts.sh",
-      "norm_label": "check_prose_artifacts.sh script",
-      "id": "ci_check_prose_artifacts_sh__entry"
+      "norm_label": "check_prose_artifacts.sh script"
     },
     {
       "label": "ProviderUrl",
@@ -20434,10 +20434,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L804",
       "_origin": "ast",
-      "id": "changelog_0_5_0_2026_05_16",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "[0.5.0] - 2026-05-16"
+      "norm_label": "[0.5.0] - 2026-05-16",
+      "id": "changelog_0_5_0_2026_05_16"
     },
     {
       "label": "Added",
@@ -20445,10 +20445,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L806",
       "_origin": "ast",
-      "id": "changelog_added_806",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_806"
     },
     {
       "label": "Backward compatibility",
@@ -20456,10 +20456,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L862",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility_862",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility_862"
     },
     {
       "label": "Changed (breaking)",
@@ -20467,10 +20467,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L828",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_828",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_828"
     },
     {
       "label": "Documentation",
@@ -20478,10 +20478,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L843",
       "_origin": "ast",
-      "id": "changelog_documentation",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "documentation"
+      "norm_label": "documentation",
+      "id": "changelog_documentation"
     },
     {
       "label": "Performance",
@@ -20489,10 +20489,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L835",
       "_origin": "ast",
-      "id": "changelog_performance",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "performance"
+      "norm_label": "performance",
+      "id": "changelog_performance"
     },
     {
       "label": "Pre-merge gates (CLAUDE.local.md \u00a76)",
@@ -20500,10 +20500,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L872",
       "_origin": "ast",
-      "id": "changelog_pre_merge_gates_claude_local_md_6_872",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "pre-merge gates (claude.local.md \u00a76)"
+      "norm_label": "pre-merge gates (claude.local.md \u00a76)",
+      "id": "changelog_pre_merge_gates_claude_local_md_6_872"
     },
     {
       "label": "Test count",
@@ -20511,10 +20511,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L853",
       "_origin": "ast",
-      "id": "changelog_test_count_853",
       "community": 28,
       "community_name": "[0.5.0] - 2026-05-16",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count_853"
     },
     {
       "label": "String",
@@ -21039,10 +21039,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "providererror",
       "community": 282,
       "community_name": "ProviderError",
-      "norm_label": "providererror"
+      "norm_label": "providererror",
+      "id": "providererror"
     },
     {
       "label": "S",
@@ -24053,10 +24053,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1055",
       "_origin": "ast",
-      "id": "changelog_0_2_0_2026_04_18",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "[0.2.0] - 2026-04-18"
+      "norm_label": "[0.2.0] - 2026-04-18",
+      "id": "changelog_0_2_0_2026_04_18"
     },
     {
       "label": "Added",
@@ -24064,10 +24064,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1105",
       "_origin": "ast",
-      "id": "changelog_added_1105",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_1105"
     },
     {
       "label": "Changed (breaking)",
@@ -24075,10 +24075,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1057",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_1057",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_1057"
     },
     {
       "label": "Dependencies",
@@ -24086,10 +24086,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1131",
       "_origin": "ast",
-      "id": "changelog_dependencies_1131",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "dependencies"
+      "norm_label": "dependencies",
+      "id": "changelog_dependencies_1131"
     },
     {
       "label": "Deprecated",
@@ -24097,10 +24097,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1121",
       "_origin": "ast",
-      "id": "changelog_deprecated",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "deprecated"
+      "norm_label": "deprecated",
+      "id": "changelog_deprecated"
     },
     {
       "label": "Not included (deferred to v0.3.0)",
@@ -24108,10 +24108,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1137",
       "_origin": "ast",
-      "id": "changelog_not_included_deferred_to_v0_3_0",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "not included (deferred to v0.3.0)"
+      "norm_label": "not included (deferred to v0.3.0)",
+      "id": "changelog_not_included_deferred_to_v0_3_0"
     },
     {
       "label": "Security considerations",
@@ -24119,10 +24119,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1092",
       "_origin": "ast",
-      "id": "changelog_security_considerations_1092",
       "community": 30,
       "community_name": "[0.2.0] - 2026-04-18",
-      "norm_label": "security considerations"
+      "norm_label": "security considerations",
+      "id": "changelog_security_considerations_1092"
     },
     {
       "label": "pattern5nestedwatched_bad.rs",
@@ -24548,10 +24548,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L361",
       "_origin": "ast",
-      "id": "changelog_3_0_1_2026_07_30",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "[3.0.1] - 2026-07-30"
+      "norm_label": "[3.0.1] - 2026-07-30",
+      "id": "changelog_3_0_1_2026_07_30"
     },
     {
       "label": "Changed",
@@ -24559,10 +24559,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L384",
       "_origin": "ast",
-      "id": "changelog_changed_384",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_384"
     },
     {
       "label": "Fixed",
@@ -24570,10 +24570,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L367",
       "_origin": "ast",
-      "id": "changelog_fixed_367",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_367"
     },
     {
       "label": "Notes",
@@ -24581,10 +24581,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L393",
       "_origin": "ast",
-      "id": "changelog_notes",
       "community": 31,
       "community_name": "[3.0.1] - 2026-07-30",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes"
     },
     {
       "label": "provider_url.rs",
@@ -24845,10 +24845,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L877",
       "_origin": "ast",
-      "id": "changelog_0_4_0_2026_05_16",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "[0.4.0] - 2026-05-16"
+      "norm_label": "[0.4.0] - 2026-05-16",
+      "id": "changelog_0_4_0_2026_05_16"
     },
     {
       "label": "Added",
@@ -24856,10 +24856,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L879",
       "_origin": "ast",
-      "id": "changelog_added_879",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_879"
     },
     {
       "label": "Backward compatibility",
@@ -24867,10 +24867,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L937",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility_937",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility_937"
     },
     {
       "label": "Changed",
@@ -24878,10 +24878,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L907",
       "_origin": "ast",
-      "id": "changelog_changed_907",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_907"
     },
     {
       "label": "Documentation",
@@ -24889,10 +24889,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L952",
       "_origin": "ast",
-      "id": "changelog_documentation_952",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "documentation"
+      "norm_label": "documentation",
+      "id": "changelog_documentation_952"
     },
     {
       "label": "Performance",
@@ -24900,10 +24900,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L944",
       "_origin": "ast",
-      "id": "changelog_performance_944",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "performance"
+      "norm_label": "performance",
+      "id": "changelog_performance_944"
     },
     {
       "label": "Test count",
@@ -24911,10 +24911,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L959",
       "_origin": "ast",
-      "id": "changelog_test_count_959",
       "community": 32,
       "community_name": "[0.4.0] - 2026-05-16",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count_959"
     },
     {
       "label": "ProviderError",
@@ -25747,10 +25747,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L753",
       "_origin": "ast",
-      "id": "changelog_0_6_0_2026_05_21",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "[0.6.0] - 2026-05-21"
+      "norm_label": "[0.6.0] - 2026-05-21",
+      "id": "changelog_0_6_0_2026_05_21"
     },
     {
       "label": "Backward compatibility",
@@ -25758,10 +25758,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L780",
       "_origin": "ast",
-      "id": "changelog_backward_compatibility",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "backward compatibility"
+      "norm_label": "backward compatibility",
+      "id": "changelog_backward_compatibility"
     },
     {
       "label": "Changed",
@@ -25769,10 +25769,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L755",
       "_origin": "ast",
-      "id": "changelog_changed_755",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_755"
     },
     {
       "label": "Pre-merge gates (CLAUDE.local.md \u00a76)",
@@ -25780,10 +25780,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L797",
       "_origin": "ast",
-      "id": "changelog_pre_merge_gates_claude_local_md_6",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "pre-merge gates (claude.local.md \u00a76)"
+      "norm_label": "pre-merge gates (claude.local.md \u00a76)",
+      "id": "changelog_pre_merge_gates_claude_local_md_6"
     },
     {
       "label": "Security",
@@ -25791,10 +25791,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L770",
       "_origin": "ast",
-      "id": "changelog_security_770",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security_770"
     },
     {
       "label": "Test count",
@@ -25802,10 +25802,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L788",
       "_origin": "ast",
-      "id": "changelog_test_count",
       "community": 34,
       "community_name": "[0.6.0] - 2026-05-21",
-      "norm_label": "test count"
+      "norm_label": "test count",
+      "id": "changelog_test_count"
     },
     {
       "label": "[1.0.0] - 2026-05-24",
@@ -25813,10 +25813,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L702",
       "_origin": "ast",
-      "id": "changelog_1_0_0_2026_05_24",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "[1.0.0] - 2026-05-24"
+      "norm_label": "[1.0.0] - 2026-05-24",
+      "id": "changelog_1_0_0_2026_05_24"
     },
     {
       "label": "Added",
@@ -25824,10 +25824,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L708",
       "_origin": "ast",
-      "id": "changelog_added_708",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_708"
     },
     {
       "label": "Changed (breaking)",
@@ -25835,10 +25835,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L727",
       "_origin": "ast",
-      "id": "changelog_changed_breaking",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking"
     },
     {
       "label": "Notes",
@@ -25846,10 +25846,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L746",
       "_origin": "ast",
-      "id": "changelog_notes_746",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "notes"
+      "norm_label": "notes",
+      "id": "changelog_notes_746"
     },
     {
       "label": "Security",
@@ -25857,10 +25857,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L738",
       "_origin": "ast",
-      "id": "changelog_security_738",
       "community": 35,
       "community_name": "[1.0.0] - 2026-05-24",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security_738"
     },
     {
       "label": "check_pending.sh",
@@ -27541,10 +27541,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1142",
       "_origin": "ast",
-      "id": "changelog_0_1_2_2026_04_05",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[0.1.2] - 2026-04-05"
+      "norm_label": "[0.1.2] - 2026-04-05",
+      "id": "changelog_0_1_2_2026_04_05"
     },
     {
       "label": "[0.3.1] - 2026-04-19",
@@ -27552,10 +27552,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L966",
       "_origin": "ast",
-      "id": "changelog_0_3_1_2026_04_19",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[0.3.1] - 2026-04-19"
+      "norm_label": "[0.3.1] - 2026-04-19",
+      "id": "changelog_0_3_1_2026_04_19"
     },
     {
       "label": "[2.1.0] - 2026-07-27",
@@ -27563,10 +27563,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L554",
       "_origin": "ast",
-      "id": "changelog_2_1_0_2026_07_27",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[2.1.0] - 2026-07-27"
+      "norm_label": "[2.1.0] - 2026-07-27",
+      "id": "changelog_2_1_0_2026_07_27"
     },
     {
       "label": "[3.2.0] - 2026-08-10",
@@ -27574,10 +27574,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L196",
       "_origin": "ast",
-      "id": "changelog_3_2_0_2026_08_10",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "[3.2.0] - 2026-08-10"
+      "norm_label": "[3.2.0] - 2026-08-10",
+      "id": "changelog_3_2_0_2026_08_10"
     },
     {
       "label": "Added",
@@ -27585,10 +27585,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L198",
       "_origin": "ast",
-      "id": "changelog_added_198",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_198"
     },
     {
       "label": "Added",
@@ -27596,10 +27596,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L560",
       "_origin": "ast",
-      "id": "changelog_added_560",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_560"
     },
     {
       "label": "Changelog",
@@ -27607,10 +27607,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1",
       "_origin": "ast",
-      "id": "changelog_changelog",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "changelog"
+      "norm_label": "changelog",
+      "id": "changelog_changelog"
     },
     {
       "label": "Compatibility",
@@ -27618,10 +27618,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L590",
       "_origin": "ast",
-      "id": "changelog_compatibility",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "compatibility"
+      "norm_label": "compatibility",
+      "id": "changelog_compatibility"
     },
     {
       "label": "Fixed",
@@ -27629,10 +27629,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L244",
       "_origin": "ast",
-      "id": "changelog_fixed_244",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_244"
     },
     {
       "label": "Fixed",
@@ -27640,10 +27640,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L968",
       "_origin": "ast",
-      "id": "changelog_fixed_968",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_968"
     },
     {
       "label": "Yanked",
@@ -27651,10 +27651,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L977",
       "_origin": "ast",
-      "id": "changelog_yanked",
       "community": 39,
       "community_name": "Changelog",
-      "norm_label": "yanked"
+      "norm_label": "yanked",
+      "id": "changelog_yanked"
     },
     {
       "label": "a_completion_record_is_built_in_exactly_one_place()",
@@ -31795,10 +31795,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L984",
       "_origin": "ast",
-      "id": "changelog_0_3_0_2026_04_18",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "[0.3.0] - 2026-04-18"
+      "norm_label": "[0.3.0] - 2026-04-18",
+      "id": "changelog_0_3_0_2026_04_18"
     },
     {
       "label": "Added",
@@ -31806,10 +31806,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1010",
       "_origin": "ast",
-      "id": "changelog_added_1010",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_1010"
     },
     {
       "label": "Changed (breaking)",
@@ -31817,10 +31817,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L986",
       "_origin": "ast",
-      "id": "changelog_changed_breaking_986",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "changed (breaking)"
+      "norm_label": "changed (breaking)",
+      "id": "changelog_changed_breaking_986"
     },
     {
       "label": "Dependencies",
@@ -31828,10 +31828,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1043",
       "_origin": "ast",
-      "id": "changelog_dependencies",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "dependencies"
+      "norm_label": "dependencies",
+      "id": "changelog_dependencies"
     },
     {
       "label": "Not included (deferred beyond v0.3.0)",
@@ -31839,10 +31839,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1048",
       "_origin": "ast",
-      "id": "changelog_not_included_deferred_beyond_v0_3_0",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "not included (deferred beyond v0.3.0)"
+      "norm_label": "not included (deferred beyond v0.3.0)",
+      "id": "changelog_not_included_deferred_beyond_v0_3_0"
     },
     {
       "label": "Security considerations",
@@ -31850,10 +31850,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L1022",
       "_origin": "ast",
-      "id": "changelog_security_considerations",
       "community": 52,
       "community_name": "[0.3.0] - 2026-04-18",
-      "norm_label": "security considerations"
+      "norm_label": "security considerations",
+      "id": "changelog_security_considerations"
     },
     {
       "label": "pattern5testmod_good.rs",
@@ -34050,10 +34050,10 @@
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
-      "id": "duration",
       "community": 69,
       "community_name": "SlowFailingProvider",
-      "norm_label": "duration"
+      "norm_label": "duration",
+      "id": "duration"
     },
     {
       "label": "AbandonReason",
@@ -35084,10 +35084,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L398",
       "_origin": "ast",
-      "id": "changelog_3_0_0_2026_07_30",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "[3.0.0] - 2026-07-30"
+      "norm_label": "[3.0.0] - 2026-07-30",
+      "id": "changelog_3_0_0_2026_07_30"
     },
     {
       "label": "Added",
@@ -35095,10 +35095,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L449",
       "_origin": "ast",
-      "id": "changelog_added_449",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "added"
+      "norm_label": "added",
+      "id": "changelog_added_449"
     },
     {
       "label": "BREAKING",
@@ -35106,10 +35106,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L421",
       "_origin": "ast",
-      "id": "changelog_breaking",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "breaking"
+      "norm_label": "breaking",
+      "id": "changelog_breaking"
     },
     {
       "label": "Changed",
@@ -35117,10 +35117,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L475",
       "_origin": "ast",
-      "id": "changelog_changed_475",
       "community": 72,
       "community_name": "[3.0.0] - 2026-07-30",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_475"
     },
     {
       "label": "check_redaction.sh",
@@ -36810,10 +36810,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L253",
       "_origin": "ast",
-      "id": "changelog_3_1_0_2026_07_31",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "[3.1.0] - 2026-07-31"
+      "norm_label": "[3.1.0] - 2026-07-31",
+      "id": "changelog_3_1_0_2026_07_31"
     },
     {
       "label": "Changed",
@@ -36821,10 +36821,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L301",
       "_origin": "ast",
-      "id": "changelog_changed_301",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_301"
     },
     {
       "label": "Documented",
@@ -36832,10 +36832,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L325",
       "_origin": "ast",
-      "id": "changelog_documented",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "documented"
+      "norm_label": "documented",
+      "id": "changelog_documented"
     },
     {
       "label": "Fixed",
@@ -36843,10 +36843,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L273",
       "_origin": "ast",
-      "id": "changelog_fixed_273",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_273"
     },
     {
       "label": "Security",
@@ -36854,10 +36854,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L255",
       "_origin": "ast",
-      "id": "changelog_security",
       "community": 81,
       "community_name": "[3.1.0] - 2026-07-31",
-      "norm_label": "security"
+      "norm_label": "security",
+      "id": "changelog_security"
     },
     {
       "label": "pattern2b_bad.rs",
@@ -37382,10 +37382,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L644",
       "_origin": "ast",
-      "id": "changelog_1_1_1_2026_07_17",
       "community": 86,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "[1.1.1] - 2026-07-17"
+      "norm_label": "[1.1.1] - 2026-07-17",
+      "id": "changelog_1_1_1_2026_07_17"
     },
     {
       "label": "Changed",
@@ -37393,10 +37393,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L657",
       "_origin": "ast",
-      "id": "changelog_changed_657",
       "community": 86,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "changed"
+      "norm_label": "changed",
+      "id": "changelog_changed_657"
     },
     {
       "label": "Fixed",
@@ -37404,10 +37404,10 @@
       "source_file": "CHANGELOG.md",
       "source_location": "L646",
       "_origin": "ast",
-      "id": "changelog_fixed_646",
       "community": 86,
       "community_name": "[1.1.1] - 2026-07-17",
-      "norm_label": "fixed"
+      "norm_label": "fixed",
+      "id": "changelog_fixed_646"
     },
     {
       "label": "Arc",
@@ -38424,25 +38424,25 @@
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_prose_artifacts.sh",
-      "source_location": "L200",
+      "source_location": "L207",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts_scan",
-      "target": "ci_check_prose_artifacts_scan_targets"
+      "target": "ci_check_prose_artifacts_scan_targets",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
       "confidence": "EXTRACTED",
       "source_file": "ci/check_prose_artifacts.sh",
-      "source_location": "L204",
+      "source_location": "L211",
       "weight": 1.0,
       "context": "call",
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts_sh__entry",
-      "target": "ci_check_prose_artifacts_assert_no_whitespace_paths"
+      "target": "ci_check_prose_artifacts_assert_no_whitespace_paths",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -60316,9 +60316,9 @@
       "source_location": "L438",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_a_mounted_prefix_survives_both_spellings",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60328,9 +60328,9 @@
       "source_location": "L478",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_a_root_that_really_ends_in_v1_is_read_as_the_prefix",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60340,9 +60340,9 @@
       "source_location": "L452",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_construction_keeps_the_real_credentials_on_the_authority",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60352,9 +60352,9 @@
       "source_location": "L423",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_every_accepted_spelling_yields_the_same_endpoints",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60364,9 +60364,9 @@
       "source_location": "L284",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_complete",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60376,9 +60376,9 @@
       "source_location": "L385",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_digest",
-      "target": "src_providers_ollama_ollamaprovider_parse_tags_digest",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_parse_tags_digest"
     },
     {
       "relation": "calls",
@@ -60388,9 +60388,9 @@
       "source_location": "L131",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "src_providers_ollama_ollamaprovider_with_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "relation": "calls",
@@ -60400,9 +60400,9 @@
       "source_location": "L360",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_window",
-      "target": "src_providers_ollama_ollamaprovider_parse_show_window",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_parse_show_window"
     },
     {
       "relation": "calls",
@@ -60412,9 +60412,9 @@
       "source_location": "L593",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_declared_model_answers_the_model_it_probes_for",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60424,9 +60424,9 @@
       "source_location": "L607",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_new_keeps_the_default_client_timeout",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60436,9 +60436,9 @@
       "source_location": "L609",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_new_keeps_the_default_client_timeout",
-      "target": "src_providers_ollama_ollamaprovider_with_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "relation": "calls",
@@ -60448,9 +60448,9 @@
       "source_location": "L538",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_push_within_cap_bounds_accumulator",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -60460,9 +60460,9 @@
       "source_location": "L627",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers",
-      "target": "src_providers_ollama_start_unresponsive_server",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_start_unresponsive_server"
     },
     {
       "relation": "calls",
@@ -60472,9 +60472,9 @@
       "source_location": "L628",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers",
-      "target": "src_providers_ollama_ollamaprovider_with_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "relation": "calls",
@@ -60484,9 +60484,9 @@
       "source_location": "L637",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers",
-      "target": "src_providers_ollama_ollamaprovider_complete",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_complete"
     },
     {
       "relation": "calls",
@@ -60496,9 +60496,9 @@
       "source_location": "L651",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers",
-      "target": "src_providers_ollama_start_unresponsive_server",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_start_unresponsive_server"
     },
     {
       "relation": "calls",
@@ -60508,9 +60508,9 @@
       "source_location": "L652",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers",
-      "target": "src_providers_ollama_ollamaprovider_with_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "relation": "calls",
@@ -60520,9 +60520,9 @@
       "source_location": "L659",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers",
-      "target": "src_providers_ollama_ollamaprovider_window",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_window"
     },
     {
       "relation": "calls",
@@ -60532,9 +60532,9 @@
       "source_location": "L469",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_the_probe_authority_keeps_the_credentials_and_stays_at_the_root",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "calls",
@@ -72376,9 +72376,9 @@
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "providerurl",
-      "confidence_score": 1.0
+      "target": "providerurl"
     },
     {
       "relation": "references",
@@ -72388,9 +72388,9 @@
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "client",
-      "confidence_score": 1.0
+      "target": "client"
     },
     {
       "relation": "references",
@@ -72400,9 +72400,9 @@
       "weight": 1.0,
       "context": "field",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -79816,9 +79816,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_complete",
-      "target": "completion",
-      "confidence_score": 1.0
+      "target": "completion"
     },
     {
       "relation": "references",
@@ -79828,9 +79828,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_complete",
-      "target": "providererror",
-      "confidence_score": 1.0
+      "target": "providererror"
     },
     {
       "relation": "references",
@@ -79840,9 +79840,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_digest",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -79852,9 +79852,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_digest",
-      "target": "providererror",
-      "confidence_score": 1.0
+      "target": "providererror"
     },
     {
       "relation": "references",
@@ -79864,9 +79864,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_digest",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -79876,9 +79876,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "providererror",
-      "confidence_score": 1.0
+      "target": "providererror"
     },
     {
       "relation": "references",
@@ -79888,9 +79888,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "self",
-      "confidence_score": 1.0
+      "target": "self"
     },
     {
       "relation": "references",
@@ -79900,9 +79900,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -79912,9 +79912,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_parse_tags_digest",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -79924,9 +79924,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_window",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -79936,9 +79936,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_window",
-      "target": "providererror",
-      "confidence_score": 1.0
+      "target": "providererror"
     },
     {
       "relation": "references",
@@ -79948,9 +79948,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "providererror",
-      "confidence_score": 1.0
+      "target": "providererror"
     },
     {
       "relation": "references",
@@ -79960,9 +79960,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "self",
-      "confidence_score": 1.0
+      "target": "self"
     },
     {
       "relation": "references",
@@ -79972,9 +79972,9 @@
       "weight": 1.0,
       "context": "generic_arg",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "string",
-      "confidence_score": 1.0
+      "target": "string"
     },
     {
       "relation": "references",
@@ -84436,9 +84436,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "error",
-      "confidence_score": 1.0
+      "target": "error"
     },
     {
       "relation": "imports_from",
@@ -84448,9 +84448,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_provider",
-      "confidence_score": 1.0
+      "target": "src_provider"
     },
     {
       "relation": "imports_from",
@@ -84460,9 +84460,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_wire",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_wire"
     },
     {
       "relation": "imports_from",
@@ -84472,9 +84472,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "providerurl",
-      "confidence_score": 1.0
+      "target": "providerurl"
     },
     {
       "relation": "imports_from",
@@ -84484,9 +84484,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "providerprobe",
-      "confidence_score": 1.0
+      "target": "providerprobe"
     },
     {
       "relation": "imports_from",
@@ -90088,9 +90088,9 @@
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_complete",
-      "target": "completionconfig",
-      "confidence_score": 1.0
+      "target": "completionconfig"
     },
     {
       "relation": "references",
@@ -90100,9 +90100,9 @@
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "into",
-      "confidence_score": 1.0
+      "target": "into"
     },
     {
       "relation": "references",
@@ -90112,9 +90112,9 @@
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "duration",
-      "confidence_score": 1.0
+      "target": "duration"
     },
     {
       "relation": "references",
@@ -90124,9 +90124,9 @@
       "weight": 1.0,
       "context": "parameter_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "into",
-      "confidence_score": 1.0
+      "target": "into"
     },
     {
       "relation": "references",
@@ -97912,9 +97912,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_complete",
-      "target": "result",
-      "confidence_score": 1.0
+      "target": "result"
     },
     {
       "relation": "references",
@@ -97924,9 +97924,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_declared_model",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -97936,9 +97936,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_digest",
-      "target": "result",
-      "confidence_score": 1.0
+      "target": "result"
     },
     {
       "relation": "references",
@@ -97948,9 +97948,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_new",
-      "target": "result",
-      "confidence_score": 1.0
+      "target": "result"
     },
     {
       "relation": "references",
@@ -97960,9 +97960,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_parse_show_window",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -97972,9 +97972,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_parse_tags_digest",
-      "target": "option",
-      "confidence_score": 1.0
+      "target": "option"
     },
     {
       "relation": "references",
@@ -97984,9 +97984,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_window",
-      "target": "result",
-      "confidence_score": 1.0
+      "target": "result"
     },
     {
       "relation": "references",
@@ -97996,9 +97996,9 @@
       "weight": 1.0,
       "context": "return_type",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider_with_timeout",
-      "target": "result",
-      "confidence_score": 1.0
+      "target": "result"
     },
     {
       "relation": "references",
@@ -100743,9 +100743,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog",
-      "target": "changelog_changelog",
-      "confidence_score": 1.0
+      "target": "changelog_changelog"
     },
     {
       "relation": "contains",
@@ -100754,9 +100754,9 @@
       "source_location": "L1057",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_changed_breaking_1057",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_1057"
     },
     {
       "relation": "contains",
@@ -100765,9 +100765,9 @@
       "source_location": "L1092",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_security_considerations_1092",
-      "confidence_score": 1.0
+      "target": "changelog_security_considerations_1092"
     },
     {
       "relation": "contains",
@@ -100776,9 +100776,9 @@
       "source_location": "L1105",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_added_1105",
-      "confidence_score": 1.0
+      "target": "changelog_added_1105"
     },
     {
       "relation": "contains",
@@ -100787,9 +100787,9 @@
       "source_location": "L1121",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_deprecated",
-      "confidence_score": 1.0
+      "target": "changelog_deprecated"
     },
     {
       "relation": "contains",
@@ -100798,9 +100798,9 @@
       "source_location": "L1131",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_dependencies_1131",
-      "confidence_score": 1.0
+      "target": "changelog_dependencies_1131"
     },
     {
       "relation": "contains",
@@ -100809,9 +100809,9 @@
       "source_location": "L1137",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_2_0_2026_04_18",
-      "target": "changelog_not_included_deferred_to_v0_3_0",
-      "confidence_score": 1.0
+      "target": "changelog_not_included_deferred_to_v0_3_0"
     },
     {
       "relation": "contains",
@@ -100820,9 +100820,9 @@
       "source_location": "L1010",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_added_1010",
-      "confidence_score": 1.0
+      "target": "changelog_added_1010"
     },
     {
       "relation": "contains",
@@ -100831,9 +100831,9 @@
       "source_location": "L1022",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_security_considerations",
-      "confidence_score": 1.0
+      "target": "changelog_security_considerations"
     },
     {
       "relation": "contains",
@@ -100842,9 +100842,9 @@
       "source_location": "L1043",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_dependencies",
-      "confidence_score": 1.0
+      "target": "changelog_dependencies"
     },
     {
       "relation": "contains",
@@ -100853,9 +100853,9 @@
       "source_location": "L1048",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_not_included_deferred_beyond_v0_3_0",
-      "confidence_score": 1.0
+      "target": "changelog_not_included_deferred_beyond_v0_3_0"
     },
     {
       "relation": "contains",
@@ -100864,9 +100864,9 @@
       "source_location": "L986",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_0_2026_04_18",
-      "target": "changelog_changed_breaking_986",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_986"
     },
     {
       "relation": "contains",
@@ -100875,9 +100875,9 @@
       "source_location": "L968",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_1_2026_04_19",
-      "target": "changelog_fixed_968",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_968"
     },
     {
       "relation": "contains",
@@ -100886,9 +100886,9 @@
       "source_location": "L977",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_3_1_2026_04_19",
-      "target": "changelog_yanked",
-      "confidence_score": 1.0
+      "target": "changelog_yanked"
     },
     {
       "relation": "contains",
@@ -100897,9 +100897,9 @@
       "source_location": "L879",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_added_879",
-      "confidence_score": 1.0
+      "target": "changelog_added_879"
     },
     {
       "relation": "contains",
@@ -100908,9 +100908,9 @@
       "source_location": "L907",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_changed_907",
-      "confidence_score": 1.0
+      "target": "changelog_changed_907"
     },
     {
       "relation": "contains",
@@ -100919,9 +100919,9 @@
       "source_location": "L937",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_backward_compatibility_937",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility_937"
     },
     {
       "relation": "contains",
@@ -100930,9 +100930,9 @@
       "source_location": "L944",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_performance_944",
-      "confidence_score": 1.0
+      "target": "changelog_performance_944"
     },
     {
       "relation": "contains",
@@ -100941,9 +100941,9 @@
       "source_location": "L952",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_documentation_952",
-      "confidence_score": 1.0
+      "target": "changelog_documentation_952"
     },
     {
       "relation": "contains",
@@ -100952,9 +100952,9 @@
       "source_location": "L959",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_4_0_2026_05_16",
-      "target": "changelog_test_count_959",
-      "confidence_score": 1.0
+      "target": "changelog_test_count_959"
     },
     {
       "relation": "contains",
@@ -100963,9 +100963,9 @@
       "source_location": "L806",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_added_806",
-      "confidence_score": 1.0
+      "target": "changelog_added_806"
     },
     {
       "relation": "contains",
@@ -100974,9 +100974,9 @@
       "source_location": "L828",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_changed_breaking_828",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking_828"
     },
     {
       "relation": "contains",
@@ -100985,9 +100985,9 @@
       "source_location": "L835",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_performance",
-      "confidence_score": 1.0
+      "target": "changelog_performance"
     },
     {
       "relation": "contains",
@@ -100996,9 +100996,9 @@
       "source_location": "L843",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_documentation",
-      "confidence_score": 1.0
+      "target": "changelog_documentation"
     },
     {
       "relation": "contains",
@@ -101007,9 +101007,9 @@
       "source_location": "L853",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_test_count_853",
-      "confidence_score": 1.0
+      "target": "changelog_test_count_853"
     },
     {
       "relation": "contains",
@@ -101018,9 +101018,9 @@
       "source_location": "L862",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_backward_compatibility_862",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility_862"
     },
     {
       "relation": "contains",
@@ -101029,9 +101029,9 @@
       "source_location": "L872",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_5_0_2026_05_16",
-      "target": "changelog_pre_merge_gates_claude_local_md_6_872",
-      "confidence_score": 1.0
+      "target": "changelog_pre_merge_gates_claude_local_md_6_872"
     },
     {
       "relation": "contains",
@@ -101040,9 +101040,9 @@
       "source_location": "L755",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_changed_755",
-      "confidence_score": 1.0
+      "target": "changelog_changed_755"
     },
     {
       "relation": "contains",
@@ -101051,9 +101051,9 @@
       "source_location": "L770",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_security_770",
-      "confidence_score": 1.0
+      "target": "changelog_security_770"
     },
     {
       "relation": "contains",
@@ -101062,9 +101062,9 @@
       "source_location": "L780",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_backward_compatibility",
-      "confidence_score": 1.0
+      "target": "changelog_backward_compatibility"
     },
     {
       "relation": "contains",
@@ -101073,9 +101073,9 @@
       "source_location": "L788",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_test_count",
-      "confidence_score": 1.0
+      "target": "changelog_test_count"
     },
     {
       "relation": "contains",
@@ -101084,9 +101084,9 @@
       "source_location": "L797",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_0_6_0_2026_05_21",
-      "target": "changelog_pre_merge_gates_claude_local_md_6",
-      "confidence_score": 1.0
+      "target": "changelog_pre_merge_gates_claude_local_md_6"
     },
     {
       "relation": "contains",
@@ -101095,9 +101095,9 @@
       "source_location": "L708",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_added_708",
-      "confidence_score": 1.0
+      "target": "changelog_added_708"
     },
     {
       "relation": "contains",
@@ -101106,9 +101106,9 @@
       "source_location": "L727",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_changed_breaking",
-      "confidence_score": 1.0
+      "target": "changelog_changed_breaking"
     },
     {
       "relation": "contains",
@@ -101117,9 +101117,9 @@
       "source_location": "L738",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_security_738",
-      "confidence_score": 1.0
+      "target": "changelog_security_738"
     },
     {
       "relation": "contains",
@@ -101128,9 +101128,9 @@
       "source_location": "L746",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_0_2026_05_24",
-      "target": "changelog_notes_746",
-      "confidence_score": 1.0
+      "target": "changelog_notes_746"
     },
     {
       "relation": "contains",
@@ -101139,9 +101139,9 @@
       "source_location": "L686",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_1_2026_05_25",
-      "target": "changelog_fixed_686",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_686"
     },
     {
       "relation": "contains",
@@ -101150,9 +101150,9 @@
       "source_location": "L695",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_0_1_2026_05_25",
-      "target": "changelog_internal",
-      "confidence_score": 1.0
+      "target": "changelog_internal"
     },
     {
       "relation": "contains",
@@ -101161,9 +101161,9 @@
       "source_location": "L669",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_0_2026_05_25",
-      "target": "changelog_added_669",
-      "confidence_score": 1.0
+      "target": "changelog_added_669"
     },
     {
       "relation": "contains",
@@ -101172,9 +101172,9 @@
       "source_location": "L677",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_0_2026_05_25",
-      "target": "changelog_notes_677",
-      "confidence_score": 1.0
+      "target": "changelog_notes_677"
     },
     {
       "relation": "contains",
@@ -101183,9 +101183,9 @@
       "source_location": "L646",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_1_2026_07_17",
-      "target": "changelog_fixed_646",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_646"
     },
     {
       "relation": "contains",
@@ -101194,9 +101194,9 @@
       "source_location": "L657",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_1_1_1_2026_07_17",
-      "target": "changelog_changed_657",
-      "confidence_score": 1.0
+      "target": "changelog_changed_657"
     },
     {
       "relation": "contains",
@@ -101205,9 +101205,9 @@
       "source_location": "L602",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_breaking_602",
-      "confidence_score": 1.0
+      "target": "changelog_breaking_602"
     },
     {
       "relation": "contains",
@@ -101216,9 +101216,9 @@
       "source_location": "L621",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_added_621",
-      "confidence_score": 1.0
+      "target": "changelog_added_621"
     },
     {
       "relation": "contains",
@@ -101227,9 +101227,9 @@
       "source_location": "L633",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_0_0_2026_07_25",
-      "target": "changelog_changed_633",
-      "confidence_score": 1.0
+      "target": "changelog_changed_633"
     },
     {
       "relation": "contains",
@@ -101238,9 +101238,9 @@
       "source_location": "L560",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_1_0_2026_07_27",
-      "target": "changelog_added_560",
-      "confidence_score": 1.0
+      "target": "changelog_added_560"
     },
     {
       "relation": "contains",
@@ -101249,9 +101249,9 @@
       "source_location": "L590",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_1_0_2026_07_27",
-      "target": "changelog_compatibility",
-      "confidence_score": 1.0
+      "target": "changelog_compatibility"
     },
     {
       "relation": "contains",
@@ -101260,9 +101260,9 @@
       "source_location": "L499",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_2_0_2026_07_27",
-      "target": "changelog_fixed_499",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_499"
     },
     {
       "relation": "contains",
@@ -101271,9 +101271,9 @@
       "source_location": "L534",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_2_2_0_2026_07_27",
-      "target": "changelog_changed_534",
-      "confidence_score": 1.0
+      "target": "changelog_changed_534"
     },
     {
       "relation": "contains",
@@ -101282,9 +101282,9 @@
       "source_location": "L421",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_breaking",
-      "confidence_score": 1.0
+      "target": "changelog_breaking"
     },
     {
       "relation": "contains",
@@ -101293,9 +101293,9 @@
       "source_location": "L449",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_added_449",
-      "confidence_score": 1.0
+      "target": "changelog_added_449"
     },
     {
       "relation": "contains",
@@ -101304,9 +101304,9 @@
       "source_location": "L475",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_0_2026_07_30",
-      "target": "changelog_changed_475",
-      "confidence_score": 1.0
+      "target": "changelog_changed_475"
     },
     {
       "relation": "contains",
@@ -101315,9 +101315,9 @@
       "source_location": "L367",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_fixed_367",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_367"
     },
     {
       "relation": "contains",
@@ -101326,9 +101326,9 @@
       "source_location": "L384",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_changed_384",
-      "confidence_score": 1.0
+      "target": "changelog_changed_384"
     },
     {
       "relation": "contains",
@@ -101337,9 +101337,9 @@
       "source_location": "L393",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_1_2026_07_30",
-      "target": "changelog_notes",
-      "confidence_score": 1.0
+      "target": "changelog_notes"
     },
     {
       "relation": "contains",
@@ -101348,9 +101348,9 @@
       "source_location": "L344",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_2_2026_07_30",
-      "target": "changelog_fixed_344",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_344"
     },
     {
       "relation": "contains",
@@ -101359,9 +101359,9 @@
       "source_location": "L351",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_0_2_2026_07_30",
-      "target": "changelog_changed_351",
-      "confidence_score": 1.0
+      "target": "changelog_changed_351"
     },
     {
       "relation": "contains",
@@ -101370,9 +101370,9 @@
       "source_location": "L255",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_security",
-      "confidence_score": 1.0
+      "target": "changelog_security"
     },
     {
       "relation": "contains",
@@ -101381,9 +101381,9 @@
       "source_location": "L273",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_fixed_273",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_273"
     },
     {
       "relation": "contains",
@@ -101392,9 +101392,9 @@
       "source_location": "L301",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_changed_301",
-      "confidence_score": 1.0
+      "target": "changelog_changed_301"
     },
     {
       "relation": "contains",
@@ -101403,9 +101403,9 @@
       "source_location": "L325",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_1_0_2026_07_31",
-      "target": "changelog_documented",
-      "confidence_score": 1.0
+      "target": "changelog_documented"
     },
     {
       "relation": "contains",
@@ -101414,9 +101414,9 @@
       "source_location": "L198",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_2_0_2026_08_10",
-      "target": "changelog_added_198",
-      "confidence_score": 1.0
+      "target": "changelog_added_198"
     },
     {
       "relation": "contains",
@@ -101425,9 +101425,9 @@
       "source_location": "L244",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_3_2_0_2026_08_10",
-      "target": "changelog_fixed_244",
-      "confidence_score": 1.0
+      "target": "changelog_fixed_244"
     },
     {
       "relation": "contains",
@@ -101436,9 +101436,9 @@
       "source_location": "L100",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_changed",
-      "confidence_score": 1.0
+      "target": "changelog_changed"
     },
     {
       "relation": "contains",
@@ -101447,9 +101447,9 @@
       "source_location": "L160",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_removed",
-      "confidence_score": 1.0
+      "target": "changelog_removed"
     },
     {
       "relation": "contains",
@@ -101458,9 +101458,9 @@
       "source_location": "L175",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_fixed",
-      "confidence_score": 1.0
+      "target": "changelog_fixed"
     },
     {
       "relation": "contains",
@@ -101469,9 +101469,9 @@
       "source_location": "L188",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_migration",
-      "confidence_score": 1.0
+      "target": "changelog_migration"
     },
     {
       "relation": "contains",
@@ -101480,9 +101480,9 @@
       "source_location": "L21",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_the_defect_this_release_exists_for",
-      "confidence_score": 1.0
+      "target": "changelog_the_defect_this_release_exists_for"
     },
     {
       "relation": "contains",
@@ -101491,9 +101491,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_added",
-      "confidence_score": 1.0
+      "target": "changelog_added"
     },
     {
       "relation": "contains",
@@ -101502,9 +101502,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_4_0_0_2026_08_24",
-      "target": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget",
-      "confidence_score": 1.0
+      "target": "changelog_one_story_not_two_the_completion_budget_and_the_time_budget"
     },
     {
       "relation": "contains",
@@ -101513,9 +101513,9 @@
       "source_location": "L1055",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_2_0_2026_04_18",
-      "confidence_score": 1.0
+      "target": "changelog_0_2_0_2026_04_18"
     },
     {
       "relation": "contains",
@@ -101524,9 +101524,9 @@
       "source_location": "L1142",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_1_2_2026_04_05",
-      "confidence_score": 1.0
+      "target": "changelog_0_1_2_2026_04_05"
     },
     {
       "relation": "contains",
@@ -101535,9 +101535,9 @@
       "source_location": "L196",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_2_0_2026_08_10",
-      "confidence_score": 1.0
+      "target": "changelog_3_2_0_2026_08_10"
     },
     {
       "relation": "contains",
@@ -101546,9 +101546,9 @@
       "source_location": "L253",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_1_0_2026_07_31",
-      "confidence_score": 1.0
+      "target": "changelog_3_1_0_2026_07_31"
     },
     {
       "relation": "contains",
@@ -101557,9 +101557,9 @@
       "source_location": "L338",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_2_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_2_2026_07_30"
     },
     {
       "relation": "contains",
@@ -101568,9 +101568,9 @@
       "source_location": "L361",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_1_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_1_2026_07_30"
     },
     {
       "relation": "contains",
@@ -101579,9 +101579,9 @@
       "source_location": "L398",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_3_0_0_2026_07_30",
-      "confidence_score": 1.0
+      "target": "changelog_3_0_0_2026_07_30"
     },
     {
       "relation": "contains",
@@ -101590,9 +101590,9 @@
       "source_location": "L482",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_2_0_2026_07_27",
-      "confidence_score": 1.0
+      "target": "changelog_2_2_0_2026_07_27"
     },
     {
       "relation": "contains",
@@ -101601,9 +101601,9 @@
       "source_location": "L554",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_1_0_2026_07_27",
-      "confidence_score": 1.0
+      "target": "changelog_2_1_0_2026_07_27"
     },
     {
       "relation": "contains",
@@ -101612,9 +101612,9 @@
       "source_location": "L597",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_2_0_0_2026_07_25",
-      "confidence_score": 1.0
+      "target": "changelog_2_0_0_2026_07_25"
     },
     {
       "relation": "contains",
@@ -101623,9 +101623,9 @@
       "source_location": "L644",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_1_1_2026_07_17",
-      "confidence_score": 1.0
+      "target": "changelog_1_1_1_2026_07_17"
     },
     {
       "relation": "contains",
@@ -101634,9 +101634,9 @@
       "source_location": "L667",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_1_0_2026_05_25",
-      "confidence_score": 1.0
+      "target": "changelog_1_1_0_2026_05_25"
     },
     {
       "relation": "contains",
@@ -101645,9 +101645,9 @@
       "source_location": "L684",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_0_1_2026_05_25",
-      "confidence_score": 1.0
+      "target": "changelog_1_0_1_2026_05_25"
     },
     {
       "relation": "contains",
@@ -101656,9 +101656,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_4_0_0_2026_08_24",
-      "confidence_score": 1.0
+      "target": "changelog_4_0_0_2026_08_24"
     },
     {
       "relation": "contains",
@@ -101667,9 +101667,9 @@
       "source_location": "L702",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_1_0_0_2026_05_24",
-      "confidence_score": 1.0
+      "target": "changelog_1_0_0_2026_05_24"
     },
     {
       "relation": "contains",
@@ -101678,9 +101678,9 @@
       "source_location": "L753",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_6_0_2026_05_21",
-      "confidence_score": 1.0
+      "target": "changelog_0_6_0_2026_05_21"
     },
     {
       "relation": "contains",
@@ -101689,9 +101689,9 @@
       "source_location": "L804",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_5_0_2026_05_16",
-      "confidence_score": 1.0
+      "target": "changelog_0_5_0_2026_05_16"
     },
     {
       "relation": "contains",
@@ -101700,9 +101700,9 @@
       "source_location": "L877",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_4_0_2026_05_16",
-      "confidence_score": 1.0
+      "target": "changelog_0_4_0_2026_05_16"
     },
     {
       "relation": "contains",
@@ -101711,9 +101711,9 @@
       "source_location": "L966",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_3_1_2026_04_19",
-      "confidence_score": 1.0
+      "target": "changelog_0_3_1_2026_04_19"
     },
     {
       "relation": "contains",
@@ -101722,9 +101722,9 @@
       "source_location": "L984",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "changelog_changelog",
-      "target": "changelog_0_3_0_2026_04_18",
-      "confidence_score": 1.0
+      "target": "changelog_0_3_0_2026_04_18"
     },
     {
       "relation": "contains",
@@ -101766,9 +101766,9 @@
       "source_location": "L1",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts",
-      "target": "ci_check_prose_artifacts_sh__entry"
+      "target": "ci_check_prose_artifacts_sh__entry",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -118002,9 +118002,9 @@
       "source_location": "L412",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_every_accepted_spelling_yields_the_same_endpoints",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_every_accepted_spelling_yields_the_same_endpoints"
     },
     {
       "relation": "contains",
@@ -118013,9 +118013,9 @@
       "source_location": "L431",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_a_mounted_prefix_survives_both_spellings",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_a_mounted_prefix_survives_both_spellings"
     },
     {
       "relation": "contains",
@@ -118024,9 +118024,9 @@
       "source_location": "L451",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_construction_keeps_the_real_credentials_on_the_authority",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_construction_keeps_the_real_credentials_on_the_authority"
     },
     {
       "relation": "contains",
@@ -118035,9 +118035,9 @@
       "source_location": "L463",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_the_probe_authority_keeps_the_credentials_and_stays_at_the_root",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_the_probe_authority_keeps_the_credentials_and_stays_at_the_root"
     },
     {
       "relation": "contains",
@@ -118046,9 +118046,9 @@
       "source_location": "L477",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_a_root_that_really_ends_in_v1_is_read_as_the_prefix",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_a_root_that_really_ends_in_v1_is_read_as_the_prefix"
     },
     {
       "relation": "contains",
@@ -118057,9 +118057,9 @@
       "source_location": "L487",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_parse_show_window_scans_arch_prefixed_context_length",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_parse_show_window_scans_arch_prefixed_context_length"
     },
     {
       "relation": "contains",
@@ -118068,9 +118068,9 @@
       "source_location": "L493",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_parse_show_window_malformed_is_none_never_panics",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_parse_show_window_malformed_is_none_never_panics"
     },
     {
       "relation": "contains",
@@ -118079,9 +118079,9 @@
       "source_location": "L507",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_parse_tags_digest_finds_by_name",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_parse_tags_digest_finds_by_name"
     },
     {
       "relation": "contains",
@@ -118090,9 +118090,9 @@
       "source_location": "L519",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_parse_tags_digest_absent_or_malformed_is_none_never_panics",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_parse_tags_digest_absent_or_malformed_is_none_never_panics"
     },
     {
       "relation": "contains",
@@ -118101,9 +118101,9 @@
       "source_location": "L537",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_push_within_cap_bounds_accumulator",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_push_within_cap_bounds_accumulator"
     },
     {
       "relation": "contains",
@@ -118112,9 +118112,9 @@
       "source_location": "L55",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_ollamaprovider",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider"
     },
     {
       "relation": "contains",
@@ -118123,9 +118123,9 @@
       "source_location": "L574",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_start_unresponsive_server",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_start_unresponsive_server"
     },
     {
       "relation": "contains",
@@ -118134,9 +118134,9 @@
       "source_location": "L589",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_declared_model_answers_the_model_it_probes_for",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_declared_model_answers_the_model_it_probes_for"
     },
     {
       "relation": "contains",
@@ -118145,9 +118145,9 @@
       "source_location": "L599",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_new_keeps_the_default_client_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_new_keeps_the_default_client_timeout"
     },
     {
       "relation": "contains",
@@ -118156,9 +118156,9 @@
       "source_location": "L626",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_with_timeout_bounds_a_completion_that_never_answers"
     },
     {
       "relation": "contains",
@@ -118167,9 +118167,9 @@
       "source_location": "L650",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama",
-      "target": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_test_with_timeout_bounds_a_probe_that_never_answers"
     },
     {
       "relation": "contains",
@@ -125680,9 +125680,9 @@
       "source_location": "L172",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts",
-      "target": "ci_check_prose_artifacts_scan_targets"
+      "target": "ci_check_prose_artifacts_scan_targets",
+      "confidence_score": 1.0
     },
     {
       "relation": "defines",
@@ -125691,9 +125691,9 @@
       "source_location": "L187",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts",
-      "target": "ci_check_prose_artifacts_assert_no_whitespace_paths"
+      "target": "ci_check_prose_artifacts_assert_no_whitespace_paths",
+      "confidence_score": 1.0
     },
     {
       "relation": "defines",
@@ -125702,9 +125702,9 @@
       "source_location": "L196",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "ci_check_prose_artifacts",
-      "target": "ci_check_prose_artifacts_scan"
+      "target": "ci_check_prose_artifacts_scan",
+      "confidence_score": 1.0
     },
     {
       "relation": "defines",
@@ -126340,9 +126340,9 @@
       "source_location": "L241",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "llmprovider",
-      "confidence_score": 1.0
+      "target": "llmprovider"
     },
     {
       "relation": "implements",
@@ -126351,9 +126351,9 @@
       "source_location": "L337",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "providerprobe",
-      "confidence_score": 1.0
+      "target": "providerprobe"
     },
     {
       "relation": "implements",
@@ -129827,9 +129827,9 @@
       "source_location": "L127",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_new",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_new"
     },
     {
       "relation": "method",
@@ -129838,9 +129838,9 @@
       "source_location": "L161",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_with_timeout",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_with_timeout"
     },
     {
       "relation": "method",
@@ -129849,9 +129849,9 @@
       "source_location": "L195",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_parse_show_window",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_parse_show_window"
     },
     {
       "relation": "method",
@@ -129860,9 +129860,9 @@
       "source_location": "L211",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_parse_tags_digest",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_parse_tags_digest"
     },
     {
       "relation": "method",
@@ -129871,9 +129871,9 @@
       "source_location": "L266",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_complete",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_complete"
     },
     {
       "relation": "method",
@@ -129882,9 +129882,9 @@
       "source_location": "L327",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_name",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_name"
     },
     {
       "relation": "method",
@@ -129893,9 +129893,9 @@
       "source_location": "L331",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_model",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_model"
     },
     {
       "relation": "method",
@@ -129904,9 +129904,9 @@
       "source_location": "L341",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_declared_model",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_declared_model"
     },
     {
       "relation": "method",
@@ -129915,9 +129915,9 @@
       "source_location": "L345",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_window",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_window"
     },
     {
       "relation": "method",
@@ -129926,9 +129926,9 @@
       "source_location": "L373",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "src_providers_ollama_ollamaprovider",
-      "target": "src_providers_ollama_ollamaprovider_digest",
-      "confidence_score": 1.0
+      "target": "src_providers_ollama_ollamaprovider_digest"
     },
     {
       "relation": "method",
@@ -133235,5 +133235,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "13141889aa6cc38477d3e56516e24ea3ab13419b"
+  "built_at_commit": "2800462d68541dcc526f3d020be68fb1fcc52259"
 }

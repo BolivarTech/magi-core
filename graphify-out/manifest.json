@@ -950,8 +950,8 @@
     "semantic_hash": ""
   },
   "ci/check_prose_artifacts.sh": {
-    "mtime": 1787572542.6025558,
-    "ast_hash": "56753df1f550cd917d6bad3febb40918",
+    "mtime": 1787582556.1015544,
+    "ast_hash": "cb8eb0a6ae86ee1f97060ff3317aebcf",
     "semantic_hash": ""
   }
 }

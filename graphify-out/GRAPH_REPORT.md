@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-08-24)
 
 ## Corpus Check
-- 189 files · ~371,860 words
+- 189 files · ~371,949 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `13141889`
+- Built from commit: `2800462d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -930,7 +930,7 @@ Cohesion: 0.18
 Nodes (8): RunId, run_with(), an_assertion_that_could_not_be_tested_carries_its_reason(), probe_is_in_scope(), probe_window(), Into, Self, RunContext<'static>
 
 ## Knowledge Gaps
-- **221 isolated node(s):** `One story, not two: the completion budget and the time budget`, `The defect this release exists for`, `Added`, `Changed`, `Removed` (+216 more)
+- **221 isolated node(s):** `X`, `8. Evangelion Correspondence Table`, `9. Relationship to the MAGI Python Plugin`, `Multi-Perspective Analysis Library for Rust`, `ProviderUrl` (+216 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **99 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -938,12 +938,12 @@ Nodes (8): RunId, run_with(), an_assertion_that_could_not_be_tested_carries_its_
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Config` connect `Config` to `config.rs`, `String`, `runner.rs`, `RunResult`, `.new`, `preflight.rs`, `run`, `RunId`?**
-  _High betweenness centrality (0.081) - this node is a cross-community bridge._
-- **Why does `MagiError` connect `validate.rs` to `prompts/mod.rs`, `consensus.rs`, `runner.rs`, `.build`, `LlmProvider`, `RunResult`, `build_user_prompt`, `orchestrator.rs`, `user_prompt.rs`, `error.rs`, `.new`, `AgentName`, `body_bounds.rs`, `String`, `MockProvider`, `ProviderError`?**
-  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+  _High betweenness centrality (0.063) - this node is a cross-community bridge._
 - **Why does `AgentName` connect `AgentName` to `test_support.rs`, `consensus.rs`, `.build`, `LlmProvider`, `schema.rs`, `.new`, `MagiBuilder`, `rotation.rs`, `String`, `.new`, `embedded_prompt_for`, `RunContext`, `MagiReport`, `prompts/mod.rs`, `.cmp`, `config.rs`, `RunResult`, `LineageRegistry`, `CompletionRecord`, `Verdict`?**
-  _High betweenness centrality (0.059) - this node is a cross-community bridge._
-- **What connects `One story, not two: the completion budget and the time budget`, `The defect this release exists for`, `Added` to the rest of the system?**
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
+- **Why does `MagiError` connect `validate.rs` to `prompts/mod.rs`, `consensus.rs`, `runner.rs`, `.build`, `LlmProvider`, `RunResult`, `build_user_prompt`, `orchestrator.rs`, `user_prompt.rs`, `error.rs`, `.new`, `AgentName`, `body_bounds.rs`, `String`, `MockProvider`, `ProviderError`?**
+  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+- **What connects `X`, `8. Evangelion Correspondence Table`, `9. Relationship to the MAGI Python Plugin` to the rest of the system?**
   _221 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `test_support.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.06 - nodes in this community are weakly interconnected._
