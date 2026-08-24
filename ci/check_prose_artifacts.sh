@@ -119,9 +119,28 @@ PROBE_SHAPES="# built ' + EM + ' here
 # a chr(8212) here
 # a chr(10) here"
 
+# And the shape list is itself declared twice, like the roots and the extensions,
+# because it was the one rung of this ratchet with nothing above it. The relation
+# below only demands that every PATTERN be covered, so deleting a shape that
+# SHARES a pattern with another -- the double-quoted concat, say -- left the
+# self-test green at "5 shapes", and from there reopening the exact defect this
+# list was written for takes one more edit. Measured. A count is the wrong tool
+# for equality and the right one for a floor.
+#
+# LIMIT, declared rather than left to be found: this catches a shape DELETED, not
+# a shape EDITED. Rewriting `" + n_l1 + "` into a second copy of the single-quoted
+# form keeps the count at six and loses the alternation it existed to cover. The
+# regress stops here on purpose -- pinning that would mean asserting each shape's
+# content, which is the shape list a third time.
+REQUIRED_SHAPE_COUNT=6
+
 # THE SCAN SET, and what it is NOT. `cargo package --list` emits 175 files; this
 # scans four directories and three root files, which is where prose that a human
-# wrote lives. It does NOT scan `tests/` or `.github/` -- 34 shipped files -- and
+# wrote lives. It does NOT scan 41 of them: `tests/` and `.github/` are 34, and
+# the other seven are cargo-generated or legal files at the root
+# (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
+# the three licence files). The full number is given because naming only the two
+# directories reads as the complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
 # names and compiles examples, and never compares file lists. Said plainly
@@ -254,6 +273,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # subshell, so every `fails` increment inside it would be discarded and this
   # loop would report success no matter what it found.
   n_shapes="$(printf '%s\n' "$PROBE_SHAPES" | grep -c . || true)"
+  if [ "$n_shapes" -lt "$REQUIRED_SHAPE_COUNT" ]; then
+    echo "SELF-TEST: $n_shapes probe shapes, $REQUIRED_SHAPE_COUNT required" >&2
+    fails=$((fails + 1))
+  fi
+
   while IFS= read -r pat; do
     [ -n "$pat" ] || continue
     if ! printf '%s\n' "$PROBE_SHAPES" | grep -qE "$pat"; then

@@ -255,9 +255,9 @@ impl LlmProvider for OllamaProvider {
     ///   `Unreadable`, `NoMessage`, or `RedirectRefused` — and
     ///   [`ProviderError::EmptyCompletion`] when the model produced no usable content. Both
     ///   are **mage-local**: no lineage is condemned run-wide.
-    /// - [`ProviderError::NoGeneration`] on the **full four-part footprint**: both token
+    /// - [`ProviderError::NoGeneration`] on the **full three-signal footprint**: both token
     ///   counters absent (absent, not zero), empty content, **and** `done_reason` exactly
-    ///   `load`. Anything short of all four is [`ProviderError::EmptyCompletion`] instead —
+    ///   `load`. Anything short of all three is [`ProviderError::EmptyCompletion`] instead —
     ///   `tests/fixtures/ec/native-unload-empty-messages.json` meets the first three under
     ///   `unload` and takes that safer path. The narrowing is deliberate: this footprint is a
     ///   defect of THIS crate rather than a failure of the model, so the orchestrator raises it
