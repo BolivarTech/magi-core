@@ -302,10 +302,14 @@ impl ClaudeProvider {
     /// A [`Completion`] whose telemetry carries `stop_reason` (mapped through
     /// [`FinishReason::from_wire`]) and `usage`'s token counts when Anthropic sent
     /// them, and [`ReasoningState::Unsupported`] when the caller asked to
-    /// disable reasoning. With [`ReasoningControl::Default`] the reasoning
-    /// state is [`ReasoningState::NotMeasured`] — nothing was asked, so
-    /// nothing is declared, and there is no trace channel this provider reads
-    /// regardless.
+    /// disable reasoning. With [`ReasoningControl::Default`] the state follows what
+    /// the wire actually carried: [`ReasoningState::Measured`] when a readable
+    /// `thinking` or `redacted_thinking` block is present, and
+    /// [`ReasoningState::NotMeasured`] when none is — including when the channel
+    /// fired but left nothing this provider can read. *(This clause used to say
+    /// the provider had no trace channel at all. It was wrong, the accounting
+    /// below disproves it, and the correction is recorded rather than quietly
+    /// applied: the same false claim had reached a published table.)*
     ///
     /// # Reads the response ONCE
     ///
@@ -1429,9 +1433,13 @@ mod tests {
         );
     }
 
-    /// The other half of C-8: with nothing asked, nothing is declared — and
-    /// there is no trace channel this provider reads regardless, so this must
-    /// be `NotMeasured`, never `Measured {{ chars: 0 }}`.
+    /// The other half of C-8: with nothing asked, nothing is declared. What pins
+    /// that here is the FIXTURE, which carries no `thinking` block — so nothing
+    /// was seen, and nothing-seen must be `NotMeasured`, never
+    /// `Measured {{ chars: 0 }}`. Widen the fixture to include one and the
+    /// expectation changes to `Measured`: `Default` reads the channel when it is
+    /// there. Said explicitly because the earlier wording gave a correct
+    /// assertion a false reason.
     #[test]
     fn the_provider_declares_nothing_when_reasoning_control_is_default() {
         use crate::provider::ReasoningState;
