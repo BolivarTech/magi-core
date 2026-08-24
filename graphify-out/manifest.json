@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787537538.4778426,
-    "ast_hash": "c00a9d565945df28ee7b5ee5114138ae",
+    "mtime": 1787541099.7281373,
+    "ast_hash": "d16404124045285c88d15fc5e6fb0bde",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -45,13 +45,13 @@
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787535816.183538,
+    "mtime": 1787539228.6426086,
     "ast_hash": "4b3461a43d102d7a9956afadae36b438",
     "semantic_hash": ""
   },
   "src/providers/claude.rs": {
-    "mtime": 1787517314.7824805,
-    "ast_hash": "503979b67d63b0924b1b622fbc03c423",
+    "mtime": 1787541043.8053813,
+    "ast_hash": "a85a038a64cf736c12121b0d3e35d1e2",
     "semantic_hash": ""
   },
   "src/providers/claude_cli.rs": {
@@ -70,13 +70,13 @@
     "semantic_hash": ""
   },
   "src/reporting.rs": {
-    "mtime": 1787517314.7884867,
-    "ast_hash": "b1555a2317afe570577d463f732782f7",
+    "mtime": 1787540975.927719,
+    "ast_hash": "fe4eda9f9e3ad2836648609af00d08c2",
     "semantic_hash": ""
   },
   "src/schema.rs": {
-    "mtime": 1785399660.2336414,
-    "ast_hash": "e51ff348992d80ef3cbf4386a23fba85",
+    "mtime": 1787541043.8033814,
+    "ast_hash": "dc249f7300773d2ad2c1a4e55278ea69",
     "semantic_hash": ""
   },
   "src/test_support.rs": {
@@ -130,13 +130,13 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1787537703.8293033,
-    "ast_hash": "e6b93a5065c08931c4e147e994e66f46",
+    "mtime": 1787540975.92572,
+    "ast_hash": "4d56ed50259a0d98405624d00aff3354",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
-    "mtime": 1787537703.8303022,
-    "ast_hash": "32b24d4113794f6f90e91a977e8c6f2b",
+    "mtime": 1787541043.80238,
+    "ast_hash": "f2d90d3b746effdde24fc7672fff7e68",
     "semantic_hash": ""
   },
   "src/prompts_md/README.md": {
@@ -205,8 +205,8 @@
     "semantic_hash": ""
   },
   "src/providers/ollama.rs": {
-    "mtime": 1787531055.9097605,
-    "ast_hash": "1e3c55ce888cbdc9f4875c0035653ce3",
+    "mtime": 1787541043.8043823,
+    "ast_hash": "9c4c77efc5fe77dcc81f4185c9cea758",
     "semantic_hash": ""
   },
   "src/verdict_markers.rs": {
@@ -665,8 +665,8 @@
     "semantic_hash": ""
   },
   "ci/run_all_checks.sh": {
-    "mtime": 1787537538.4738438,
-    "ast_hash": "b561dc5da31a8fec39cc77a46a0cca44",
+    "mtime": 1787541746.9370553,
+    "ast_hash": "c9c08f3ccb2f4a2a32962ec929b2707c",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern7builderalias_bad.rs": {
@@ -710,8 +710,8 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1787537663.3242655,
-    "ast_hash": "adb18ba243a209de6c99e30b8129ee76",
+    "mtime": 1787541080.6152794,
+    "ast_hash": "d38dba297301d34bd1a936310a712e1f",
     "semantic_hash": ""
   },
   "smoke/Cargo.toml": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787537607.3234127,
-    "ast_hash": "0b0528ed95ae7fa51b5014bdc33d143b",
+    "mtime": 1787541003.5697958,
+    "ast_hash": "4e18693cd60d99253b8248fbbfe4945c",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
@@ -947,6 +947,11 @@
   "ci/check_packaged_consumer.sh": {
     "mtime": 1787525899.7612677,
     "ast_hash": "2453c866ce334094ad5db86e47217f54",
+    "semantic_hash": ""
+  },
+  "ci/check_prose_artifacts.sh": {
+    "mtime": 1787542329.9619775,
+    "ast_hash": "dca27430ea480d25f874f4db448c0a94",
     "semantic_hash": ""
   }
 }
