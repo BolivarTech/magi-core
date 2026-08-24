@@ -93,25 +93,48 @@ PATTERNS='["'"'"'] \+ [A-Za-z_][A-Za-z0-9_]* \+ ["'"'"']
 \{NL\}
 chr\([0-9][0-9]*\)'
 
-# ONE PROBE SHAPE PER PATTERN, in the same order, and the self-test asserts the
-# two counts match. This is the third axis this guard's honesty rests on, after
-# the roots and the extensions, and it was the one still open: there were four
-# patterns and three shapes, so `{NL}` was guarded by nothing. Measured -- with
-# that pattern deleted and a live `{NL}` in `ci/run_all_checks.sh`, both modes
-# exited 0. Adding a pattern without its shape now fails loudly instead of
-# quietly widening the legend while narrowing the guard.
+# EVERY PATTERN IS EXERCISED BY AT LEAST ONE SHAPE, and the self-test asserts
+# that relation rather than an equality of counts. Counting was the previous
+# form and it was wrong in both directions at once: too strong, because a pattern
+# legitimately needs more than one shape, and too weak, because it says nothing
+# about WHICH pattern a shape exercises.
+#
+# The axis this closes is the ALTERNATION INSIDE a pattern, which is a level
+# below the pattern list itself. The concat rule's legend declares two shapes,
+# `' + X + '` and `" + X + "`, and one regex covers both through `["']` -- but
+# only the single-quoted one was ever injected. Measured: narrowing that class to
+# `[']` left BOTH modes exiting 0 with a live `" + EM + "` in `README.md`, the
+# crates.io landing page. Same for the digit class: with only `chr(8212)` pinned,
+# narrowing `[0-9][0-9]*` to `8212` would keep the probe green while `chr(10)`
+# walked out.
+#
+# So the shapes below vary what the classes range over, not just the rule they
+# belong to: both quote characters, an identifier that is upper-only and one that
+# carries lowercase, a digit and an underscore, and two `chr` arities with
+# different leading digits.
 PROBE_SHAPES="# built ' + EM + ' here
+# built \" + n_l1 + \" here
 # a {EM} here
 # a {NL} here
-# a chr(8212) here"
+# a chr(8212) here
+# a chr(10) here"
 
-# THE SCAN SET, and what it is NOT. `cargo package --list` emits 176 files; this
+# THE SCAN SET, and what it is NOT. `cargo package --list` emits 175 files; this
 # scans four directories and three root files, which is where prose that a human
 # wrote lives. It does NOT scan `tests/` or `.github/` -- 34 shipped files -- and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
 # names and compiles examples, and never compares file lists. Said plainly
 # rather than left as an implication.
+#
+# WHAT THE SELF-TEST STILL CANNOT SEE, declared rather than left for the next
+# reviewer to find: an exclusion aimed at ONE FILE. The probes are one per
+# (root, extension) pair, chosen by `sort | head -1`, so adding
+# `| grep -v 'migration-v4.0.md'` to `scan_targets` hides that file while every
+# probe keeps passing. Excluding a whole root, an extension, or the anchoring of
+# the one exemption is caught; excluding a single file is not. That is the price
+# of one probe per pair, and it is paid knowingly: probing every scanned file
+# would multiply a check that already runs for a minute by fifty.
 #
 # It also runs slightly WIDER than the tarball in one place: `docs/test/` is
 # scanned and is `exclude`d from the package, so this can go red over the smoke
@@ -135,6 +158,22 @@ scan_targets() {
   ls $SCAN_FILES 2>/dev/null
 }
 
+# A scanned path containing whitespace word-splits at the `xargs` below, so
+# `grep` receives two paths that do not exist, its complaint goes to /dev/null,
+# and the file is skipped in silence. Verified with `docs/my note.md` carrying a
+# live placeholder: the plain mode exited 0. None of the 175 packaged paths has
+# whitespace, so this REFUSES the condition rather than paying a `grep` per file
+# (~500 invocations per pattern, forty times over, in a check that already takes
+# a minute) to support a filename this repository does not use.
+assert_no_whitespace_paths() {
+  _bad="$(scan_targets | grep '[[:space:]]' || true)"
+  if [ -n "$_bad" ]; then
+    echo "check_prose_artifacts: these paths cannot be scanned (whitespace):" >&2
+    printf '%s\n' "$_bad" >&2
+    exit 1
+  fi
+}
+
 scan() {
   _dir="$1"
   echo "$PATTERNS" | while IFS= read -r pat; do
@@ -142,6 +181,8 @@ scan() {
     ( cd "$_dir" && scan_targets | xargs -r grep -nE "$pat" 2>/dev/null ) || true
   done
 }
+
+assert_no_whitespace_paths
 
 if [ "${1:-}" = "--self-test" ]; then
   # A rule verified only against the fixture it was written from proves that it
@@ -212,12 +253,21 @@ if [ "${1:-}" = "--self-test" ]; then
   # not by a pipe on purpose: a `while read` at the end of a pipeline runs in a
   # subshell, so every `fails` increment inside it would be discarded and this
   # loop would report success no matter what it found.
-  n_patterns="$(printf '%s\n' "$PATTERNS" | grep -c . || true)"
   n_shapes="$(printf '%s\n' "$PROBE_SHAPES" | grep -c . || true)"
-  if [ "$n_patterns" -ne "$n_shapes" ]; then
-    echo "SELF-TEST: $n_shapes probe shapes for $n_patterns patterns" >&2
-    exit 1
-  fi
+  while IFS= read -r pat; do
+    [ -n "$pat" ] || continue
+    if ! printf '%s\n' "$PROBE_SHAPES" | grep -qE "$pat"; then
+      echo "SELF-TEST: no probe shape exercises pattern: $pat" >&2
+      fails=$((fails + 1))
+    fi
+  done <<EOF
+$PATTERNS
+EOF
+  [ "$fails" -eq 0 ] || exit 1
+
+  # The converse -- a shape that exercises no pattern -- needs no check of its
+  # own: the detection loop below injects every shape and demands a hit, so a
+  # shape matching nothing goes red there, naming itself.
 
   for target in $PROBE_FILES; do
     [ -f "$TMP/$target" ] || { echo "SELF-TEST: probe target missing: $target" >&2; fails=$((fails + 1)); continue; }

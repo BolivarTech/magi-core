@@ -585,7 +585,8 @@ impl ProviderError {
     ///
     /// Every struct-like variant of this enum is `#[non_exhaustive]`, so none of them can be
     /// built with a struct expression from another crate. (`NestedSession` is a bare unit variant
-    /// and is constructible, which helps nobody: it names a condition only this crate detects.) Without a constructor an external provider could *compile*
+    /// and is constructible, which helps nobody: it names a condition only this crate
+    /// detects.) Without a constructor an external provider could *compile*
     /// but could not **fail in a typed way** — which pushed implementors toward lying with an
     /// unrelated variant or panicking. `#[non_exhaustive]` and this constructor are a pair;
     /// either alone is broken.

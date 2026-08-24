@@ -39,6 +39,12 @@
 #     already the most expensive step in the gate; named so the gap is a decision.
 #   * The packaged `tests/`. They are never compiled, so a fixture that failed to
 #     reach the tarball passes this check.
+#   * BEHAVIOUR. The examples are COMPILED against the tarball and never run, so
+#     what this proves is that the packaged source presents a usable API to an
+#     outside crate -- which is the `E0639` class it exists for. The assertions
+#     inside `external_provider` are executed by `run_all_checks.sh`, against the
+#     TREE. A defect that compiles identically and behaves differently from the
+#     package is outside both.
 #
 # Usage: sh ci/check_packaged_consumer.sh   (from the repo root)
 set -eu

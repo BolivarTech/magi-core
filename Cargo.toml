@@ -23,7 +23,12 @@ categories = ["algorithms", "asynchronous"]
 # it was 7.8 MB of a 9.8 MB package, of which 3.5 MB was a browser viewer, and
 # cargo packages by "what git tracks" unless told otherwise. Tracked, yes;
 # shipped, no. Whoever wants it takes it from the repository or the tag.
-exclude = ["docs/test/", "graphify-out/", ".graphifyignore"]
+#
+# `.gitignore` goes with them, for a different reason: it is repository
+# management with nothing in it for a consumer, and its section headers name the
+# local tooling — which the standard this crate is written to forbids in anything
+# that ships. Excluding it settles that without losing the file for contributors.
+exclude = ["docs/test/", "graphify-out/", ".graphifyignore", ".gitignore"]
 
 [dependencies]
 thiserror = "2"
