@@ -195,7 +195,14 @@ assert_no_whitespace_paths() {
 
 scan() {
   _dir="$1"
-  echo "$PATTERNS" | while IFS= read -r pat; do
+  # `printf`, not `echo`: POSIX leaves echo's handling of backslashes
+  # unspecified, and this gate runs under `sh`, which is dash on the CI runner
+  # and bash locally. Today's patterns survive both -- measured, `\{`, `\+` and
+  # `\(` come through dash identically -- but a pattern carrying `\t` or `\n`
+  # would become a literal tab under one shell and stay an escape under the
+  # other, and the difference would show up as a rule that quietly matches
+  # nothing on CI while passing here.
+  printf '%s\n' "$PATTERNS" | while IFS= read -r pat; do
     [ -n "$pat" ] || continue
     ( cd "$_dir" && scan_targets | xargs -r grep -nE "$pat" 2>/dev/null ) || true
   done
