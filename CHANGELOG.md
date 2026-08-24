@@ -67,7 +67,9 @@ by carrying the wrong type. That is what this release removes.
   (`chars/4`), which the variant is named for: `WindowBelowCoarseEstimate`, not
   `WindowTooSmall`, because no token count was performed.
 
-  An absent map means the snapshot was not computed. An empty **vector** for a seat means that
+  The map is always emitted, so a report this crate wrote never shows it absent; reading back a
+  document written before the field existed is the only way to see that, and there the loss is in
+  the old document. An empty **vector** for a seat means that
   seat had no candidates at all — which is every seat when no pool was declared — and NOT that
   everything was eligible: the snapshot emits one row per candidate and leaves `causes` empty on
   an eligible one, so "nothing was rejected" is a non-empty vector of empty-cause rows. Keeping

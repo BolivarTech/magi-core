@@ -258,8 +258,8 @@ impl LlmProvider for OllamaProvider {
     /// - [`ProviderError::NoGeneration`] on the **full three-signal footprint**: both token
     ///   counters absent (absent, not zero), empty content, **and** `done_reason` exactly
     ///   `load`. Anything short of all three is [`ProviderError::EmptyCompletion`] instead —
-    ///   `tests/fixtures/ec/native-unload-empty-messages.json` meets the first three under
-    ///   `unload` and takes that safer path. The narrowing is deliberate: this footprint is a
+    ///   `tests/fixtures/ec/native-unload-empty-messages.json` meets the counter and content
+    ///   signals but reports `unload`, so it takes that safer path. The narrowing is deliberate: this footprint is a
     ///   defect of THIS crate rather than a failure of the model, so the orchestrator raises it
     ///   and aborts the run instead of rotating — rotating would reproduce it at every seat —
     ///   and an irreversible consequence is owed a precise trigger, not one symptom.
