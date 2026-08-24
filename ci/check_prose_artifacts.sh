@@ -25,9 +25,15 @@
 #
 # ## What it does NOT do
 #
-# It cannot judge prose. It matches a small set of shapes that are never
-# legitimate in shipped text, and nothing else. A sentence that is merely wrong
-# passes here; that is what review is for.
+# It cannot judge prose. It matches a small set of shapes that have no reason to
+# appear in this crate's shipped text TODAY, and nothing else. A sentence that is
+# merely wrong passes here; that is what review is for.
+#
+# The shapes are not universally illegitimate, and claiming they were would be the
+# same unchecked absolute this guard exists to catch: a document about Python could
+# legitimately contain `chr(8212)`. If that day comes the check goes red LOUDLY on
+# a real file, which is the safe direction to be wrong in, and the answer is to
+# narrow the pattern rather than to widen the exemption.
 #
 # Usage: sh ci/check_prose_artifacts.sh [--self-test]
 set -eu
