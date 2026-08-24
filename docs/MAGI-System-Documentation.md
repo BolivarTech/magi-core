@@ -75,7 +75,7 @@ The adversarial multi-perspective model addresses well-documented cognitive bias
 | **Confirmation bias** | Three agents with different evaluation criteria are unlikely to share the same blind spots |
 | **Anchoring** | Agents analyze independently — no agent sees the others' output before forming its own verdict |
 | **Groupthink** | Caspar (Critic) is designed to be adversarial; its role is to find fault, not agree |
-| **Optimism bias** | The weight-based scoring penalizes reject (-1) more heavily than approve (+1), making negative signals harder to override |
+| **Optimism bias** | Approve (+1) and reject (-1) are symmetric in magnitude, but only the go side has a half-weight option: there is a conditional approve and no conditional reject, so mixed panels drift positive |
 | **Status quo bias** | Each agent evaluates from first principles against its own criteria, not against "how things are done" |
 | **Overconfidence** | The confidence formula produces lower scores when agents disagree, surfacing genuine uncertainty |
 

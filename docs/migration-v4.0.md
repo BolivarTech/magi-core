@@ -155,7 +155,8 @@ termination reason makes that legitimate.
 
 **What you do:** match the contract variants. `ResponseContractCause` is exported from the
 prelude; its own variants are plain unit variants, and it is the enum that carries
-`#[non_exhaustive]`. The `..` in the example above belongs to `ProviderError`'s variants, which
+`#[non_exhaustive]`. The `..` in the example above belongs to `ProviderError`'s struct-like variants (the unit
+variant `NestedSession` is not `#[non_exhaustive]` and needs no `..`), which
 are each `#[non_exhaustive]` — so match those with `..` and keep a `_` arm for causes added
 later.
 
@@ -219,7 +220,10 @@ valid verdict in 7.7 s natively, against 32 768 tokens and nothing on `/v1`. A c
 would have shipped a second mode into a public surface, and a second mode costs another major to
 remove — so it does not get removed.
 
-`OpenAiCompatibleProvider` is unaffected and remains the documented path for OpenAI cloud,
+`OpenAiCompatibleProvider` keeps this wire. It gained the `Completion` return like every
+provider, and the termination and reasoning fields like the other HTTP ones — `ClaudeCliProvider`
+is a subprocess with no wire fields to read, so it leaves `finish` at `None` — but it did not
+gain native routing. It remains the documented path for OpenAI cloud,
 LocalAI, vLLM, LM Studio and llama.cpp-server.
 
 ---
@@ -307,7 +311,8 @@ load until that reader tolerates the new key. Additive is not the same as invisi
 > it is eligible, so that case is a non-empty vector; an empty one means there were no candidates,
 > which is every seat when you declare no pool. So a strict reader that tolerates
 > `completions` and stops there **still fails to load every single `4.0.0` report**. Tolerate
-> both. Its values are `CandidateEligibility`, each carrying an `IneligibilityCause`; both types
+> both. Its values are `CandidateEligibility`, each carrying a `Vec<IneligibilityCause>` — EVERY
+> failing condition, not the first; both types
 > are in the prelude, and the field's own rustdoc states that the snapshot is **pre-dispatch** and
 > does not see lineages that fail mid-run — that is what `rotations` is for.
 
@@ -348,7 +353,8 @@ substitutes.
 Turning it on accepts: the text is the **model's**, not this crate's; it does **not** pass the
 `Validator`; it is **not redacted**; and it has **no cap** — worst case
 `(1 + max_rotations) × calls_per_model` traces per agent, times three agents, which is up to
-**18 per run** with the shipped defaults, and traces of ~141 000 characters per agent have been
+**18 per run** once a fallback pool is declared (with none, rotation does not engage and it is
+6), and traces of ~141 000 characters per agent have been
 measured. That figure is a measured reference, not a ceiling.
 
 ---

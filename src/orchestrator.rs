@@ -1071,7 +1071,9 @@ impl Magi {
     ///   generates nothing with its token counters absent. That footprint is a defect of THIS
     ///   crate, so the run aborts instead of rotating, and this call is the only surface it
     ///   reaches a consumer on.
-    /// - [`MagiError::Validation`] if a seat's output fails validation past recovery.
+    /// - [`MagiError::Validation`] if consensus is asked to score duplicate agent names.
+    ///   **Not** for a seat whose own output fails validation: that seat goes to
+    ///   `failed_agents` and the run degrades, which is the opposite contract.
     ///
     /// # Concurrency
     ///
@@ -1080,8 +1082,9 @@ impl Magi {
     /// practice nonce generation is a single `u128` read (~nanoseconds), so
     /// contention is negligible under typical workloads. If profiling shows this
     /// becomes a bottleneck in a multi-tenant deployment, consider wrapping `Magi`
-    /// in a pool of instances (one per tenant), or ask for a public accessor — v0.4 shipped without one and it is still test-only — which may expose
-    /// `with_rng_source` publicly to allow a thread-local RNG strategy.
+    /// in a pool of instances (one per tenant), or ask for a public `with_rng_source`, which
+    /// would allow a thread-local RNG strategy. It was once slated for v0.4; that shipped in
+    /// May 2026 without it and the setter is still `#[cfg(test)]`, so treat it as unscheduled.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation — runs BEFORE the complexity gate so that
         //    stateful predicates (rate limiters, cache counters) do NOT

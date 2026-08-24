@@ -205,7 +205,9 @@ structured output on that provider.
 
 *(v0.5+)* `analyze` dispatches one call per mage, and more when a mage has to be
 recovered: a corrective retry doubles a seat's calls and each rotation adds another
-model, so the ceiling with the defaults and a fallback pool is 18 rather than 3. To
+model, so the ceiling with the defaults and a fallback pool is 18 rather than 3 — and that
+counts orchestrator dispatches, not billed requests: wrap a provider in `RetryProvider` and
+each dispatch can become up to four HTTP calls for the classes that keep the general count. To
 avoid spending on
 trivial inputs, install a caller-supplied predicate via
 `MagiBuilder::with_complexity_gate`. When it returns `false`, `analyze`
@@ -314,7 +316,7 @@ println!("{}", report.banner);
               +-----+-----+-----+-----+
                     |                 |
               +-----+-----+   +------+------+
-              |  Validator |   |  Consensus  |
+              | Validator |   |  Consensus  |
               +-----------+   +------+------+
                                      |
                               +------+------+
@@ -368,7 +370,10 @@ The sanitization pipeline runs in a fixed order:
 
 1. `normalize_newlines` — converts Unicode line terminators (`\r\n`, `\r`,
    U+0085, U+000B, U+000C, U+2028, U+2029) to `\n`.
-2. `strip_invisibles` — removes zero-width and bidi formatting characters.
+2. `strip_invisibles` — removes the whole `Cf` category plus four explicit code points.
+   One of those, `U+202F` NARROW NO-BREAK SPACE, is `Zs` and **renders visibly**, so
+   French-typography input loses it before dispatch. Stated as a category rather than a
+   list because an enumerated list here drifted out of sync with the code once already.
 3. `neutralize_headers` — prefixes any line starting with `MODE`, `CONTEXT`,
    `---BEGIN`, or `---END` with two spaces so it cannot be parsed as a
    delimiter. Both flanks of the keyword are matched by a **non-letter** rule,
