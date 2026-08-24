@@ -111,7 +111,7 @@
   },
   "tests/fixtures/magi_report_v0_3_1.json": {
     "mtime": 1778916730.0,
-    "ast_hash": "",
+    "ast_hash": "f6828b567919f7218c0f066a46988536",
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
@@ -805,8 +805,8 @@
     "semantic_hash": ""
   },
   "smoke/README.md": {
-    "mtime": 1787596505.5986779,
-    "ast_hash": "88db0b56d85d33f1e9bb10b7418170f7",
+    "mtime": 1787602694.8944468,
+    "ast_hash": "7238ac9ab7de3136bbaef17d55c88677",
     "semantic_hash": ""
   },
   "smoke/src/git.rs": {
@@ -820,43 +820,43 @@
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-cold-start.json": {
-    "mtime": 1787182701.119219,
-    "ast_hash": "",
+    "mtime": 1787596505.7609534,
+    "ast_hash": "2a5ba29e8a7453f45f7f5c8c57435041",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-unload-empty-messages.json": {
-    "mtime": 1787182663.8034182,
-    "ast_hash": "",
+    "mtime": 1787596505.767519,
+    "ast_hash": "311bfa59ab30c53939e6ae0c621d68e9",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-E-malformed.json": {
-    "mtime": 1787190622.3356972,
-    "ast_hash": "",
+    "mtime": 1787596505.753908,
+    "ast_hash": "b3e7751431a5c832590cc30aac611e1e",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-E-model-not-found.json": {
-    "mtime": 1787190622.3674943,
-    "ast_hash": "",
+    "mtime": 1787596505.755904,
+    "ast_hash": "9e13e245da96212263c3d286f53ff56f",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-N1.json": {
-    "mtime": 1787190622.2740345,
-    "ast_hash": "",
+    "mtime": 1787596505.7584214,
+    "ast_hash": "dca562202b3f465c2e43161ba20af7eb",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-N2.json": {
-    "mtime": 1787190622.3051636,
-    "ast_hash": "",
+    "mtime": 1787596505.7594378,
+    "ast_hash": "f2a684fe9fc33438f9f5b0c84995e1e0",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/resp-C.json": {
-    "mtime": 1787190622.4182808,
-    "ast_hash": "",
+    "mtime": 1787596505.769519,
+    "ast_hash": "1acf545108ba17ab08d9fb7e6c91e917",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/resp-H.json": {
-    "mtime": 1787190622.4493573,
-    "ast_hash": "",
+    "mtime": 1787596505.7725198,
+    "ast_hash": "73276cd26c4eacc5925e436e7c0ae7d6",
     "semantic_hash": ""
   },
   "src/providers/ollama_wire.rs": {
@@ -890,13 +890,13 @@
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-think-false-nonthinking-cloud.json": {
-    "mtime": 1787281541.4396985,
-    "ast_hash": "",
+    "mtime": 1787596505.7635179,
+    "ast_hash": "328825701d6a25ae52f4527a08fb3d30",
     "semantic_hash": ""
   },
   "tests/fixtures/ec/native-think-false-nonthinking-local.json": {
-    "mtime": 1787281538.677677,
-    "ast_hash": "",
+    "mtime": 1787596505.7655199,
+    "ast_hash": "55b8d854eb89ae6d46778399b8ed02d7",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern8bconst_bad.rs": {

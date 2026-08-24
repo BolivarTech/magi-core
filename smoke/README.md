@@ -216,12 +216,18 @@ reasons; a model that never does turns that row green by omission.
 tags are equally valid and are often the better pick — faster, no VRAM, and they leave the local
 GPU free. Mixing local and cloud in one trio is fine.
 
+**And local does not mean free** — the reading that slips in on its own. It changes WHICH meter
+you spend: the provider's quota on one side, your hardware and your clock on the other. A local
+model that takes twenty minutes a run is expensive in the currency that matters when the harness
+runs many times per milestone.
+
 **2. The LAST run of SMOKE #2 — the one that emits the certificate — uses the PRODUCT DEFAULTS.**
 No profile, no override.
 
 **The criterion is not the price.** It is that a certificate has to certify **the configuration
 the user actually receives**. That the defaults happen to be the expensive models is a
-consequence, not the motive.
+consequence, not the motive — **if the default were cheap tomorrow, the rule would still say
+«the defaults»**.
 
 ### The hard invariant
 
@@ -240,6 +246,10 @@ profile says something about the profile**, and the report has to say it that wa
 what it expects to fail and why; a different red, or an unexpected green, means something changed
 and deserves reading. An intermittent one gets rationalised, then ignored, and then the whole gate
 gets skipped.
+
+**The cost signal depends on the provider.** Some bill per token; others sell capacity against
+quotas and publish a usage figure per model. Use **the signal the provider publishes**, not an
+estimate of your own.
 
 **Never declare a cheap model without having MEASURED it against the real prompts.** The failure
 modes are specific and cannot be guessed: one model never reasons, another ignores the flag that
