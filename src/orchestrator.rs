@@ -32,7 +32,7 @@ use tokio::task::AbortHandle;
 /// Default value for [`MagiConfig::max_input_len`] — 4 MB.
 ///
 /// This is a compromise between Python's 10 MB and v0.1.2's 1 MB.
-/// A full 10 MB alignment with Python is deferred to v0.3.0 pending
+/// A full 10 MB alignment with Python is unscheduled, pending
 /// an allocation audit of the `analyze()` pipeline.
 ///
 /// For public-facing deployments where `content` is untrusted, consider
@@ -164,7 +164,7 @@ pub struct MagiConfig {
     /// consider lowering this via [`MagiBuilder::with_max_input_len`] to a value
     /// appropriate for your threat model. Default (4 MB) is a compromise between
     /// Python MAGI's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with Python
-    /// is deferred to v0.3.0 pending allocation audit of the analyze() pipeline.
+    /// is unscheduled, pending allocation audit of the analyze() pipeline.
     ///
     /// # Allocation audit (2026-04-18)
     ///
@@ -174,7 +174,7 @@ pub struct MagiConfig {
     /// satisfy `tokio::spawn`'s `'static` bound (3 agents), and (5) HTTP/stdin
     /// serialization by the provider. Peak memory per analysis is approximately
     /// `content.len() × 5` plus fixed overhead. For the 4 MB default, peak ≈ 20 MB.
-    /// A full 10 MB alignment with Python is deferred to v0.3.0, pending an
+    /// A full 10 MB alignment with Python is unscheduled, pending an
     /// `Arc<str>` refactor of the orchestrator-to-provider path to reduce copies.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
@@ -704,7 +704,11 @@ impl MagiBuilder {
     /// Loads prompts from `prompts_dir` if set (may fail with `MagiError::Io`).
     ///
     /// # Errors
-    /// Returns `MagiError::Io` if `prompts_dir` is set and cannot be read.
+    /// - [`MagiError::Io`] if `prompts_dir` is set and cannot be read.
+    /// - [`MagiError::InvalidInput`] for a configuration this type refuses to construct.
+    /// - [`MagiError::PromptContract`] if any resolvable prompt — embedded or overridden —
+    ///   violates the verdict-marker contract. Checked BEFORE touching any provider.
+    /// - [`MagiError::Validation`] if the report configuration does not validate.
     pub fn build(self) -> Result<Magi, MagiError> {
         // A warning threshold the validator would reject before can never fire, leaving the
         // telemetry mute with nobody the wiser. Say it once, here — and do NOT clamp it: that
@@ -1056,9 +1060,18 @@ impl Magi {
     ///
     /// # Errors
     /// - [`MagiError::InputTooLarge`] if `content.len()` exceeds `max_input_len`.
-    /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
+    /// - [`MagiError::InsufficientAgents`] if fewer than `min_agents` seats succeed.
     /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-64
     ///   per call; fastrand effective state ~64 bits).
+    /// - [`MagiError::SkippedByComplexityGate`] if a complexity gate was installed and
+    ///   returned `false` — before any dispatch, so nothing was spent.
+    /// - [`MagiError::EndpointDown`] once connection failures on distinct lineages cross the
+    ///   latch: the run is abandoned rather than degraded.
+    /// - [`MagiError::CrateDefect`] — **new in `4.0.0`** — when a backend accepts a request and
+    ///   generates nothing with its token counters absent. That footprint is a defect of THIS
+    ///   crate, so the run aborts instead of rotating, and this call is the only surface it
+    ///   reaches a consumer on.
+    /// - [`MagiError::Validation`] if a seat's output fails validation past recovery.
     ///
     /// # Concurrency
     ///
@@ -1067,7 +1080,7 @@ impl Magi {
     /// practice nonce generation is a single `u128` read (~nanoseconds), so
     /// contention is negligible under typical workloads. If profiling shows this
     /// becomes a bottleneck in a multi-tenant deployment, consider wrapping `Magi`
-    /// in a pool of instances (one per tenant), or await v0.4 which may expose
+    /// in a pool of instances (one per tenant), or ask for a public accessor — v0.4 shipped without one and it is still test-only — which may expose
     /// `with_rng_source` publicly to allow a thread-local RNG strategy.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation — runs BEFORE the complexity gate so that
@@ -1201,7 +1214,8 @@ impl Magi {
         agents: Vec<Agent>,
         user_prompt: &str,
     ) -> Result<DispatchOutcome, MagiError> {
-        // MS2: rotation is engaged ONLY when a fallback pool was declared. With no
+        // Rotation is engaged when a fallback pool OR a primary probe was declared (see
+        // `build`). With no
         // pool (`rotation_config == None`) the dispatch path is byte-identical to
         // 2.0.x — same FSM, same failure strings, no registry, no endpoint-down
         // (R11/S1). Each agent's configured model seeds a present, chain-empty

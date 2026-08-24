@@ -340,7 +340,8 @@ prompts_md/   (byte-for-byte Python reference: melchior.md, balthasar.md, caspar
 user_prompt   (private) — sanitization pipeline + nonce-delimited payload construction
 agent         (Agent struct — no Mode parameter as of v0.3; AgentFactory still takes one)
 orchestrator  (Magi, MagiBuilder — composes everything)
-prelude       (re-exports of every public type — the one import a consumer needs)
+prelude       (re-exports of the COMMON types — start here; a few, such as ExtractionFailure
+               and DedupFinding, need their own module path)
 test_support  [feature: test-utils]        — RoutingMockProvider and friends, for downstream tests
 providers/
   claude          [feature: claude-api]      — HTTP via reqwest
@@ -568,7 +569,7 @@ use magi_core::prelude::*;
 Err(ProviderError::external("backend unreachable", ExternalErrorKind::Network))
 ```
 
-That constructor is the **only** way to build a `ProviderError` from outside this crate — the
+That constructor is the only way to build a **struct-like** `ProviderError` variant from outside this crate (`NestedSession` is a bare unit variant and is constructible, which helps nobody: it names a condition only this crate detects) — the
 transport variants stay closed, because their fields drive which model lineages get condemned. The
 `kind` you pass names the **shape** of the failure; this crate decides the consequences (whether it
 is retried, and how far the condemnation reaches). A complete implementation is in

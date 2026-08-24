@@ -150,6 +150,12 @@ CARGO_TARGET_DIR="$DEF_DIR" cargo test --doc
 step "verdict-search rule"
 bash ci/check_r0.sh
 
+step "prose artifacts (self-test)"
+sh ci/check_prose_artifacts.sh --self-test
+
+step "prose artifacts"
+sh ci/check_prose_artifacts.sh
+
 step "redaction rule (self-test)"
 bash ci/check_redaction.sh --self-test
 

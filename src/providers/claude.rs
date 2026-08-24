@@ -261,7 +261,7 @@ impl ClaudeProvider {
         })
     }
 
-    /// Picks the first text block out of already-parsed content, if there is one.
+    /// Joins EVERY text block of already-parsed content, if there is at least one.
     ///
     /// Returns `Option` rather than `Result` because "no text block" is not always a broken
     /// contract: under extended thinking, a response that hits `max_tokens` legitimately comes
@@ -557,8 +557,11 @@ impl LlmProvider for ClaudeProvider {
     /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
     ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
     /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
-    ///   `Unreadable`, `NoMessage`, or `RedirectRefused`. It is **mage-local**: no lineage
-    ///   is condemned run-wide.
+    ///   `Unreadable`, `NoMessage`, or `RedirectRefused` — and
+    ///   [`ProviderError::EmptyCompletion`] when the model produced no usable content, which on
+    ///   this wire is what an extended-thinking reply that exhausts `max_tokens` looks like: a
+    ///   thinking block and no text block. **Both** are mage-local: no lineage is condemned
+    ///   run-wide.
     async fn complete(
         &self,
         system_prompt: &str,

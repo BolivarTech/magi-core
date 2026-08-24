@@ -422,9 +422,14 @@ pub struct MagiReport {
     ///
     /// # An ABSENT key means one thing, and it is not "nothing was measured"
     ///
-    /// Every dispatched seat leaves at least one record, because an attempt is recorded
-    /// whether it succeeded or failed. So a report this crate returns is never empty here, and
-    /// `skip_serializing_if` never fires on one.
+    /// A seat that completed leaves at least one record, because an attempt is recorded
+    /// whether it succeeded or failed. **A seat whose task PANICKED leaves none** — it lands in
+    /// `failed_agents` with a `panic:` reason and no key here, deliberately, since seeding an
+    /// empty vector would claim a seat that attempted twice attempted nothing. So do not index
+    /// this map by every name in `failed_agents`.
+    ///
+    /// A report this crate returns is nonetheless never empty here — below `min_agents` it
+    /// returns `InsufficientAgents` instead — so `skip_serializing_if` never fires on one.
     ///
     /// What it does serve is the other direction: a report produced BEFORE `4.0.0` has no such
     /// key, and `#[serde(default)]` reads it back as an empty map. An absent key therefore

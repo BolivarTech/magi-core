@@ -11,8 +11,8 @@ use std::sync::LazyLock;
 /// Zero-width Unicode character pattern (category Cf) shared across modules.
 ///
 /// Matches soft hyphens, Arabic markers, zero-width spaces, directional marks,
-/// byte order marks, and other invisible formatting characters. Used by
-/// [`crate::validate::Validator`]. Prefer [`crate::validate::clean_title`] for title cleanup.
+/// byte order marks, and other invisible formatting characters. **Nothing in this crate uses
+/// it** — see the deprecation note below. Prefer [`crate::validate::clean_title`].
 ///
 /// # Deprecation
 ///

@@ -64,7 +64,7 @@ The adaptation preserves the fundamental property of the original system: each a
 
 ### 2.2 Why Three Perspectives and Not Two or Five
 
-Three is the minimum number that allows majority voting without deadlock. With two agents, a disagreement produces a tie with no resolution mechanism. With five, computational cost triples without a proportional improvement in decision quality (diminishing returns). Three also allows each agent to have a strong, differentiated identity, while five would dilute the perspectives into overlapping concerns.
+Three is the minimum number that allows majority voting without deadlock. With two agents, a disagreement produces a tie with no resolution mechanism. With five, the cost per run grows by two thirds without a proportional improvement in decision quality (diminishing returns). Three also allows each agent to have a strong, differentiated identity, while five would dilute the perspectives into overlapping concerns.
 
 ### 2.3 Addressing Cognitive Biases
 
@@ -148,7 +148,7 @@ lib.rs (crate root)
 ├── test_support.rs   — PUBLIC behind `test-utils`: RoutingMockProvider and friends
 ├── agent.rs          — Agent struct, AgentFactory with per-agent/per-mode overrides
 ├── orchestrator.rs   — Magi struct + MagiBuilder, analyze() via concurrent dispatch
-├── prelude.rs        — Re-exports of all public types
+├── prelude.rs        — Re-exports of the COMMON types (not every public one)
 └── providers/
     ├── provider_url.rs — PRIVATE. Owns the URL, renders it redacted, builds requests
     ├── claude.rs     — ClaudeProvider (HTTP, feature: claude-api)
@@ -272,11 +272,14 @@ score = sum(weight) / num_agents
 | Score | Condition           | Consensus            |
 |-------|---------------------|----------------------|
 | 1.0   | Unanimous approve  | **STRONG GO**        |
-| > 0   | Has conditionals   | **GO WITH CAVEATS**  |
+| > 0   | Has conditionals   | **GO WITH CAVEATS (N-M)** |
 | > 0   | No conditionals    | **GO (N-M)**         |
 | 0     | Tie                | **HOLD -- TIE**      |
 | < 0   | Mixed              | **HOLD (N-M)**       |
 | -1.0  | Unanimous reject   | **STRONG NO-GO**     |
+
+`(N-M)` is the effective split, and **the order flips with the verdict**: the `GO` labels print
+(go side, no side) while `HOLD` prints (no side, go side), so `HOLD (2-1)` means two rejects.
 
 In degraded mode (2/3 agents), STRONG labels are capped to their regular counterparts.
 
@@ -353,7 +356,7 @@ Not everything needs MAGI. A trivial bug, a typo, or a question with an obvious 
 
 ### 7.4 LLM-Agnostic Design
 
-magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API — Claude, Gemini, OpenAI, or local models can all serve as the underlying engine. The built-in Claude providers are feature-gated and optional.
+magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API — Claude, OpenAI, Ollama and other local runtimes already ship as feature-gated providers, and Gemini would be additive. All of them are optional.
 
 This means the same consensus engine, validation, and reporting pipeline works regardless of which LLM powers the agents — or even if different agents use different models.
 
@@ -384,7 +387,7 @@ magi-core is a **Rust port and generalization** of the [MAGI Python plugin](http
 magi-core preserves the same consensus algorithm, confidence formula, and findings deduplication logic, but repackages them as a general-purpose Rust library with:
 
 - **Async trait-based provider abstraction** (`LlmProvider`) instead of hardcoded `claude -p` subprocess calls.
-- **Feature-gated providers** for Claude HTTP API and CLI, with the door open for Gemini, OpenAI, and local models.
+- **Feature-gated providers** for the Claude HTTP API and CLI, the OpenAI-compatible wire (`openai-compat`) and Ollama's native path (`ollama`), with the door open for Gemini.
 - **Compile-time embedded prompts** via `include_str!` instead of runtime file loading.
 - **Builder pattern** (`MagiBuilder`) for flexible configuration.
 - **Type-safe domain model** with Rust enums, serde serialization, and comprehensive validation.

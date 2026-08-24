@@ -47,7 +47,7 @@ ollama = ["openai-compat"]
 test-utils = []
 
 # docs.rs builds with the DEFAULT feature set, and this crate declares no `default`.
-# Without these three lines every provider module is `#[cfg]`-ed out of the published
+# Without these two lines every provider module is `#[cfg]`-ed out of the published
 # documentation: docs.rs/magi-core/3.2.0 renders `providers` with no items at all, while
 # the README and the crate root point readers straight at them. Verified against the live
 # page for the previous release rather than predicted.

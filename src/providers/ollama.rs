@@ -35,7 +35,7 @@
 //! daemon. That asymmetry was the accident; this is the deliberate part.
 //!
 //! Both bodies are untrusted, so each read is bounded by `MAX_SHOW_BODY_BYTES`
-//! (`cap_body`); an over-cap or malformed body degrades the probe to `None`
+//! (`ProviderResponse::read_probe_body`); an over-cap or malformed body degrades the probe to `None`
 //! (fail-open, trusted by lineage) rather than erroring — only a transport failure
 //! surfaces a [`ProviderError`]. HTTP-thin, no new dependencies (`reqwest` is
 //! already pulled by the `openai-compat` feature this one enables).

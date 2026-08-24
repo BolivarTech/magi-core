@@ -66,8 +66,9 @@ let telemetry = CompletionTelemetry::unmeasured()
 Ok(Completion::new(text).with_telemetry(telemetry))
 ```
 
-Both types are `#[non_exhaustive]`, so they are built with `unmeasured()` plus `with_*` rather
-than a struct literal. A field added later costs one more method and breaks nobody.
+Both types are `#[non_exhaustive]`, so they are built with a constructor plus `with_*` rather
+than a struct literal — `Completion::new(text)` and `CompletionTelemetry::unmeasured()`, as the
+snippet above shows. A field added later costs one more method and breaks nobody.
 
 ---
 
@@ -294,9 +295,11 @@ validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` 
 load until that reader tolerates the new key. Additive is not the same as invisible.
 
 > **There are TWO new keys, and the other one is the one you cannot miss.** `completions` carries
-> `skip_serializing_if`, but that attribute **never fires on a report this crate returns**: every
-> dispatched seat leaves at least one record, success or failure. Do not read the attribute as
-> "you might never see this key" — you will see it on every report. **`pool_eligibility` carries no
+> `skip_serializing_if`, but that attribute **never fires on a report this crate returns**: a
+> completed seat leaves at least one record, success or failure, and below `min_agents` you get
+> `InsufficientAgents` rather than a report. Do not read the attribute as "you might never see
+> this key" — you will see it on every report. **Per-seat is another matter:** a seat whose task
+> panicked has no key here at all, so index this map by what it contains, not by `failed_agents`. **`pool_eligibility` carries no
 > such attribute at all** — it is emitted on every report, empty map
 > included, deliberately, because an absent key and an empty one answer different questions (no
 > snapshot was taken, versus the seats had no candidates). **Do not read an empty vector as
