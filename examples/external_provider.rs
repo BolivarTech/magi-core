@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-30
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Implementing [`LlmProvider`] **outside** this crate, and failing in a typed way.
 //!
@@ -31,7 +31,7 @@ impl LlmProvider for MyBackend {
         _system_prompt: &str,
         _user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         // THE POINT OF THIS FILE.
         //
         // `ProviderError::external` is the only constructor an outside crate can reach, and
@@ -51,6 +51,35 @@ impl LlmProvider for MyBackend {
 
     fn model(&self) -> &str {
         "my-model-v1"
+    }
+}
+
+/// The whole migration cost of the 4.0.0 break, in one type.
+///
+/// An implementor that measures nothing changes exactly two things: the SIGNATURE
+/// (`Result<String, _>` becomes `Result<Completion, _>`) and the RETURN (`Ok(text)` becomes
+/// `Ok(text.into())`). Nothing else. What it gets back for free is telemetry that says
+/// **not measured** rather than reporting zeros, because a zero that means "nobody looked"
+/// is indistinguishable from a measurement that came back zero.
+struct MinimalProvider;
+
+#[async_trait]
+impl LlmProvider for MinimalProvider {
+    async fn complete(
+        &self,
+        _system_prompt: &str,
+        _user_prompt: &str,
+        _config: &CompletionConfig,
+    ) -> Result<Completion, ProviderError> {
+        Ok("verdict text".to_string().into())
+    }
+
+    fn name(&self) -> &str {
+        "minimal"
+    }
+
+    fn model(&self) -> &str {
+        "none"
     }
 }
 
@@ -82,8 +111,34 @@ async fn main() {
             println!("{}", describe(&err));
             println!("rendered: {err}");
         }
-        Ok(text) => println!("unexpected success: {text}"),
+        Ok(completion) => println!("unexpected success: {}", completion.text),
     }
+
+    // Criterion 11, and it is only observable from OUT HERE: an external implementor migrates
+    // with two changes AND its telemetry reports not-measured, never zeros. Compiling the example
+    // does not show the second half — these asserts do, and they only run under `cargo run`.
+    let completion = MinimalProvider
+        .complete("system", "user", &CompletionConfig::default())
+        .await
+        .expect("the minimal provider cannot fail");
+    assert_eq!(completion.text, "verdict text");
+    assert!(
+        completion.telemetry.finish.is_none(),
+        "an unmeasured completion must not claim a termination reason"
+    );
+    assert!(
+        completion.telemetry.completion_tokens.is_none(),
+        "reporting 0 tokens would assert a measurement nobody took"
+    );
+    assert!(
+        completion.telemetry.prompt_tokens.is_none(),
+        "reporting 0 tokens would assert a measurement nobody took"
+    );
+    assert!(
+        matches!(completion.telemetry.reasoning, ReasoningState::NotMeasured),
+        "NotMeasured is a third state, distinct from Measured with a length of 0"
+    );
+    println!("external provider: telemetry reports NOT MEASURED, not zeros");
 
     // The shape is declared by the third party; the CONSEQUENCE stays with magi-core. This crate
     // decides whether that shape is retried and whether it condemns a lineage — an external

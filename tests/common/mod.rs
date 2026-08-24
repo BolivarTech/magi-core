@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-31
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Loopback server primitives shared by the integration tests that need one.
 //!
@@ -117,4 +117,194 @@ pub fn hang_up(mut stream: std::net::TcpStream) {
     let _ = stream.set_read_timeout(Some(DRAIN));
     let mut buf = [0u8; 4096];
     while matches!(stream.read(&mut buf), Ok(n) if n > 0) {}
+}
+
+// ---------------------------------------------------------------------------
+// MS2 — shared retry-budget helpers (Task 1a)
+//
+// Five helpers are shared across five MS2 tasks. They live here rather than being written
+// wherever they are first needed, because a helper created twice is how two of them diverge.
+// ---------------------------------------------------------------------------
+
+/// Collects the `tracing::warn!` messages emitted while `f` runs.
+///
+/// # Why this exists rather than a crate API
+///
+/// The crate reports dangerous configuration through `tracing`, and this milestone adds no
+/// public surface for reading it back. There is no `Magi::warnings()`.
+///
+/// # Scope — it does NOT see everything, and that is stated rather than discovered
+///
+/// `tracing::subscriber::with_default` is **thread-local** and scoped to the closure. Warnings
+/// emitted from a spawned task (`tokio::spawn` runs on another runtime thread) are NOT captured,
+/// nor is anything outside `f`.
+///
+/// That covers exactly the case it is used for: every warning this milestone verifies is emitted
+/// from `RetryConfig::dangerous_settings`, which runs synchronously inside
+/// `RetryProvider::with_config` on the calling thread. Saying so keeps someone from reusing it
+/// for a warning emitted mid-run and reading the empty result as silence.
+///
+/// # Isolation
+///
+/// `with_default` rather than `set_global_default`: the latter is a `OnceCell`, so under
+/// `cargo test` (one process, many threads) one test would read another's warnings. Thread-local
+/// installation makes that impossible. Under `cargo nextest` each test is its own process anyway.
+///
+/// # No new dependency
+///
+/// Implemented against `tracing` alone. `tracing-subscriber` is not a dependency of this crate,
+/// and adding one for a test helper would break the milestone's zero-new-dependencies rule.
+#[cfg(feature = "test-utils")]
+pub fn captured_warnings<F: FnOnce()>(f: F) -> Vec<String> {
+    use std::sync::{Arc, Mutex};
+    use tracing::field::{Field, Visit};
+    use tracing::span::{Attributes, Id, Record};
+    use tracing::{Event, Level, Metadata, Subscriber};
+
+    #[derive(Default)]
+    struct Collector {
+        lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    /// Pulls the formatted body out of an event's fields.
+    ///
+    /// `warn!("{x}")` lands in the `message` field; a structured `warn!(a = 1)` does not, so
+    /// every field is recorded and the message is preferred when present.
+    #[derive(Default)]
+    struct Grab {
+        message: Option<String>,
+        others: Vec<String>,
+    }
+
+    impl Visit for Grab {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            let rendered = format!("{value:?}");
+            if field.name() == "message" {
+                self.message = Some(rendered);
+            } else {
+                self.others.push(format!("{}={}", field.name(), rendered));
+            }
+        }
+    }
+
+    impl Subscriber for Collector {
+        fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+            *metadata.level() <= Level::WARN
+        }
+        fn new_span(&self, _: &Attributes<'_>) -> Id {
+            Id::from_u64(1)
+        }
+        fn record(&self, _: &Id, _: &Record<'_>) {}
+        fn record_follows_from(&self, _: &Id, _: &Id) {}
+        fn event(&self, event: &Event<'_>) {
+            if *event.metadata().level() > Level::WARN {
+                return;
+            }
+            let mut grab = Grab::default();
+            event.record(&mut grab);
+            let line = grab.message.unwrap_or_else(|| grab.others.join(" "));
+            if let Ok(mut guard) = self.lines.lock() {
+                guard.push(line);
+            }
+        }
+        fn enter(&self, _: &Id) {}
+        fn exit(&self, _: &Id) {}
+    }
+
+    let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+    let collector = Collector {
+        lines: Arc::clone(&lines),
+    };
+    tracing::subscriber::with_default(collector, f);
+    lines.lock().map(|g| g.clone()).unwrap_or_default()
+}
+
+/// The client timeout the hanging seat runs under. Public so the absorbed-retry assertion can
+/// derive its threshold instead of repeating a number that would decouple in silence.
+#[cfg(all(feature = "test-utils", feature = "openai-compat"))]
+pub const HANGING_SEAT_CLIENT_TIMEOUT: Duration = Duration::from_millis(300);
+
+#[cfg(all(feature = "test-utils", feature = "openai-compat"))]
+/// A run whose Caspar seat talks to a backend that answers headers and never a body.
+///
+/// The hanging provider is WRAPPED in a `RetryProvider`, which absorbs its own retries — so
+/// from the orchestrator's side this is **one** call and therefore **one** completion record.
+/// The wrapping is what makes the claim testable: unwrapped, one record would follow from one
+/// call whether retries were absorbed or not. That is the point: it is the counter-example to
+/// the corrective-retry helper below, which produces two.
+///
+/// # Feature gate, stated rather than discovered
+///
+/// Needs `openai-compat` for a real HTTP provider and `test-utils` for the trio builders. The
+/// hanging server itself is `support::mock_server`, already used by two integration suites.
+pub async fn run_against_a_hanging_backend()
+-> Result<magi_core::reporting::MagiReport, magi_core::error::MagiError> {
+    use magi_core::prelude::*;
+    use magi_core::rotation::Lineage;
+    use magi_core::test_support::{Beh, ScriptProvider};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[path = "../support/mock_server.rs"]
+    mod mock_server;
+
+    let (url, handle) = mock_server::spawn_hanging_headers().await;
+
+    // A short client timeout: the property is that the seat is lost to a hang, not how long a
+    // test is willing to sit still for it.
+    let hanging =
+        OpenAiCompatibleProvider::with_timeout(url, "m-hanging", None, HANGING_SEAT_CLIENT_TIMEOUT)
+            .expect("the hanging provider builds");
+
+    // WRAPPED in a `RetryProvider`, and that is load-bearing rather than decoration: without it
+    // the single record would come from a single call and the test would pass identically
+    // whether or not retries are absorbed — proving nothing about the mechanism it names.
+    // `MagiBuilder::build` does not wrap providers itself, which its own rustdoc states.
+    // Fields over `Default`: `RetryConfig` is `#[non_exhaustive]`, so the struct literal does not
+    // compile from OUTSIDE the crate — which is the 2.0 migration pattern its rustdoc documents,
+    // and a reminder that the in-crate form is not available here.
+    let mut retry_cfg = RetryConfig::default();
+    // Small enough that the absorbed retries cost milliseconds, not the shipped seconds.
+    retry_cfg.base_delay = Duration::from_millis(1);
+    let retrying: Arc<dyn LlmProvider> = Arc::new(RetryProvider::with_config(
+        Arc::new(hanging) as Arc<dyn LlmProvider>,
+        retry_cfg,
+    ));
+
+    let magi =
+        MagiBuilder::new(ScriptProvider::new("m-default", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+            .with_timeout(Duration::from_secs(5))
+            .with_agent(AgentName::Caspar, retrying, Lineage::new("deepseek"))
+            .build()
+            .expect("the hanging trio builds");
+
+    let out = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+    handle.abort();
+    out
+}
+
+/// A run where one seat's FIRST response fails the schema and its corrective retry succeeds.
+///
+/// # Why this shape, and not a transport hang
+///
+/// These are **two calls made by the orchestrator**, both visible from outside, against the
+/// **same** model. A transport retry would not do: that one happens inside `RetryProvider`,
+/// which hands back a single result, so from here it is indistinguishable from one call.
+///
+/// That distinction is the whole content of the MS1xMS2 cross-milestone criterion: completion
+/// telemetry records per ATTEMPT, not per model.
+///
+/// The pool is empty on purpose — the corrective retry must succeed against the same model, so a
+/// rotation would prove something else.
+#[cfg(feature = "test-utils")]
+pub async fn run_where_the_first_response_fails_schema_and_the_retry_succeeds()
+-> Result<magi_core::reporting::MagiReport, magi_core::error::MagiError> {
+    use magi_core::prelude::*;
+    use magi_core::test_support::{Beh, ScriptProvider, build_trio_with_caspar};
+
+    // `ScriptProvider` consumes behaviours by call index and repeats the last one, so this is
+    // exactly "first call bad, every later call good".
+    let caspar = ScriptProvider::new("m-deepseek", vec![Beh::BadJson, Beh::Ok]);
+    let magi = build_trio_with_caspar(caspar, vec![]);
+    magi.analyze(&Mode::CodeReview, "fn main() {}").await
 }

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-30
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Authority over a provider's URL.
 //!
@@ -119,6 +119,16 @@ impl ProviderUrl {
     ///
     /// Segments are `&'static str` on purpose: a runtime-built `String` — the only vehicle by which
     /// a `..` could arrive — does not compile.
+    /// # Why every caller goes through here rather than composing a string
+    ///
+    /// A caller that needs a sub-path is otherwise tempted to write `format!("{base}/api")`, and
+    /// that is **silently destructive**: `Display` on this type is the *redacted* rendering, so
+    /// the string it produces has the real credentials replaced by the placeholder — an
+    /// inexplicable 401 — and carries the normalising trailing slash, giving `//api`.
+    ///
+    /// That is not hypothetical. It shipped in the Ollama provider and reached code review: the
+    /// type that exists to make the leak impossible was being round-tripped through the one
+    /// method that rewrites the secret. Deriving authority-to-authority removes the string.
     fn join_path(&self, segs: &[&'static str]) -> reqwest::Url {
         let mut url = self.inner.clone();
         if let Ok(mut path) = url.path_segments_mut() {
@@ -130,32 +140,6 @@ impl ProviderUrl {
             }
         }
         url
-    }
-
-    /// Derives a new authority with `segs` appended to the path, **keeping everything else** —
-    /// credentials, query and fragment included.
-    ///
-    /// # Parameters
-    /// - `segs`: compile-time path segments, same contract as the request builder.
-    ///
-    /// # Why this exists rather than composing a string
-    ///
-    /// A caller that needs a sub-path is otherwise tempted to write `format!("{base}/v1")`, and
-    /// that is **silently destructive**: `Display` on this type is the *redacted* rendering, so the
-    /// string it produces has the real credentials replaced by the placeholder — an inexplicable
-    /// 401 — and carries the normalising trailing slash, giving `//v1`.
-    ///
-    /// That is not hypothetical. It shipped in the Ollama provider and reached code review: the
-    /// type that exists to make the leak impossible was being round-tripped through the one method
-    /// that rewrites the secret. Deriving authority-to-authority removes the string entirely.
-    /// Only the Ollama provider needs this today, so it is gated there: an item compiled into
-    /// a feature set that never calls it is dead code under that feature set, and silencing
-    /// that with an allow would hide the next one that is genuinely dead.
-    #[cfg(feature = "ollama")]
-    pub(crate) fn with_segments(&self, segs: &[&'static str]) -> Self {
-        Self {
-            inner: self.join_path(segs),
-        }
     }
 
     /// Whether the path's last non-empty segment is `seg`.
@@ -426,13 +410,12 @@ impl ProviderResponse {
         // what was an encoding fault, which is exactly the misattribution this crate's telemetry
         // was rebuilt to avoid.
         //
-        // The zero status is the standing sentinel for "a response arrived and is unusable":
-        // non-retryable and mage-local, the same treatment a body that will not parse receives.
-        String::from_utf8(acc).map_err(|_| ProviderError::Http {
-            status: crate::provider::PARSE_FAILURE_STATUS,
-            body: "response body was not valid UTF-8".to_string(),
-            retry_after_raw: vec![],
-            received_at: None,
+        // A body that is not valid UTF-8 is a body this crate cannot read, which is exactly
+        // `Unreadable` — and, like a body clipped in transit, it is the one contract cause worth
+        // a second try, because the same endpoint can answer differently.
+        String::from_utf8(acc).map_err(|_| ProviderError::ResponseContract {
+            reason: crate::error::ResponseContractCause::Unreadable,
+            detail: String::new(),
         })
     }
 
@@ -771,46 +754,32 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "ollama")]
-    fn with_segments_keeps_the_real_credentials() {
+    fn joining_a_segment_keeps_the_real_credentials() {
         // Equality here compares the FULL url, credentials included — which is exactly why this
         // test can prove they survived without ever printing them. Composing the sub-path as a
         // string instead would have gone through the redacted rendering and produced the literal
         // placeholder as a username.
         let derived = ProviderUrl::parse("http://alice:s3cret@h:11434")
             .expect("parses")
-            .with_segments(&["v1"]);
-        let expected = ProviderUrl::parse("http://alice:s3cret@h:11434/v1").expect("parses");
-        assert_eq!(derived, expected);
+            .join_path(&["api", "chat"]);
+        let expected = ProviderUrl::parse("http://alice:s3cret@h:11434/api/chat").expect("parses");
+        assert_eq!(derived, expected.inner);
     }
 
     #[test]
-    #[cfg(feature = "ollama")]
-    fn with_segments_produces_one_separator_not_two() {
+    fn joining_a_segment_produces_one_separator_not_two() {
         // The other half of the string-composition bug: `Display` normalises an empty path to
         // `/`, so `format!("{base}/v1")` yields `//v1`.
         for raw in ["http://h:11434", "http://h:11434/"] {
-            let derived = ProviderUrl::parse(raw)
-                .expect("parses")
-                .with_segments(&["v1"]);
+            let derived = ProviderUrl::parse(raw).expect("parses").join_path(&["api"]);
             assert_eq!(
                 derived,
-                ProviderUrl::parse("http://h:11434/v1").expect("parses"),
+                ProviderUrl::parse("http://h:11434/api")
+                    .expect("parses")
+                    .inner,
                 "from {raw}"
             );
         }
-    }
-
-    #[test]
-    #[cfg(feature = "ollama")]
-    fn with_segments_keeps_the_query_and_the_fragment() {
-        let derived = ProviderUrl::parse("http://h/base?key=S#frag")
-            .expect("parses")
-            .with_segments(&["v1"]);
-        assert_eq!(
-            derived,
-            ProviderUrl::parse("http://h/base/v1?key=S#frag").expect("parses")
-        );
     }
 
     #[test]
@@ -900,5 +869,20 @@ mod tests {
         assert!(!msg.contains("s3cret"), "password leaked: {msg}");
         assert!(!msg.contains("q3ry"), "query secret leaked: {msg}");
         assert!(msg.contains("127.0.0.1"), "host must survive: {msg}");
+    }
+
+    #[test]
+    fn raising_the_default_max_tokens_does_not_move_the_memory_bound() {
+        // A-8, and it lives HERE because `body_cap` is private to this module: making it
+        // public just to test it from `provider.rs` would widen the surface for a test's
+        // convenience, which this project's standards forbid.
+        assert_eq!(body_cap(16_384), body_cap(4_096));
+        // The VALUE too, not merely that the two agree: they could agree on a wrong number.
+        // 16 384 * 16 = 262 144 stays under the 1 MiB floor, so the floor is what both return.
+        assert_eq!(body_cap(16_384), 1_048_576);
+        // And the boundary, which is what makes "the bound does not move" checkable instead of
+        // merely restated: the floor stops governing at 65 536.
+        assert_eq!(body_cap(65_536), 1_048_576);
+        assert_eq!(body_cap(65_537), 65_537 * 16);
     }
 }

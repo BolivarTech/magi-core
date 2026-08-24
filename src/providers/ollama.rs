@@ -1,12 +1,24 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-26
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Native Ollama provider (feature `ollama`).
 //!
-//! Reuses the OpenAI-compatible completions path (`{base}/v1/chat/completions`)
-//! for [`LlmProvider::complete`] and ADDS the native probe endpoints for
-//! [`ProviderProbe`]:
+//! Speaks the **native** API for everything: `POST {base}/api/chat` for
+//! [`LlmProvider::complete`] and the native probe endpoints for [`ProviderProbe`]:
+//!
+//! # Why native, and why unconditionally
+//!
+//! Until `4.0.0` completions went through the OpenAI-compatible path
+//! (`{base}/v1/chat/completions`). That path cannot honour a reasoning control:
+//! `think: false` was measured **accepted with HTTP 200 and inert** there, while the
+//! native endpoint made the same payload converge in 602 tokens instead of burning
+//! 32 768 and returning nothing. A knob that appears to work is worse than no knob.
+//!
+//! The routing is unconditional rather than switchable because a second mode shipped
+//! into a public surface costs another major to remove — so it does not get removed.
+//! `/v1` is also Ollama's own experimental compatibility layer; `/api/chat` is its
+//! primary API.
 //!
 //! - **window** ← `POST {base}/api/show` → `model_info` → first `*.context_length`
 //!   (the key is architecture-prefixed and NOT derivable from `details.family`, so
@@ -23,38 +35,45 @@
 //! daemon. That asymmetry was the accident; this is the deliberate part.
 //!
 //! Both bodies are untrusted, so each read is bounded by `MAX_SHOW_BODY_BYTES`
-//! (`cap_body`); an over-cap or malformed body degrades the probe to `None`
+//! (`ProviderResponse::read_probe_body`); an over-cap or malformed body degrades the probe to `None`
 //! (fail-open, trusted by lineage) rather than erroring — only a transport failure
 //! surfaces a [`ProviderError`]. HTTP-thin, no new dependencies (`reqwest` is
 //! already pulled by the `openai-compat` feature this one enables).
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
-use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider};
-use crate::providers::openai_compat::OpenAiCompatibleProvider;
+use crate::error::{ProviderError, ResponseContractCause};
+use crate::provider::{Completion, CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider};
+use crate::providers::ollama_wire::{NativeMessage, NativeRequest, NativeResponse, native_error};
 use crate::providers::provider_url::ProviderUrl;
 use crate::rotation::ProviderProbe;
 
-/// Native Ollama provider: OpenAI-compatible completions + `/api/show` +
-/// `/api/tags` probe. Construct with [`OllamaProvider::new`].
+/// Native Ollama provider: `/api/chat` completions + `/api/show` + `/api/tags`
+/// probe. Construct with [`OllamaProvider::new`].
 pub struct OllamaProvider {
-    inner: OpenAiCompatibleProvider,
     /// The URL authority — never a `String`, so a reverse proxy's credentials in front of Ollama
     /// cannot leak through `Debug` or an error message.
     base_url: ProviderUrl,
     client: reqwest::Client,
+    /// The model tag, passed through unchanged. Held here since `4.0.0`; before that it lived
+    /// inside the wrapped OpenAI-compatible provider, which no longer exists.
+    model: String,
 }
 
 impl OllamaProvider {
     /// Creates a provider for an Ollama daemon. Keyless — Ollama needs no bearer token.
     ///
     /// # Parameters
-    /// - `base_url`: **either** the OpenAI-compatible endpoint (`http://localhost:11434/v1`)
-    ///   **or** the daemon root (`http://localhost:11434`). Both are accepted and both produce
-    ///   the same endpoints.
+    /// - `base_url`: **either** the daemon root (`http://localhost:11434`) **or** the same URL
+    ///   with the legacy `/v1` suffix. Both are accepted and both produce the same native
+    ///   `/api/*` endpoints; nothing this provider sends addresses `/v1`.
+    ///
+    ///   That concerns the URL you CONFIGURE, not what the endpoint serves. A gateway exposing
+    ///   only the OpenAI-compatible surface has no `/api/chat` to answer and stops working with
+    ///   this provider; point `OpenAiCompatibleProvider` at it instead, which is the documented
+    ///   path for that shape.
     /// - `model`: the model tag, passed through unchanged.
     ///
     /// # Errors
@@ -62,9 +81,11 @@ impl OllamaProvider {
     ///
     /// # Why both spellings are accepted
     ///
-    /// Ollama serves its OpenAI-compatible API under `/v1` and its native API under `/api`, and
-    /// this provider needs both — the second is what measures the context window and the weights
-    /// digest. Only one of the two has to be given, since they are siblings.
+    /// Ollama serves its OpenAI-compatible API under `/v1` and its native API under `/api`. Since
+    /// `4.0.0` this provider uses **only** the native one — for completions as well as for the
+    /// window and digest measurements — so a `/v1` suffix is **normalised away** rather than
+    /// used. It is still accepted because an existing configuration should keep working, and
+    /// because the sibling [`OpenAiCompatibleProvider`] does take its URL that way.
     ///
     /// Earlier versions took the daemon root only, and that surprised people: the sibling
     /// [`OpenAiCompatibleProvider`] takes its URL **with** `/v1`, so the same-looking parameter
@@ -76,9 +97,14 @@ impl OllamaProvider {
     ///
     /// | Given | Completions | Probe |
     /// |---|---|---|
-    /// | `http://localhost:11434/v1` | `…/v1/chat/completions` | `…/api/show`, `…/api/tags` |
-    /// | `http://localhost:11434` | `…/v1/chat/completions` | `…/api/show`, `…/api/tags` |
-    /// | `https://gw.example.com/ollama/v1` | `…/ollama/v1/chat/completions` | `…/ollama/api/*` |
+    /// | `http://localhost:11434/v1` | `…/api/chat` | `…/api/show`, `…/api/tags` |
+    /// | `http://localhost:11434` | `…/api/chat` | `…/api/show`, `…/api/tags` |
+    /// | `https://gw.example.com/ollama/v1` | `…/ollama/api/chat` | `…/ollama/api/*` |
+    ///
+    /// Since `4.0.0` a `/v1` spelling is accepted and then **normalised away**: nothing this
+    /// provider talks to lives under `/v1` any more. The spelling is still accepted because
+    /// consumers reach for it, and breaking them for a reason that is ours would be the wrong
+    /// trade.
     ///
     /// # The one deployment this reads wrong
     ///
@@ -90,7 +116,7 @@ impl OllamaProvider {
     ///
     /// | Channel | What happens |
     /// |---|---|
-    /// | **Completions** | 404 → a non-retryable HTTP error → the lineage is condemned **run-wide** and the seat rotates. **This is the loud one.** |
+    /// | **Completions** | 404 → `ProviderError::Http { status: 404 }`, which is **run-wide**: the lineage is condemned for every seat, not just this one. That did NOT change in `4.0.0` — a real HTTP status still means transport. Only the CONTRACT failures became mage-local. **This is the loud one.** |
     /// | **Probe** | 404 → `Ok(None)`, by design. It is fail-open: an unmeasurable window is a valid result, so nothing refuses here. |
     ///
     /// The probe's silence surfaces only as the report's *estimated window* note — a disclosure,
@@ -105,14 +131,16 @@ impl OllamaProvider {
         Self::with_timeout(base_url, model, DEFAULT_CLIENT_TIMEOUT)
     }
 
-    /// Like [`new`](Self::new) but bounds **both** HTTP clients this type builds — the one
-    /// serving completions and the one serving the probe — with `timeout`.
+    /// Like [`new`](Self::new) but bounds the HTTP client this type builds with `timeout`, which
+    /// covers completions and the probe alike — they share it.
     ///
     /// [`new`](Self::new) delegates here with [`DEFAULT_CLIENT_TIMEOUT`], so the default is
     /// unchanged: 300 s, which is generous on purpose because a local daemon may be loading a
     /// model from cold on the first call.
     ///
-    /// The timeout covers the entire request, from send to the last body byte, on both clients.
+    /// The timeout covers the entire request, from send to the last body byte. It said "both
+    /// clients" until `4.0.0`, which was true while this type wrapped an `OpenAiCompatibleProvider`
+    /// for completions and kept its own for the probe; that wrapper is gone and there is one.
     /// `Duration::MAX` means "no timeout" and is dangerous for the same reason it is on the
     /// sibling provider: a model that hangs while generating hangs forever. Nothing validates
     /// the value here.
@@ -120,9 +148,13 @@ impl OllamaProvider {
     /// # Why this exists
     ///
     /// A consumer that derives its per-agent timeouts from a single ceiling needs the client
-    /// timeout to fit under it — see the layering section on [`RetryConfig`](crate::provider::RetryConfig),
-    /// which spells out `operation_budget + client_timeout <= MagiConfig::timeout` and why the
-    /// shipped defaults do not satisfy it. Without this constructor such a consumer had to give
+    /// timeout to fit under it — see the layering section on
+    /// [`RetryConfig`](crate::provider::RetryConfig). It gives the current form and explains why
+    /// the older
+    /// `operation_budget + client_timeout <= MagiConfig::timeout` is left unsatisfied by the
+    /// shipped defaults **on purpose**: since `4.0.0` the chain is bounded by an attempt count
+    /// and the budget is a backstop, so summing the two would buy a ceiling the chain cannot
+    /// reach. Without this constructor such a consumer had to give
     /// up this type entirely for completions, and this is the only provider here that can also
     /// probe — so a capability ended up dictating a provider. The sibling HTTP providers already
     /// offered the same knob; this one was the outlier.
@@ -132,16 +164,15 @@ impl OllamaProvider {
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
         let given = ProviderUrl::parse(&base_url.into())?;
-        // Whichever spelling arrived, normalise to the pair this provider needs.
-        let (completions, base) = if given.ends_with_segment(OPENAI_COMPAT_PREFIX) {
-            (given.clone(), given.parent())
+        // A `/v1` spelling is still ACCEPTED — users reach for it because the sibling provider
+        // takes its URL that way — but it is now normalised AWAY: every endpoint this provider
+        // uses hangs off the daemon root. Rejecting the spelling instead would break consumers
+        // for a reason that is ours, not theirs.
+        let base = if given.ends_with_segment(OPENAI_COMPAT_PREFIX) {
+            given.parent()
         } else {
-            (given.with_segments(&[OPENAI_COMPAT_PREFIX]), given)
+            given
         };
-        // Passed as an authority, NEVER as `format!("{base}/v1")`: `Display` here is the redacted
-        // rendering, so composing a string would hand the inner provider the literal placeholder
-        // in place of real credentials — a silent 401 — plus a doubled path separator.
-        let inner = OpenAiCompatibleProvider::from_authority(completions, model, None, timeout)?;
         let client = reqwest::Client::builder()
             .timeout(timeout)
             // Referer OFF — see the note in the OpenAI-compatible provider: on a redirect the
@@ -150,9 +181,9 @@ impl OllamaProvider {
             .build()
             .map_err(|e| crate::provider::client_build_error(&e))?;
         Ok(Self {
-            inner,
             base_url: base,
             client,
+            model: model.into(),
         })
     }
 
@@ -208,15 +239,89 @@ const OPENAI_COMPAT_PREFIX: &str = "v1";
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
+    /// Completes over Ollama's **native** `POST {base}/api/chat`, always.
+    ///
+    /// # Errors
+    /// - [`ProviderError::Timeout`] if the request exceeds the total client timeout.
+    /// - [`ProviderError::Network`] on connection failures.
+    /// - [`ProviderError::Auth`] on 401/403 — the daemon itself is keyless, but this
+    ///   provider is explicitly built to sit behind a reverse proxy, which may not be.
+    /// - [`ProviderError::Http`] on any **other** non-2xx response, carrying the **real**
+    ///   status — a missing model answers `404` with `{"error": "..."}`, which is nothing
+    ///   like the OpenAI-compatible error shape.
+    /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
+    ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
+    /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
+    ///   `Unreadable`, `NoMessage`, or `RedirectRefused` — and
+    ///   [`ProviderError::EmptyCompletion`] when the model produced no usable content. Both
+    ///   are **mage-local**: no lineage is condemned run-wide.
+    /// - [`ProviderError::NoGeneration`] on the **full three-signal footprint**: both token
+    ///   counters absent (absent, not zero), empty content, **and** `done_reason` exactly
+    ///   `load`. Anything short of all three is [`ProviderError::EmptyCompletion`] instead —
+    ///   `tests/fixtures/ec/native-unload-empty-messages.json` meets the counter and content
+    ///   signals but reports `unload`, so it takes that safer path. The narrowing is deliberate: this footprint is a
+    ///   defect of THIS crate rather than a failure of the model, so the orchestrator raises it
+    ///   and aborts the run instead of rotating — rotating would reproduce it at every seat —
+    ///   and an irreversible consequence is owed a precise trigger, not one symptom.
     async fn complete(
         &self,
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
-        self.inner
-            .complete(system_prompt, user_prompt, config)
-            .await
+    ) -> Result<Completion, ProviderError> {
+        // Built from the authority this provider already holds, NEVER from a formatted string:
+        // `Display` on a `ProviderUrl` is the REDACTED rendering, so composing a url by hand
+        // would send the literal placeholder where a reverse proxy's credentials belong — a
+        // silent 401 — and would step outside the type that owns redaction. That guarantee is
+        // structural and it is inherited by using the type, not by repeating its code.
+        //
+        // `request` also applies `.referer(false)` and maps transport errors with the redacted
+        // url. A hand-built client here would lose all three properties of 3.1.0 at once, and
+        // `ci/check_redaction.sh` would go red for exactly that reason.
+        let response = self
+            .base_url
+            .request(&self.client, reqwest::Method::POST, &["api", "chat"])
+            .json(&NativeRequest::new(
+                &self.model,
+                vec![
+                    NativeMessage::system(system_prompt),
+                    NativeMessage::user(user_prompt),
+                ],
+                config.max_tokens,
+                config.temperature,
+                config.reasoning,
+            ))
+            .send()
+            .await?;
+
+        // Captured on the SAME beat as the status and BEFORE the body is read, exactly as the
+        // compat sibling does: `send` resolves on the headers, so this is the moment the
+        // response arrived. Review found this path was dropping both, which silently turned a
+        // gateway's `429` with a `Retry-After` into blind exponential backoff — a live
+        // regression for anyone moving from `/v1` to native against a cloud tag.
+        let received_at = Instant::now();
+        let status = response.status();
+        let retry_after_raw = response.retry_after_raw();
+
+        if !(200..300).contains(&status) {
+            // The error branch reads a DIAGNOSTIC body, which truncates. Reading it through the
+            // verdict reader instead made an oversized error page fail as `ResponseTooLarge` —
+            // mage-local and non-retryable — losing the status entirely, so a `503` behind a
+            // chatty proxy stopped looking like transport.
+            let body = response.read_diagnostic_body().await;
+            return Err(native_error(status, &body, retry_after_raw, received_at));
+        }
+
+        // The success branch keeps the verdict reader: over the cap it FAILS rather than
+        // truncating, because a cut body loses its closing marker and the parser would blame the
+        // model for a cut this reader made.
+        let body = response.read_verdict_body(config.max_tokens).await?;
+        let native: NativeResponse =
+            serde_json::from_str(&body).map_err(|_| ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            })?;
+        native.into_completion(config.max_tokens, config.reasoning_trace)
     }
 
     fn name(&self) -> &str {
@@ -224,7 +329,7 @@ impl LlmProvider for OllamaProvider {
     }
 
     fn model(&self) -> &str {
-        self.inner.model()
+        self.model.as_str()
     }
 }
 
@@ -234,14 +339,14 @@ impl ProviderProbe for OllamaProvider {
     /// its completions half serves, so it can answer and let the preflight check the
     /// correspondence rather than take it on trust.
     fn declared_model(&self) -> Option<&str> {
-        Some(self.inner.model())
+        Some(self.model.as_str())
     }
 
     async fn window(&self) -> Result<Option<usize>, ProviderError> {
         let resp = self
             .base_url
             .request(&self.client, reqwest::Method::POST, &["api", "show"])
-            .json(&serde_json::json!({ "model": self.inner.model() }))
+            .json(&serde_json::json!({ "model": self.model.as_str() }))
             .send()
             .await?;
         // A non-2xx status carries no usable probe body → degrade to `None`
@@ -255,7 +360,7 @@ impl ProviderProbe for OllamaProvider {
                 let window = Self::parse_show_window(&body);
                 if window.is_none() {
                     tracing::warn!(
-                        model = self.inner.model(),
+                        model = self.model.as_str(),
                         "/api/show returned no *.context_length key (schema drift or absent)"
                     );
                 }
@@ -277,10 +382,10 @@ impl ProviderProbe for OllamaProvider {
         match resp.read_probe_body(MAX_SHOW_BODY_BYTES).await {
             Some(bytes) => {
                 let body = String::from_utf8_lossy(&bytes);
-                let digest = Self::parse_tags_digest(&body, self.inner.model());
+                let digest = Self::parse_tags_digest(&body, &self.model);
                 if digest.is_none() {
                     tracing::warn!(
-                        model = self.inner.model(),
+                        model = self.model.as_str(),
                         "/api/tags: model not listed; digest unresolved (trusted by lineage)"
                     );
                 }
@@ -305,7 +410,8 @@ mod tests {
     /// rendering normalises an empty path to `/`.
     #[test]
     fn every_accepted_spelling_yields_the_same_endpoints() {
-        let expected_completions = ProviderUrl::parse("http://localhost:11434/v1").expect("parses");
+        // Since 4.0.0 there is no `/v1` endpoint left to check: BOTH spellings normalise to the
+        // daemon root, and every endpoint — completions included — hangs off it.
         let expected_root = ProviderUrl::parse("http://localhost:11434").expect("parses");
 
         for raw in [
@@ -315,12 +421,7 @@ mod tests {
             "http://localhost:11434/",
         ] {
             let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
-            assert_eq!(
-                *p.inner.base(),
-                expected_completions,
-                "completions from {raw}"
-            );
-            assert_eq!(p.base_url, expected_root, "probe root from {raw}");
+            assert_eq!(p.base_url, expected_root, "root from {raw}");
         }
     }
 
@@ -328,8 +429,6 @@ mod tests {
     /// `/v1` and `/api` families stay siblings under that prefix rather than jumping to the origin.
     #[test]
     fn a_mounted_prefix_survives_both_spellings() {
-        let expected_completions =
-            ProviderUrl::parse("https://gw.example.com/ollama/v1").expect("parses");
         let expected_root = ProviderUrl::parse("https://gw.example.com/ollama").expect("parses");
 
         for raw in [
@@ -337,25 +436,24 @@ mod tests {
             "https://gw.example.com/ollama",
         ] {
             let p = OllamaProvider::new(raw, "qwen3:8b").expect("constructs");
-            assert_eq!(
-                *p.inner.base(),
-                expected_completions,
-                "completions from {raw}"
-            );
-            assert_eq!(p.base_url, expected_root, "probe root from {raw}");
+            assert_eq!(p.base_url, expected_root, "root from {raw}");
         }
     }
 
-    /// The regression this pair exists for: the inner provider must receive the REAL credentials,
-    /// not the redaction placeholder. Equality compares the full url, so this proves it without
-    /// printing anything — and a failure prints the redacted form.
+    /// The regression this test exists for: the authority must keep the REAL credentials, not the
+    /// redaction placeholder. Equality compares the full url, so this proves it without printing
+    /// anything — and a failure prints the redacted form.
+    ///
+    /// It used to check the wrapped provider's `/v1` base. With the wrapper gone there is one
+    /// authority left, and it is the one every endpoint is built from — so the same property is
+    /// now checked where it actually lives.
     #[test]
-    fn new_gives_the_inner_provider_the_real_credentials() {
+    fn construction_keeps_the_real_credentials_on_the_authority() {
         let p = OllamaProvider::new("http://alice:s3cret@localhost:11434", "qwen3:8b")
             .expect("constructs");
         assert_eq!(
-            *p.inner.base(),
-            ProviderUrl::parse("http://alice:s3cret@localhost:11434/v1").expect("parses")
+            p.base_url,
+            ProviderUrl::parse("http://alice:s3cret@localhost:11434").expect("parses")
         );
     }
 
@@ -494,7 +592,7 @@ mod tests {
         // completions half serves — not the URL, not a label.
         let p = OllamaProvider::new("http://127.0.0.1:11434", "qwen3:8b").expect("constructs");
         assert_eq!(ProviderProbe::declared_model(&p), Some("qwen3:8b"));
-        assert_eq!(ProviderProbe::declared_model(&p), Some(p.inner.model()));
+        assert_eq!(ProviderProbe::declared_model(&p), Some(p.model.as_str()));
     }
 
     #[test]

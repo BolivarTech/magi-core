@@ -1,6 +1,6 @@
 [package]
 name = "magi-core"
-version = "3.2.0"
+version = "4.0.0"
 edition = "2024"
 rust-version = "1.91"
 authors = ["Julian Bolivar"]
@@ -11,6 +11,24 @@ homepage = "https://github.com/BolivarTech/magi-core"
 readme = "README.md"
 keywords = ["llm", "multi-agent", "consensus", "analysis", "magi"]
 categories = ["algorithms", "asynchronous"]
+# The smoke harness writes its release certificate here, and crates.io is
+# IMMUTABLE: a certificate that slips into a published package cannot be taken
+# out, only corrected by publishing again — which is what a doc-only release
+# already cost this project once. Excluded in the same change that introduces
+# the directory, not after.
+#
+# The knowledge graph is tracked in git on purpose — someone reading or
+# contributing to this repository gets the structure map with the checkout. It
+# is not, however, anything a consumer who wrote `magi-core = "4.0"` can use:
+# it was 7.8 MB of a 9.8 MB package, of which 3.5 MB was a browser viewer, and
+# cargo packages by "what git tracks" unless told otherwise. Tracked, yes;
+# shipped, no. Whoever wants it takes it from the repository or the tag.
+#
+# `.gitignore` goes with them, for a different reason: it is repository
+# management with nothing in it for a consumer, and its section headers name the
+# local tooling — which the standard this crate is written to forbids in anything
+# that ships. Excluding it settles that without losing the file for contributors.
+exclude = ["docs/test/", "graphify-out/", ".graphifyignore", ".gitignore"]
 
 [dependencies]
 thiserror = "2"
@@ -30,12 +48,23 @@ sha2 = "0.10"
 claude-api = ["dep:reqwest"]
 claude-cli = []
 openai-compat = ["dep:reqwest"]
-# MS2: OllamaProvider reuses the OpenAI-compatible completions path and adds the
-# native /api/show + /api/tags probe (window + digest). HTTP-thin, no new deps.
+# OllamaProvider speaks the NATIVE /api/chat path for completions since 4.0.0, plus the native
+# /api/show + /api/tags probes (window + digest). The edge on `openai-compat` remains because it
+# is what supplies `reqwest` and the shared provider-URL machinery, NOT because the completions
+# path is shared any more. HTTP-thin, no new deps.
 ollama = ["openai-compat"]
-# v0.4.0: exposes RoutingMockProvider for downstream integration tests.
-# Stable only within v0.4.x.
+# Exposes RoutingMockProvider for downstream integration tests. Its surface is
+# covered by the crate's stability policy like any other public item (ADR 005), so
+# it moves on a minor at the earliest.
 test-utils = []
+
+# docs.rs builds with the DEFAULT feature set, and this crate declares no `default`.
+# Without these two lines every provider module is `#[cfg]`-ed out of the published
+# documentation: docs.rs/magi-core/3.2.0 renders `providers` with no items at all, while
+# the README and the crate root point readers straight at them. Verified against the live
+# page for the previous release rather than predicted.
+[package.metadata.docs.rs]
+all-features = true
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

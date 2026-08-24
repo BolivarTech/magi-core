@@ -1,0 +1,535 @@
+# Migrating from 3.2.0 to 4.0.0
+
+`4.0.0` fixes one defect and everything that defect was hiding behind.
+
+The short version: a reasoning model would spend its entire output budget thinking, return
+`content: ""` with `finish_reason: "length"`, and the crate would turn that into a synthetic
+HTTP error — which then condemned the model's lineage **run-wide**, taking it away from the other
+two mages over what one mage had seen. The operator was told "transport", and went to look at a
+network that had answered `HTTP 200` perfectly.
+
+Fixing it properly meant reading the wire completely, naming contract failures as contract
+failures, and giving rotation telemetry types that do not lie. That is a major, so the breaks are
+spent all at once rather than saved up.
+
+**Nine observable changes.** Each section says what it was, what it is, and what you do.
+
+---
+
+## 1. `complete()` returns `Completion`, not `String`
+
+In one line: complete() returns Completion where it used to return String. That is **two edits
+per implementation**, not one — the signature and the returned value — spelled out below.
+
+**Before**
+
+```rust
+async fn complete(&self, system: &str, user: &str, config: &CompletionConfig)
+    -> Result<String, ProviderError>
+{
+    Ok(self.call_my_backend(system, user).await?)
+}
+```
+
+**After**
+
+```rust
+async fn complete(&self, system: &str, user: &str, config: &CompletionConfig)
+    -> Result<Completion, ProviderError>
+{
+    Ok(self.call_my_backend(system, user).await?.into())
+}
+```
+
+**What you do:** change the return type, and add `.into()` on the value you return. Two edits per
+implementation, plus any helper of your own that returns the old type.
+
+`Completion` carries the text plus whatever the provider could measure about producing it. A
+provider that measures nothing reports **not measured** — never zeros, which would claim a
+measurement that never happened. That is what `String::into()` gives you.
+
+**Why the trait had to change.** The report now records every completion attempt with its
+termination reason, its token counts, and its reasoning state. None of that fits in a `String`. A
+new trait method with a default body was considered and rejected: it would leave two completion
+paths that can drift, and an implementor who never overrode it would be silently mute — the quiet
+no-op this release exists to remove.
+
+**Reporting more than the minimum**, if your backend does measure:
+
+```rust
+use magi_core::prelude::{Completion, CompletionTelemetry, FinishReason};
+
+let telemetry = CompletionTelemetry::unmeasured()
+    .with_finish(FinishReason::Stop)
+    .with_completion_tokens(1280)
+    .with_prompt_tokens(569);
+Ok(Completion::new(text).with_telemetry(telemetry))
+```
+
+Both types are `#[non_exhaustive]`, so they are built with a constructor plus `with_*` rather
+than a struct literal — `Completion::new(text)` and `CompletionTelemetry::unmeasured()`, as the
+snippet above shows. A field added later costs one more method and breaks nobody.
+
+---
+
+## 2. `RotationKind` gains four variants and becomes `#[non_exhaustive]`
+
+**Before** — three causes shared `Transport`, which everywhere else means *the run was condemned*:
+
+```rust
+match hop.kind() {
+    RotationKind::Transport => /* ...including content failures that condemned nothing */,
+    RotationKind::Timeout => …,
+    RotationKind::Schema => …,
+}
+```
+
+**After**
+
+```rust
+match hop.kind() {
+    RotationKind::Transport | RotationKind::Timeout => /* run-wide */,
+    other if other.is_mage_local() => /* this seat only */,
+    _ => /* a cause a newer version reports */,
+}
+```
+
+**What you do:** add a `_` arm, and prefer `is_mage_local()` over listing the mage-local variants
+by hand. The accessor is not sugar: with `#[non_exhaustive]` you **must** write a catch-all, and
+that is precisely where the next cause would be classified into the wrong scope with nothing
+failing.
+
+The new variants are `OversizedResponse`, `ExternalFailure`, `EmptyCompletion` and
+`ResponseContract`. The first two **already behaved** mage-local — they simply could not say so
+while the enum was frozen, so the precision rode in the `detail` text behind a `mage-local: `
+prefix.
+
+**That prefix is gone.** If you were matching on it, match on the kind instead. A copy of the
+scope in prose can only ever contradict the type that carries it.
+
+---
+
+## 3. `ProviderError::Http { status: 0 }` no longer exists
+
+The sentinel it used was `PARSE_FAILURE_STATUS`, and it is gone from the crate entirely.
+
+**Before** — a parse or contract failure arrived as an HTTP error with a status that is not one:
+
+```rust
+if let ProviderError::Http { status: 0, .. } = err { /* unusable response */ }
+```
+
+**After**
+
+```rust
+use magi_core::prelude::{ProviderError, ResponseContractCause};
+
+match err {
+    ProviderError::ResponseContract { reason: ResponseContractCause::Unreadable, .. } => …,
+    ProviderError::ResponseContract { reason: ResponseContractCause::NoMessage, .. } => …,
+    ProviderError::ResponseContract { reason: ResponseContractCause::RedirectRefused, .. } => …,
+    ProviderError::EmptyCompletion { telemetry, cap, .. } => …,
+    ProviderError::NoGeneration { .. } => …,
+    _ => …,
+}
+```
+
+The three causes, since the prose further down names them: `Unreadable` is a body that could not
+be read at all — unparseable, or not valid UTF-8; `NoMessage` is a well-formed body that does not
+carry the message the contract promises; `RedirectRefused` is a redirect chain this crate declines
+to follow. `ResponseContractCause` is `#[non_exhaustive]`, so match it with a `_` arm.
+
+`EmptyCompletion` carries a `CompletionTelemetry`, not a bare termination reason: the
+termination is `telemetry.finish`, and alongside it travel the token counts and the reasoning
+measurement. That is deliberate — an empty completion is usually a model that spent its whole
+budget reasoning, and reporting the cut without the number that explains it is the blindness
+this release exists to end.
+
+**One behaviour change inside this one, if you use the Anthropic provider with extended
+thinking.** A response that exhausts `max_tokens` comes back carrying a thinking block and no
+text block. In `3.2.0` that surfaced as `Http { status: 0, body: "no text content block in
+response" }` — the synthetic status this section is about — and it now surfaces as
+`EmptyCompletion`, naming the budget that cut it. A genuinely empty `content` array becomes
+`ResponseContract { NoMessage }`, a variant new in `4.0.0`: nothing was sent at all, and no
+termination reason makes that legitimate.
+
+**What you do:** match the contract variants. `ResponseContractCause` is exported from the
+prelude; its own variants are plain unit variants, and it is the enum that carries
+`#[non_exhaustive]`. The `..` in the example above belongs to `ProviderError`'s struct-like variants (the unit
+variant `NestedSession` is not `#[non_exhaustive]` and needs no `..`), which
+are each `#[non_exhaustive]` — so match those with `..` and keep a `_` arm for causes added
+later.
+
+**One of them is now retried where the old sentinel was not.** `Http { status: 0 }` was
+explicitly non-retryable; `ResponseContractCause::Unreadable` **is** retryable, because a body can
+be unreadable for having been clipped in transit and asking again can genuinely return something
+different. A backend that consistently returns malformed JSON therefore costs a full retry chain
+where it used to cost one attempt. `NoMessage` and `RedirectRefused` stay non-retryable: neither
+changes on a second try.
+
+`Http.status` now only ever holds a real HTTP status. That is what makes lineage condemnation
+honest **by construction** rather than by comment: the synthetic zero is how a contract failure
+inherited run-wide semantics it was never entitled to.
+
+`EmptyCompletion` carries the budget in force, and its message says so — the error names its own
+fix instead of sending you to inspect a healthy network.
+
+**The message names the cap as the fix only where the cap can be the fix**, and that distinction
+is worth knowing if you match on the text. The budget in force is always stated, because it is an
+observation. What is conditional is the advice, on three cases:
+
+| the backend reported | the message |
+|---|---|
+| `max_tokens`, or no reason at all | says the budget is `configurable via CompletionConfig::max_tokens` |
+| a reason this crate interprets and that is not the budget (`end_turn`, `load`) | says raising it **does not address** the case |
+| a reason this crate does not interpret | says whether the budget was reached **cannot be told** from it |
+
+**The wording is diagnostic, not a contract.** It is written for a person reading a failure,
+and it will be reworded when a clearer sentence is found. Do not branch on the text — branch on
+`FinishReason`, which is typed, `#[non_exhaustive]`, and the thing the wording is derived from.
+
+The third case exists because asserting the other way would be inventing evidence. Its example
+used to be `model_context_window_exceeded`, and that is no longer true: since it is translated to
+`FinishReason::Length` it now reaches the FIRST row instead — see §7. What the third case still
+covers is a reason this crate does not recognise at all, where telling an operator to raise
+`max_tokens` because the model refused would be the same misdiagnosis as the `http error 0` this
+release removed, one layer in.
+
+**`NoGeneration` is different from the rest and aborts the run.** It means the backend accepted a
+request and generated nothing, whose known cause is a request this crate built wrongly. It is
+raised as `MagiError::CrateDefect` and does **not** rotate: rotating would reproduce our own bad
+request against every seat in turn. Its message keeps what was **observed** apart from the
+**hypothesis** about why, because the classification rests on a single captured case.
+
+---
+
+## 4. `OllamaProvider` completes on `/api/chat`
+
+**Before:** completions went to `/v1/chat/completions`, Ollama's OpenAI-compatibility layer.
+
+**After:** always `POST {base}/api/chat`, Ollama's native API. There is no conditional route and
+no compatibility mode.
+
+**What you do:** nothing, unless something between you and the backend has per-path rules —
+a reverse proxy allow-list, a gateway route, a firewall rule, or request logging keyed on the old
+path. Point those at `/api/chat`.
+
+**Why unconditional.** `think: false` was measured **accepted with HTTP 200 and no effect** on the
+`/v1` layer, and effective natively: the same model, the same 62k payload, `602` tokens and a
+valid verdict in 7.7 s natively, against 32 768 tokens and nothing on `/v1`. A conditional route
+would have shipped a second mode into a public surface, and a second mode costs another major to
+remove — so it does not get removed.
+
+`OpenAiCompatibleProvider` keeps this wire. It gained the `Completion` return like every
+provider, and the termination and reasoning fields like the other HTTP ones — `ClaudeCliProvider`
+is a subprocess with no wire fields to read, so it leaves `finish` at `None` — but it did not
+gain native routing. It remains the documented path for OpenAI cloud,
+LocalAI, vLLM, LM Studio and llama.cpp-server.
+
+---
+
+## 5. `CompletionConfig::max_tokens` defaults to `16_384`
+
+**Before:** `4096`. **After:** `16_384`.
+
+**What you do:** nothing for most deployments — but read the Anthropic note below if you pin a
+literal model id.
+
+**Why.** With the real system prompt on a 62k bundle, `glm-5.2` demanded **10 686** completion
+tokens. The old default truncated a legitimate verdict from a model that converges, not merely
+from a pathological one. In one captured degraded run, the second candidate in a seat's rotation
+chain is measured converging at this budget — that `degraded 2/3` would have been `3/3`.
+
+**What the raise does NOT buy.** A model that spends its whole budget in a reasoning channel is
+not rescued by a bigger budget: one was measured returning nothing at `16_384` **and** at
+`32_768`. That is what `ReasoningControl` is for. Reading this number as the fix repeats the first
+hypothesis the reporters measured until it broke.
+
+The memory bound does not move: the response body cap stays at its 1 MiB floor until
+`max_tokens` passes `65_536`.
+
+> ### ⚠ The Anthropic provider takes this value verbatim
+>
+> `ClaudeProvider` passes `max_tokens` straight through **without clamping it** against the
+> model's own output ceiling, and that ceiling varies by model. Asking for more than it is a
+> **400 from Anthropic**, not a degraded answer.
+>
+> It is deliberately not clamped: a silent clamp is exactly the quiet no-op this release removes
+> elsewhere.
+>
+> **Who is affected:** only a consumer that pins a **literal pre-4.x model id** through the
+> passthrough and never sets `max_tokens`. The three aliases this crate resolves — `sonnet`,
+> `opus`, `haiku` — are all 4.x models whose ceilings are far above `16_384`, and
+> `default_model_for_mode` returns `opus` for every mode, so a consumer on the default
+> configuration cannot hit this.
+>
+> **What you do:** if you pin a literal pre-4.x id, set `max_tokens` explicitly.
+
+---
+
+## 6. `MagiReport` gains `completions`
+
+**Before:** the report said which seats failed and where they rotated to, but nothing about what
+each attempt actually spent.
+
+**After:**
+
+```rust
+pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
+```
+
+One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
+the model, the budget in force, the termination reason, the token counts and the reasoning state.
+
+### One field inside it is an `Option`, and the reason is the release's own thesis
+
+`ReasoningState::Unsupported` carries `chars: Option<usize>`, not `usize`. All three providers
+that report this state can reach it with nothing to count: a wire with no separate reasoning
+channel has nothing to read, a compatibility body can omit the field, and an Anthropic response
+can carry a `redacted_thinking` block that proves the channel FIRED while carrying nothing
+countable. They all used to report `0`, and on this variant a zero reads as "no reasoning came
+back" — which suggests the control worked, on the variant that exists to declare it did not.
+
+`Some(0)` keeps its meaning and is worth having: the channel was read and was empty. `None` means
+nobody could measure it. If you match on this field, add the `Option`.
+
+**What you do:** nothing to keep compiling for `completions` itself — the field is additive and
+`MagiReport` is `#[non_exhaustive]`. But if you **deserialize** reports with a stricter reader (a schema
+validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` report will not
+load until that reader tolerates the new key. Additive is not the same as invisible.
+
+> **There are TWO new keys, and the other one is the one you cannot miss.** `completions` carries
+> `skip_serializing_if`, but that attribute **never fires on a report this crate returns**: a
+> completed seat leaves at least one record, success or failure, and below `min_agents` you get
+> `InsufficientAgents` rather than a report. Do not read the attribute as "you might never see
+> this key" — you will see it on every report. **Per-seat is another matter:** a seat whose task
+> panicked has no key here at all, so index this map by what it contains, not by `failed_agents`. **`pool_eligibility` carries no
+> such attribute at all** — it is emitted on every report, empty map
+> included, deliberately, because an absent key and an empty one answer different questions (no
+> snapshot was taken, versus the seats had no candidates). **Do not read an empty vector as
+> "everything was eligible"** — the snapshot emits one row per candidate with `causes` empty when
+> it is eligible, so that case is a non-empty vector; an empty one means there were no candidates,
+> which is every seat when you declare no pool. So a strict reader that tolerates
+> `completions` and stops there **still fails to load every single `4.0.0` report**. Tolerate
+> both. Its values are `CandidateEligibility`, each carrying a `Vec<IneligibilityCause>` — EVERY
+> failing condition, not the first; both types
+> are in the prelude, and the field's own rustdoc states that the snapshot is **pre-dispatch** and
+> does not see lineages that fail mid-run — that is what `rotations` is for.
+
+**Why all of them.** Recording only the notable attempts leaves you blind until the first cut,
+which is the blindness this whole release is about: `4096` did not fail all at once, it had been
+scraping by. Knowing how close an attempt came is what makes the next budget a decision instead of
+a reaction.
+
+**What it costs, said out loud:** about **3 entries (~400 B)** on a clean three-seat run, and up
+to **~18 (~2.5 KB)** when every seat rotates and takes its corrective retry.
+
+**It is not an extraction failure.** `completions` and `extraction_failures` are **disjoint**. An
+attempt that was cut and still produced a valid verdict belongs in the first and nowhere else —
+filing it in the second would assert a failure that did not happen, and a consumer counting that
+list to gate a run would start seeing failures where extraction went perfectly.
+
+### `ReasoningState`'s `Debug` withholds the trace text
+
+There is no "before" here: `ReasoningState` is new in `4.0.0`, so nothing you have today prints
+it. Recorded because the behaviour is not the derived one a reader would assume.
+
+**What it does:** a hand-written `Debug` renders `text: "<N chars withheld>"` rather than the
+trace itself.
+
+**What you do:** nothing, unless you plan to parse `Debug` output — which you should not. The
+reason it changed is that the trace is model-authored text that never passes the `Validator` and
+is never redacted, and `ProviderError` derives `Debug` and can hold this type, so a consumer
+logging an error with `{:?}` was carrying it into their logs. The elision is announced rather
+than silent, the same way `ClaudeProvider`'s `Debug` marks its API key: a `Debug` that drops a
+field without saying so misleads whoever reads it.
+
+### The reasoning trace is opt-in, and turning it on accepts four things
+
+`CompletionConfig::reasoning_trace` is `false` by default. With `false` the report carries the
+trace's **length**; with `true` it carries the length **and** the text. The flag adds, it never
+substitutes.
+
+Turning it on accepts: the text is the **model's**, not this crate's; it does **not** pass the
+`Validator`; it is **not redacted**; and it has **no cap** — worst case
+`(1 + max_rotations) × calls_per_model` traces per agent, times three agents, which is up to
+**18 per run** once a fallback pool **or a probe** is declared (with neither, rotation does not
+engage and it is 6), and traces of ~141 000 characters per agent have been
+measured. That figure is a measured reference, not a ceiling.
+
+---
+
+## 7. The vendor termination vocabularies are fully translated
+
+**Before:** nothing was translated, because nothing was read. `3.2.0`'s `ClaudeResponse`
+deserializes `content` and nothing else — no `stop_reason`, and no `FinishReason` type to put it
+in. That is the premise this whole guide opens with.
+
+**After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
+`model_context_window_exceeded` reads as `FinishReason::Length`. On the OpenAI-compatible wire,
+`content_filter`, `tool_calls` and `function_call` likewise read as `Stop`.
+
+**What you do:** nothing, unless you match on `FinishReason::Other` expecting to find those
+strings in it. **Why it changed** is the part worth keeping: what lands in `Other` decides what
+the empty-completion message is allowed to claim. An untranslated reason renders as "cannot be
+told"; a *documented* one left untranslated by oversight turned a knowable case into an
+unknowable one, and filed Anthropic's own out-of-room response as a broken contract. `Other` now
+means a value neither vendor has published.
+
+`FinishReason::Stop` is correspondingly wider than "the model finished its answer" — it always
+was, since `tool_use` mapped there and a turn that stops to call a tool has finished nothing.
+What its members share is the only property anything downstream asks of them: the reply is not
+short because it ran out of room.
+
+## 8. `ClaudeProvider::parse_response` is gone
+
+**Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
+
+**After:** removed. Nothing replaces it. It **was** the live parse path in `3.2.0` — the final
+statement of `ClaudeProvider::complete` — which is why the paragraph below can say its behaviour
+changed on the way out; an earlier draft of this line called it uncalled, and that was wrong about
+the very version you are migrating from.
+
+**What you do:** call `complete()`. If you were parsing a captured body outside a request there
+is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite
+answers for the identical body**. A reply whose only text block is empty is `Ok("")` through
+`parse_response` and `EmptyCompletion` through `complete()`. One of those says the call
+succeeded and the other says the model produced nothing — and a release whose entire subject is
+telling those two apart cannot ship both as public answers. The one with no telemetry to answer
+with is the one that went.
+
+Its behaviour also changed on the way out, which matters only if you vendored it: it joins
+**every** text block instead of returning the first. Anthropic interleaves text with `thinking`
+and `tool_use` blocks, so a reply split across two text blocks used to come back cut at the
+first, and a first block carrying `null` used to discard the rest entirely — which the
+completion path then reported as an exhausted output budget.
+
+## 9. The time defaults change
+
+> **Read this first: most of this section applies only if you opted into the retry layer.**
+> `MagiBuilder::build` does **not** wrap your providers in a `RetryProvider` — you do, with
+> `RetryProvider::with_config`. If you never did, every `RetryConfig` value below is inert for
+> you and the only change you will observe is `MagiConfig::timeout`.
+>
+> **And that one lands hardest on you, precisely because you have no retry layer.** Without a
+> `RetryProvider` there is nothing between your provider and the agent ceiling, so a seat that
+> would have failed at 300 s now occupies its slot for up to **660 s** before the run gives up on
+> it. Nothing retries in that time; the wait simply got longer. If your deployment sized anything
+> around the old 300 s — an outer request budget, a job timeout, an operator's expectation of how
+> long a degraded run takes — set `MagiConfig::timeout` back to a value that suits you. It is
+> configuration, and this crate imposes no ceiling of its own.
+
+`MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
+covers the retry chain's worst case and an exhausted budget is reported as a **typed** abandonment
+rather than an opaque timeout cut. Waiting times change for a consumer who never configured them,
+which is why this is a contract change and not an internal adjustment.
+
+**One limit of that "covers the worst case", stated here rather than found later:** it holds for a
+homogeneous chain of attempt-limited failures. A **mixed** chain — a `429`, which is not
+attempt-limited, followed by a hang — is bounded by
+
+```text
+operation_budget + max(client_timeout, retry_after_cap + jitter)
+```
+
+= `751 s` with the shipped values, above the `660 s` ceiling. There the outer timeout cuts first
+and you get an opaque timeout rather than the typed abandonment. Raise `MagiConfig::timeout` past
+that sum if you need the typed form in that case too — and note **the binding term is whichever
+wait is longer**: both ship at 300 s, so if you raise only `retry_after_cap`, it is the one that
+moves the bound.
+
+### All seven values, including the ones that did not move
+
+The three that did not change are listed on purpose: a consumer who only reads the changed rows
+has no way to tell "left alone" from "moved and not mentioned".
+
+| value | before | after | what you do |
+|---|---|---|---|
+| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it at or above the floor its rustdoc documents, or you lose the deterministic second attempt of a hang — silently. The crate warns below the floor only, and computes that floor from the SHIPPED 300 s client timeout: **if you raised your own, your real floor is higher and the guard cannot see it.** |
+| `MagiConfig::timeout` | 300 s | **660 s** | Read the Infrastructure Timeout Checklist below **before** upgrading. If you set it yourself, it should cover `(1 + limited_max_retries) * client_timeout + backoffs`. |
+| `RetryConfig::limited_retry_classes` | *(did not exist)* | **`[Timeout, Network]`** | See below — this is new behaviour, not a renamed value. |
+| `RetryConfig::limited_max_retries` | *(did not exist)* | **1** (two attempts) | See below. |
+| `DEFAULT_CLIENT_TIMEOUT` | 300 s | **300 s** — unchanged | Nothing. |
+| `RetryConfig::retry_after_cap` | 300 s | **300 s** — unchanged | Nothing. Lowering it would turn honoured waits into abandonments; what bounds a chain of them is the budget. |
+| `RetryConfig::max_retries` | 3 | **3** — unchanged | Nothing. It still governs every class NOT in `limited_retry_classes`. |
+
+### The two new fields change how long your chain runs, so read this row even if you set nothing
+
+`max_retries` is no longer the only attempt limit. Classes listed in `limited_retry_classes` use
+`limited_max_retries` instead, and the cap is resolved from the class of the error that **just**
+happened — a chain can open with a `429` (four attempts) and meet a hang on the second, and the
+cap that governs is the one for what is happening.
+
+**Why `[Timeout, Network]` and not others:** they are the two classes that can each consume a
+whole `client_timeout`. `Timeout` does so by definition — the model accepted the connection and
+kept generating. `Network` does so in its pathological case, a packet dropped in silence, as
+opposed to the immediate refusal. Everything else fails fast, so four attempts of it cost seconds.
+
+**Observable change:** a hang that used to produce four requests now produces two. If you counted
+on four, set `limited_max_retries` to match `max_retries` — note it cannot usefully go *above* it,
+because the retry loop is bounded by `max_retries`; the crate now warns if you try.
+
+**And one consequence worth stating, because it is not obvious from the number.** `Network` is one
+of the two limited classes, and `Network` is the only class that feeds the endpoint-down latch. So
+a seat now reaches its verdict on an unreachable endpoint in two attempts rather than four —
+**`MagiError::EndpointDown` becomes reachable sooner in wall-clock terms** for consumers who have
+rotation engaged. The threshold is unchanged (still two distinct lineages); what changed is how
+quickly a lineage gets there. If you relied on the longer chain to ride out transient network
+blips, raise `limited_max_retries`.
+
+**`0` is legitimate** — "do not retry, rotate straight away" — and is not rejected. Note that a
+`Timeout` condemns the lineage run-wide, so rotating on the first hang takes that lineage from the
+other two mages over what may be a transient spike; the default of `1` buys that second chance.
+
+**Reading back what you bought:** `Magi::worst_case_per_seat()` returns
+`timeout * calls_per_model * (1 + max_rotations)` from your effective configuration. It is a
+ceiling, not a prediction, and it is **per seat** — whether your backend serves the three mages in
+parallel or serialises them is something this crate does not know.
+
+> ### ⚠ Infrastructure Timeout Checklist — run this BEFORE you upgrade
+>
+> The agent ceiling rises past **600 seconds**, which crosses the range where infrastructure
+> timeouts live. A proxy that cuts the connection reaches this crate as `ProviderError::Network`,
+> the one class that feeds the endpoint-down latch. What happens next depends on your
+> configuration, and the two outcomes look nothing alike:
+>
+> - **With rotation engaged** — you declared a fallback pool or primary probes — cuts on **two
+>   distinct lineages** abort the run with `MagiError::EndpointDown`, an error that does not
+>   mention your proxy.
+> - **Without rotation** — the default — there is no registry and no latch at all, so the seat
+>   simply fails and the run **degrades**. You see a missing mage, or `InsufficientAgents`, not
+>   `EndpointDown`.
+>
+> One more precondition worth checking before you go hunting: with `DEFAULT_CLIENT_TIMEOUT` at
+> 300 s a single connection cannot live to 600 s unless you raised your own client timeout or use
+> a provider that has none.
+>
+> The crate cannot distinguish a proxy reset from a real network failure: they are the same error
+> on the socket, and guessing is exactly what it refuses to do. So the check is yours:
+>
+> - [ ] reverse proxy read/idle timeout **above** `MagiConfig::timeout`
+> - [ ] load balancer idle timeout **above** it
+> - [ ] API gateway timeout **above** it
+> - [ ] Kubernetes ingress `proxy-read-timeout` **above** it
+> - [ ] any service mesh or sidecar timeout **above** it
+>
+> **If the symptom is `EndpointDown` (with rotation) or a degraded run (without it), and your
+> backend was answering, look at these first** — the
+> crate will not name them for you. The timeout error carries the configured ceiling so you can
+> compare it against where the cut actually happened, but a proxy reset does not arrive as a
+> timeout, so that message will not appear on this path.
+
+---
+
+## What did not change
+
+- **The verdict sentinel.** A cut before the closing marker is still `Unterminated`, inside the
+  JSON still `InvalidJson`, and after the closing marker still loses only trailing prose. One of
+  the reports that motivated this release believed a truncated-but-parseable verdict could be
+  accepted as complete; that was closed in `3.0.0` and is pinned here against regression.
+- **Run-wide condemnation for genuine transport failures.** `is_connection`, the endpoint-down
+  threshold, and the ordering inside `register_transport_failure` are untouched. Their semantics
+  were always right; the problem was who was arriving there in disguise.
+- **`OpenAiCompatibleProvider`'s endpoint**, and every hardening `3.1.0` shipped: the derived body
+  cap, URL redaction, and `.referer(false)` are shared machinery that the native path reuses
+  rather than reimplements.

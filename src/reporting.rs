@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -8,7 +8,8 @@ use std::fmt;
 use std::fmt::Write;
 
 use crate::consensus::{Condition, ConsensusResult, DedupFinding, Dissent};
-use crate::rotation::AgentRotation;
+use crate::provider::{CompletionTelemetry, FinishReason, ReasoningState};
+use crate::rotation::{AgentRotation, CandidateEligibility};
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::verdict_markers::ExtractionFailureCause;
 
@@ -404,6 +405,252 @@ pub struct MagiReport {
     /// to certify a measurement must not fabricate the one it lacks.
     #[serde(default)]
     pub input_size: Option<InputSize>,
+
+    /// Per-agent record of EVERY completion attempt, in the order the attempts happened.
+    ///
+    /// # What it costs, said out loud
+    ///
+    /// Because every attempt is recorded and not only the cut ones, this map is **not empty in a
+    /// normal run**: about **3 entries (~400 B)** on a clean three-seat run, and up to **~18
+    /// (~2.5 KB)** when every seat rotates and takes its corrective retry. That is the price of
+    /// not being blind until the first cut, and it is stated rather than discovered.
+    ///
+    /// Those figures assume `reasoning_trace` is off, which is its default. Turn it on and a
+    /// record also carries the trace text, whose size is the model's to choose: traces of
+    /// ~141 k characters have been measured, so a run that keeps them is orders of magnitude
+    /// larger than the numbers above. See `reasoning_trace` for what enabling it accepts.
+    ///
+    /// # An ABSENT key means one thing, and it is not "nothing was measured"
+    ///
+    /// A seat that completed leaves at least one record, because an attempt is recorded
+    /// whether it succeeded or failed. **A seat whose task PANICKED leaves none** — it lands in
+    /// `failed_agents` with a `panic:` reason and no key here, deliberately, since seeding an
+    /// empty vector would claim a seat that attempted twice attempted nothing. So do not index
+    /// this map by every name in `failed_agents`.
+    ///
+    /// A report this crate returns is nonetheless never empty here — below `min_agents` it
+    /// returns `InsufficientAgents` instead — so `skip_serializing_if` never fires on one.
+    ///
+    /// What it does serve is the other direction: a report produced BEFORE `4.0.0` has no such
+    /// key, and `#[serde(default)]` reads it back as an empty map. An absent key therefore
+    /// means *this report predates the field*, never *this run measured nothing* — which is
+    /// what an `Option` would have been needed to distinguish had both states been reachable.
+    ///
+    /// Note the deliberate asymmetry with its sibling: `extraction_failures` IS pre-seeded with
+    /// an empty list per agent, because there an empty list is a **certificate** — "we looked
+    /// and there were none" — a claim an absent key cannot make. Here presence carries no such
+    /// claim, so seeding would add a key that says nothing.
+    ///
+    /// # One entry per ATTEMPT, which is not the same as per model
+    ///
+    /// The corrective schema retry is a second call by the orchestrator against the **same**
+    /// model, so it leaves a second entry with the same model string. A transport retry is not:
+    /// it happens inside [`RetryProvider`](crate::provider::RetryProvider), which hands back a
+    /// single result, so a hung-then-recovered attempt is one entry.
+    ///
+    /// # Read it JOINED with `rotations`, on `AgentName`
+    ///
+    /// `rotations` says where a seat ended up; this says what each hop actually spent. Neither
+    /// answers *"was the cap the binding constraint?"* alone.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
+
+    /// Which pool candidates each seat could and could not have rotated into,
+    /// as of **before dispatch**.
+    ///
+    /// # It is a snapshot, and it does NOT see what changes during the run
+    ///
+    /// Taken once, before any seat is dispatched. A lineage that fails halfway
+    /// through stops being eligible for the rotations that follow, and **that does
+    /// not appear here** — for what actually happened during the run, read
+    /// [`rotations`](Self::rotations).
+    ///
+    /// Saying so is not a footnote. The field is called "eligibility", and a
+    /// reader would otherwise take it for the truth of the whole run; a claim that
+    /// covers less than its name suggests is worse than none, because nobody goes
+    /// looking for the part that is missing.
+    ///
+    /// # What it costs
+    ///
+    /// One row per seat per pool candidate, `causes` empty for an eligible one, so a
+    /// report carries `seats × candidates` rows — **15 with the shipped trio and a
+    /// five-candidate pool**, tens of bytes each. Stated rather than left to be
+    /// discovered: it is the same discipline the completion telemetry follows, and the
+    /// shape is `O(seats · candidates)` in a value that ships inside every serialized
+    /// report.
+    ///
+    /// # Crossing it with `rotations`
+    ///
+    /// A candidate is identified by the **same model string** the rotation events
+    /// carry — `provider.model()`, which is also the key of the capability map. It
+    /// is what lets a consumer answer "the candidate skipped for its window, is it
+    /// the one the seat later rotated into?".
+    ///
+    /// **No `skip_serializing_if`, unlike `retried_agents` or `completions`.** An
+    /// absent map and a map where every candidate is eligible mean different
+    /// things — "not computed" and "computed, nothing to reject" — and a
+    /// consumer has to be able to tell them apart. Same reason
+    /// `extraction_failures` does not carry it either: its emptiness certifies.
+    ///
+    /// `#[serde(default)]` is for READING documents this crate never wrote — a
+    /// report serialized before the field existed. On the way out it is always
+    /// emitted, so on any document this crate produces, absent is not a state that
+    /// occurs. Reading an older one back does collapse "not computed" into an
+    /// empty map, and that loss is in the old document, not in this field.
+    #[serde(default)]
+    pub pool_eligibility: BTreeMap<AgentName, Vec<CandidateEligibility>>,
+}
+
+/// One completion ATTEMPT, with whatever the provider could measure about it.
+///
+/// # Every completion, not only the ones that were cut
+///
+/// Recording only the notable attempts leaves the consumer blind until the FIRST cut, which is
+/// precisely the blindness this release exists to end: the old 4096-token default did not fail all
+/// at once, it had been scraping by. Knowing how close an attempt came is what makes the next cap
+/// a decision instead of a reaction.
+///
+/// # Records, not counters
+///
+/// A count would say *"Caspar was cut twice"*. With rotation those two cuts may be two different
+/// models, and **which model** is the question that decides what leaves the pool. Per-seat and
+/// per-cause totals are trivially derivable from these records; the attribution is not derivable
+/// from the totals.
+///
+/// # Not an extraction failure
+///
+/// This and [`MagiReport::extraction_failures`] are **disjoint**. An attempt that was cut and
+/// still produced a valid verdict belongs here and nowhere else — putting it there would assert a
+/// failure that did not happen, and a consumer counting that list to gate a run would start seeing
+/// failures where extraction went perfectly.
+///
+/// # Examples
+///
+/// ```
+/// use magi_core::prelude::{CompletionRecord, FinishReason};
+///
+/// let r = CompletionRecord::new("glm-5.2".to_string(), 16_384)
+///     .with_finish(FinishReason::Length)
+///     .with_completion_tokens(16_384);
+/// assert_eq!(r.cap, 16_384);
+/// assert_eq!(r.finish, Some(FinishReason::Length));
+/// // Never measured, never invented: the prompt side stays absent.
+/// assert_eq!(r.prompt_tokens, None);
+/// ```
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompletionRecord {
+    /// The model that served the attempt. With rotation a seat may use several, and this is the
+    /// dimension that makes the record actionable.
+    pub model: String,
+    /// The output budget **requested** for the attempt. Set by the caller, never read off the
+    /// response — a provider does not know what it was given.
+    ///
+    /// [`ProviderError::EmptyCompletion`] carries a `cap` too, and the two answer different
+    /// questions on purpose: this is what was ASKED FOR, so it is the number a consumer edits;
+    /// the error's is what was in force when the completion came back empty, so it is the
+    /// number that belongs in the message. They are the same value by construction, and giving
+    /// one of them ownership is what keeps them from being reconciled by guesswork later.
+    ///
+    /// [`ProviderError::EmptyCompletion`]: crate::error::ProviderError::EmptyCompletion
+    pub cap: u32,
+    /// Why the model stopped, when the backend said.
+    pub finish: Option<FinishReason>,
+    /// Tokens the completion consumed, when the backend counted them.
+    pub completion_tokens: Option<u32>,
+    /// Tokens the prompt consumed, when the backend counted them.
+    pub prompt_tokens: Option<u32>,
+    /// Whether the reasoning control was honoured, and what was measured.
+    pub reasoning: ReasoningState,
+}
+
+impl CompletionRecord {
+    /// A record of an attempt, with **nothing measured yet**.
+    ///
+    /// # Parameters
+    ///
+    /// - `model` — the model that served the attempt.
+    /// - `cap` — the output budget in force.
+    ///
+    /// # Returns
+    ///
+    /// A record whose every measurable field declares absence, including the reasoning one.
+    /// Zeros are not used: a zero meaning "nobody counted" is indistinguishable from a real one.
+    ///
+    /// Fixed-arity on purpose over the two values the caller **always** knows; everything a
+    /// backend may or may not report arrives through a `with_*`, so a field added later costs one
+    /// more method and breaks nobody.
+    pub fn new(model: String, cap: u32) -> Self {
+        Self {
+            model,
+            cap,
+            finish: None,
+            completion_tokens: None,
+            prompt_tokens: None,
+            reasoning: ReasoningState::NotMeasured,
+        }
+    }
+
+    /// Records why the model stopped.
+    #[must_use]
+    pub fn with_finish(mut self, reason: FinishReason) -> Self {
+        self.finish = Some(reason);
+        self
+    }
+
+    /// Records the tokens the completion consumed.
+    #[must_use]
+    pub fn with_completion_tokens(mut self, n: u32) -> Self {
+        self.completion_tokens = Some(n);
+        self
+    }
+
+    /// Records the tokens the prompt consumed.
+    #[must_use]
+    pub fn with_prompt_tokens(mut self, n: u32) -> Self {
+        self.prompt_tokens = Some(n);
+        self
+    }
+
+    /// Records what the provider could say about the reasoning channel.
+    #[must_use]
+    pub fn with_reasoning(mut self, state: ReasoningState) -> Self {
+        self.reasoning = state;
+        self
+    }
+
+    /// The one conversion from what a provider measured into what the report keeps.
+    ///
+    /// # Parameters
+    ///
+    /// - `model` and `cap` come from the **orchestrator**: a provider knows neither which budget
+    ///   it was handed nor which seat it served.
+    /// - `telemetry` — everything the provider did measure, copied across field for field.
+    ///
+    /// # Returns
+    ///
+    /// A record that asserts exactly what was measured and nothing more.
+    ///
+    /// Written here and nowhere else: two places building this record is how the two start
+    /// disagreeing about what "not measured" means.
+    ///
+    /// # Complexity
+    ///
+    /// O(n) in the length of a carried reasoning trace, which is cloned; O(1) otherwise.
+    #[must_use]
+    pub fn from_telemetry(model: String, cap: u32, telemetry: &CompletionTelemetry) -> Self {
+        let mut record = Self::new(model, cap).with_reasoning(telemetry.reasoning.clone());
+        if let Some(f) = telemetry.finish.clone() {
+            record = record.with_finish(f);
+        }
+        if let Some(n) = telemetry.completion_tokens {
+            record = record.with_completion_tokens(n);
+        }
+        if let Some(n) = telemetry.prompt_tokens {
+            record = record.with_prompt_tokens(n);
+        }
+        record
+    }
 }
 
 /// Maps an [`ExtractionFailureCause`] to a short human label for the
@@ -1978,6 +2225,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         }
     }
 
@@ -2006,6 +2255,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2041,6 +2292,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         assert!(!report.degraded);
@@ -2066,6 +2319,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         assert!(report.retried_agents.is_empty());
     }
@@ -2087,6 +2342,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2116,6 +2373,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
         let json = serde_json::to_string(&report).unwrap();
         assert!(
@@ -2168,6 +2427,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         // The field name must NOT leak into the human-facing render. The
@@ -2188,13 +2449,34 @@ mod tests {
         );
     }
 
+    /// `pool_eligibility` is EMITTED even when empty, which is the whole reason it
+    /// carries no `skip_serializing_if`.
+    ///
+    /// The field's contract is that absent means exactly one thing — the snapshot was
+    /// not computed — and that holds only while an empty map still reaches the wire.
+    /// Add `skip_serializing_if = "BTreeMap::is_empty"` "for consistency with
+    /// `completions`" and every other test stays green while the contract dies
+    /// silently. This is the one that goes red.
+    #[test]
+    fn an_empty_pool_eligibility_is_still_written_to_the_wire() {
+        let report = report_with_no_telemetry();
+        assert!(report.pool_eligibility.is_empty(), "precondition");
+        let json = serde_json::to_string(&report).expect("the report serializes");
+        assert!(
+            json.contains("\"pool_eligibility\""),
+            "an empty map must still be emitted, or absent stops meaning 'not computed': {json}"
+        );
+    }
+
     /// v0.3.1 JSON fixture (no retried_agents key) deserializes with the
     /// field defaulted to empty. Backward-compatibility contract.
     ///
     /// Fixture capture path: C — constructed from v0.4 with
-    /// retried_agents=BTreeSet::new(), serialized form is byte-identical
-    /// to what v0.3.1 produced for the same MagiReport shape (since
-    /// skip_serializing_if omits the empty field).
+    /// retried_agents=BTreeSet::new(). The serialized form is NO LONGER
+    /// byte-identical to what v0.3.1 produced: `pool_eligibility` is always
+    /// emitted, deliberately, so that an absent key keeps meaning "not
+    /// computed". What this test pins is the READING direction — an older
+    /// document still deserializes — which is the contract that matters here.
     #[test]
     fn test_magi_report_deserialize_v03_fixture_defaults_retried_agents_empty() {
         let json = include_str!("../tests/fixtures/magi_report_v0_3_1.json");
@@ -2236,6 +2518,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         assert!(report.degraded);
@@ -2864,6 +3148,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         let json = serde_json::to_string(&report).expect("serialize");
@@ -2896,6 +3182,8 @@ mod tests {
             rotations: BTreeMap::new(),
             extraction_failures: BTreeMap::new(),
             input_size: None,
+            completions: BTreeMap::new(),
+            pool_eligibility: BTreeMap::new(),
         };
 
         // Confidence rounding is done by the consensus engine, not by MagiReport.
@@ -3214,5 +3502,142 @@ mod tests {
             without,
             "removing the section must restore the untouched report exactly"
         );
+    }
+    // ---------------------------------------------------------------------
+    // Task 13 — `CompletionRecord` and the `completions` field.
+    //
+    // The type and the field only. What POPULATES them is Task 13b, so the
+    // assertions here are about honesty of construction and about the shape of
+    // the serialized document, never about a run.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_fresh_record_measures_nothing_and_says_so() {
+        // `new` takes only what is ALWAYS known — the model and the cap, both set
+        // by the caller, neither read off the response. Everything measurable
+        // starts absent, because a zero meaning "nobody counted" is
+        // indistinguishable from a real zero.
+        let r = CompletionRecord::new("glm-5.2".to_string(), 16_384);
+        assert_eq!(r.model, "glm-5.2");
+        assert_eq!(r.cap, 16_384);
+        assert_eq!(r.finish, None);
+        assert_eq!(r.completion_tokens, None);
+        assert_eq!(r.prompt_tokens, None);
+        assert_eq!(r.reasoning, ReasoningState::NotMeasured);
+    }
+
+    #[test]
+    fn from_telemetry_invents_nothing_when_nothing_was_measured() {
+        let r = CompletionRecord::from_telemetry(
+            "m".to_string(),
+            4096,
+            &CompletionTelemetry::unmeasured(),
+        );
+        assert_eq!(r.finish, None);
+        assert_eq!(r.completion_tokens, None);
+        assert_eq!(r.prompt_tokens, None);
+        assert_eq!(r.reasoning, ReasoningState::NotMeasured);
+        // The two the provider never knows still come from the caller.
+        assert_eq!(r.model, "m");
+        assert_eq!(r.cap, 4096);
+    }
+
+    #[test]
+    fn from_telemetry_copies_every_measurement_across() {
+        // The ONE conversion from what the provider measured to what the report
+        // keeps. Written once because two places building this record is how the
+        // two start disagreeing about what "not measured" means.
+        let t = CompletionTelemetry::unmeasured()
+            .with_finish(FinishReason::Length)
+            .with_completion_tokens(4096)
+            .with_prompt_tokens(63_926)
+            .with_reasoning(ReasoningState::Measured {
+                chars: 15_409,
+                text: None,
+            });
+        let r = CompletionRecord::from_telemetry("deepseek-v4-pro".to_string(), 4096, &t);
+        assert_eq!(r.finish, Some(FinishReason::Length));
+        assert_eq!(r.completion_tokens, Some(4096));
+        assert_eq!(r.prompt_tokens, Some(63_926));
+        assert_eq!(
+            r.reasoning,
+            ReasoningState::Measured {
+                chars: 15_409,
+                text: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_unsupported_declaration_survives_the_conversion() {
+        // C-8's declaration is only worth anything if it reaches the report. A
+        // conversion that flattened it to `NotMeasured` would turn "this backend
+        // cannot do it" back into "nobody looked" — the exact ambiguity the typed
+        // state exists to remove.
+        let t = CompletionTelemetry::unmeasured().with_reasoning(ReasoningState::Unsupported {
+            backend: "openai-compatible".to_string(),
+            chars: Some(0),
+            text: None,
+        });
+        let r = CompletionRecord::from_telemetry("m".to_string(), 4096, &t);
+        assert_eq!(
+            r.reasoning,
+            ReasoningState::Unsupported {
+                backend: "openai-compatible".to_string(),
+                chars: Some(0),
+                text: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_report_with_no_completions_at_all_carries_no_key() {
+        // `skip_serializing_if` is for the REAL case — zero completions — not for
+        // "no cuts": with every completion recorded the map is never empty in a
+        // normal run, so the old claim that a clean report gains no bytes is false
+        // and is not repeated here.
+        let report = report_with_no_telemetry();
+        let json = serde_json::to_string(&report).expect("serializes");
+        assert!(!json.contains("completions"));
+    }
+
+    #[test]
+    fn the_completions_field_round_trips_with_its_records() {
+        let mut report = report_with_no_telemetry();
+        report.completions.insert(
+            AgentName::Caspar,
+            vec![
+                CompletionRecord::new("glm-5.2".to_string(), 16_384)
+                    .with_finish(FinishReason::Length)
+                    .with_completion_tokens(16_384),
+                CompletionRecord::new("kimi-k2.6".to_string(), 16_384)
+                    .with_finish(FinishReason::Stop),
+            ],
+        );
+        let json = serde_json::to_string(&report).expect("serializes");
+        let back: MagiReport = serde_json::from_str(&json).expect("round-trips");
+        let recs = &back.completions[&AgentName::Caspar];
+        // Records, not counters: with rotation, WHICH model was cut is the question
+        // that decides what leaves the pool, and a count erases exactly that.
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].model, "glm-5.2");
+        assert_eq!(recs[0].finish, Some(FinishReason::Length));
+        assert_eq!(recs[1].model, "kimi-k2.6");
+        assert_eq!(recs[1].finish, Some(FinishReason::Stop));
+    }
+
+    #[test]
+    fn an_older_report_without_the_field_still_deserializes() {
+        // `#[serde(default)]`: a document produced before this version has no
+        // `completions` key, and refusing to read it would break every stored
+        // report the moment this field shipped.
+        let report = report_with_no_telemetry();
+        let mut doc: serde_json::Value =
+            serde_json::to_value(&report).expect("serializes to a value");
+        doc.as_object_mut()
+            .expect("an object")
+            .remove("completions");
+        let back: MagiReport = serde_json::from_value(doc).expect("parses without the field");
+        assert!(back.completions.is_empty());
     }
 }

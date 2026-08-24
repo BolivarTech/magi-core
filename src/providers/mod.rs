@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! LLM provider implementations.
 //!
@@ -26,3 +26,9 @@ pub mod openai_compat;
 
 #[cfg(feature = "ollama")]
 pub mod ollama;
+
+// Private on purpose (T-5.3): the native wire vocabulary (`num_predict`, `think`)
+// must not cross the provider's edge. `ollama.rs` is its only caller: it is what
+// `complete()` speaks, and the translation to this crate's vocabulary happens there.
+#[cfg(feature = "ollama")]
+pub(crate) mod ollama_wire;

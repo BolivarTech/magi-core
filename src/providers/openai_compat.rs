@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-05-25
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! OpenAI Chat Completions-compatible provider.
 //!
@@ -15,8 +15,11 @@
 //! Feature-gated behind `openai-compat`; pulls in `reqwest` as an optional
 //! dependency (shared with `claude-api`).
 
-use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, DEFAULT_CLIENT_TIMEOUT, PARSE_FAILURE_STATUS};
+use crate::error::{ProviderError, ResponseContractCause};
+use crate::provider::{
+    Completion, CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, FinishReason,
+    ReasoningControl, ReasoningState,
+};
 use crate::providers::provider_url::ProviderUrl;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -44,33 +47,159 @@ pub(crate) struct OpenAiMessage {
 }
 
 /// Top-level response from the OpenAI Chat Completions endpoint.
+///
+/// Every field a backend may omit is `#[serde(default)]`: this wire format is spoken by OpenAI
+/// cloud, LocalAI, vLLM, LM Studio and llama.cpp-server, and they do not agree on which optional
+/// members they send. A server that omits one must still parse.
 #[derive(Debug, Deserialize)]
 struct OpenAiResponse {
     choices: Vec<OpenAiChoice>,
+    #[serde(default)]
+    usage: Option<OpenAiUsage>,
 }
 
 /// A single completion choice returned by the endpoint.
 #[derive(Debug, Deserialize)]
 struct OpenAiChoice {
     message: OpenAiRespMessage,
+    /// Why the model stopped. Until `4.0.0` this field was **not deserialized at all**, and that
+    /// single omission is the head of the causal chain this release exists for: without it, "the
+    /// model burned its whole budget reasoning" and "the server sent nothing" are the same opaque
+    /// error, and the operator goes looking at a network that answered HTTP 200 perfectly.
+    #[serde(default)]
+    finish_reason: Option<FinishReason>,
 }
 
 /// The assistant message inside a completion choice.
 ///
 /// `content` is optional so that an **absent** or **null** field deserializes instead of failing
 /// the whole parse with an opaque message: those cases mean "the server sent no content", which is
-/// a schema failure worth naming, not a malformed document.
+/// a contract failure worth naming, not a malformed document.
 #[derive(Debug, Deserialize)]
 struct OpenAiRespMessage {
     #[serde(default)]
     content: Option<String>,
+    /// The provider-side reasoning channel, under either spelling in the wild.
+    ///
+    /// `Option<String>`, not `String`: absent and empty are different claims, and collapsing them
+    /// would report that the model did not reason when the backend simply did not say.
+    #[serde(default, alias = "reasoning_content")]
+    reasoning: Option<String>,
 }
 
-/// Body text when the server sent no usable content.
-const EMPTY_CONTENT_BODY: &str = "response content was empty or absent";
+/// The token counters, when the backend keeps them.
+///
+/// Both `Option`: a compatible server that reports a partial `usage` object must not force a zero,
+/// and a zero meaning "nobody counted" is indistinguishable from a real one.
+#[derive(Debug, Deserialize, Default)]
+struct OpenAiUsage {
+    #[serde(default)]
+    completion_tokens: Option<u32>,
+    #[serde(default)]
+    prompt_tokens: Option<u32>,
+}
 
-/// Body text when the response carried no choices at all.
-const NO_CHOICES_BODY: &str = "no choices in response";
+impl OpenAiResponse {
+    /// Converts a parsed response into a [`Completion`], or into the contract failure it turned
+    /// out to be.
+    ///
+    /// # Parameters
+    ///
+    /// - `cap` — the output budget in force, carried into the error so an empty completion names
+    ///   the number that cut it instead of leaving the caller to guess.
+    /// - `trace` — whether the consumer opted in to carrying the reasoning text itself. The
+    ///   **length** travels either way; the flag is additive, never substitutive.
+    /// - `control` — the reasoning control the consumer asked for. This wire has no way to honour
+    ///   `Disabled`, so it is **declared**, never silently ignored.
+    ///
+    /// # Errors
+    ///
+    /// - [`ProviderError::ResponseContract`] with [`ResponseContractCause::NoMessage`] when the
+    ///   body parsed but carried no choice to read.
+    /// - [`ProviderError::EmptyCompletion`] when the choice carried no usable content.
+    ///
+    /// # Complexity
+    ///
+    /// O(n) in the length of the reasoning trace, which is counted once for its character length.
+    fn into_completion(
+        self,
+        cap: u32,
+        trace: bool,
+        control: ReasoningControl,
+    ) -> Result<Completion, ProviderError> {
+        let usage = self.usage.unwrap_or_default();
+        let choice = self
+            .choices
+            .into_iter()
+            .next()
+            .ok_or(ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
+            })?;
+        let OpenAiChoice {
+            message,
+            finish_reason,
+        } = choice;
+        let OpenAiRespMessage { content, reasoning } = message;
+        let content = content.unwrap_or_default();
+
+        // Assembled BEFORE the empty-content branch, deliberately. `resp-C.json` -- the capture
+        // this milestone is named after -- is an EMPTY completion whose `reasoning` field holds
+        // the whole budget the model burned. Building the telemetry after the branch dropped
+        // exactly that, so the report named the cut and lost its cause.
+
+        // ORDER MATTERS: the CONTROL resolves before the trace. A provider that was asked for
+        // `Disabled` and cannot honour it declares `Unsupported` even when the body carries
+        // `reasoning` — in fact ESPECIALLY then, because reasoning coming back is the proof the
+        // control had no effect. Resolving it the other way round overwrote that declaration in
+        // silence, which is the whole failure mode C-8 exists to prevent.
+        let reasoning = match (control, reasoning) {
+            // The control could not be honoured — and the trace that came back anyway is the
+            // PROOF of that, so its size travels with the declaration instead of being dropped.
+            // Discarding it was the quiet half of the same failure the declaration exists to
+            // prevent: the consumer learns the control did not take, and not how much it cost.
+            (ReasoningControl::Disabled, seen) => ReasoningState::Unsupported {
+                backend: COMPAT_BACKEND_NAME.to_string(),
+                // Absent field means the body never reported the channel; only a
+                // PRESENT one is a measurement, even when it is empty.
+                chars: seen.as_ref().map(|s| s.chars().count()),
+                text: trace.then_some(seen).flatten(),
+            },
+            (ReasoningControl::Default, Some(s)) => ReasoningState::Measured {
+                chars: s.chars().count(),
+                text: trace.then_some(s),
+            },
+            // Nothing came back on the channel, so nothing was measured — NOT
+            // `Measured { chars: 0 }`, which would assert a look that did happen and saw zero.
+            (ReasoningControl::Default, None) => ReasoningState::NotMeasured,
+        };
+
+        let mut telemetry = CompletionTelemetry::unmeasured().with_reasoning(reasoning);
+        if let Some(f) = finish_reason.clone() {
+            telemetry = telemetry.with_finish(f);
+        }
+        if let Some(n) = usage.completion_tokens {
+            telemetry = telemetry.with_completion_tokens(n);
+        }
+        if let Some(n) = usage.prompt_tokens {
+            telemetry = telemetry.with_prompt_tokens(n);
+        }
+
+        if content.trim().is_empty() {
+            // Absent, null, empty and blank all mean the same thing: the server sent no content.
+            //
+            // `NoGeneration` is deliberately NOT considered here. Its discriminant is a set of
+            // NATIVE wire fields that do not exist in this format, so there is no way to assert
+            // the defect is ours — and this crate takes the reversible route when it cannot tell.
+            // Aborting a run on a guess is the failure this release exists to stop making.
+            return Err(ProviderError::EmptyCompletion { telemetry, cap });
+        }
+        Ok(Completion::new(content).with_telemetry(telemetry))
+    }
+}
+
+/// The backend name this provider reports when it cannot honour a reasoning control.
+const COMPAT_BACKEND_NAME: &str = "openai-compatible";
 
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
 /// format.
@@ -188,20 +317,6 @@ impl OpenAiCompatibleProvider {
         })
     }
 
-    /// The URL authority this provider was built with.
-    ///
-    /// Test-only, and deliberately so. Its single purpose is letting a test **compare** the
-    /// authority the Ollama provider handed over — which is how the credential-destroying
-    /// `format!("{base}/v1")` was caught. Returning the authority rather than a string keeps the
-    /// guarantee intact even here: a caller can compare or derive, never render.
-    ///
-    /// Not exposed outside tests because no production path needs to read a URL back; every use
-    /// goes through the request builder.
-    #[cfg(all(test, feature = "ollama"))]
-    pub(crate) fn base(&self) -> &ProviderUrl {
-        &self.base_url
-    }
-
     /// Provider name for diagnostics/telemetry.
     pub fn name(&self) -> &str {
         "openai-compat"
@@ -221,47 +336,6 @@ impl OpenAiCompatibleProvider {
         self.api_key
             .as_ref()
             .map(|k| ("Authorization", format!("Bearer {k}")))
-    }
-
-    /// Extracts `choices[0].message.content` from the raw response body.
-    ///
-    /// A serde failure or an empty `choices` array maps to
-    /// `ProviderError::Http { status: 0, .. }` — a deliberate sentinel:
-    /// `status: 0` is never a real HTTP status, marks a parse/contract failure,
-    /// and is non-retryable per `is_retryable`.
-    pub(crate) fn parse_response(body: &str) -> Result<String, ProviderError> {
-        let resp: OpenAiResponse = serde_json::from_str(body).map_err(|e| ProviderError::Http {
-            status: PARSE_FAILURE_STATUS,
-            body: format!(
-                "failed to parse response: {}",
-                crate::provider::describe_parse_error(&e)
-            ),
-            retry_after_raw: vec![],
-            received_at: None,
-        })?;
-        let choice = resp
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: NO_CHOICES_BODY.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
-            })?;
-        match choice.message.content.as_deref() {
-            // Absent, null and empty all mean the same thing: the server sent no content. The
-            // condition is written EXPLICITLY rather than letting the empty case fall through
-            // some other path — otherwise the next refactor of this match breaks it in silence
-            // and no test notices.
-            None | Some("") => Err(ProviderError::Http {
-                status: PARSE_FAILURE_STATUS,
-                body: EMPTY_CONTENT_BODY.to_string(),
-                retry_after_raw: vec![],
-                received_at: None,
-            }),
-            Some(text) => Ok(text.to_owned()),
-        }
     }
 
     /// Maps an HTTP status code to a [`ProviderError`].
@@ -332,14 +406,26 @@ impl LlmProvider for OpenAiCompatibleProvider {
     ///   default, or the value passed to [`Self::with_timeout`]) — it fires even
     ///   when the server returns headers and then hangs on the body.
     /// - `Network` on connection failures (and on a malformed `base_url`/client).
-    /// - `Auth` on 401/403; `Http` on other non-2xx; `Http { status: 0 }` on a
-    ///   malformed response body.
+    /// - `Auth` on 401/403; `Http` on any other non-2xx — and `Http` now carries
+    ///   **only real HTTP statuses**. The synthetic `Http { status: 0 }` this method
+    ///   used to return for a malformed body is gone: a contract failure wearing an
+    ///   HTTP error's clothes inherited run-wide lineage condemnation, which is the
+    ///   defect `4.0.0` is named for.
+    /// - [`ProviderError::ResponseTooLarge`] when the body exceeds the cap derived from
+    ///   `max_tokens`. It fails rather than truncating: a cut body loses its closing marker.
+    /// - [`ProviderError::ResponseContract`] when the response did not meet the contract —
+    ///   `Unreadable` for a body serde cannot parse, `NoMessage` when no choice carries a
+    ///   message, `RedirectRefused` when the transport gave up following redirects, in which
+    ///   case no body was received at all.
+    /// - [`ProviderError::EmptyCompletion`] when the model produced no usable content,
+    ///   carrying the termination reason and the budget that was in force. Both are
+    ///   **mage-local**: the endpoint answered, so no lineage is condemned run-wide.
     async fn complete(
         &self,
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let body = self.build_request_body(system_prompt, user_prompt, config);
         let mut req = self
             .base_url
@@ -378,7 +464,15 @@ impl LlmProvider for OpenAiCompatibleProvider {
         // The total timeout can also fire while reading (headers arrive, then the server hangs);
         // the shared mapper classifies that as `Timeout`, not `Network`.
         let response_body = response.read_verdict_body(config.max_tokens).await?;
-        Self::parse_response(&response_body)
+        // One parse, one place that decides. The conversion owns the whole reading of this wire —
+        // the termination reason, the counters and the reasoning channel — so that nothing is
+        // decided twice in two spots that can drift apart.
+        let parsed: OpenAiResponse =
+            serde_json::from_str(&response_body).map_err(|_| ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            })?;
+        parsed.into_completion(config.max_tokens, config.reasoning_trace, config.reasoning)
     }
 
     fn name(&self) -> &str {
@@ -393,6 +487,77 @@ impl LlmProvider for OpenAiCompatibleProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `chars` and `text` cannot disagree on this wire either.
+    ///
+    /// The Anthropic provider let them diverge because a boolean decided one and a string the
+    /// other; the fix made both come from a single value. This wire already had that shape —
+    /// both derive from `seen` — but "already correct" and "verified" are different claims, and
+    /// a reviewer asking which one this was is asking the right question.
+    #[test]
+    fn the_two_reasoning_fields_cannot_disagree_on_the_compat_wire() {
+        // `seen` present-and-empty: BOTH say present-and-empty.
+        let body = r#"{"choices":[{"message":{"content":"x","reasoning":""},
+                                   "finish_reason":"stop"}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(body).expect("parses");
+        let out = r
+            .into_completion(4096, true, ReasoningControl::Disabled)
+            .expect("content makes this a success");
+        match out.telemetry.reasoning {
+            ReasoningState::Unsupported { chars, text, .. } => {
+                assert_eq!(chars, Some(0), "an empty-but-present channel WAS measured");
+                assert_eq!(
+                    text.as_deref(),
+                    Some(""),
+                    "and its text agrees with its count"
+                );
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
+
+        // `seen` ABSENT: both say nothing was measured.
+        let bare = r#"{"choices":[{"message":{"content":"x"},"finish_reason":"stop"}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(bare).expect("parses");
+        let out = r
+            .into_completion(4096, true, ReasoningControl::Disabled)
+            .expect("content makes this a success");
+        match out.telemetry.reasoning {
+            ReasoningState::Unsupported { chars, text, .. } => {
+                assert_eq!(chars, None, "an absent field is not a measurement");
+                assert_eq!(text, None, "and there is no text to offer for it");
+            }
+            other => panic!("expected Unsupported, got {other:?}"),
+        }
+    }
+
+    /// C-9. This provider must never acquire the native routing that
+    /// `OllamaProvider` uses — it stays the documented path for OpenAI cloud,
+    /// LocalAI, vLLM, LM Studio and llama.cpp-server (ADR 006). The only thing
+    /// Task 11 adds here is C-8's declaration.
+    ///
+    /// Scans only the PRODUCTION half of this file, split at the `#[cfg(test)]`
+    /// marker that opens this very module: `include_str!` embeds the whole
+    /// file, test source included, and this assertion's own literal would
+    /// otherwise make the file "contain" the needle it is checking for.
+    #[test]
+    fn the_openai_compatible_provider_never_acquires_native_routing() {
+        let production =
+            crate::provider::source_scan::production_half(include_str!("openai_compat.rs"));
+        // BOTH spellings, because the crate does not use the one this guard used to check.
+        // `OllamaProvider` addresses the native endpoint as a SEGMENT LIST -- `&["api",
+        // "chat"]` (ollama.rs) -- so the literal `/api/chat` never appears in routing code and
+        // a copy of that idiom into this file would have walked straight past the assertion.
+        // A guard that reports success while guarding nothing is the defect class this
+        // milestone has already paid for nine times.
+        assert!(
+            !production.contains("/api/chat"),
+            "the compat provider must keep speaking the OpenAI wire format only"
+        );
+        assert!(
+            !production.contains("\"api\""),
+            "no native path segment may appear here: the crate routes with segment lists, so this is the spelling a real regression would wear"
+        );
+    }
 
     #[test]
     fn test_new_valid_url_ok_and_model_passthrough() {
@@ -442,7 +607,7 @@ mod tests {
         let cfg = CompletionConfig::default();
         let body = p.build_request_body("S", "U", &cfg);
         assert_eq!(body.model, "phi4-mini");
-        assert_eq!(body.max_tokens, 4096);
+        assert_eq!(body.max_tokens, 16_384);
         assert!((body.temperature - 0.0).abs() < f64::EPSILON);
         assert_eq!(body.messages.len(), 2);
         assert_eq!(body.messages[0].role, "system");
@@ -489,33 +654,41 @@ mod tests {
         assert_eq!(p.auth_header(), None);
     }
 
+    // The reading of this wire moved out of a `parse_response` that returned a bare `String` and
+    // into `OpenAiResponse::into_completion`, which returns the telemetry with it. The tests below
+    // moved with it rather than being dropped: what they pin — first choice wins, text comes back
+    // whole, an unusable body names its own cause — is unchanged, only the door is.
+
     #[test]
-    fn absent_null_and_empty_content_are_all_a_named_schema_failure() {
+    fn the_named_cause_travels_with_an_unusable_body() {
         for body in [
             r#"{"choices":[{"message":{}}]}"#,
             r#"{"choices":[{"message":{"content":null}}]}"#,
             r#"{"choices":[{"message":{"content":""}}]}"#,
         ] {
-            let err = OpenAiCompatibleProvider::parse_response(body)
+            let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+            let err = r
+                .into_completion(4096, false, ReasoningControl::Default)
                 .expect_err("no content is a failure");
             assert!(
-                matches!(err, ProviderError::Http { status: 0, .. }),
-                "same sentinel as other unusable responses: {err:?}"
+                err.to_string().contains("no content"),
+                "it says WHAT was wrong, not 'failed to parse': {err}"
             );
             assert!(
-                err.to_string().contains("empty or absent"),
-                "and it says WHAT was wrong, not 'failed to parse': {err}"
+                err.to_string().contains("4096"),
+                "and it names the budget in force, which is the actionable half: {err}"
             );
         }
     }
 
     #[test]
     fn content_with_text_is_returned() {
-        let body = r#"{"choices":[{"message":{"content":"hello"}}]}"#;
-        assert_eq!(
-            OpenAiCompatibleProvider::parse_response(body).expect("parses"),
-            "hello"
-        );
+        let body = r#"{"choices":[{"message":{"role":"assistant","content":"hello"}}]}"#;
+        let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("parses");
+        assert_eq!(c.text, "hello");
     }
 
     // Endpoint construction moved to the URL authority, and its coverage GREW rather than
@@ -525,35 +698,13 @@ mod tests {
     // See `provider_url::tests::join_path_*`.
 
     #[test]
-    fn test_parse_response_extracts_content() {
-        let json = r#"{"choices":[{"message":{"role":"assistant","content":"hola"}}]}"#;
-        assert_eq!(
-            OpenAiCompatibleProvider::parse_response(json).unwrap(),
-            "hola"
-        );
-    }
-
-    #[test]
-    fn test_parse_response_takes_first_choice() {
+    fn the_first_choice_is_the_one_that_is_read() {
         let json = r#"{"choices":[{"message":{"content":"a"}},{"message":{"content":"b"}}]}"#;
-        assert_eq!(OpenAiCompatibleProvider::parse_response(json).unwrap(), "a");
-    }
-
-    #[test]
-    fn test_parse_response_empty_choices_is_http_zero() {
-        let json = r#"{"choices":[]}"#;
-        assert!(matches!(
-            OpenAiCompatibleProvider::parse_response(json),
-            Err(ProviderError::Http { status: 0, .. })
-        ));
-    }
-
-    #[test]
-    fn test_parse_response_bad_json_is_http_zero() {
-        assert!(matches!(
-            OpenAiCompatibleProvider::parse_response("not json"),
-            Err(ProviderError::Http { status: 0, .. })
-        ));
+        let r: OpenAiResponse = serde_json::from_str(json).expect("valid JSON");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("parses");
+        assert_eq!(c.text, "a");
     }
 
     #[test]
@@ -589,5 +740,328 @@ mod tests {
             Arc::new(OpenAiCompatibleProvider::new("http://h/v1", "phi4-mini", None).unwrap());
         assert_eq!(p.name(), "openai-compat");
         assert_eq!(p.model(), "phi4-mini");
+    }
+    // ---------------------------------------------------------------------
+    // Task 12 — the compat wire read COMPLETE: `finish_reason`, the reasoning
+    // channel and `usage`, plus the conversion that puts them in the telemetry.
+    // ---------------------------------------------------------------------
+
+    /// A `/v1` capture whose model burned its whole budget reasoning: HTTP 200,
+    /// `finish_reason: "length"`, empty content, 15 409 chars of reasoning.
+    /// This exact shape is the head of the causal chain this release exists for.
+    const FIX_C: &str = include_str!("../../tests/fixtures/ec/resp-C.json");
+
+    /// The same model against a small payload: it converges, so content is
+    /// present, `finish_reason` is `stop`, and the reasoning channel is non-empty.
+    const FIX_H: &str = include_str!("../../tests/fixtures/ec/resp-H.json");
+
+    /// Every termination the OpenAI API publishes, and one it does not.
+    ///
+    /// The translation was widened to cover `content_filter`, `tool_calls` and
+    /// `function_call` because leaving them untranslated made the empty-completion message
+    /// claim the budget "cannot be told" about values the vendor documents. That widening
+    /// shipped with **no test**: deleting the three literals left the whole suite green,
+    /// which is the same state the Anthropic side of this decision was in for three rounds.
+    #[test]
+    fn the_published_openai_vocabulary_is_translated_and_the_rest_is_not() {
+        use crate::provider::{BudgetBearing, CompletionTelemetry};
+
+        // (wire value, what it reads as, what that says about the budget)
+        let table: [(&str, FinishReason, BudgetBearing); 8] = [
+            ("stop", FinishReason::Stop, BudgetBearing::RuledOut),
+            (
+                "content_filter",
+                FinishReason::Stop,
+                BudgetBearing::RuledOut,
+            ),
+            ("tool_calls", FinishReason::Stop, BudgetBearing::RuledOut),
+            ("function_call", FinishReason::Stop, BudgetBearing::RuledOut),
+            ("length", FinishReason::Length, BudgetBearing::MayExplain),
+            ("load", FinishReason::Load, BudgetBearing::RuledOut),
+            (
+                "brand_new_reason",
+                FinishReason::Other("brand_new_reason".to_string()),
+                BudgetBearing::Unknown,
+            ),
+            (
+                "another_unpublished_one",
+                FinishReason::Other("another_unpublished_one".to_string()),
+                BudgetBearing::Unknown,
+            ),
+        ];
+
+        for (raw, expected, bearing) in table {
+            let got = FinishReason::from_wire(raw);
+            assert_eq!(got, expected, "{raw} must translate to {expected:?}");
+            assert_eq!(
+                CompletionTelemetry::unmeasured()
+                    .with_finish(got)
+                    .budget_bearing(),
+                bearing,
+                "{raw} must bear {bearing:?} on the budget question"
+            );
+        }
+    }
+
+    /// The advice an operator reads, driven from a whole compat-wire body.
+    ///
+    /// The table above pins the translation; this pins what the translation is FOR. A
+    /// `content_filter` reply that came back empty must not be answered with "raise your
+    /// output budget", which is what an untranslated value produced.
+    #[test]
+    fn a_filtered_reply_is_not_answered_with_raise_your_budget() {
+        for raw in ["content_filter", "tool_calls", "function_call"] {
+            let body = format!(
+                r#"{{"choices":[{{"message":{{"content":""}},"finish_reason":"{raw}"}}]}}"#
+            );
+            let r: OpenAiResponse = serde_json::from_str(&body).expect("parses");
+            let rendered = match r.into_completion(16_384, false, ReasoningControl::Default) {
+                Err(e) => e.to_string(),
+                other => panic!("{raw} with empty content must be an empty completion: {other:?}"),
+            };
+            assert!(
+                rendered.contains(crate::error::REMEDY_RULED_OUT),
+                "{raw} is a reason the vendor named and it is not the budget: {rendered}"
+            );
+            assert!(
+                !rendered.contains(crate::error::REMEDY_UNKNOWN),
+                "{raw} is published; claiming it is uninterpretable is the defect: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn finish_reason_is_read_where_today_it_is_silently_dropped() {
+        // The response side used to deserialize ONLY `message`. That single
+        // omission is the head of the whole causal chain: without it, "the model
+        // burned its budget reasoning" and "the server sent nothing" are the same
+        // opaque error.
+        let r: OpenAiResponse = serde_json::from_str(FIX_C).expect("fixture parses");
+        assert_eq!(r.choices[0].finish_reason, Some(FinishReason::Length));
+    }
+
+    #[test]
+    fn the_reasoning_channel_is_read_and_its_absence_is_not_an_error() {
+        let with: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        assert!(with.choices[0].message.reasoning.is_some());
+        // Literal rather than a fixture: no captured body OMITS the field, and the
+        // point of the assertion is precisely that a backend which never sends it
+        // must still parse. `Option`, not `String`: absent and empty are different
+        // claims, and collapsing them would say the model did not reason when the
+        // backend merely did not report.
+        let without: OpenAiResponse =
+            serde_json::from_str(r#"{"choices":[{"message":{"content":"hi"}}]}"#)
+                .expect("a body without the field still parses");
+        assert!(without.choices[0].message.reasoning.is_none());
+    }
+
+    #[test]
+    fn the_reasoning_channel_is_also_read_under_its_other_spelling() {
+        // Some compatible servers call it `reasoning_content`. One alias, because
+        // both spellings are in the wild and a body using the other one would
+        // otherwise report `NotMeasured` — a measurement that never happened.
+        let r: OpenAiResponse = serde_json::from_str(
+            r#"{"choices":[{"message":{"content":"hi","reasoning_content":"abc"}}]}"#,
+        )
+        .expect("parses");
+        assert_eq!(r.choices[0].message.reasoning.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    #[should_panic(expected = "the test-module marker was not found")]
+    fn a_split_that_finds_nothing_fails_instead_of_scanning_the_whole_file() {
+        // The assertion inside the helper was PRESENT but not EXERCISED: deleting it left
+        // the suite green, so the durable form of the CRLF fix was itself revertible. This
+        // is the whole point of the helper -- a guard that silently widens to the whole file
+        // reports success while checking nothing, which is the class this milestone has now
+        // met in three different disguises.
+        let _ = crate::provider::source_scan::production_half(
+            "fn ships() {}
+",
+        );
+    }
+
+    #[test]
+    fn the_production_half_is_found_whatever_the_checkout_did_to_line_endings() {
+        // Pins the property independently of how THIS repo happens to be cloned. Without
+        // it the fix is one revert from disarming again, and CI -- which runs on LF --
+        // could never see it.
+        let crlf = "fn ships() {}\r\n#[cfg(test)]\r\nmod tests {\r\n    fn hidden() {}\r\n}\r\n";
+        let half = crate::provider::source_scan::production_half(crlf);
+        assert!(
+            half.contains("ships"),
+            "the production half must survive: {half}"
+        );
+        assert!(
+            !half.contains("hidden"),
+            "the test half must be cut off even on a CRLF checkout: {half}"
+        );
+    }
+
+    #[test]
+    fn the_response_structs_stay_private() {
+        // A-3: they are wire plumbing. `OpenAiRequest`/`OpenAiMessage` are already
+        // `pub(crate)`; the response side must not become public by accident, the
+        // way `ClaudeRequest`/`ClaudeMessage` did before 1.0.0 had to demote them.
+        //
+        // Scans only the PRODUCTION half, split at the `#[cfg(test)]` that opens
+        // this module: `include_str!` embeds the test source too, so this literal
+        // would otherwise make the file "contain" the needle it checks for.
+        let production =
+            crate::provider::source_scan::production_half(include_str!("openai_compat.rs"));
+        for needle in [
+            "pub struct OpenAiResponse",
+            "pub struct OpenAiChoice",
+            "pub struct OpenAiRespMessage",
+            "pub struct OpenAiUsage",
+        ] {
+            assert!(
+                !production.contains(needle),
+                "the response side is wire plumbing and stays private: {needle}"
+            );
+        }
+    }
+
+    #[test]
+    fn into_completion_carries_the_telemetry_of_a_real_success() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, false, ReasoningControl::Default)
+            .expect("content is present");
+        assert!(!c.text.is_empty());
+        assert_eq!(c.telemetry.finish, Some(FinishReason::Stop));
+        // `usage` was read by no task before this one, so both counters would have
+        // stayed `None` for EVERY compat provider — half of the telemetry A-5
+        // promises.
+        assert_eq!(c.telemetry.completion_tokens, Some(1280));
+        assert_eq!(c.telemetry.prompt_tokens, Some(569));
+        assert_eq!(
+            c.telemetry.reasoning,
+            ReasoningState::Measured {
+                chars: 3535,
+                text: None
+            }
+        );
+    }
+
+    #[test]
+    fn the_trace_is_carried_only_when_the_consumer_opted_in() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, true, ReasoningControl::Default)
+            .expect("content is present");
+        match c.telemetry.reasoning {
+            ReasoningState::Measured { chars, text } => {
+                assert_eq!(chars, 3535);
+                // Additive, never substitutive: the length is there in both modes.
+                assert_eq!(text.map(|t| t.chars().count()), Some(3535));
+            }
+            other => panic!("expected a measured trace, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_completion_names_the_budget_that_cut_it() {
+        let r: OpenAiResponse = serde_json::from_str(FIX_C).expect("fixture parses");
+        let err = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect_err("no content is a failure");
+        let ProviderError::EmptyCompletion { telemetry, cap } = &err else {
+            panic!("expected EmptyCompletion, got {err:?}");
+        };
+        assert_eq!(*cap, 4096, "the cap that cut it travels with the error");
+        assert_eq!(telemetry.finish, Some(FinishReason::Length));
+        // THE POINT OF THE FIXTURE. `resp-C` is an empty completion whose `reasoning` field
+        // holds the entire budget the model burned; reporting the cut without it leaves the
+        // operator with "empty, budget 4096" and no evidence of where the budget went. This
+        // assertion fails if the measurement is ever dropped on the way out again.
+        assert_eq!(telemetry.completion_tokens, Some(4096));
+        match &telemetry.reasoning {
+            ReasoningState::Measured { chars, .. } => assert!(
+                *chars > 10_000,
+                "the burned reasoning must survive the empty path, got {chars}"
+            ),
+            other => panic!("expected a measured trace on the empty path, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_body_without_choices_is_a_contract_failure_named_for_what_is_missing() {
+        let r: OpenAiResponse = serde_json::from_str(r#"{"choices":[]}"#).expect("valid JSON");
+        let err = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect_err("no choices is a failure");
+        assert!(
+            matches!(
+                err,
+                ProviderError::ResponseContract {
+                    reason: ResponseContractCause::NoMessage,
+                    ..
+                }
+            ),
+            "valid JSON that does not carry what the contract promises: {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_compat_path_never_claims_our_own_defect() {
+        // `NoGeneration`'s discriminant is a set of NATIVE wire fields that do not
+        // exist here. With no way to assert the defect is ours, the reversible
+        // route is the only honest one — an aborted run on a guess is the failure
+        // this release exists to stop making.
+        for body in [
+            r#"{"choices":[{"message":{}}]}"#,
+            r#"{"choices":[{"message":{"content":null}}]}"#,
+            r#"{"choices":[{"message":{"content":""}}]}"#,
+            r#"{"choices":[{"message":{"content":"   "}}]}"#,
+        ] {
+            let r: OpenAiResponse = serde_json::from_str(body).expect("valid JSON");
+            let err = r
+                .into_completion(4096, false, ReasoningControl::Default)
+                .expect_err("no usable content is a failure");
+            assert!(
+                matches!(err, ProviderError::EmptyCompletion { .. }),
+                "mage-local and reversible, never NoGeneration: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_control_that_cannot_be_honoured_is_declared_even_when_reasoning_came_back() {
+        // ORDER: the control resolves BEFORE the trace. A provider asked for
+        // `Disabled` that cannot honour it declares `Unsupported` even though the
+        // body carries `message.reasoning` — in fact ESPECIALLY then, because the
+        // reasoning being present is the proof the control had no effect.
+        // Resolving it the other way round overwrote C-8's declaration in silence.
+        let r: OpenAiResponse = serde_json::from_str(FIX_H).expect("fixture parses");
+        let c = r
+            .into_completion(16_384, false, ReasoningControl::Disabled)
+            .expect("content is present");
+        // And it carries the length of the trace that came back ANYWAY — 3 535 characters on
+        // this fixture. That number IS the proof the control had no effect, and it is the
+        // operator's question in a mixed trio: how much is the seat that cannot honour this
+        // still spending? Reporting the declaration without it answers half.
+        assert_eq!(
+            c.telemetry.reasoning,
+            ReasoningState::Unsupported {
+                backend: "openai-compatible".to_string(),
+                chars: Some(3535),
+                text: None,
+            }
+        );
+    }
+
+    #[test]
+    fn absent_usage_leaves_the_counters_unmeasured_rather_than_zero() {
+        let r: OpenAiResponse =
+            serde_json::from_str(r#"{"choices":[{"message":{"content":"hi"}}]}"#).expect("parses");
+        let c = r
+            .into_completion(4096, false, ReasoningControl::Default)
+            .expect("content is present");
+        // A zero meaning "nobody counted" is indistinguishable from a real zero.
+        assert_eq!(c.telemetry.completion_tokens, None);
+        assert_eq!(c.telemetry.prompt_tokens, None);
+        assert_eq!(c.telemetry.finish, None);
+        assert_eq!(c.telemetry.reasoning, ReasoningState::NotMeasured);
     }
 }

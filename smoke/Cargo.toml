@@ -1,0 +1,55 @@
+[package]
+name = "magi-smoke"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Empty table: makes smoke/ its OWN workspace root, so the repo root's nine
+# cargo commands never reach it. Removing this line couples the harness to
+# magi-core's gate, which rule 3 of the spec forbids.
+[workspace]
+
+[features]
+default   = ["tree"]
+tree      = ["dep:magi_core_tree"]
+published = ["dep:magi_core_pub"]
+
+[dependencies]
+magi_core_tree = { package = "magi-core", path = "..",     optional = true, features = ["ollama"] }
+# NO SCENARIO RUNS THE HARNESS IN THIS MODE ANY MORE, and nothing guards the pin
+# either. `--build-matrix` still runs a `cargo check` on it, which is a build-time question and
+# not a run.
+#
+# HARNESS-E3 was rescoped: its post-publish job — which is what would have compared the
+# job-resolved lock against the version just published — does not exist. An earlier version of
+# this comment promised that guard and instructed a bump in the SAME commit as the crate. Both
+# were wrong once the job was dropped, and the instruction was self-defeating regardless: cargo
+# resolves optional dependencies whether or not their feature is enabled, so naming a version
+# that is not on crates.io yet breaks EVERY build of this package, the default one included.
+# Verified in this tree — a path that does not exist gives `failed to load manifest for
+# dependency` even for the default build.
+#
+# So the pin moves AFTER the version it names is published, never with it, and it is left
+# deliberately behind the crate's own version. Its only remaining job is to keep resolving,
+# which any published version does.
+#
+# What replaced the job is `ci/check_packaged_consumer.sh`: it compiles this crate's examples
+# against the tarball `cargo package` writes, BEFORE publishing, in the round gate. Same class
+# of defect, caught while it can still be stopped.
+#
+# It also could not compile today: this harness implements `LlmProvider`, whose `complete()`
+# returns `Completion` since 4.0.0 — a type `3.2` does not have.
+magi_core_pub  = { package = "magi-core", version = "3.2", optional = true, features = ["ollama"] }
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "sync"] }
+hyper   = { version = "1", features = ["server", "http1"] }
+hyper-util      = { version = "0.1", features = ["tokio"] }   # TokioIo: hyper 1.x does not ship it
+http-body-util  = "0.1"                                        # Full, StreamBody, BodyExt
+futures-util    = "0.3"                                        # TryStreamExt: map_ok/map_err
+reqwest = { version = "0.13", features = ["json"] }
+serde   = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml    = "0.8"
+sha2    = "0.10"
+# `LlmProvider` is declared with `#[async_trait]`, so implementing it from
+# OUTSIDE the crate (S1) requires the same attribute here.
+async-trait = "0.1"

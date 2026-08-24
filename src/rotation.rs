@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-26
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Per-agent lineage rotation: a dead model **rotates** to another lineage
 //! instead of degrading the run.
@@ -26,7 +26,7 @@
 //! `LineageRegistry::claim_next` does the whole read-decide-commit under that
 //! single lock; its postcondition is strict: `Some` → the mage's active entry was
 //! **replaced**; `None` → the registry is left **intact**. Its digest re-propose
-//! loop terminates because each rejection grows `window_rejected` (which
+//! loop terminates because each rejection grows `digest_collisions` (which
 //! `next_model` excludes) over a finite pool. Slot cleanup runs on **every** mage
 //! exit — success, error, panic, and cancellation — via the succeeded-flag guard
 //! (`AgentSlotGuard`): a valid verdict keeps the lineage; anything else releases
@@ -202,7 +202,7 @@ impl RotationPolicy {
 
     /// Returns the first eligible candidate in declared order, or `None`.
     ///
-    /// Total: no I/O, no `await`, no panic, no `Err`. `window_rejected`
+    /// Total: no I/O, no `await`, no panic, no `Err`. `digest_collisions`
     /// (condition #5) is honored from the start so a later re-propose loop
     /// cannot spin. Deterministic in its arguments.
     pub fn next_model(
@@ -211,7 +211,7 @@ impl RotationPolicy {
         run_failed_lineages: &BTreeSet<Lineage>,
         lineages_in_play: &BTreeSet<Lineage>,
         used: &BTreeSet<String>,
-        window_rejected: &BTreeMap<String, &'static str>,
+        digest_collisions: &BTreeMap<String, &'static str>,
         rotations_done: u32,
     ) -> Option<&Candidate> {
         // Gate first: `max_rotations` reached (or 0 = disabled) → no candidate.
@@ -219,7 +219,7 @@ impl RotationPolicy {
             return None;
         }
         // First eligible candidate in declared order. Conditions 1-4 are the pure
-        // core; #5 (`window_rejected`) is empty without a probe but honored so the
+        // core; #5 (`digest_collisions`) is empty without a probe but honored so the
         // digest re-propose loop cannot spin; #6 (window) reads the cached probe
         // capabilities (a model without a capability entry — no probe — passes,
         // preserving no-probe behavior).
@@ -228,7 +228,7 @@ impl RotationPolicy {
                 && !failed_lineages.contains(&c.lineage)    // 2: this mage schema-failed it
                 && !run_failed_lineages.contains(&c.lineage) // 3: condemned run-wide (transport)
                 && !used.contains(&c.model)                 // 4: this mage already ran this model
-                && !window_rejected.contains_key(&c.model)  // 5: rejected by window/digest verify
+                && !digest_collisions.contains_key(&c.model) // 5: proven digest collision with an active mage
                 && self.window_admits(&c.model) // 6: context window large enough (or unknown)
         })
     }
@@ -249,6 +249,285 @@ impl RotationPolicy {
     }
 }
 
+/// Why a fallback candidate was **not eligible** for a seat.
+///
+/// **Six conditions, EIGHT variants**: one per condition of the rotation policy's
+/// candidate filter, plus the gate the filter applies *before* them
+/// ([`RotationBudgetExhausted`](Self::RotationBudgetExhausted)), plus the split of
+/// the window condition — `window_ok` turns a candidate down for **two** different
+/// reasons, measured and too small or unmeasured under a strict guard, and a
+/// consumer diagnosing an inert pool needs to know which. Merging those two would
+/// report "window" for a candidate nobody ever measured.
+///
+/// # Why the variants this crate never emits are here anyway
+///
+/// Three of the eight are unreachable from `analyze()` (see below), and the
+/// standing rule is that a public variant ships only when something that exists
+/// uses it — a test does not count. They ship regardless, and the reason is that
+/// the subject of this enum is the **filter**, not the snapshot: every condition
+/// the filter applies has a cause, or the snapshot reports five of eight without
+/// saying which three it dropped — which is the failure this snapshot's report-every-
+/// cause rule exists to prevent, one level up.
+///
+/// Recorded as a decision rather than left to be re-litigated: the asymmetry runs
+/// the other way here, since a variant added later is free on a `#[non_exhaustive]`
+/// enum while one removed later breaks every consumer that matched it.
+///
+/// # THREE of these never appear in the pre-dispatch snapshot
+///
+/// [`LineageFailedForThisMage`](Self::LineageFailedForThisMage),
+/// [`LineageCondemnedRunWide`](Self::LineageCondemnedRunWide) and
+/// [`DigestCollision`](Self::DigestCollision) are filled **during** a run, and the
+/// snapshot is taken **before** dispatch, so their inputs are empty there and this
+/// crate never emits them. They exist because the function that computes the
+/// snapshot is **pure** and reads that per-seat state through a parameter, so a
+/// caller that supplies real per-seat state does produce them. To see what happened
+/// *during* a run, read `rotations` instead.
+///
+/// Saying so is the point. Left unsaid, a consumer would look for three variants
+/// in a report that can never carry them, with no way to tell "nothing failed"
+/// from "this field does not report it".
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+// `snake_case` like `RotationKind`, its closest sibling: both are rotation causes and
+// both land in the same report, so a consumer reading `"kind": "empty_completion"`
+// beside `"causes": ["LineageHeldByAnotherMage"]` would be reading one convention in
+// two spellings. Fixed here because the casing freezes at tag time.
+#[serde(rename_all = "snake_case")]
+pub enum IneligibilityCause {
+    /// The rotation budget is spent, so no candidate is claimable at all.
+    ///
+    /// The gate the filter applies **before** its six conditions. With a pool
+    /// declared and `max_rotations` at zero, every candidate would otherwise be
+    /// reported eligible for a run in which none can ever be claimed — an inert
+    /// pool described as a healthy one, which is the failure this telemetry exists
+    /// to make visible.
+    #[non_exhaustive]
+    RotationBudgetExhausted {
+        /// How many rotations the seat has already made.
+        rotations_done: u32,
+        /// The cap it is measured against. `0` means rotation is disabled.
+        max_rotations: u32,
+    },
+    /// Condition #1: another live mage is already running this lineage.
+    LineageHeldByAnotherMage,
+    /// Condition #2: this mage already failed this lineage.
+    ///
+    /// **Never in the pre-dispatch snapshot** — the set is empty until a seat has
+    /// failed something. Named for *this mage* rather than plain "already failed"
+    /// because [`LineageCondemnedRunWide`](Self::LineageCondemnedRunWide) is also a
+    /// prior failure, and the two differ only in how far the condemnation reaches.
+    LineageFailedForThisMage,
+    /// Condition #3: the lineage was condemned run-wide by a transport failure.
+    ///
+    /// **Never in the pre-dispatch snapshot**, for the same reason as #2.
+    LineageCondemnedRunWide,
+    /// Condition #4: this mage already ran this model.
+    ModelAlreadyUsedByThisMage,
+    /// Condition #5: the candidate's digest **provably** collided with an active
+    /// mage's.
+    ///
+    /// **Never in the pre-dispatch snapshot**: the map is populated inside
+    /// `claim_next`, which runs during dispatch.
+    DigestCollision,
+    /// Condition #6a: the candidate's **measured** window is below the payload's
+    /// coarse lower bound.
+    ///
+    /// `estimated_need` is `chars/4` (`CHARS_PER_TOKEN_EST`), a **pre-filter and
+    /// not a token count** — the same crude estimate whose −16/−22 % error made a
+    /// consumer refuse to predict it downstream. The name carries "coarse" for
+    /// that reason: `WindowTooSmall` would assert a measurement nobody performed.
+    #[non_exhaustive]
+    WindowBelowCoarseEstimate {
+        /// The window the probe measured for this candidate, in tokens.
+        measured_window: usize,
+        /// The coarse lower bound the payload implies, in `chars/4` units.
+        estimated_need: usize,
+    },
+    /// Condition #6b: the candidate has **no measured window** and the strict
+    /// context guard rejects what it cannot measure.
+    ///
+    /// Distinct from [`WindowBelowCoarseEstimate`](Self::WindowBelowCoarseEstimate)
+    /// on purpose: nothing here was compared, so there is no size to report.
+    WindowUnmeasuredUnderStrictGuard,
+}
+
+/// What one seat has already spent and ruled out, for a snapshot taken mid-run.
+///
+/// Every field is at its **fresh** value before dispatch — which for `used_models`
+/// means `None`, i.e. "the configured model and nothing else", not an empty set. The
+/// orchestrator passes no `SeatProgress` at all, so every seat reads as fresh. It
+/// exists so the function models the whole candidate
+/// filter rather than the five conditions that happen to be reachable pre-dispatch:
+/// a caller holding real per-seat state — the cross-milestone check does — gets the
+/// other three, and a variant nothing can construct is a promise the code does not
+/// keep.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SeatProgress {
+    /// Lineages this seat gave up on (condition #2).
+    pub failed_lineages: BTreeSet<Lineage>,
+    /// Models this seat already ran (condition #4).
+    ///
+    /// `None` means **not stated**, and the seat's configured model is taken as the
+    /// one in use — which is what the real `used` set holds before dispatch. An
+    /// `Option` rather than an empty set because the two are different claims: a
+    /// caller that states an empty set is saying the seat has run nothing, and
+    /// collapsing that into "not stated" would silently restore an exclusion it
+    /// asked to drop.
+    pub used_models: Option<BTreeSet<String>>,
+    /// Models this seat turned down over a proven digest collision (condition #5).
+    ///
+    /// The keys of [`AgentRotationState::digest_collisions`]; only membership is
+    /// read, so the reason string does not travel.
+    pub digest_collisions: BTreeSet<String>,
+    /// How many rotations this seat has already made.
+    pub rotations_done: u32,
+}
+
+/// Everything [`pool_eligibility_snapshot`] reads.
+///
+/// A named struct rather than eight positional parameters: the call site reads as
+/// the conditions it models, and nothing has to be silenced to build it.
+pub(crate) struct EligibilityInputs<'a> {
+    /// Each seat's lineage and model. The OUTER loop runs over this.
+    pub seats: &'a BTreeMap<AgentName, ActiveEntry>,
+    /// Per-seat state; a seat absent from the map is treated as fresh.
+    pub progress: &'a BTreeMap<AgentName, SeatProgress>,
+    /// Lineages condemned run-wide (condition #3).
+    pub run_failed_lineages: &'a BTreeSet<Lineage>,
+    /// What the preflight measured, keyed by model.
+    pub capabilities: &'a BTreeMap<String, ModelCapability>,
+    /// The shared pool every seat draws from.
+    pub candidates: &'a [FallbackCandidate],
+    /// The per-seat rotation cap. `0` disables rotation entirely.
+    pub max_rotations: u32,
+    /// The payload's coarse lower bound, in `chars/4` units.
+    pub min_window_tokens: usize,
+    /// Whether a candidate whose window could not be measured is refused.
+    pub strict_context_guard: bool,
+}
+
+/// One candidate's eligibility for one seat, computed **before** dispatch.
+///
+/// No builder, unlike `Completion` and `CompletionTelemetry`: those are constructed
+/// by an **external** implementor, whom `#[non_exhaustive]` forbids from using a
+/// literal. This one is built only by the crate, so the literal works and a builder
+/// would be ceremony with no consumer.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CandidateEligibility {
+    /// The **same string** `rotations` uses — `provider.model()`, which is also the
+    /// key of the capability map and of `digest_of`. It is what lets a consumer
+    /// cross the two report fields.
+    pub model: String,
+    /// EVERY failing condition, not the first. **Empty means eligible.**
+    ///
+    /// A recalculation rather than a capture of the filter, which short-circuits:
+    /// reporting "ruled out by the first condition that failed" would name an
+    /// arbitrary one of several true reasons.
+    pub causes: Vec<IneligibilityCause>,
+}
+
+/// Which pool candidates each seat could and could not have rotated into, as of
+/// **before dispatch**.
+///
+/// # Complexity
+///
+/// `O(A² · C)` — every seat against every candidate, and the lineage-in-play check
+/// scans the seats again inside that loop. Left quadratic in `A` on purpose: `A` is
+/// the trio, and a lookup table to make it `O(A · C)` would trade a measurable
+/// nothing for a structure to keep in step. It does **not** short-circuit either:
+/// evaluating every condition is what buys reporting every cause.
+///
+/// # It returns no `Result`, and an inconsistent input is a CAUSE, not an error
+///
+/// A candidate with no entry in the capability map is not a failure of this
+/// function: it is an **unmeasured** candidate, which is one of the very causes
+/// this snapshot exists to name. Returning `Err` would hand the caller half a run
+/// to reason about, and the caller is `analyze()`, which must not abort over
+/// telemetry.
+///
+/// # A seat with nothing to reject gets an EMPTY list, never a missing one
+///
+/// The outer loop is over `seats`, not over the candidates: iterating candidates
+/// would silently omit a seat whose pool is empty, and that omission reads as
+/// "the snapshot was not computed". Absent means exactly one thing.
+pub(crate) fn pool_eligibility_snapshot(
+    inputs: &EligibilityInputs<'_>,
+) -> BTreeMap<AgentName, Vec<CandidateEligibility>> {
+    let mut out = BTreeMap::new();
+    let fresh = SeatProgress::default();
+    for (seat, entry) in inputs.seats {
+        let progress = inputs.progress.get(seat).unwrap_or(&fresh);
+        let rows = inputs
+            .candidates
+            .iter()
+            .map(|c| {
+                let model = c.provider.model().to_string();
+                let mut causes = Vec::new();
+                // Condition #0 — the gate `next_model` applies BEFORE any of the six,
+                // and the reason it is modelled: with a pool declared and this cap at
+                // zero, every candidate is filterable but unclaimable, and a snapshot
+                // reporting them all eligible would describe an inert pool as a healthy
+                // one. That is the failure this axis exists to make visible.
+                if progress.rotations_done >= inputs.max_rotations {
+                    causes.push(IneligibilityCause::RotationBudgetExhausted {
+                        rotations_done: progress.rotations_done,
+                        max_rotations: inputs.max_rotations,
+                    });
+                }
+                if inputs
+                    .seats
+                    .iter()
+                    .any(|(other, e)| other != seat && e.lineage == c.lineage)
+                {
+                    causes.push(IneligibilityCause::LineageHeldByAnotherMage);
+                }
+                if progress.failed_lineages.contains(&c.lineage) {
+                    causes.push(IneligibilityCause::LineageFailedForThisMage);
+                }
+                if inputs.run_failed_lineages.contains(&c.lineage) {
+                    causes.push(IneligibilityCause::LineageCondemnedRunWide);
+                }
+                let already_used = match &progress.used_models {
+                    Some(used) => used.contains(&model),
+                    None => entry.model == model,
+                };
+                if already_used {
+                    causes.push(IneligibilityCause::ModelAlreadyUsedByThisMage);
+                }
+                if progress.digest_collisions.contains(&model) {
+                    causes.push(IneligibilityCause::DigestCollision);
+                }
+                match inputs.capabilities.get(&model).and_then(|cap| cap.window) {
+                    Some(w) if w < inputs.min_window_tokens => {
+                        causes.push(IneligibilityCause::WindowBelowCoarseEstimate {
+                            measured_window: w,
+                            estimated_need: inputs.min_window_tokens,
+                        });
+                    }
+                    None if inputs.strict_context_guard => {
+                        causes.push(IneligibilityCause::WindowUnmeasuredUnderStrictGuard);
+                    }
+                    _ => {}
+                }
+                CandidateEligibility { model, causes }
+            })
+            .collect();
+        out.insert(*seat, rows);
+    }
+    out
+}
+
+/// The only reason a model lands in `digest_collisions`, so the call site does not
+/// restate it.
+///
+/// Nothing reads the value — only membership — so a `BTreeSet` would do. The map
+/// stays because `next_model` is `pub` and takes it by that type; narrowing it is a
+/// public signature change with no consumer asking for it, which is out of scope
+/// here rather than an oversight.
+pub(crate) const DIGEST_COLLISION_REASON: &str = "digest_collision";
+
 /// Number of DISTINCT connection-failing lineages that trips the run-wide
 /// endpoint-down fast-fail.
 pub(crate) const ENDPOINT_DOWN_LINEAGE_THRESHOLD: usize = 2;
@@ -267,6 +546,26 @@ struct RegistryInner {
     run_failed: BTreeSet<Lineage>,
     connection_failed: BTreeSet<Lineage>,
     endpoint_down_signalled: bool,
+    crate_defect: Option<CrateDefectRecord>,
+}
+
+/// What the registry keeps about a defect of THIS crate, so the run can be aborted from the
+/// join loop rather than from inside one agent's task.
+///
+/// It does **not** carry `responded`: the registry does not know which seats answered — the
+/// ORCHESTRATOR does, because it is the one joining them. Filling that here would mean writing
+/// an empty vector meaning "not yet" into a field that reads as "none", which is the class of
+/// lie this milestone exists to remove.
+#[derive(Clone, Debug)]
+pub(crate) struct CrateDefectRecord {
+    /// What was measured, with no causal claim attached.
+    pub observation: String,
+    /// The known cause, offered as a hypothesis. This crate's text, never the wire's.
+    pub hypothesis: &'static str,
+    /// The seat that hit it.
+    pub agent: AgentName,
+    /// The model in force when it happened.
+    pub model: String,
 }
 
 /// Shared run-wide rotation state behind **a single** `tokio::sync::Mutex`.
@@ -292,6 +591,7 @@ impl LineageRegistry {
                 run_failed: BTreeSet::new(),
                 connection_failed: BTreeSet::new(),
                 endpoint_down_signalled: false,
+                crate_defect: None,
             }),
         }
     }
@@ -361,30 +661,118 @@ impl LineageRegistry {
     pub async fn endpoint_down_signalled(&self) -> bool {
         self.lock.lock().await.endpoint_down_signalled
     }
+
+    /// Records a defect of this crate, so the join loop can abort the run.
+    ///
+    /// # Set-once, and idempotent
+    ///
+    /// If two seats hit it concurrently the result is **the same abort**, not two: the first to
+    /// take the lock wins and the others find the latch already set. No state depends on which
+    /// arrived first, which is what makes "it aborts" a complete answer rather than one that
+    /// leaves the concurrent case open.
+    ///
+    /// # Returns
+    ///
+    /// `true` when THIS call set it, so a test can observe that the second caller did not.
+    pub async fn latch_crate_defect(&self, record: CrateDefectRecord) -> bool {
+        let mut inner = self.lock.lock().await;
+        if inner.crate_defect.is_some() {
+            return false;
+        }
+        inner.crate_defect = Some(record);
+        true
+    }
+
+    /// The latched defect, if one was recorded.
+    pub async fn crate_defect(&self) -> Option<CrateDefectRecord> {
+        self.lock.lock().await.crate_defect.clone()
+    }
 }
 
 /// Maximum length, in Unicode scalar values, of a [`RotationEvent`]'s `detail`.
 const MAX_ROTATION_DETAIL_CHARS: usize = 256;
 
-/// Why a mage left a model — the cause that triggered a rotation hop. Connection
-/// and HTTP failures both normalize to `Transport`.
+/// Why a mage left a model — the cause that triggered a rotation hop.
+///
+/// Each variant is either **run-wide** (the lineage is condemned for every
+/// mage in the pool) or **mage-local** (only the reporting mage stops using
+/// it) — each variant's doc says which. `#[non_exhaustive]` so a future cause
+/// gains its own variant instead of riding a `detail` string prefix, the way
+/// `3.1.0` had to smuggle `OversizedResponse`/`ExternalFailure` into
+/// `Transport`'s `detail` before this type had room for them.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum RotationKind {
-    /// Transport failure (connection refused, HTTP error, `RetryProvider` exhausted).
+    /// Connection refused, an HTTP transport error, or `RetryProvider`
+    /// exhausted. **Run-wide**: a transport fault says nothing about which
+    /// lineage misbehaved, so every mage avoids it for the rest of the run.
     Transport,
-    /// The model's response failed the verdict schema (after the corrective retry).
-    Schema,
-    /// The attempt timed out.
+    /// The attempt timed out. **Run-wide**, for the same reason as
+    /// `Transport`: the crate cannot tell whether a slow endpoint is bad for
+    /// only this mage's request.
     Timeout,
+    /// The model's response failed the verdict schema (after the corrective
+    /// retry). **Mage-local**: the model answered — just not in the right
+    /// shape — which says nothing about a DIFFERENT mage's completion from
+    /// the same lineage.
+    Schema,
+    /// The response body exceeded the configured size cap. **Mage-local**:
+    /// the endpoint answered; only this mage's request was too large for it.
+    OversizedResponse,
+    /// A third-party [`crate::provider::LlmProvider`] implementation reported
+    /// its own failure via `ProviderError::external`. **Mage-local**: this
+    /// crate cannot know whether an external provider's failure says anything
+    /// about the lineages the OTHER seats are using.
+    ExternalFailure,
+    /// The completion returned no usable content — commonly, the model spent
+    /// its entire output budget reasoning and emitted nothing. **Mage-local**:
+    /// the endpoint answered with HTTP 200; the model simply produced no
+    /// output for this mage's request.
+    EmptyCompletion,
+    /// The endpoint's response violated the response contract — an unreadable
+    /// body, or a message the contract requires that never arrived.
+    /// **Mage-local**, and the reason is that a lineage is not an endpoint: in
+    /// the usual deployment all three mages reach the SAME backend with
+    /// DIFFERENT lineages, so condemning one lineage run-wide would not shield
+    /// the others from a misbehaving endpoint. It would pay the cost of the
+    /// condemnation without buying its protection. Where the scope of a fault
+    /// is in doubt, this crate condemns mage-local.
+    ResponseContract,
+}
+
+impl RotationKind {
+    /// `true` when this cause condemns the lineage only for the reporting
+    /// mage; `false` when it condemns the lineage **run-wide** (every mage
+    /// avoids it for the rest of the run).
+    ///
+    /// Exists because `#[non_exhaustive]` forces every downstream `match` on
+    /// `RotationKind` to carry a catch-all arm — and a catch-all is exactly
+    /// where a future mage-local cause would get silently miscounted as
+    /// run-wide (or vice versa). Calling this instead of hand-rolling the
+    /// split keeps that classification in one place.
+    pub fn is_mage_local(&self) -> bool {
+        match self {
+            RotationKind::Transport | RotationKind::Timeout => false,
+            RotationKind::Schema
+            | RotationKind::OversizedResponse
+            | RotationKind::ExternalFailure
+            | RotationKind::EmptyCompletion
+            | RotationKind::ResponseContract => true,
+        }
+    }
 }
 
 impl fmt::Display for RotationKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             RotationKind::Transport => "transport",
-            RotationKind::Schema => "schema",
             RotationKind::Timeout => "timeout",
+            RotationKind::Schema => "schema",
+            RotationKind::OversizedResponse => "oversized_response",
+            RotationKind::ExternalFailure => "external_failure",
+            RotationKind::EmptyCompletion => "empty_completion",
+            RotationKind::ResponseContract => "response_contract",
         })
     }
 }
@@ -479,7 +867,7 @@ impl AgentRotationState {
 /// Per-mage, per-run rotation state — **local to each mage, never shared**.
 ///
 /// `used`/`failed_lineages`/`rotations_done` persist across a mage's rotation
-/// attempts; `window_rejected` is cleared at the start of each `claim_next`
+/// attempts; `digest_collisions` is cleared at the start of each `claim_next`
 /// (dynamic rejections must be re-evaluated). Cleanup is gated by the
 /// [`AgentSlotGuard`]'s own succeeded-flag, not by this state.
 pub(crate) struct AgentRotationState {
@@ -488,9 +876,24 @@ pub(crate) struct AgentRotationState {
     pub chain: Vec<RotationEvent>,
     pub used: BTreeSet<String>,
     pub failed_lineages: BTreeSet<Lineage>,
-    pub window_rejected: BTreeMap<String, &'static str>,
+    pub digest_collisions: BTreeMap<String, &'static str>,
     pub rotations_done: u32,
     pub ran_unmeasured: bool,
+}
+
+impl AgentRotationState {
+    /// Records that `model` was rejected because its digest **provably** collided
+    /// with an active mage's.
+    ///
+    /// A method rather than an `insert` on the field, and the difference is the
+    /// point of this rename: a bare `insert` lets the next writer put anything in
+    /// there, which is exactly how a map called `window_rejected` came to hold
+    /// nothing but collisions. Naming the intention makes the next wrong use read
+    /// wrong **at the call site**.
+    pub(crate) fn record_digest_collision(&mut self, model: &str) {
+        self.digest_collisions
+            .insert(model.to_string(), DIGEST_COLLISION_REASON);
+    }
 }
 
 impl LineageRegistry {
@@ -498,7 +901,7 @@ impl LineageRegistry {
     /// single lock (read-decide-commit).
     ///
     /// Postcondition: `Some` → the mage's `active` entry was **replaced** by the
-    /// chosen candidate; `None` → the registry is left **intact**. `window_rejected`
+    /// chosen candidate; `None` → the registry is left **intact**. `digest_collisions`
     /// is cleared at entry so a dynamic (digest) rejection is re-evaluated on the
     /// next call.
     ///
@@ -507,7 +910,7 @@ impl LineageRegistry {
     /// **resolvable** ACTIVE mage's digest (the calling agent is excluded). An
     /// unresolvable (`None`) digest — candidate or active — never collides, so it is
     /// trusted by the declared lineage. A rejected candidate is marked in
-    /// `window_rejected` and the loop re-proposes the next eligible one; the set
+    /// `digest_collisions` and the loop re-proposes the next eligible one; the set
     /// only grows over a finite pool, so the loop terminates. The whole
     /// read-decide-commit runs under the single lock (no `await` inside — the probe
     /// ran in the preflight).
@@ -518,7 +921,7 @@ impl LineageRegistry {
         state: &mut AgentRotationState,
     ) -> Option<Candidate> {
         let mut g = self.lock.lock().await;
-        state.window_rejected.clear();
+        state.digest_collisions.clear();
         loop {
             let in_play: BTreeSet<Lineage> = g
                 .active
@@ -532,7 +935,7 @@ impl LineageRegistry {
                     &g.run_failed,
                     &in_play,
                     &state.used,
-                    &state.window_rejected,
+                    &state.digest_collisions,
                     state.rotations_done,
                 )?
                 .clone();
@@ -548,9 +951,7 @@ impl LineageRegistry {
                 digests.push(policy.digest_of(&entry.model));
             }
             if matches!(digest_collision(&digests), Some((0, _))) {
-                state
-                    .window_rejected
-                    .insert(chosen.model.clone(), "digest_collision");
+                state.record_digest_collision(&chosen.model);
                 continue; // re-propose the next eligible candidate
             }
 
@@ -1027,6 +1428,60 @@ pub(crate) struct RotationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::Completion;
+
+    /// Extracts the source text of a single item declaration (e.g.
+    /// `"enum RotationKind"`) from a file's full source: from any attribute
+    /// lines immediately above the declaration line, through the declaration's
+    /// matching closing brace.
+    ///
+    /// Used only by text-based tests that need to assert something the type
+    /// system cannot observe from *inside* the defining crate — e.g. that an
+    /// enum carries `#[non_exhaustive]`, whose only effect is on a
+    /// **downstream** crate's exhaustive `match`.
+    ///
+    /// # Panics
+    /// Panics if `needle` is not found in `src`, or if the declaration's
+    /// opening brace has no matching close. This is deliberate: a search that
+    /// finds nothing must NEVER fall back to the whole file or an empty
+    /// string, either of which would let a caller's `.contains(..)` assertion
+    /// pass without having found the declaration it claims to check.
+    fn extract_item(src: &str, needle: &str) -> String {
+        let lines: Vec<&str> = src.lines().collect();
+        let decl_idx = lines
+            .iter()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("extract_item: `{needle}` not found in source"));
+
+        let mut start_idx = decl_idx;
+        while start_idx > 0 && lines[start_idx - 1].trim_start().starts_with('#') {
+            start_idx -= 1;
+        }
+
+        let mut depth: i32 = 0;
+        let mut seen_open = false;
+        let mut end_idx = None;
+        for (offset, line) in lines[decl_idx..].iter().enumerate() {
+            for ch in line.chars() {
+                match ch {
+                    '{' => {
+                        depth += 1;
+                        seen_open = true;
+                    }
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+            }
+            if seen_open && depth == 0 {
+                end_idx = Some(decl_idx + offset);
+                break;
+            }
+        }
+        let end_idx = end_idx
+            .unwrap_or_else(|| panic!("extract_item: `{needle}` has no matching closing brace"));
+
+        lines[start_idx..=end_idx].join("\n")
+    }
 
     #[test]
     fn test_lineage_equality_and_display() {
@@ -1128,7 +1583,7 @@ mod tests {
                 .as_str(),
             "d"
         );
-        // 'md' in window_rejected (cond #5) → d skipped → None (re-propose loop can terminate, W12)
+        // 'md' in digest_collisions (cond #5) → d skipped → None (re-propose loop can terminate, W12)
         let wr: BTreeMap<String, &'static str> = [("md".to_string(), "digest_collision")].into();
         assert!(
             p.next_model(&failed, &runf, &in_play, &empty_s(), &wr, 0)
@@ -1277,7 +1732,7 @@ mod tests {
             chain: vec![],
             used: [configured.to_string()].into(),
             failed_lineages: BTreeSet::new(),
-            window_rejected: BTreeMap::new(),
+            digest_collisions: BTreeMap::new(),
             rotations_done: 0,
             ran_unmeasured: false,
         }
@@ -1497,8 +1952,8 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
-            Ok(self.resp.clone())
+        ) -> Result<Completion, ProviderError> {
+            Ok(Completion::new(self.resp.clone()))
         }
         fn name(&self) -> &str {
             &self.name
@@ -1526,8 +1981,8 @@ mod tests {
             _s: &str,
             _u: &str,
             _c: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
-            Ok(String::new())
+        ) -> Result<Completion, ProviderError> {
+            Ok(Completion::new(String::new()))
         }
         fn name(&self) -> &str {
             "mock-probe"
@@ -1681,6 +2136,119 @@ mod tests {
         assert_eq!(RotationKind::Transport.to_string(), "transport");
         assert_eq!(RotationKind::Schema.to_string(), "schema");
         assert_eq!(RotationKind::Timeout.to_string(), "timeout");
+        assert_eq!(
+            RotationKind::OversizedResponse.to_string(),
+            "oversized_response"
+        );
+        assert_eq!(
+            RotationKind::ExternalFailure.to_string(),
+            "external_failure"
+        );
+        assert_eq!(
+            RotationKind::EmptyCompletion.to_string(),
+            "empty_completion"
+        );
+        assert_eq!(
+            RotationKind::ResponseContract.to_string(),
+            "response_contract"
+        );
+    }
+
+    // ---- Task 23: RotationKind gains its variants ----
+
+    #[test]
+    fn the_enum_becomes_non_exhaustive_so_the_next_cause_needs_no_further_major() {
+        // The same move ADR 007 made for ProviderError in 2.0.0. Today RotationKind is
+        // pub, in the prelude and NOT non_exhaustive, so a new variant breaks every
+        // consumer's exhaustive match — which is precisely why 3.1.0 had to smuggle
+        // the distinction into a `detail` string.
+        let src = include_str!("rotation.rs");
+        let decl = extract_item(src, "enum RotationKind");
+        assert!(decl.contains("#[non_exhaustive]"));
+    }
+
+    #[test]
+    fn each_cause_has_its_own_variant_instead_of_riding_a_detail_prefix() {
+        // THIS TASK CANNOT USE `is_mage_local()`: Task 24 adds it, so a test that
+        // called it here would never reach Green — the Red/Green cycle of this task
+        // would end up depending on the next one. What THIS task introduces is the
+        // VARIANTS, proved by an EXHAUSTIVE match with no `_ =>`: if someone collapsed
+        // two causes into one, or added one without deciding its consequence, this
+        // stops compiling. Same property `provider_err_outcome` keeps, same reason.
+        let all = [
+            RotationKind::Transport,
+            RotationKind::Timeout,
+            RotationKind::Schema,
+            RotationKind::OversizedResponse,
+            RotationKind::ExternalFailure,
+            RotationKind::EmptyCompletion,
+            RotationKind::ResponseContract,
+        ];
+        assert_eq!(
+            all.len(),
+            7,
+            "SEVEN causes, not six: family 1 is mage-local too"
+        );
+        for k in all {
+            match k {
+                RotationKind::Transport | RotationKind::Timeout => {}
+                RotationKind::Schema
+                | RotationKind::OversizedResponse
+                | RotationKind::ExternalFailure
+                | RotationKind::EmptyCompletion
+                | RotationKind::ResponseContract => {}
+            }
+        }
+    }
+
+    #[test]
+    fn rotation_kind_serializes_to_snake_case_for_every_variant() {
+        // Pins the wire form of ALL SEVEN variants — including the three that
+        // predate this milestone — as exact strings. This is what guarantees a
+        // future `rename_all` change cannot silently alter an existing variant's
+        // serialized form: `lowercase` and `snake_case` agree on
+        // Transport/Schema/Timeout (single words) and diverge only on the
+        // multi-word variants added here.
+        let cases = [
+            (RotationKind::Transport, "\"transport\""),
+            (RotationKind::Timeout, "\"timeout\""),
+            (RotationKind::Schema, "\"schema\""),
+            (RotationKind::OversizedResponse, "\"oversized_response\""),
+            (RotationKind::ExternalFailure, "\"external_failure\""),
+            (RotationKind::EmptyCompletion, "\"empty_completion\""),
+            (RotationKind::ResponseContract, "\"response_contract\""),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(serde_json::to_string(&kind).unwrap(), expected);
+        }
+    }
+
+    // ---- Task 24: is_mage_local() ----
+
+    #[test]
+    fn the_consumer_does_not_have_to_memorise_which_variant_is_which() {
+        // Without the accessor, a non_exhaustive enum forces every consumer to write
+        // a catch-all — and a catch-all is exactly where a future mage-local cause
+        // gets silently counted as run-wide, which is the bug being fixed.
+        //
+        // BOTH the five and the two, not just one direction: an accessor hardcoded
+        // to `true` (or `false`) for everything would pass a one-sided test.
+        for k in [
+            RotationKind::OversizedResponse,
+            RotationKind::ExternalFailure,
+            RotationKind::EmptyCompletion,
+            RotationKind::ResponseContract,
+            RotationKind::Schema,
+        ] {
+            assert!(k.is_mage_local());
+        }
+        // The run-wide causes are proved EXPLICITLY, not by omission.
+        for k in [RotationKind::Transport, RotationKind::Timeout] {
+            assert!(
+                !k.is_mage_local(),
+                "{k:?} means the run was condemned; confusing it is the defect this axis fixes"
+            );
+        }
     }
 
     #[test]
@@ -2026,7 +2594,372 @@ mod tests {
         );
         let got = r.claim_next(AgentName::Caspar, &p, &mut s).await.unwrap();
         assert_eq!(got.model, "me"); // d (proven collision) rejected, e reserved
-        assert!(s.window_rejected.contains_key("md"));
+        assert!(s.digest_collisions.contains_key("md"));
+    }
+
+    /// The inputs a test varies, with everything else at its neutral value.
+    ///
+    /// A helper rather than eight fields per call: a test that has to restate six
+    /// irrelevant values buries the one it is about.
+    fn inputs<'a>(
+        seats: &'a BTreeMap<AgentName, ActiveEntry>,
+        caps: &'a BTreeMap<String, ModelCapability>,
+        candidates: &'a [FallbackCandidate],
+        min_window_tokens: usize,
+        strict_context_guard: bool,
+    ) -> EligibilityInputs<'a> {
+        EligibilityInputs {
+            seats,
+            progress: EMPTY_PROGRESS.get_or_init(BTreeMap::new),
+            run_failed_lineages: EMPTY_LINEAGES.get_or_init(BTreeSet::new),
+            capabilities: caps,
+            candidates,
+            // Two, the shipped default: zero would make every candidate ineligible
+            // for the rotation budget and mask what each test is actually about.
+            max_rotations: 2,
+            min_window_tokens,
+            strict_context_guard,
+        }
+    }
+
+    static EMPTY_PROGRESS: std::sync::OnceLock<BTreeMap<AgentName, SeatProgress>> =
+        std::sync::OnceLock::new();
+    static EMPTY_LINEAGES: std::sync::OnceLock<BTreeSet<Lineage>> = std::sync::OnceLock::new();
+
+    fn seat(agent: AgentName, lineage: &str, model: &str) -> (AgentName, ActiveEntry) {
+        (
+            agent,
+            ActiveEntry {
+                lineage: Lineage::new(lineage.to_string()),
+                model: model.to_string(),
+            },
+        )
+    }
+
+    fn cand(lineage: &str, model: &str) -> FallbackCandidate {
+        FallbackCandidate {
+            provider: Arc::new(MockProvider::new("p", model, "r")),
+            lineage: Lineage::new(lineage.to_string()),
+            probe: None,
+        }
+    }
+
+    /// It reports EVERY failing condition, not only the first.
+    ///
+    /// Being a recalculation and not a capture, it evaluates the conditions
+    /// independently instead of short-circuiting. "First failure wins" is what a
+    /// capture of the real filter would give, and it is what this must avoid: a
+    /// candidate ruled out by condition #1 never evaluates the window one, so the
+    /// consumer would be told an arbitrary member of several true reasons.
+    #[test]
+    fn it_reports_every_failing_condition_not_only_the_first() {
+        let seats = [
+            seat(AgentName::Caspar, "zhipu", "mc"),
+            seat(AgentName::Melchior, "deepseek", "mm"),
+        ]
+        .into();
+        // The candidate's lineage is held by Melchior AND its measured window is
+        // below the coarse bound: two causes, both true.
+        let caps = [(
+            "md".to_string(),
+            ModelCapability {
+                window: Some(8_192),
+                digest: None,
+                supports_completion: true,
+            },
+        )]
+        .into();
+        let snap = pool_eligibility_snapshot(&inputs(
+            &seats,
+            &caps,
+            &[cand("deepseek", "md")],
+            16_000,
+            true,
+        ));
+        let row = &snap[&AgentName::Caspar][0];
+        assert_eq!(
+            row.causes.len(),
+            2,
+            "the candidate fails the in-play condition AND the window one: {:?}",
+            row.causes
+        );
+        assert!(
+            row.causes
+                .contains(&IneligibilityCause::LineageHeldByAnotherMage)
+        );
+        assert!(
+            row.causes
+                .iter()
+                .any(|c| matches!(c, IneligibilityCause::WindowBelowCoarseEstimate { .. }))
+        );
+    }
+
+    /// It covers seats that never rotated, which is strictly more than was asked.
+    #[test]
+    fn it_covers_seats_that_never_rotated() {
+        let seats = [
+            seat(AgentName::Caspar, "zhipu", "mc"),
+            seat(AgentName::Melchior, "alibaba", "mm"),
+        ]
+        .into();
+        let snap = pool_eligibility_snapshot(&inputs(
+            &seats,
+            &BTreeMap::new(),
+            &[cand("deepseek", "md")],
+            16_000,
+            false,
+        ));
+        assert_eq!(
+            snap.len(),
+            2,
+            "every seat is reported on, not only the ones that rotated"
+        );
+        assert_eq!(
+            snap[&AgentName::Melchior].len(),
+            1,
+            "and its row carries the candidate it was measured against"
+        );
+        assert!(
+            snap[&AgentName::Melchior][0].causes.is_empty(),
+            "which for this seat is eligible: {:?}",
+            snap[&AgentName::Melchior][0].causes
+        );
+    }
+
+    /// A seat with NO candidates gets an EMPTY entry, never a missing one.
+    ///
+    /// Empty and absent mean different things, and absent means exactly one:
+    /// the snapshot was not computed. It is the whole reason the outer loop runs
+    /// over the SEATS and not over the candidates — iterating candidates would
+    /// omit a seat with an empty pool, and that omission reads as "not computed".
+    #[test]
+    fn a_seat_with_no_candidates_gets_an_empty_entry_not_a_missing_one() {
+        let seats = [seat(AgentName::Melchior, "alibaba", "mm")].into();
+        let snap = pool_eligibility_snapshot(&inputs(&seats, &BTreeMap::new(), &[], 16_000, false));
+        assert!(snap.contains_key(&AgentName::Melchior), "present");
+        assert!(snap[&AgentName::Melchior].is_empty(), "and empty");
+    }
+
+    /// The three causes a mid-run caller produces, which the pre-dispatch call cannot.
+    ///
+    /// They exist because the function is pure and reads per-seat state through a
+    /// parameter. Without this test they are three public variants that nothing in
+    /// the crate constructs — a promise the code does not keep, which is the exact
+    /// defect this milestone renamed a field to close.
+    #[test]
+    fn a_caller_holding_real_seat_state_produces_the_three_mid_run_causes() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let candidates = [cand("deepseek", "md")];
+        let progress = [(
+            AgentName::Caspar,
+            SeatProgress {
+                failed_lineages: [Lineage::new("deepseek")].into(),
+                used_models: Some(["md".to_string()].into()),
+                digest_collisions: ["md".to_string()].into(),
+                rotations_done: 0,
+            },
+        )]
+        .into();
+        let snap = pool_eligibility_snapshot(&EligibilityInputs {
+            seats: &seats,
+            progress: &progress,
+            run_failed_lineages: &BTreeSet::new(),
+            capabilities: &BTreeMap::new(),
+            candidates: &candidates,
+            max_rotations: 2,
+            min_window_tokens: 0,
+            strict_context_guard: false,
+        });
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![
+                IneligibilityCause::LineageFailedForThisMage,
+                IneligibilityCause::ModelAlreadyUsedByThisMage,
+                IneligibilityCause::DigestCollision,
+            ],
+            "all three, in filter order, and none of them by accident"
+        );
+    }
+
+    /// A spent rotation budget makes every candidate ineligible, and says which.
+    ///
+    /// The gate the filter applies BEFORE its six conditions. With a pool declared
+    /// and the cap at zero, a snapshot that ignored it would report every candidate
+    /// eligible for a run in which none can ever be claimed — an inert pool
+    /// described as a healthy one.
+    #[test]
+    fn a_spent_rotation_budget_is_reported_rather_than_read_as_eligible() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let candidates = [cand("deepseek", "md")];
+        let snap = pool_eligibility_snapshot(&EligibilityInputs {
+            seats: &seats,
+            progress: &BTreeMap::new(),
+            run_failed_lineages: &BTreeSet::new(),
+            capabilities: &BTreeMap::new(),
+            candidates: &candidates,
+            max_rotations: 0,
+            min_window_tokens: 0,
+            strict_context_guard: false,
+        });
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![IneligibilityCause::RotationBudgetExhausted {
+                rotations_done: 0,
+                max_rotations: 0,
+            }],
+            "rotation disabled is a cause, not silence"
+        );
+    }
+
+    /// An unmeasured candidate is told apart from a measured-but-small one.
+    #[test]
+    fn an_unmeasured_candidate_under_a_strict_guard_says_so() {
+        let seats = [seat(AgentName::Caspar, "zhipu", "mc")].into();
+        let snap = pool_eligibility_snapshot(&inputs(
+            &seats,
+            &BTreeMap::new(),
+            &[cand("deepseek", "md")],
+            16_000,
+            true,
+        ));
+        assert_eq!(
+            snap[&AgentName::Caspar][0].causes,
+            vec![IneligibilityCause::WindowUnmeasuredUnderStrictGuard],
+            "nothing was compared, so no size is reported"
+        );
+    }
+
+    /// Every variant's WIRE FORM is pinned as an exact string, field names included.
+    ///
+    /// The enum carries `#[serde(rename_all = "snake_case")]` so it reads the same way
+    /// as `RotationKind` beside it in the report. Nothing enforced that: delete the
+    /// attribute or rename a variant and the whole gate stays green while a format
+    /// that becomes immutable at the tag changes underneath. Its sibling has had this
+    /// test for exactly that reason.
+    ///
+    /// **The struct variants round-trip**, because `rename_all` on the enum does not
+    /// reach their FIELDS and nothing else covers them.
+    ///
+    /// **And the SET is pinned, not only the spellings.** The enum's header states a
+    /// variant count in prose, and a ninth variant would leave that sentence stale
+    /// with every string still correct — the drift that already went unnoticed once in
+    /// this file. The exhaustive `match` makes it a compile error instead.
+    ///
+    /// It also subsumes the coarse-bound naming check this replaced, which asserted the
+    /// same thing through a `Debug` string: `window_below_coarse_estimate` cannot
+    /// survive a rename to anything that stops saying "coarse", and `WindowTooSmall`
+    /// would claim a token count nobody performed.
+    #[test]
+    fn every_cause_pins_its_wire_form_including_the_struct_variant_fields() {
+        let cases = [
+            (
+                IneligibilityCause::LineageHeldByAnotherMage,
+                r#""lineage_held_by_another_mage""#,
+            ),
+            (
+                IneligibilityCause::LineageFailedForThisMage,
+                r#""lineage_failed_for_this_mage""#,
+            ),
+            (
+                IneligibilityCause::LineageCondemnedRunWide,
+                r#""lineage_condemned_run_wide""#,
+            ),
+            (
+                IneligibilityCause::ModelAlreadyUsedByThisMage,
+                r#""model_already_used_by_this_mage""#,
+            ),
+            (IneligibilityCause::DigestCollision, r#""digest_collision""#),
+            (
+                IneligibilityCause::WindowUnmeasuredUnderStrictGuard,
+                r#""window_unmeasured_under_strict_guard""#,
+            ),
+        ];
+        for (cause, expected) in cases {
+            assert_eq!(serde_json::to_string(&cause).unwrap(), expected);
+        }
+
+        let budget = IneligibilityCause::RotationBudgetExhausted {
+            rotations_done: 1,
+            max_rotations: 2,
+        };
+        assert_eq!(
+            serde_json::to_string(&budget).unwrap(),
+            r#"{"rotation_budget_exhausted":{"rotations_done":1,"max_rotations":2}}"#
+        );
+        let window = IneligibilityCause::WindowBelowCoarseEstimate {
+            measured_window: 8_192,
+            estimated_need: 16_000,
+        };
+        assert_eq!(
+            serde_json::to_string(&window).unwrap(),
+            r#"{"window_below_coarse_estimate":{"measured_window":8192,"estimated_need":16000}}"#
+        );
+
+        // And back, so a report this crate wrote still reads as what it wrote. The
+        // struct variants are the ones that can drift asymmetrically, since
+        // `rename_all` does not reach their fields.
+        for cause in [budget.clone(), window.clone()] {
+            let json = serde_json::to_string(&cause).unwrap();
+            assert_eq!(
+                serde_json::from_str::<IneligibilityCause>(&json).unwrap(),
+                cause
+            );
+        }
+
+        // THE SET, not only the spellings. The header of this enum asserts "six
+        // conditions, EIGHT variants" in prose, and pinning the strings does not pin
+        // the count: a ninth variant would leave that sentence stale with every test
+        // green, which is exactly the defect a previous review found in this file and
+        // closed by correcting the number rather than fixing what let it drift.
+        //
+        // The exhaustive `match` with no `_ =>` is what makes it a COMPILE error: the
+        // same property `provider_err_outcome` keeps, for the same reason. The sibling
+        // `RotationKind` has both halves; this had only the first.
+        let all = [
+            IneligibilityCause::RotationBudgetExhausted {
+                rotations_done: 0,
+                max_rotations: 0,
+            },
+            IneligibilityCause::LineageHeldByAnotherMage,
+            IneligibilityCause::LineageFailedForThisMage,
+            IneligibilityCause::LineageCondemnedRunWide,
+            IneligibilityCause::ModelAlreadyUsedByThisMage,
+            IneligibilityCause::DigestCollision,
+            IneligibilityCause::WindowBelowCoarseEstimate {
+                measured_window: 0,
+                estimated_need: 0,
+            },
+            IneligibilityCause::WindowUnmeasuredUnderStrictGuard,
+        ];
+        assert_eq!(all.len(), 8, "the count the enum's own header states");
+        for cause in all {
+            match cause {
+                IneligibilityCause::RotationBudgetExhausted { .. }
+                | IneligibilityCause::LineageHeldByAnotherMage
+                | IneligibilityCause::LineageFailedForThisMage
+                | IneligibilityCause::LineageCondemnedRunWide
+                | IneligibilityCause::ModelAlreadyUsedByThisMage
+                | IneligibilityCause::DigestCollision
+                | IneligibilityCause::WindowBelowCoarseEstimate { .. }
+                | IneligibilityCause::WindowUnmeasuredUnderStrictGuard => {}
+            }
+        }
+    }
+
+    /// `record_digest_collision` writes into the map that is named after it.
+    ///
+    /// `window_rejected` promised a record of window rejections and its only
+    /// `insert` in the whole crate wrote `"digest_collision"`; condition #6
+    /// (`window_admits`) is evaluated inline in `next_model`'s `find` and its
+    /// result is DISCARDED. The name stated an intention, and that gap cost a
+    /// consumer a deferred requirement. No identifier in this subsystem may
+    /// promise a record the code never writes.
+    #[test]
+    fn record_digest_collision_writes_into_the_collision_map() {
+        let mut st = state("m0");
+        st.record_digest_collision("m1");
+        assert_eq!(st.digest_collisions.len(), 1);
+        assert!(st.digest_collisions.contains_key("m1"));
     }
 
     #[tokio::test]
@@ -2050,7 +2983,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_window_rejected_cleared_so_dynamic_r5a_reevaluated() {
+    async fn test_digest_collisions_cleared_so_dynamic_r5a_reevaluated() {
         // W1 — d collides with Melchior (sha:x) in call 1 → e reserved. Melchior
         // departs, e spent → call 2 must RE-EVALUATE d (no longer colliding).
         let (r, p, mut s) = digest_case_two_active(

@@ -1,9 +1,12 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 use crate::error::ProviderError;
-use crate::provider::{CompletionConfig, LlmProvider, resolve_claude_alias};
+use crate::provider::{
+    Completion, CompletionConfig, CompletionTelemetry, LlmProvider, ReasoningControl,
+    ReasoningState, resolve_claude_alias,
+};
 use serde::Deserialize;
 use std::process::Stdio;
 use tokio::io::AsyncWriteExt;
@@ -103,20 +106,12 @@ impl ClaudeCliProvider {
     }
 }
 
-/// Parses the CLI output envelope from the `claude` subprocess.
+/// Deserializes the CLI envelope ONCE and applies its error convention.
 ///
-/// The CLI returns a JSON envelope:
-/// ```json
-/// {"is_error": false, "result": "<inner content as string>"}
-/// ```
-///
-/// If `is_error` is `true`, returns `ProviderError::Process`.
-/// Otherwise, returns the `result` string.
-///
-/// # Errors
-///
-/// - `ProviderError::Process` if `is_error` is `true` or JSON is malformed
-fn parse_cli_output(raw: &str) -> Result<String, ProviderError> {
+/// Split out so a caller that also wants the envelope's `usage` does not pay for a second full
+/// parse of the same bytes into the same type — which is what it did, and the envelope carries a
+/// whole completion's worth of text.
+fn parse_envelope(raw: &str) -> Result<CliOutput, ProviderError> {
     let output: CliOutput = serde_json::from_str(raw).map_err(|e| ProviderError::Process {
         exit_code: None,
         stderr: format!("failed to parse CLI output: {e}"),
@@ -129,7 +124,7 @@ fn parse_cli_output(raw: &str) -> Result<String, ProviderError> {
         });
     }
 
-    Ok(output.result)
+    Ok(output)
 }
 
 /// Strips code fences from text.
@@ -148,10 +143,81 @@ fn strip_code_fences(text: &str) -> &str {
 }
 
 /// Outer JSON envelope from the Claude CLI tool.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 struct CliOutput {
     is_error: bool,
     result: String,
+    /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
+    /// the envelope does not guarantee this field across CLI versions, and
+    /// `is_error`/`result` extraction must not depend on it.
+    #[serde(default)]
+    usage: Option<CliUsage>,
+}
+
+/// Token counts from the CLI envelope's `usage` object.
+///
+/// The CLI envelope carries **no `stop_reason`-equivalent field at all** —
+/// verified against the envelope shape (`CliOutput`'s only fields are
+/// `is_error`/`result`/`usage`) — so there is nothing here to translate into a
+/// [`crate::provider::FinishReason`]. [`parse_completion`] leaves `finish` at
+/// `None`, which says "this backend does not say" rather than inventing
+/// [`crate::provider::FinishReason::Stop`].
+/// # It carries no OUTPUT count either, and that is verified rather than assumed
+///
+/// The envelope's `usage` object reports `input_tokens` and nothing equivalent for the
+/// completion side, so [`parse_completion`] leaves `completion_tokens` at `None`. That is the
+/// same statement `finish` makes: this backend does not say. Inventing a zero would report a
+/// measurement that never happened.
+#[derive(Debug, Default, Deserialize)]
+struct CliUsage {
+    #[serde(default)]
+    input_tokens: Option<u32>,
+}
+
+/// Parses the CLI output envelope into a [`Completion`], carrying whatever
+/// telemetry the envelope holds.
+///
+/// # Parameters
+/// * `raw` — the subprocess's raw stdout.
+/// * `reasoning` — the caller's [`ReasoningControl`], read only to decide
+///   whether to DECLARE that this provider cannot honour
+///   [`ReasoningControl::Disabled`] (C-8) — `claude --print` exposes no flag
+///   for its reasoning channel at all, and `ClaudeCliProvider` does **not**
+///   delegate to [`crate::providers::claude::ClaudeProvider`]: it is an
+///   independent struct with its own `model_id`, so omitting this call would
+///   leave a provider declaring nothing — the exact silent no-op C-8 exists to
+///   stop.
+///
+/// # Returns
+/// A [`Completion`] whose text has its code fences stripped, and whose
+/// telemetry carries `prompt_tokens` when the envelope's `usage.input_tokens`
+/// is present. `finish` stays `None` unconditionally (see [`CliUsage`]).
+///
+/// # Errors
+/// Shares its error path with [`parse_envelope`], which owns the envelope's convention.
+fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion, ProviderError> {
+    let output = parse_envelope(raw)?;
+    let text = strip_code_fences(&output.result).to_string();
+
+    let prompt_tokens = output.usage.and_then(|u| u.input_tokens);
+
+    let mut telemetry = CompletionTelemetry::unmeasured();
+    if let Some(n) = prompt_tokens {
+        telemetry = telemetry.with_prompt_tokens(n);
+    }
+    telemetry = telemetry.with_reasoning(match reasoning {
+        ReasoningControl::Disabled => ReasoningState::Unsupported {
+            backend: "anthropic-cli".to_string(),
+            // This wire exposes no separate reasoning channel at all, so there was nothing to
+            // read — which is `None`, not a zero. A zero would say the channel was read and
+            // found empty, a stronger claim than anything this provider can make.
+            chars: None,
+            text: None,
+        },
+        ReasoningControl::Default => ReasoningState::NotMeasured,
+    });
+
+    Ok(Completion::new(text).with_telemetry(telemetry))
 }
 
 #[async_trait::async_trait]
@@ -165,16 +231,21 @@ impl LlmProvider for ClaudeCliProvider {
     /// The timeout is NOT applied here — the orchestrator wraps the
     /// entire agent task in `tokio::time::timeout`.
     ///
-    /// **Note:** `config` (max_tokens, temperature) is ignored because the
-    /// `claude --print` CLI does not expose those flags. The CLI uses its
-    /// own server-side defaults. Users who need fine-grained control should
-    /// use [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) (HTTP API) instead.
+    /// **Note:** `config.max_tokens` / `config.temperature` are ignored because
+    /// the `claude --print` CLI does not expose those flags — it uses its own
+    /// server-side defaults. `config.reasoning` IS read, only to declare
+    /// [`crate::provider::ReasoningState::Unsupported`] when the caller asked
+    /// to disable it (C-8): the CLI exposes no such flag either, and the
+    /// forbidden thing was never carrying on, it was carrying on in silence.
+    /// Users who need fine-grained control should use
+    /// [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) (HTTP API)
+    /// instead.
     async fn complete(
         &self,
         system_prompt: &str,
         user_prompt: &str,
-        _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+        config: &CompletionConfig,
+    ) -> Result<Completion, ProviderError> {
         let args = self.build_args(system_prompt);
 
         let mut child = Command::new("claude")
@@ -215,8 +286,7 @@ impl LlmProvider for ClaudeCliProvider {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let result = parse_cli_output(&stdout)?;
-        Ok(strip_code_fences(&result).to_string())
+        parse_completion(&stdout, config.reasoning)
     }
 
     fn name(&self) -> &str {
@@ -423,11 +493,11 @@ mod tests {
 
     // -- BDD Scenario 19: parses double-nested JSON --
 
-    /// parse_cli_output extracts inner JSON from {"is_error": false, "result": "..."} envelope.
+    /// The envelope parser extracts the inner result from `{"is_error": false, "result": ...}`.
     #[test]
     fn test_parse_cli_output_extracts_inner_result() {
         let outer = r#"{"type":"result","subtype":"success","is_error":false,"result":"{\"agent\":\"melchior\",\"verdict\":\"approve\"}","usage":{"input_tokens":100}}"#;
-        let result = parse_cli_output(outer).unwrap();
+        let result = parse_envelope(outer).unwrap().result;
         assert_eq!(result, r#"{"agent":"melchior","verdict":"approve"}"#);
     }
 
@@ -438,7 +508,7 @@ mod tests {
     fn test_parse_cli_output_error_flag_returns_process_error() {
         let outer =
             r#"{"type":"result","subtype":"error","is_error":true,"result":"Rate limit exceeded"}"#;
-        let result = parse_cli_output(outer);
+        let result = parse_envelope(outer);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -450,13 +520,65 @@ mod tests {
     /// Malformed JSON returns ProviderError::Process.
     #[test]
     fn test_parse_cli_output_malformed_json_returns_process_error() {
-        let result = parse_cli_output("not valid json");
+        let result = parse_envelope("not valid json");
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
             matches!(err, ProviderError::Process { .. }),
             "expected Process, got: {err}"
         );
+    }
+
+    // -- Task 11: telemetry the CLI provider CAN report --
+
+    /// Step 1c/3: the envelope carries `usage.input_tokens` (visible on its own
+    /// in `test_parse_cli_output_extracts_inner_result`'s fixture), but NO
+    /// `stop_reason` field at all — verified against the envelope shape, not
+    /// assumed. `finish` staying `None` says "this backend does not say";
+    /// asserting `Stop` would invent a measurement.
+    #[test]
+    fn the_cli_provider_reports_usage_and_leaves_finish_none() {
+        let raw = r#"{"is_error":false,"result":"hi","usage":{"input_tokens":100}}"#;
+        let out = super::parse_completion(raw, ReasoningControl::default())
+            .expect("valid envelope parses");
+        assert_eq!(out.telemetry.prompt_tokens, Some(100));
+        assert_eq!(
+            out.telemetry.finish, None,
+            "the CLI envelope has no stop_reason"
+        );
+    }
+
+    /// Task 11 / C-8: `ClaudeCliProvider` is an INDEPENDENT struct — it does not
+    /// delegate to `ClaudeProvider` — so omitting it would leave a provider
+    /// declaring nothing, exactly the silent no-op this task exists to stop.
+    /// The `claude --print` CLI exposes no flag for its reasoning channel at
+    /// all, so `Disabled` is DECLARED here too.
+    #[test]
+    fn the_cli_provider_declares_unsupported_when_the_caller_disables_reasoning() {
+        use crate::provider::ReasoningState;
+
+        let raw = r#"{"is_error":false,"result":"hi"}"#;
+        let out = super::parse_completion(raw, ReasoningControl::Disabled)
+            .expect("valid envelope parses");
+        assert!(
+            matches!(
+                out.telemetry.reasoning,
+                ReasoningState::Unsupported { ref backend, .. } if backend == "anthropic-cli"
+            ),
+            "expected Unsupported{{backend: \"anthropic-cli\"}}, got {:?}",
+            out.telemetry.reasoning
+        );
+    }
+
+    /// The other half of C-8: nothing asked, nothing declared.
+    #[test]
+    fn the_cli_provider_declares_nothing_when_reasoning_control_is_default() {
+        use crate::provider::ReasoningState;
+
+        let raw = r#"{"is_error":false,"result":"hi"}"#;
+        let out =
+            super::parse_completion(raw, ReasoningControl::Default).expect("valid envelope parses");
+        assert_eq!(out.telemetry.reasoning, ReasoningState::NotMeasured);
     }
 
     // -- BDD Scenario 21: strips code fences --

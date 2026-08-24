@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-26
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! MS2 rotation integration tests (S2, S4, S6, S7, S10 + W17).
 //!
@@ -17,6 +17,7 @@ use magi_core::test_support::{
     build_two_failing_with_single_free_fallback, build_two_network_failing_no_fallback,
     report_run_failed,
 };
+use magi_core::verdict_markers::ExtractionFailureCause;
 
 /// Wraps a provider in a `RetryProvider` that exhausts INSTANTLY (zero delay,
 /// one retry), so retry-then-rotate composition is exercised without slow sleeps.
@@ -51,6 +52,14 @@ async fn test_rotates_on_transport_to_next_lineage() {
         .with_fallback_pool(
             FallbackPool::builder()
                 .push(fallback_ok, Lineage::new("zhipu"))
+                // Declared AFTER the rotation target, so Caspar still reaches `zhipu`
+                // and nothing about the rotation changes. It is here to be INELIGIBLE:
+                // Melchior already holds `alibaba`, which is the one cause reachable
+                // before any seat has dispatched.
+                .push(
+                    ScriptProvider::new("dup", vec![Beh::Ok]),
+                    Lineage::new("alibaba"),
+                )
                 .max_rotations(2)
                 .build(),
         )
@@ -68,6 +77,48 @@ async fn test_rotates_on_transport_to_next_lineage() {
     assert_eq!(cas.chain.len(), 1);
     assert_eq!(cas.chain[0].kind(), RotationKind::Transport);
     assert_eq!(*cas.chain[0].to(), Lineage::new("zhipu"));
+
+    // The eligibility snapshot reaches the report from the ROTATING path, which is
+    // the only one that can emit a candidate row at all: a pool exists nowhere else.
+    //
+    // Pinned here rather than beside the clean-run test, which builds a `Magi` with no
+    // rotation config and therefore exercises the trivial seeder instead. Without this,
+    // replacing the real call with `BTreeMap::new()` left the entire suite green.
+    assert_eq!(
+        report.pool_eligibility.len(),
+        3,
+        "every seat is covered, including the two that never rotated: {:?}",
+        report.pool_eligibility
+    );
+    assert!(
+        report.pool_eligibility.values().all(|rows| rows.len() == 2),
+        "and each seat is measured against every candidate in the pool: {:?}",
+        report.pool_eligibility
+    );
+    // The snapshot is PRE-dispatch, so `zhipu` — held by nobody, measured by nobody,
+    // with the guard off — is eligible for all three, INCLUDING the seat that later
+    // rotates into it. That is the field's own contract, not a gap.
+    assert!(
+        report
+            .pool_eligibility
+            .values()
+            .all(|rows| rows[0].causes.is_empty()),
+        "the rotation target is eligible for every seat before anyone dispatches"
+    );
+    // And a cause really does travel: the second candidate carries a lineage Melchior
+    // holds, so the other two see it ruled out while Melchior does not — the exclusion
+    // counts OTHER seats, never the one being measured.
+    assert_eq!(
+        report.pool_eligibility[&AgentName::Caspar][1].causes,
+        vec![IneligibilityCause::LineageHeldByAnotherMage],
+        "a candidate whose lineage another mage holds is reported, with its cause"
+    );
+    assert!(
+        report.pool_eligibility[&AgentName::Melchior][1]
+            .causes
+            .is_empty(),
+        "and the holder itself is not excluded by its own lineage"
+    );
 }
 
 #[tokio::test]
@@ -337,4 +388,551 @@ async fn an_oversized_response_is_mage_local_and_the_run_completes() {
             "{seat:?} kept the model it was configured with"
         );
     }
+}
+
+/// A seat that rotated leaves one entry PER MODEL — records, not counters.
+///
+/// With rotation, *which* model was cut is the question that decides what leaves
+/// the pool, and a count erases exactly that attribution. This is also the half of
+/// `21-ter` that the corrective-retry test cannot cover: there the two entries share
+/// a model, here they must differ.
+#[tokio::test]
+async fn a_seat_that_rotated_leaves_one_entry_per_model() {
+    let caspar_primary = retry0(ScriptProvider::new("deepseek", vec![Beh::Network]));
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    assert!(!report.degraded, "the rotation recovered the seat");
+    let models: Vec<&str> = report.completions[&AgentName::Caspar]
+        .iter()
+        .map(|r| r.model.as_str())
+        .collect();
+    assert_eq!(
+        models,
+        vec!["deepseek", "glm"],
+        "one entry per model, in the order the seat tried them"
+    );
+    // The seat that never rotated still records its single completion: recording
+    // only the interesting seats is the same blindness one level up.
+    assert_eq!(report.completions[&AgentName::Melchior].len(), 1);
+}
+
+/// AC5 — a NO-REGRESSION, not a new property: `3.0.0`'s sentinel already handles truncated
+/// content, and this milestone must not disturb it.
+///
+/// A cut BEFORE the closing marker is `Unterminated`; inside the JSON it is `InvalidJson`;
+/// after the closing marker only trailing prose is lost. **The report that motivated this
+/// milestone was WRONG in believing this was still open** — its "symptom 3" asked for telemetry
+/// on a truncated-but-parseable verdict being accepted as complete, and that case is not
+/// reachable through the marker path.
+///
+/// What this pins is the half that could plausibly break here: the classification must stay
+/// **mage-local**, so the seat rotates and the lineage stays available to the other two. A
+/// milestone that moved `Unterminated` onto the transport path would take a healthy lineage away
+/// from two seats over one seat's cut output.
+#[tokio::test]
+async fn truncated_content_still_lands_on_the_mage_local_path_via_unterminated() {
+    // Caspar's primary emits an OPEN marker and a body with no close: the signature of a
+    // response cut off mid-flight. Its fallback answers properly, so the seat recovers and the
+    // run is not degraded — which is what makes the lineage claim observable.
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::Truncated]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    // The cause is still `Unterminated`, and still attributed to the model that produced it.
+    let failures = &report.extraction_failures[&AgentName::Caspar];
+    assert!(
+        failures
+            .iter()
+            .any(|f| f.cause == ExtractionFailureCause::Unterminated),
+        "the 3.0.0 sentinel must still name a cut block as Unterminated: {failures:?}"
+    );
+
+    // MAGE-LOCAL, exactly as in 3.2.0: the two seats that did not see the cut are untouched and
+    // still produced verdicts, so the run is whole.
+    assert!(
+        !report.degraded,
+        "a cut on one seat must not degrade a run the other two completed"
+    );
+    assert_eq!(report.agents.len(), 3);
+    // And the seat itself recovered by rotating, which is what mage-local condemnation buys.
+    assert_eq!(report.rotations[&AgentName::Caspar].chain.len(), 1);
+    assert_eq!(
+        report.rotations[&AgentName::Caspar].chain[0].kind(),
+        RotationKind::Schema,
+        "a cut block is a CONTENT failure, never a transport one"
+    );
+}
+
+/// B-5 — a defect of OUR OWN aborts the run and is named as such.
+///
+/// The argument is a cost already paid: in `magi-claude` a bug in Caspar masqueraded as a
+/// provider error and took a long time to identify as local. `failed_agents` is where model
+/// failures land EVERY DAY, so a defect of ours filed there is invisible in the noise of the
+/// normal and the operator goes to look at the model.
+/// The SAME abort, on the configuration that has no fallback pool at all.
+///
+/// # Why this is its own test rather than a variation
+///
+/// The sibling below declares a pool, so it exercises the ROTATING dispatcher. The default
+/// configuration -- no pool -- runs a different path, and that path did not abort at all: it
+/// degraded the seat to 2/3 while the rustdoc and the migration guide both said the run ends.
+/// Review found it; nothing in the suite did, because the only test of this behaviour happened
+/// to declare a pool.
+///
+/// A defect of this crate reaching a consumer as "one agent failed" is precisely the disguise
+/// the whole milestone exists to remove, so the path without a guard is the one that mattered.
+#[tokio::test]
+async fn a_defect_of_our_own_aborts_the_run_without_any_fallback_pool() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        // NO `with_fallback_pool`: this is the default configuration.
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run on every path, pool or not");
+
+    let MagiError::CrateDefect {
+        agent,
+        joined_before_abort,
+        observation,
+        ..
+    } = &err
+    else {
+        panic!("the category must be legible on this path too, not just when a pool exists: {err}");
+    };
+
+    assert_eq!(*agent, AgentName::Caspar, "the seat that hit it travels");
+    assert!(
+        observation.contains("no generation"),
+        "the OBSERVATION is what was measured: {observation}"
+    );
+    // The seat that hit it is excluded -- it already travels as `agent`, and counting it twice
+    // would make the field disagree with its own documentation.
+    assert!(
+        !joined_before_abort.contains(&AgentName::Caspar),
+        "the defective seat must not appear among the joined ones: {joined_before_abort:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_defect_of_our_own_aborts_the_run_and_is_named_as_such() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(
+                    ScriptProvider::new("glm", vec![Beh::Ok]),
+                    Lineage::new("zhipu"),
+                )
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run; it does not degrade it");
+
+    assert!(
+        matches!(err, MagiError::CrateDefect { .. }),
+        "the category has to be legible, or the bug hides in the noise of ordinary model \
+         failures: {err}"
+    );
+    // And the abort is not a mystery: the message carries what was OBSERVED, and separately the
+    // hypothesis, so a reader can tell a measurement from an inference drawn from one case.
+    let rendered = err.to_string();
+    assert!(rendered.contains("no generation"));
+    assert!(rendered.contains("magi-core"));
+}
+
+/// It must not rotate, and the reason is structural rather than a policy choice: rotating would
+/// reproduce OUR OWN bad request against every seat in turn, spending the whole chain to arrive
+/// at the same place.
+#[tokio::test]
+async fn a_crate_defect_does_not_rotate_because_rotating_reproduces_it() {
+    let fallback = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let watch = Arc::clone(&fallback);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let _ = magi.analyze(&Mode::CodeReview, "content long enough").await;
+
+    assert_eq!(
+        watch.calls(),
+        0,
+        "the fallback must never have been asked: rotating reproduces our own request"
+    );
+}
+
+/// D-2 — an oversized body reports its OWN kind, with no behaviour change.
+///
+/// It was already mage-local: it inserts into `state.failed_lineages` and never calls
+/// `register_transport_failure`. What it could not do was SAY so, because `RotationKind` was
+/// public and not `#[non_exhaustive]`, making a new variant a SemVer break — so the precision
+/// rode in the `detail` text instead. For this case the major is a pure telemetry rename.
+#[tokio::test]
+async fn an_oversized_body_reports_its_own_kind_with_no_behaviour_change() {
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::Oversized]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let hop = &report.rotations[&AgentName::Caspar].chain[0];
+    assert_eq!(hop.kind(), RotationKind::OversizedResponse);
+    assert!(hop.kind().is_mage_local());
+
+    // The no-behaviour-change half, ASSERTED rather than merely claimed: the other two seats
+    // joined, so the lineage was never taken away from them.
+    assert!(!report.degraded);
+    assert_eq!(report.agents.len(), 3);
+    // And the prefix that carried the precision while the enum was frozen is gone: with the
+    // right type it is duplicated information that can contradict the type.
+    assert!(!hop.detail().starts_with("mage-local:"));
+}
+
+/// The mirror of the above for a failure reported by a provider implemented outside this crate.
+#[tokio::test]
+async fn an_external_failure_reports_its_own_kind_with_no_behaviour_change() {
+    let caspar_primary = ScriptProvider::new("deepseek", vec![Beh::External]);
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let hop = &report.rotations[&AgentName::Caspar].chain[0];
+    assert_eq!(hop.kind(), RotationKind::ExternalFailure);
+    assert!(hop.kind().is_mage_local());
+    assert!(!report.degraded);
+    assert!(!hop.detail().starts_with("mage-local:"));
+}
+
+/// The abort must not depend on a rotation pool the spec never scoped it to.
+///
+/// Found by review: `latch_crate_defect` lived only on the rotating dispatch path, so for
+/// `MagiBuilder::new(provider)` with no `with_fallback_pool` — the simplest supported setup, and
+/// the one most consumers start from — a defect of ours took the generic provider-error arm,
+/// landed in `failed_agents` as a string, and degraded the run to 2/3.
+///
+/// That is precisely the outcome B-5 exists to prevent, and both the variant's rustdoc and the
+/// migration guide claimed otherwise. The milestone's own integration test missed it because it
+/// declared a pool and therefore took the rotating path.
+#[tokio::test]
+async fn a_crate_defect_aborts_even_with_no_fallback_pool_declared() {
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(
+            AgentName::Caspar,
+            ScriptProvider::new("deepseek", vec![Beh::NoGeneration]),
+            Lineage::new("deepseek"),
+        )
+        // NO `with_fallback_pool`: this is the whole point of the test.
+        .build()
+        .unwrap();
+
+    let err = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .expect_err("a defect of ours invalidates the run whether or not a pool was declared");
+
+    // And the seats it names are the ones that ANSWERED, never itself: `agent` already carries
+    // the defective seat, and counting it twice would make the field disagree with its own
+    // documentation. Asserted here because the first version of this test matched only the
+    // variant, which left the two dispatch paths free to build the set differently — and they
+    // did.
+    match err {
+        MagiError::CrateDefect {
+            agent,
+            joined_before_abort,
+            ..
+        } => {
+            assert_eq!(agent, AgentName::Caspar);
+            assert!(
+                !joined_before_abort.contains(&AgentName::Caspar),
+                "the seat that hit it is not one of the seats that joined: {joined_before_abort:?}"
+            );
+        }
+        other => panic!("without a pool the defect used to degrade instead of aborting: {other}"),
+    }
+}
+
+/// S4 — the two telemetry maps are DISJOINT, observed where the orchestrator fills both.
+///
+/// The property: a completion cut at the output budget that nonetheless produced a valid
+/// verdict belongs in `completions` and NOT in `extraction_failures`. Putting it in the latter
+/// would assert a failure that did not happen, and a consumer counting that list to decide
+/// whether a run is usable would start seeing failures where extraction went perfectly.
+///
+/// It lives here, at the integration level, because the earlier unit version inserted a record
+/// into one map by hand and then asserted the other was empty -- which is what
+/// `report_with_no_telemetry()` guarantees by construction. It asserted its own fixture.
+#[tokio::test]
+async fn a_verdict_cut_at_the_ceiling_is_recorded_without_inventing_an_extraction_failure() {
+    let magi =
+        MagiBuilder::new(ScriptProvider::new("m", vec![Beh::OkAtTheCap]) as Arc<dyn LlmProvider>)
+            .with_agent(
+                AgentName::Melchior,
+                ScriptProvider::new("m", vec![Beh::OkAtTheCap]),
+                Lineage::new("alibaba"),
+            )
+            .with_agent(
+                AgentName::Balthasar,
+                ScriptProvider::new("b", vec![Beh::Ok]),
+                Lineage::new("moonshot"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                ScriptProvider::new("c", vec![Beh::Ok]),
+                Lineage::new("zhipu"),
+            )
+            .build()
+            .unwrap();
+
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    // The cut happened and is on the record, with the model that hit it.
+    let cut = &report.completions[&AgentName::Melchior];
+    assert_eq!(cut.len(), 1, "one attempt, one record");
+    assert_eq!(cut[0].finish, Some(FinishReason::Length));
+    assert_eq!(cut[0].model, "m");
+
+    // And extraction SUCCEEDED, so no agent carries a failure -- the disjointness itself.
+    //
+    // Asserted PER AGENT, not on the map: `extraction_failures` is pre-seeded with an empty
+    // list for every seat, because it is a certificate -- an empty list means "we looked and
+    // there were none", which an absent key could not say. So `map.is_empty()` is false on
+    // every real report, and a test asserting it would only ever pass against a hand-built
+    // fixture. That is exactly what the unit test this one replaces was doing.
+    assert!(
+        report
+            .extraction_failures
+            .values()
+            .all(|failures| failures.is_empty()),
+        "a cut that still produced a valid verdict is not an extraction failure: {:?}",
+        report.extraction_failures
+    );
+    assert!(
+        !report.degraded,
+        "the verdict was valid, so nothing degraded"
+    );
+
+    // The success path copies its telemetry too, and differently -- which is what makes the
+    // assertion above about the CUT rather than about every record looking alike.
+    let clean = &report.completions[&AgentName::Caspar];
+    assert_eq!(clean[0].finish, Some(FinishReason::Stop));
+}
+
+/// The milestone's CENTRAL diagnosis reaches the report, observed end to end.
+///
+/// A budget-exhausted completion is an `Err`, and an error can perfectly well leave no trace:
+/// `NoGeneration` deliberately records nothing, because that path aborts the run and a record
+/// would die in a local `Vec`. `EmptyCompletion` must be the opposite — the seat rotates, the
+/// run produces a report, and the burned budget has to be IN it. Without this the whole axis
+/// diagnoses a failure the operator still cannot see.
+#[tokio::test]
+async fn an_empty_completion_leaves_its_measurement_in_the_report() {
+    let caspar_primary = retry0(ScriptProvider::new("deepseek", vec![Beh::EmptyCompletion]));
+    let fallback_ok = ScriptProvider::new("glm", vec![Beh::Ok]);
+    let magi = MagiBuilder::new(ScriptProvider::new("m", vec![Beh::Ok]) as Arc<dyn LlmProvider>)
+        .with_agent(
+            AgentName::Melchior,
+            ScriptProvider::new("q", vec![Beh::Ok]),
+            Lineage::new("alibaba"),
+        )
+        .with_agent(
+            AgentName::Balthasar,
+            ScriptProvider::new("k", vec![Beh::Ok]),
+            Lineage::new("moonshot"),
+        )
+        .with_agent(AgentName::Caspar, caspar_primary, Lineage::new("deepseek"))
+        .with_fallback_pool(
+            FallbackPool::builder()
+                .push(fallback_ok, Lineage::new("zhipu"))
+                .max_rotations(2)
+                .build(),
+        )
+        .build()
+        .unwrap();
+
+    let report = magi
+        .analyze(&Mode::CodeReview, "content long enough")
+        .await
+        .unwrap();
+
+    let cas = &report.completions[&AgentName::Caspar];
+    let cut = cas
+        .iter()
+        .find(|r| r.model == "deepseek")
+        .expect("the model that came back empty must have left a record");
+
+    assert_eq!(
+        cut.finish,
+        Some(FinishReason::Length),
+        "the record must name the budget as what ended it"
+    );
+    assert!(
+        matches!(cut.reasoning, ReasoningState::Measured { chars, .. } if chars > 0),
+        "the reasoning it burned is the number that explains the cut: {:?}",
+        cut.reasoning
+    );
+    // And the consequence that this release changed: mage-local, so the seat rotated and the
+    // run is whole.
+    assert!(!report.degraded);
+    assert_eq!(report.rotations[&AgentName::Caspar].chain.len(), 1);
 }

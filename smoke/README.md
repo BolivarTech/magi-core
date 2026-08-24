@@ -1,0 +1,405 @@
+# magi-smoke — the smoke harness
+
+A small binary that exercises `magi-core` **the way an outside consumer does**: it builds the
+trio through the public builder, points every provider at a spy proxy, runs `analyze()` against
+a real backend, and asserts properties over what came back.
+
+It is a tool, not a gate. It produces **evidence**; nothing here blocks a release, and deleting
+this directory leaves the crate compiling, testing and publishing untouched.
+
+---
+
+## 1. Three exit codes, and the difference between two of them
+
+| code | meaning |
+|---|---|
+| `0` | every assertion that ran passed |
+| `1` | an assertion **FAILED** — a verdict about the crate |
+| `2` | **could not test** — a fault of ours: config, fixtures, backend, probe or proxy |
+
+**Confusing `1` with `2` is the failure this harness exists to eliminate.** A slow backend
+reported as `1` sends someone hunting through the code for a problem that is in the cable; a
+real defect reported as `2` gets filed under "flaky" and never looked at. The code is decided in
+exactly one place — `outcome::exit_code` — and the report delegates to it rather than deciding
+again.
+
+There is a fourth row state, `OUT_OF_SCOPE`, which contributes to no exit code: it means a
+question **this invocation never asked**, not one that went unanswered.
+
+**That distinction is what makes `0` reachable at all.** Five scenarios have a fault for their
+subject — four preflight stages that break only when the invocation makes them (`S6` an
+unreachable backend, `S7` a slow one, `S14` a broken config, `S20` `--break-proxy`) and the
+feature matrix (`S21`, `--build-matrix`). A plain `cargo run` induces none of them. Reported as
+`SKIP` they made every healthy run exit `2`, so no invocation could return `0` and "the harness
+is green" could not be shown by running it. They are `OUT_OF_SCOPE` instead.
+
+`SKIP` keeps its meaning and still means exit `2`: **the run tried and could not test.** A
+preflight that cut before any run, and a `--build-matrix` whose `cargo` could not be spawned,
+are both still `SKIP`.
+
+## 2. Two dependency modes
+
+The harness links `magi-core` from one of two sources, chosen at **build** time:
+
+- `--features tree` (the default) — the crate as it stands in this working tree. This is what
+  SMOKE #1 and #2 use.
+- `--no-default-features --features published` — the crate as published on crates.io.
+
+They are mutually exclusive and the compiler enforces it: selecting both, or neither, is a
+`compile_error!` explaining which to pick. A compiled binary cannot change which crate it links
+against, so this is a build fact rather than a runtime flag — and the mode is printed at startup
+so a run's output always says what it tested.
+
+The published mode matters because some defects only exist against the packaged artifact. A
+regression that made `ProviderError` unconstructible from another crate reached a consumer eight
+days after release precisely because, inside `src/`, the variants are always constructible.
+
+> ### That defect is now caught BEFORE publishing, and not by this mode
+>
+> **`ci/check_packaged_consumer.sh` packages the crate and compiles its examples against the
+> tarball**, as part of `ci/run_all_checks.sh`. An example compiles as a separate crate, so
+> `#[non_exhaustive]` applies to it exactly as it applies to a real consumer — and
+> `examples/external_provider.rs` exists for that reason and says so in its own header.
+>
+> **The `published` mode reaches the same source strictly later.** It resolves `magi-core` from
+> crates.io by version, so it can only run after `cargo publish` — at which point a red result
+> withdraws nothing, because crates.io is immutable. That is a post-mortem, not a gate, and this
+> project already spent a doc-only release (`3.0.2`) learning what finding out afterwards costs.
+> The tarball `cargo package` writes is the artifact that gets uploaded, so checking against it is
+> checking the same bytes, one step earlier, with no network and no publish.
+>
+> **What stays out of reach, said rather than implied:** whether **docs.rs built** the version.
+> That exists only after publishing and has nothing local to anticipate it. It is out of scope,
+> not deferred — a check that cannot stop anything is not a gate. So is the happy path run against
+> the real package with a live backend: reaching it from CI would mean an endpoint and a
+> credential as repository secrets, and this project's certification is deliberately local.
+
+**The pin, and what NO LONGER guards it.** The published mode pins a version in
+`smoke/Cargo.toml` (`magi_core_pub`), and cargo resolves optional dependencies whether or not
+their feature is enabled — so naming a version that does not exist yet breaks EVERY build of
+this package, the default one included.
+
+**This section used to say "bump it in the same commit that bumps the crate", and to promise a
+version-drift guard that would catch a forgotten bump after the publish. Both are now wrong.**
+The guard lived in the post-publish job that was removed, so **nothing catches a stale pin** —
+and the instruction was self-contradictory anyway: bumping the pin alongside the crate names a
+version that is not on crates.io yet, which is exactly the break described just above.
+
+**What is true instead:** the pin can only move AFTER the version it names is published, never
+with it. And since no scenario runs the harness in `published` mode any more — `--build-matrix`
+still runs a `cargo check` on it, which is a build-time question — its only remaining job is to keep
+resolving, which a published version always does. Leaving it behind the crate's own version is
+correct rather than sloppy.
+
+## 3. What the proxy does, and why its red is never the crate's
+
+Every request the crate makes goes through a local spy proxy, which records it and forwards it
+**unchanged**. That is what lets a scenario assert over the wire instead of over a mock.
+
+The proxy can also **inject** a failure for one named model, which is how the rotation and
+degradation runs are driven without waiting for a real backend to misbehave.
+
+**A proxy that could not do its job is ours, never a verdict.** If it cannot start, the
+preflight stops with exit `2` and every scenario reports that it could not be tested — none of
+them fails. If the proxy degrades mid-run (a poisoned lock, an accept error) it says so, and any
+assertion that reads the recorded traffic skips rather than failing over a registry it knows is
+partial.
+
+**One proxy fault IS a verdict, deliberately: a proxy that ran fine and relayed something other
+than what it received.** `S2b` compares the request body, the response body and the status
+against what the harness sent and got directly, and goes **red** when they differ. That is not
+an exception grudgingly admitted — it is the invariant everything else here rests on. Every
+other scenario reads the wire through this proxy, so a proxy that quietly rewrites traffic makes
+every green row above it meaningless, and skipping on it would hide exactly the fault that
+invalidates the run. The line between the two cases is whether the proxy KNOWS it failed: one it
+reports, and we skip; the other it cannot see, and only a comparison catches.
+
+## 4. The contention probe, and its declared scope
+
+Before any run, the harness asks the backend for **one real completion of one token** — a `POST`
+to the completions endpoint, naming the weakest model the config declares. If it does not answer
+within the configured window, the run reports **cannot test** rather than starting.
+
+**It must be a completion, and that is the whole design.** A manifest listing (`GET /api/tags`)
+reads files off disk: it never loads a model, never touches the GPU and never enters the
+inference queue, so a backend saturated by three mages answers it instantly. Generation is what
+queues, so generation is what gets asked for — bounded to one token so asking costs nothing.
+Reachability, the step before, *does* use the listing, because "is anybody there?" is a different
+question and a listing is the right way to ask it.
+
+**What it catches:** an endpoint that is saturated, or a model cold enough that loading it would
+swallow the run's whole budget. It retries once with a widened window, so "clone and run" works
+without pre-warming.
+
+**What it does NOT catch, stated because a probe implies more than it delivers:**
+
+- Contention that **begins after** the probe. The probe is a snapshot at one instant; a backend
+  that becomes saturated once the runs start is invisible to it, and shows up later as a time
+  failure instead.
+- The difference between **contention and a cold model**. Both look like "slow", and the harness
+  says so rather than guessing which.
+
+## 5. Where it fits in the cycle
+
+```
+TDD cycle  →  SMOKE #1  →  review gate  →  SMOKE #2  →  release
+                                              ↓ regression
+                                     fix → re-run the gate
+```
+
+**#1 runs before the review gate**, because the gate is expensive and spending it to discover
+that the code does not work is waste. **#2 runs after**, because the gate CHANGES the code: a
+fix made to satisfy a review can break what already worked.
+
+**A regression found by #2 expires the gate's verdict** — a verdict binds the exact artifact it
+saw — so the fix goes in and the gate runs again. Only #2 writes a certificate, because a
+certificate emitted from #1 would certify an artifact the gate has not touched yet.
+
+**The certificate declares six things about itself**: the crate version and the commit it was
+issued against, the date, which dependency mode was built, what the run really cost, and how many
+rounds the release needed. The filename is fixed and the new one replaces the old, so `git log -p`
+over that single path *is* the historical series — how many scenarios, how much cost and how many
+rounds each release took. Four of the six missing would leave that diff showing a version string
+changing and nothing to compare against.
+
+It also carries the fixture count, and a visible warning when more than 30 % of the corpus is
+unverified. That warning blocks nothing — some fixtures cannot have their currency checked at
+all — but it appears where somebody decides a release, rather than in the output of a run nobody
+kept.
+
+## 6. Cost per run
+
+The harness announces its estimate **before** it starts and records what it spent **after**.
+The order is enforced rather than conventional: the ledger refuses to produce a receipt if no
+estimate was announced first. Before the spend the number is a decision the operator can still
+make; after it, the same number is only a receipt.
+
+The default invocation runs **eight** backend runs: six over a small payload — happy path,
+rotation, degradation, mixed trio, the crate-defect replay and the pool-eligibility one — plus
+**two** over the large one, and one run with no backend at all.
+
+**The eighth is declared here rather than folded into the happy one, and the reason is the
+tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
+reasons at once, which means a candidate whose lineage duplicates a seat's — something the
+config's own rustdoc says buys nothing, because rotation exists to reach a DIFFERENT lineage.
+Injecting that into a shared run would change the world for every scenario reading it and
+contradict a decision already written down. One more run costs a small payload and says what it
+costs. Against a cloud backend that is on the order of four minutes
+and a few hundred thousand tokens; against a local model it is bounded by your hardware, not by
+the harness.
+
+**The large payload is paid for TWICE, and that is a deliberate cost rather than an oversight.**
+Two scenarios need it and they need opposite things from it: `S10` and `S11` need the reasoning
+channel ON — one reads a completion that spent more than the old default would have allowed, the
+other reads a trace — while `S8b` needs it OFF, because what it certifies is that switching the
+channel off makes the payload converge. Both properties are about the same payload and cannot
+share a run. Naming the cost is better than quietly weakening one of them.
+
+**It was not always so.** Through the E1 stage the large payload was generated and checked by
+size but never analysed, because no assertion read it — the only honest claim available before
+the telemetry that would justify running it existed. It exists now.
+
+## 7. The coverage cliff: several SKIPs sharing a run-id are ONE failure
+
+Scenarios share runs. When a shared run does not produce a report, every scenario reading it
+skips — so **one** broken run can print five skipped rows.
+
+That is why every row carries its **run-id**. Five skips with the same id are one failure with
+five symptoms, not five defects; without the id a single crashed run reads as a cascade and
+sends someone looking for five problems.
+
+## 8. Known limitations
+
+Anyone reading a certificate needs to know what was **not** verified.
+
+- **The `published` mode is not covered by the certificate, and no longer runs at all.** Its
+  scenarios verify a package that does not exist yet when the certificate is emitted, so their
+  verdict could only ever arrive after the publish it was meant to gate. What replaced it is
+  `ci/check_packaged_consumer.sh`, which compiles outside consumers against the tarball
+  `cargo package` writes — the same artifact, before the publish, in the round gate. The mode's
+  wiring stays in this package because the compiler enforces the two are exclusive; no scenario
+  runs the harness in that mode, though `--build-matrix` still runs a `cargo check` on it.
+- **Proxy transparency is verified only on the SMALL probe request**, not on a large-payload
+  run. The comparison is by checksum over a request the harness itself sends and receives down
+  both paths; the large-payload run is not part of this stage at all, so nothing here shows that
+  the proxy relays a 62 000-token body unchanged. The property is the same and the machinery is
+  the same, but the size is not exercised.
+- **Fixture currency is not proven.** A hash proves a file is the one recorded; it does **not**
+  prove the backend still answers that way. Only a live scenario proves currency, and entries
+  marked `unverified:` have not had one.
+- **The probe does not see contention that starts after the preflight** (§4).
+- **A panic in a dependency the crate ALSO uses** — `reqwest`, `tokio`, `sha2` — is ambiguous by
+  nature and is attributed to the crate (`FAIL`). Attributing it to the harness would bury a
+  real defect; the reverse costs one investigation that finds nothing, which is the cheaper
+  error.
+- **A panic in a thread the crate spawned, one crossing FFI, and an abort are not caught at
+  all.** They end the process, and the exit code is what the operator sees.
+- **The relaxation-mark guard detects marks that are MALFORMED, not marks that are ABSENT.**
+  Someone who relaxes an assertion without marking it stays invisible, and there is no general
+  way to detect that without guessing the intent of a change.
+- **The symlink-skipping property of the payload generator is unverified on Windows without
+  Developer Mode**, because creating a file symlink there is privileged. It is verified on any
+  Linux runner. A junction is not a substitute — measured: `symlink_metadata` reports
+  `is_dir() == false` for one, so the walker ignores it whether its guard is present or not.
+
+## 9. Running it — six invocations, not one
+
+**"Green" is the union of six commands.** Four scenarios need the preflight to stop at a
+*different* step, and the preflight stops at the first failure, so they cannot share an
+invocation: putting two together leaves the second one unrun, which is green by omission.
+
+| invocation | what it covers |
+|---|---|
+| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, and both large-payload runs |
+| `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
+| `cargo run -- --break-proxy` | a proxy that refuses to start |
+| `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |
+| `cargo run -- --config <toml with an unknown field>` | a configuration the harness refuses, naming the field |
+| `cargo run -- --build-matrix` | the four feature combinations (slow: four `cargo check` runs) |
+
+### The slow stub the saturated-endpoint invocation needs
+
+That row used to say `<slow stub>` and stop there, which left the twelve-green claim
+unreproducible by anyone who was not its author. Then it carried a four-line stub that accepted
+every connection and answered nothing, which was worse than saying nothing at all: it ran, it
+printed no red, and it tested the wrong thing. §9.1 below is that story.
+
+**The stub has to answer one endpoint and stall on the other**, because the preflight asks two
+different questions in two different places. Step 5 is reachability, a `GET /api/tags`, and it
+has to succeed or nothing downstream runs. The contention probe comes after it and asks for a
+completion. `S7` is about the second one. Run this in another terminal, leave it running, then
+issue the invocation above:
+
+```sh
+python -c "
+import json, socket, threading
+MODELS = ['qwen3.5:397b-cloud', 'kimi-k2.6:cloud', 'glm-5.2:cloud', 'deepseek-v4-pro:cloud']
+TAGS = json.dumps({'models': [{'name': m, 'model': m, 'digest': 'a'*64} for m in MODELS]})
+held = []
+def serve(c):
+    try:
+        if '/api/tags' in c.recv(65535).decode('latin-1', 'replace').split(chr(13)+chr(10))[0]:
+            b = TAGS.encode()
+            c.sendall(('HTTP/1.1 200 OK'+chr(13)+chr(10)+'Content-Type: application/json'+chr(13)+chr(10)+'Content-Length: '+str(len(b))+chr(13)+chr(10)+'Connection: close'+chr(13)+chr(10)+chr(13)+chr(10)).encode()+b)
+            c.close(); return
+    except Exception: pass
+    held.append(c)
+s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('127.0.0.1', 8099)); s.listen(64)
+while True:
+    threading.Thread(target=serve, args=(s.accept()[0],), daemon=True).start()"
+```
+
+It serves the listing off a hard-coded array and then holds every other socket open, answering
+never. That is the condition `S7` is about: a backend that is **reachable and saturated**, not
+one that is down. A listing reads files off disk and never touches the GPU (§4), so a real
+saturated Ollama answers it instantly too. The held sockets are kept in `held` so nothing closes
+them; dropping one sends a reset, and a reset is the *unreachable* case the second row already
+covers. `Ctrl-C` when done, and it leaves nothing behind.
+
+**`MODELS` is the built-in default trio plus its one rotation candidate.** Point `seats` or
+`fallbacks` somewhere else and this list has to follow, or reachability fails on the models the
+listing does not name and you are back at step 5.
+
+`MAGI_SMOKE_PROBE_TIMEOUT_SECS=1` is what keeps the invocation short: without it the probe waits
+its full default before reporting, and the scenario's answer is the same either way.
+
+`nc -l 8099` no longer does. It used to be offered as an equivalent, and it cannot serve the
+listing, so it produces exactly the failure §9.1 describes. Python is spelled out because this
+repository already depends on it, and because a recipe that only runs on one platform is the
+problem this section exists to fix.
+
+### 9.1 What the answers-nothing stub actually tested, which was nothing
+
+The four-line version never got past step 5. The preflight reported `Backend: backend at
+http://127.0.0.1:8099 did not answer` and cut, so `S6` passed a **second** time (the `:1`
+invocation already covers it) and `S7` came back `OUT_OF_SCOPE`, which by §1 means *a question
+this invocation never asked*. The one invocation that exists to ask about a saturated endpoint
+did not ask.
+
+**None of that shows up as a failure.** No red rows, and exit `2`, which is the expected code
+there because every other scenario skips. Run the six, count no failures, conclude the six
+covered their subjects. It is the green-by-omission this same section warns about two
+paragraphs up, and it survived in writing here for one release.
+
+`--build-matrix` builds each combination into its own directory under the system temp
+directory (`<temp>/magi-smoke-feature-matrix/<combination>`), never inside the checkout: one
+directory per combination because two feature sets sharing one relink the same binaries and
+produce link errors that read as code defects. Deleting that tree costs only the next run's
+rebuild time.
+
+Other flags: `--smoke-2` (this is SMOKE #2, so the certificate IS written), `--no-backend` (only
+the scenarios that need none), `--json` (also emit the machine-readable report),
+`--print-payload-size` (generate the payload, print its size, exit), `--round <n>` (which round
+of this release cycle this is; it goes into the certificate, defaults to `1`).
+
+`--round` is declared rather than detected, for the same reason `--smoke-2` is: R37 wants the
+number because *a release that needed three rounds is information about that release*, and
+nothing in a single invocation could tell which round it belongs to. A guessed number would make
+the certificate a guess.
+
+**The shipped trio is `:cloud`-tagged, so a fresh clone does not run green by itself.** On a
+machine that has not run `ollama signin` and pulled those three tags, a plain `cargo run` runs
+**no scenario at all**: the preflight's backend step names every configured model the endpoint
+does not hold and stops with exit `2`. That is the refusal doing its job — nothing is reported
+as a verdict about the crate — but it means **"green" is green on a machine with the trio
+available**. Pull the three tags, or point `seats` at models this machine holds. `--no-backend`
+still runs the scenarios that need none.
+
+Configuration: copy `magi-smoke.toml.example` to `magi-smoke.toml` and edit. Every value in the
+example is also the built-in default, and a test compares the two — so copying it unchanged
+changes nothing. Credentials never live in it; they travel by environment variable.
+
+## 10. `cargo audit` for the harness
+
+The harness has its own dependencies and its own lockfile, so audit it on its own:
+
+```bash
+cd smoke && cargo audit
+```
+
+This is **advisory and outside the crate's release workflow**. The harness is not published and
+its dependencies are not the crate's; a finding here is worth fixing but does not gate a release
+of `magi-core`.
+
+---
+
+## 11. The reproduction that justifies the harness
+
+Run **once**, by hand, on 2026-08-18, against `magi-core 3.2.0` — the version this tree was on
+when the harness was built. It is a dated historical record, **not a test**: no assertion reads
+it, and against `4.0.0` the same command is expected to stop reproducing anything. That is the
+point.
+
+```bash
+cd smoke
+cargo run -- --config <a config with run_payload_bytes = 250000> --json
+```
+
+**Setup:** the shipped trio (`qwen3.5:397b-cloud` / `kimi-k2.6:cloud` / `glm-5.2:cloud`) against
+a local Ollama, one fallback candidate of a different lineage, and the crate's default output
+budget of `max_tokens: 4096`. The generated payload was 250 000 bytes — about 62 500 tokens by
+the harness's own coarse `bytes/4` bound.
+
+**What came back (exit `1` — a verdict about the crate):**
+
+```
+[FAIL] run=happy_small — all three mages returned a verdict
+[FAIL] run=happy_small — the run is not degraded
+[SKIP] run=degradation — degraded is true (skipped: insufficient agents: 1 succeeded, 2 required)
+```
+
+The same trio, the same models and the same backend answer cleanly on a small payload — 17
+assertions pass, none fails. Enlarge the payload and the happy path comes back **degraded**, and
+the injected run collapses to **one surviving mage out of three**.
+
+**What this reproduction does NOT show, and the omission is itself the finding.** It does not
+say WHICH mage returned nothing, nor that its lineage was condemned for the other two, because
+`3.2.0` does not report either. The crate turns an empty completion into an HTTP-shaped error
+with a synthetic status, and from there into a transport failure that removes a lineage
+run-wide — so what reaches a consumer is a collapsed trio with no attribution. The harness can
+see the collapse and cannot see its cause.
+
+That is precisely the gap `4.0.0` closes, and it is why this record is kept: the value of the
+harness is not that it reproduced a known bug, but that it reproduced it **from outside**, the
+way a consumer meets it.

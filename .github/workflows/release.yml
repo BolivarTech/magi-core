@@ -173,6 +173,10 @@ jobs:
       # present before merge and ABSENT before publish. One list means the publishing path
       # can no longer run fewer checks than the path that gates the merge.
       - run: bash ci/run_all_checks.sh
+      # RELEASE-ONLY: published docs must carry no section a later milestone still owes.
+      # Not in `run_all_checks.sh` — that runs every round, and a marker left for a later
+      # milestone would redden rounds that are not responsible for it.
+      - run: bash ci/check_pending.sh
       # `Cargo.lock` is NOT committed — this is a library, so the lock file is
       # deliberately gitignored and every consumer resolves its own. That is why there is
       # no `--locked` assertion here (it would fail by construction) and why the lock is
@@ -180,6 +184,19 @@ jobs:
       - run: cargo generate-lockfile
       - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit
+      # The smoke harness, on the PUBLISHING path and not only before the merge.
+      #
+      # It is a declared hard release prerequisite AND the first external consumer of the
+      # `complete() -> Completion` break, so it is the only thing that empirically prices that
+      # migration. It ran in `ci.yml` and not here -- which is EXACTLY the asymmetry the
+      # comment above this job describes and claims to have fixed: a check present before
+      # merge and absent before publish. Its own package, so it needs its own invocation.
+      - run: cargo fmt --check
+        working-directory: smoke
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: smoke
+      - run: cargo nextest run
+        working-directory: smoke
 
   publish:
     name: Publish to crates.io

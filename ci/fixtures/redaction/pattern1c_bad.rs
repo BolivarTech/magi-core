@@ -34,7 +34,7 @@ pub enum ProviderError {
         f: u8,
     },
 }
-fn build() -> Self { Self::External { f: 0 } }
+pub fn build() -> Self { Self::External { f: 0 } }
 impl From<reqwest::Error> for ProviderError {
     fn from(_: reqwest::Error) -> Self { unimplemented!() }
 }

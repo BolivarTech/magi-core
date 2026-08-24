@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-30
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Behavioural tests for the three response-body readers.
 //!
@@ -50,6 +50,11 @@ const DIAGNOSTIC_CAP: usize = 8 * 1024;
 /// takes several chunks, so the reader crosses the limit mid-stream instead of on its first read —
 /// which is the branch a `Content-Length` body never reaches. A larger number would still pass the
 /// test while quietly stopping it from testing that.
+///
+/// Gated with the only branch that reads it: chunked framing is exercised through the native probe
+/// path, which is `ollama`-only. Without the gate this file does not build under `openai-compat`
+/// alone — a supported configuration that neither of the gate's two feature sets ever compiles.
+#[cfg(feature = "ollama")]
 const CHUNK_BYTES: usize = 64 * 1024;
 
 /// How the body is framed, which decides WHICH branch of the reader runs.
@@ -273,7 +278,19 @@ async fn a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled() {
     // body that fitted the cap in bytes could leave this function as a String three times larger
     // — and the mangled text would then fail downstream as a *schema* error, blaming the model
     // for an encoding fault.
-    let (addr, server) = serve_framed("200 OK", vec![0xff, 0xfe, 0xfd], Framing::Length);
+    // A DISCRIMINATING payload, and the previous one was not. `[0xff, 0xfe, 0xfd]` is invalid
+    // as UTF-8 *and* as JSON, so lossy conversion would produce three replacement characters
+    // that are still not JSON -- the same `Unreadable` either way, and the test would keep
+    // passing with the very mangling it is named for restored.
+    //
+    // This body is well-formed JSON whose content string carries one invalid byte. Strictly
+    // decoded it fails as an encoding fault, which is what must happen. Decoded lossily it
+    // becomes a VALID response carrying U+FFFD and the call SUCCEEDS -- an outcome so
+    // different that no assertion below could confuse the two.
+    let mut body = br#"{"choices":[{"message":{"content":""#.to_vec();
+    body.push(0xff);
+    body.extend_from_slice(br#""},"finish_reason":"stop"}]}"#);
+    let (addr, server) = serve_framed("200 OK", body, Framing::Length);
     let provider =
         OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
 
@@ -283,11 +300,22 @@ async fn a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled() {
         .expect_err("invalid UTF-8 must not be silently replaced");
     server.join().expect("server thread");
 
-    let rendered = err.to_string();
+    // Asserted on the TYPE, which is what `4.0.0` made available and is stronger than the string
+    // this used to match: the cause is a CONTRACT failure, so nothing downstream can mistake it
+    // for the model having produced bad output.
     assert!(
-        rendered.contains("not valid UTF-8"),
-        "the cause must name the encoding fault rather than a schema one: {rendered}"
+        matches!(
+            err,
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                ..
+            }
+        ),
+        "an encoding fault is a contract failure, never a schema one: {err:?}"
     );
+    // And never an HTTP error: until `4.0.0` this arrived as a synthetic `status: 0`, which is
+    // how a contract failure inherited run-wide condemnation it was never entitled to.
+    assert!(!matches!(err, ProviderError::Http { .. }));
 }
 
 #[cfg(feature = "ollama")]

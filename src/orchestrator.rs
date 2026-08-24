@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -12,15 +12,16 @@ use std::sync::Mutex;
 use crate::agent::{Agent, AgentFactory};
 use crate::consensus::{ConsensusConfig, ConsensusEngine};
 use crate::error::{ExternalErrorKind, MagiError, ProviderError};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::reporting::{
-    ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
+    CompletionRecord, ExtractionFailure, InputSize, MagiReport, ReportConfig, ReportFormatter,
     TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 use crate::rotation::{
-    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, FallbackPool, Lineage,
-    LineageRegistry, ModelCapability, ProviderProbe, RotationConfig, RotationEvent, RotationKind,
-    RotationPolicy, digest_collision, run_preflight, strict_guard_is_inert,
+    ActiveEntry, AgentRotation, AgentRotationState, AgentSlotGuard, CandidateEligibility,
+    CrateDefectRecord, FallbackPool, Lineage, LineageRegistry, ModelCapability, ProviderProbe,
+    RotationConfig, RotationEvent, RotationKind, RotationPolicy, digest_collision, run_preflight,
+    strict_guard_is_inert,
 };
 use crate::schema::{AgentName, AgentOutput, Mode};
 use crate::user_prompt::{FastrandSource, RngLike, build_retry_prompt, build_user_prompt};
@@ -31,7 +32,7 @@ use tokio::task::AbortHandle;
 /// Default value for [`MagiConfig::max_input_len`] — 4 MB.
 ///
 /// This is a compromise between Python's 10 MB and v0.1.2's 1 MB.
-/// A full 10 MB alignment with Python is deferred to v0.3.0 pending
+/// A full 10 MB alignment with Python is unscheduled, pending
 /// an allocation audit of the `analyze()` pipeline.
 ///
 /// For public-facing deployments where `content` is untrusted, consider
@@ -43,6 +44,26 @@ pub const DEFAULT_MAX_INPUT_LEN: usize = 4 * 1024 * 1024;
 /// See [`MagiConfig::input_warn_tokens`] for why this warns rather than rejects, and for when to
 /// raise it.
 pub const DEFAULT_INPUT_WARN_TOKENS: usize = 150_000;
+/// The per-agent ceiling, sized to cover the worst case of ONE retry chain.
+///
+/// # Where the number comes from
+///
+/// `(1 + limited_max_retries) x client_timeout + backoffs` = `2 x 300 + 1` = **601 s** for a
+/// hang, and roughly **604 s** through the `Retry-After` path where the backstop cuts. 660 s is
+/// that worst case plus margin.
+///
+/// # This is NOT the old invariant, and the old one is deliberately not satisfied
+///
+/// `operation_budget + client_timeout <= timeout` would give `450 + 300 = 750 > 660`. That
+/// formulation dates from when the budget was the binding limit; with the attempt count binding
+/// it is a backstop, and adding it to the worst case would charge 25 minutes per seat of ceiling
+/// the chain cannot use.
+///
+/// # It is per CALL, not per chain
+///
+/// It wraps a single call and is applied twice per model (the call plus the corrective retry).
+/// The worst case per SEAT multiplies it further by `1 + max_rotations`.
+const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(660);
 
 /// Configuration for the MAGI orchestrator.
 ///
@@ -50,31 +71,89 @@ pub const DEFAULT_INPUT_WARN_TOKENS: usize = 150_000;
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct MagiConfig {
-    /// Maximum time to wait for each agent (default: 300 seconds).
+    /// Maximum time to wait for each agent (default: **660 seconds**).
     ///
-    /// # Layering — the shipped defaults do NOT satisfy it
+    /// # Layering — the invariant, and why it is not the one you may remember
     ///
-    /// A retry chain costs `operation_budget + client_timeout`, and that client timeout applies
-    /// **per attempt**. For the retry budget to be reachable when a provider hangs:
+    /// The ceiling must cover the worst case of ONE retry chain:
     ///
     /// ```text
-    /// operation_budget + client_timeout <= timeout
+    /// timeout >= (1 + limited_max_retries) * client_timeout + backoffs
     /// ```
     ///
-    /// The defaults give `600 + 300 = 900` against a `timeout` of 300 s. On a hang the first
-    /// attempt consumes the whole per-agent budget and **no retry happens** — so describing
-    /// rotation as firing *after the retry chain is exhausted* is inaccurate for that case.
+    /// With the shipped defaults that is `2 * 300 + 1 = 601 s` for a hang, and roughly `604 s`
+    /// through the `Retry-After` path where the backstop cuts, against a ceiling of `660 s`.
     ///
-    /// Raising this value or lowering the retry side is a latency trade-off, not a bug fix.
-    /// **It is tracked for 3.3.0**, starting from a configuration that puts the retry budget
-    /// *below* the agent ceiling on purpose, so abandonment is typed and diagnosable instead of an
-    /// opaque timeout cut. This is documented in both places that govern it — here and on
-    /// [`RetryConfig`] — because whoever configures one of them does not read the other.
+    /// # What it covers, and what it does NOT
     ///
-    /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
-    /// providers in one.
+    /// It covers a **homogeneous** chain of attempt-limited failures — the hang case the count
+    /// was chosen for. A **mixed** chain does not fit: a `429` is not attempt-limited, so it keeps
+    /// the general count and each honoured `Retry-After` runs in full, bounding such a chain by
+    /// `operation_budget + max(client_timeout, retry_after_cap + jitter)` = `751 s`, **above**
+    /// this ceiling. The binding term is whichever wait is longer; with both shipped at 300 s
+    /// they coincide, so naming only the client timeout would mislead anyone tuning the cap.
+    ///
+    /// **Consequence, stated rather than left to be discovered:** there this timeout cuts first
+    /// and the abandonment is an opaque timeout rather than the typed
+    /// `AbandonReason::OperationBudgetExhausted`. Raising the ceiling past `750 s` would recover
+    /// it for mixed chains at the cost of a longer worst case for every seat; the shipped value
+    /// optimises for the common case and says so here instead of implying a guarantee.
+    ///
+    /// **The older form — `operation_budget + client_timeout <= timeout` — is deliberately NOT
+    /// satisfied** (`450 + 300 = 750 > 660`). It was formulated when the budget was the binding
+    /// limit. With the per-class attempt count binding, the budget is a **backstop**, and adding
+    /// it to the worst case would charge about 25 minutes per seat of ceiling the chain cannot
+    /// use. A reader arriving from `3.1.0` will look for that sum; this is where it went.
+    ///
+    /// # Where the multiplication comes from — the value alone does not say it
+    ///
+    /// This wraps a **single call** and is applied **twice per model** (the call plus the
+    /// corrective schema retry), across `1 + max_rotations` models. The worst case **per seat**
+    /// is therefore `timeout * calls_per_model * (1 + max_rotations)`.
+    ///
+    /// **With the crate's own defaults that is 22 minutes, not 66 — but only if you declared
+    /// NEITHER a pool nor a probe.** Rotation engages on either one, so `with_probing_agent` with
+    /// no pool substitutes an empty pool carrying `DEFAULT_MAX_ROTATIONS` and the figure is 66
+    /// after all. Measured, not derived: `660 x 2 x 1 = 1320 s` for the bare builder, and
+    /// `660 x 2 x 3 = 3960 s` as soon as either is present. [`Magi::worst_case_per_seat`] computes it from the
+    /// effective configuration rather than from either of those numbers.
+    ///
+    /// **Per seat, never per run:** whether the backend serves the three mages in parallel or
+    /// serialises them is a property of the deployment, and this crate does not know it.
+    ///
+    /// # Local deployments
+    ///
+    /// The defaults are calibrated for **CLOUD** (36-96 s per attempt, measured). Against a local
+    /// Ollama the same work can take 30 minutes per mage, and a single GPU **serialises** the
+    /// three seats even though the orchestrator dispatches them in parallel — roughly 90 minutes
+    /// per run, which is correct there.
+    ///
+    /// Raise them **IN THIS ORDER**; each one bounds the next:
+    ///
+    /// 1. **`client_timeout`** — the slowest legitimate request you have seen, set per provider
+    ///    with its `with_timeout`. Everything else derives from it.
+    /// 2. **[`RetryConfig::operation_budget`]** — keep it at or above the floor its own rustdoc
+    ///    gives (`client_timeout + base_delay + 1`), or you lose the deterministic second attempt
+    ///    of a hang. **That one the crate warns about**, computed from the SHIPPED client timeout,
+    ///    so if you raised yours the guard cannot see your real floor. Going far above costs wall
+    ///    clock on the `Retry-After` path and is deliberately NOT warned, because it is what step
+    ///    1 above produces.
+    /// 3. **`MagiConfig::timeout`** (this field) — at least the chain's worst case.
+    ///
+    /// Then read [`Magi::worst_case_per_seat`]: it tells you what you just bought. It is a
+    /// **ceiling, not a prediction** — the chain usually ends earlier.
+    ///
+    /// A default calibrated on purpose for another deployment, without the guidance to move it,
+    /// is indistinguishable from a badly chosen one — and the user finds out when their model
+    /// dies at five minutes for a reason that is not theirs.
+    ///
+    /// **The ordering above assumes you opted into [`RetryProvider`]** — [`MagiBuilder::build`]
+    /// does not wrap providers in one, so without it steps 1 and 2 have no subject. **This field
+    /// applies either way**, and a consumer with no `RetryProvider` feels the 300 -> 660 s change
+    /// most directly: nothing else bounds the call.
     ///
     /// [`RetryConfig`]: crate::provider::RetryConfig
+    /// [`RetryConfig::operation_budget`]: crate::provider::RetryConfig::operation_budget
     /// [`RetryProvider`]: crate::provider::RetryProvider
     pub timeout: Duration,
     /// Maximum accepted size of the raw `content` argument to [`Magi::analyze`], in bytes.
@@ -85,7 +164,7 @@ pub struct MagiConfig {
     /// consider lowering this via [`MagiBuilder::with_max_input_len`] to a value
     /// appropriate for your threat model. Default (4 MB) is a compromise between
     /// Python MAGI's 10 MB and v0.1.2's 1 MB; a full 10 MB alignment with Python
-    /// is deferred to v0.3.0 pending allocation audit of the analyze() pipeline.
+    /// is unscheduled, pending allocation audit of the analyze() pipeline.
     ///
     /// # Allocation audit (2026-04-18)
     ///
@@ -95,7 +174,7 @@ pub struct MagiConfig {
     /// satisfy `tokio::spawn`'s `'static` bound (3 agents), and (5) HTTP/stdin
     /// serialization by the provider. Peak memory per analysis is approximately
     /// `content.len() × 5` plus fixed overhead. For the 4 MB default, peak ≈ 20 MB.
-    /// A full 10 MB alignment with Python is deferred to v0.3.0, pending an
+    /// A full 10 MB alignment with Python is unscheduled, pending an
     /// `Arc<str>` refactor of the orchestrator-to-provider path to reduce copies.
     pub max_input_len: usize,
     /// Completion parameters forwarded to each agent.
@@ -215,7 +294,7 @@ pub(crate) fn warn_threshold_is_unreachable(cfg: &MagiConfig) -> bool {
 impl Default for MagiConfig {
     fn default() -> Self {
         Self {
-            timeout: Duration::from_secs(300),
+            timeout: DEFAULT_AGENT_TIMEOUT,
             max_input_len: DEFAULT_MAX_INPUT_LEN,
             completion: CompletionConfig::default(),
             retry_on_schema_error: true,
@@ -625,7 +704,11 @@ impl MagiBuilder {
     /// Loads prompts from `prompts_dir` if set (may fail with `MagiError::Io`).
     ///
     /// # Errors
-    /// Returns `MagiError::Io` if `prompts_dir` is set and cannot be read.
+    /// - [`MagiError::Io`] if `prompts_dir` is set and cannot be read.
+    /// - [`MagiError::InvalidInput`] for a configuration this type refuses to construct.
+    /// - [`MagiError::PromptContract`] if any resolvable prompt — embedded or overridden —
+    ///   violates the verdict-marker contract. Checked BEFORE touching any provider.
+    /// - [`MagiError::Validation`] if the report configuration does not validate.
     pub fn build(self) -> Result<Magi, MagiError> {
         // A warning threshold the validator would reject before can never fire, leaving the
         // telemetry mute with nobody the wiser. Say it once, here — and do NOT clamp it: that
@@ -776,6 +859,14 @@ type DispatchOutcome = (
     // MS3 — per-agent rejected outputs, seeded for every dispatched agent so a clean
     // seat certifies itself with an empty Vec. Read joined with the rotations above.
     BTreeMap<AgentName, Vec<ExtractionFailure>>,
+    // 4.0.0 — one record per completion ATTEMPT, in the order the seat made them. NOT
+    // seeded: an absent entry means the seat made no attempt at all, which is a different
+    // claim from an empty one.
+    BTreeMap<AgentName, Vec<CompletionRecord>>,
+    // Axis E — which pool candidates each seat could and could not have rotated into, as of
+    // BEFORE dispatch. Seeded for every dispatched seat: an empty Vec means "nothing to
+    // reject", and an absent seat would mean the snapshot was never computed.
+    BTreeMap<AgentName, Vec<CandidateEligibility>>,
 );
 
 struct AbortGuard(Vec<AbortHandle>);
@@ -844,7 +935,97 @@ pub struct Magi {
     probe_declaration_warned: std::sync::atomic::AtomicBool,
 }
 
+/// The message an agent-timeout cut reports, naming the CONFIGURED ceiling.
+///
+/// # It names the ceiling as the ceiling, and does NOT pretend to a measurement
+///
+/// `tokio::time::timeout` returns `Elapsed` only when OUR ceiling fires, so the elapsed time here
+/// is always exactly the ceiling. An earlier form printed the same value twice, shaped like
+/// "measured versus configured" — two identical numbers say nothing, and the shape invited the
+/// reader to compare them.
+///
+/// What it does instead is publish our own number plainly: an operator who sees a cut at 600 s
+/// against a configured ceiling of 660 s knows the cut was not ours. That comparison is made by
+/// the operator against their own infrastructure, not by this message — and the case it matters
+/// for arrives as `ProviderError::Network`, not through this path at all, which the migration
+/// guide says explicitly.
+///
+/// # One function for all four sites
+///
+/// There are four `tokio::time::timeout` calls on the agent path (the call and its corrective
+/// retry, on the rotating path and the non-rotating one). Four separate `format!`s is how three
+/// of them end up without the ceiling.
+fn agent_timeout_message(is_corrective_retry: bool, ceiling: Duration) -> String {
+    let phase = if is_corrective_retry {
+        "retry-failed: timeout"
+    } else {
+        "timeout: agent timed out"
+    };
+    format!("{phase} at its configured ceiling of {ceiling:?}")
+}
+
 impl Magi {
+    /// The worst-case wall clock **one seat** can spend, derived from THIS instance's effective
+    /// configuration.
+    ///
+    /// ```text
+    /// timeout * calls_per_model * (1 + max_rotations)
+    /// ```
+    ///
+    /// where `calls_per_model` is **2** when [`MagiConfig::retry_on_schema_error`] is on (the
+    /// call plus the corrective retry) and **1** when it is off.
+    ///
+    /// # It informs; it never rejects
+    ///
+    /// Returns a [`Duration`], not a `Result`. It does not fail the build and does not warn,
+    /// however large the number: the moment it rejected something it would be the cap this crate
+    /// deliberately does not impose. A consumer who wants an alarm builds it on top of the value
+    /// in three lines.
+    ///
+    /// # Per SEAT, never per run
+    ///
+    /// Whether the backend serves the three mages in parallel or serialises them is a property of
+    /// the deployment. Multiplying by three here would assert a serialisation this crate has not
+    /// measured, so the run total is left to the caller, who knows their backend.
+    ///
+    /// # Transport retries are NOT a separate factor
+    ///
+    /// They happen **inside** one of those calls, and the agent ceiling wraps **each** call.
+    /// Counting them again would count them twice — which is exactly why the ceiling, and not an
+    /// estimate per failure class, is the unit here. What a 503 costs before it fails is not
+    /// something this crate knows, and estimating it would fabricate precision.
+    ///
+    /// # A ceiling, not a prediction
+    ///
+    /// The chain usually ends earlier. This is the bound that can be guaranteed without modelling
+    /// every failure path.
+    ///
+    /// # Why it lives on `Magi` and not on [`MagiConfig`]
+    ///
+    /// The `(1 + max_rotations)` factor lives in the fallback POOL, not in the config, so this is
+    /// the only place all three pieces are visible at once. That makes "reads the EFFECTIVE
+    /// configuration" true by construction rather than by convention.
+    ///
+    /// [`MagiConfig::retry_on_schema_error`]: MagiConfig::retry_on_schema_error
+    pub fn worst_case_per_seat(&self) -> Duration {
+        let calls_per_model: u32 = if self.config.retry_on_schema_error {
+            2
+        } else {
+            1
+        };
+        let models: u32 = self
+            .rotation_config
+            .as_ref()
+            .map_or(0, |r| r.pool.max_rotations())
+            .saturating_add(1);
+        // Saturating rather than wrapping: an absurd configuration must produce an absurd
+        // number, never a small one that reads as safe.
+        self.config
+            .timeout
+            .saturating_mul(calls_per_model)
+            .saturating_mul(models)
+    }
+
     /// Creates a MAGI orchestrator with a single provider and all defaults.
     ///
     /// Equivalent to `MagiBuilder::new(provider).build().unwrap()`.
@@ -879,9 +1060,20 @@ impl Magi {
     ///
     /// # Errors
     /// - [`MagiError::InputTooLarge`] if `content.len()` exceeds `max_input_len`.
-    /// - [`MagiError::InsufficientAgents`] if fewer than 2 agents succeed.
+    /// - [`MagiError::InsufficientAgents`] if fewer than `min_agents` seats succeed.
     /// - [`MagiError::InvalidInput`] if nonce collision detected (probability ~2^-64
     ///   per call; fastrand effective state ~64 bits).
+    /// - [`MagiError::SkippedByComplexityGate`] if a complexity gate was installed and
+    ///   returned `false` — before any dispatch, so nothing was spent.
+    /// - [`MagiError::EndpointDown`] once connection failures on distinct lineages cross the
+    ///   latch: the run is abandoned rather than degraded.
+    /// - [`MagiError::CrateDefect`] — **new in `4.0.0`** — when a backend accepts a request and
+    ///   generates nothing with its token counters absent. That footprint is a defect of THIS
+    ///   crate, so the run aborts instead of rotating, and this call is the only surface it
+    ///   reaches a consumer on.
+    /// - [`MagiError::Validation`] if consensus is asked to score duplicate agent names.
+    ///   **Not** for a seat whose own output fails validation: that seat goes to
+    ///   `failed_agents` and the run degrades, which is the opposite contract.
     ///
     /// # Concurrency
     ///
@@ -890,8 +1082,9 @@ impl Magi {
     /// practice nonce generation is a single `u128` read (~nanoseconds), so
     /// contention is negligible under typical workloads. If profiling shows this
     /// becomes a bottleneck in a multi-tenant deployment, consider wrapping `Magi`
-    /// in a pool of instances (one per tenant), or await v0.4 which may expose
-    /// `with_rng_source` publicly to allow a thread-local RNG strategy.
+    /// in a pool of instances (one per tenant), or ask for a public `with_rng_source`, which
+    /// would allow a thread-local RNG strategy. It was once slated for v0.4; that shipped in
+    /// May 2026 without it and the setter is still `#[cfg(test)]`, so treat it as unscheduled.
     pub async fn analyze(&self, mode: &Mode, content: &str) -> Result<MagiReport, MagiError> {
         // 1. Input validation — runs BEFORE the complexity gate so that
         //    stateful predicates (rate limiters, cache counters) do NOT
@@ -951,8 +1144,15 @@ impl Magi {
 
         // 5. Dispatch agents in parallel with single-shot retry on schema/parse errors.
         //    (v0.4.0 replaces launch_agents + process_results — MAGI R2 W9 atomic merge.)
-        let (successful, failed_agents, retried_agents, rotations, extraction_failures) =
-            self.dispatch_with_retry(agents, &prompt).await?;
+        let (
+            successful,
+            failed_agents,
+            retried_agents,
+            rotations,
+            extraction_failures,
+            completions,
+            pool_eligibility,
+        ) = self.dispatch_with_retry(agents, &prompt).await?;
 
         // 6. Consensus
         let consensus = self.consensus_engine.determine(&successful)?;
@@ -989,6 +1189,8 @@ impl Magi {
             rotations,
             extraction_failures,
             input_size: Some(input_size),
+            completions,
+            pool_eligibility,
         })
     }
 
@@ -1015,7 +1217,8 @@ impl Magi {
         agents: Vec<Agent>,
         user_prompt: &str,
     ) -> Result<DispatchOutcome, MagiError> {
-        // MS2: rotation is engaged ONLY when a fallback pool was declared. With no
+        // Rotation is engaged when a fallback pool OR a primary probe was declared (see
+        // `build`). With no
         // pool (`rotation_config == None`) the dispatch path is byte-identical to
         // 2.0.x — same FSM, same failure strings, no registry, no endpoint-down
         // (R11/S1). Each agent's configured model seeds a present, chain-empty
@@ -1081,31 +1284,59 @@ impl Magi {
         let mut retried = std::collections::BTreeSet::new();
         // SEEDED for every dispatched agent, so a clean seat says so with an empty Vec
         // instead of vanishing from the report. See `MagiReport::extraction_failures`.
+        // `completions` is NOT seeded: unlike the extraction certificate, an absent entry
+        // here means the seat produced no attempt at all, which is a different claim from
+        // an empty one and worth being able to tell apart.
+        let mut completions: BTreeMap<AgentName, Vec<CompletionRecord>> = BTreeMap::new();
+        // A defect of OURS invalidates the run on this path too. It needs no registry here:
+        // there is no rotation to coordinate, and the join loop below is the same point at
+        // which the rotating path consults its latch.
+        let mut crate_defect: Option<CrateDefectRecord> = None;
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> = agent_models
             .keys()
             .map(|name| (*name, Vec::new()))
             .collect();
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), was_retried, failures)) => {
+                Ok((Ok(output), was_retried, failures, records, defect)) => {
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
+                    crate_defect = crate_defect.or(defect);
                 }
-                Ok((Err(reason), was_retried, failures)) => {
+                Ok((Err(reason), was_retried, failures, records, defect)) => {
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
                     }
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
+                    // SET-ONCE, exactly like the registry latch the rotating path uses: if two
+                    // seats hit it the result is the same abort, and no state depends on which
+                    // one was joined first.
+                    crate_defect = crate_defect.or(defect);
                 }
                 Err(join_err) => {
-                    // A panicked task loses its in-flight records; the pre-seeded empty
-                    // Vec stands, and the panic itself is the headline in `failed_agents`.
+                    // A panicked task loses its in-flight records. `extraction_failures` is
+                    // pre-seeded so its empty Vec stands; `completions` deliberately is NOT, so
+                    // this seat gets no entry — and by that field's own definition an absent
+                    // entry means "made no attempt", which is not what happened. It is left
+                    // absent anyway: seeding an empty Vec would claim a seat that attempted
+                    // twice attempted nothing, and the panic is the headline either way.
                     failed.insert(name, format!("panic: {join_err}"));
                 }
+            }
+            // Checked INSIDE the loop, on the same beat as the rotating path consults its
+            // latch. Draining every handle first made `AbortGuard` inert here — nothing was left
+            // in flight to cancel — and made the error's own documentation false, since
+            // `joined_before_abort` would then always list every seat.
+            if let Some(d) = crate_defect.take() {
+                // The SAME two functions the rotating path uses. Written out inline here once,
+                // and the copies diverged in ORDER while a comment claimed they were symmetric.
+                return Err(crate_defect_error(d, &joined_so_far(&successful, &failed)));
             }
         }
 
@@ -1117,8 +1348,24 @@ impl Magi {
             });
         }
 
+        // No pool on this path, so no candidate can be rejected. Seeded per seat rather
+        // than left empty: absent means "not computed", which is a different claim.
+        //
+        // From `agent_models` — the same source its sibling `extraction_failures` uses,
+        // and taken before `default_rotations` consumes it. Deriving it from `successful`
+        // plus `failed` reaches the same set, but only because every handle lands in
+        // exactly one of them: a proof the reader has to redo, where this states it.
+        let pool_eligibility = agent_models.keys().map(|a| (*a, Vec::new())).collect();
         let rotations = default_rotations(agent_models);
-        Ok((successful, failed, retried, rotations, extraction_failures))
+        Ok((
+            successful,
+            failed,
+            retried,
+            rotations,
+            extraction_failures,
+            completions,
+            pool_eligibility,
+        ))
     }
 
     /// The rotation dispatch path. Seeds a per-run [`LineageRegistry`] from the
@@ -1162,6 +1409,10 @@ impl Magi {
             );
             primary_lineages.insert(*name, lineage);
         }
+        // Cloned before the registry takes ownership: the snapshot needs each seat's
+        // lineage and model, and taking them back out of the registry would mean an
+        // `await` under its lock for data we already hold here.
+        let initial_for_snapshot = initial.clone();
         let registry = Arc::new(LineageRegistry::new(initial));
 
         // Preflight (R15): probe every probe-capable model (trio primaries + pool
@@ -1198,6 +1449,23 @@ impl Magi {
         // the standard rough token estimate — a pre-filter, not precise budgeting.
         let min_window_tokens = user_prompt.chars().count().div_ceil(CHARS_PER_TOKEN_EST);
         let strict_context_guard = rotation.strict_context_guard;
+
+        // MS3 — computed ONCE per run, here: the prompt exists (so `min_window_tokens`
+        // does) and no seat has been dispatched yet, which is exactly what the field
+        // claims. `&BTreeMap::new()` / `&BTreeSet::new()` are not placeholders: nobody
+        // has failed anything yet, and reading the registry here would make the snapshot
+        // depend on when it was called and falsify the one thing its rustdoc promises.
+        let pool_eligibility =
+            crate::rotation::pool_eligibility_snapshot(&crate::rotation::EligibilityInputs {
+                seats: &initial_for_snapshot,
+                progress: &BTreeMap::new(),
+                run_failed_lineages: &BTreeSet::new(),
+                capabilities: &capabilities,
+                candidates: rotation.pool.candidates(),
+                max_rotations: rotation.pool.max_rotations(),
+                min_window_tokens,
+                strict_context_guard,
+            });
 
         // A strict guard rejects every UNMEASURED candidate, so with nothing measured the pool
         // is declared and never eligible: rotation does nothing, and until now it did so in
@@ -1238,6 +1506,9 @@ impl Magi {
         // clean, and it keeps this map joinable with the rotations map on the same key.
         let mut extraction_failures: BTreeMap<AgentName, Vec<ExtractionFailure>> =
             rotations.keys().map(|name| (*name, Vec::new())).collect();
+        // Not seeded, unlike the certificate above: an absent entry here means the seat made
+        // no attempt at all, which is a different claim from an empty one.
+        let mut completions: BTreeMap<AgentName, Vec<CompletionRecord>> = BTreeMap::new();
 
         let mut handles = Vec::new();
         let mut abort_handles = Vec::new();
@@ -1302,17 +1573,19 @@ impl Magi {
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), agent_rotation, was_retried, failures)) => {
+                Ok((Ok(output), agent_rotation, was_retried, failures, records)) => {
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                     successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
                 }
-                Ok((Err(reason), agent_rotation, was_retried, failures)) => {
+                Ok((Err(reason), agent_rotation, was_retried, failures, records)) => {
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
+                    completions.insert(name, records);
                     failed.insert(name, reason);
                     if was_retried {
                         retried.insert(name);
@@ -1325,14 +1598,23 @@ impl Magi {
                     // Lost-signal recovery (W11/W18): recover endpoint-down straight
                     // from the registry latch, robust to a panicked carrier.
                     failed.insert(name, format!("panic: {join_err}"));
-                    if let Some(err) = resolve_abnormal_exit(name, &join_err, &registry).await {
+                    // The SAME resolution the normal arm uses. It used to consult only the
+                    // endpoint-down latch and then `continue`, so a crate defect latched by a
+                    // concurrent seat was skipped on every panicked join.
+                    let joined = joined_so_far(&successful, &failed);
+                    if let Some(err) =
+                        resolve_abnormal_exit(name, &join_err, &registry, &joined).await
+                    {
                         return Err(err);
                     }
                     continue;
                 }
             }
-            // Normal outcome: a concurrent mage may still have tripped the latch.
-            if let Some(err) = resolve_endpoint_down(&registry).await {
+            // Normal outcome: a concurrent mage may still have tripped either latch.
+            // `AbortGuard` cancels whatever is still in flight when this returns — the existing
+            // mechanism doing its job, not a new one.
+            let joined = joined_so_far(&successful, &failed);
+            if let Some(err) = resolve_run_abort(&registry, &joined).await {
                 return Err(err);
             }
         }
@@ -1345,7 +1627,15 @@ impl Magi {
             });
         }
 
-        Ok((successful, failed, retried, rotations, extraction_failures))
+        Ok((
+            successful,
+            failed,
+            retried,
+            rotations,
+            extraction_failures,
+            completions,
+            pool_eligibility,
+        ))
     }
 
     /// Returns the custom prompt overrides map for inspection in tests.
@@ -1358,15 +1648,114 @@ impl Magi {
     }
 }
 
+/// Records ONE completion attempt, whatever it turned into.
+///
+/// # THE single place that decides what a record says
+///
+/// Success and failure both land here, in the one place that still knows the agent's model and
+/// the budget it was given. A second construction site is how an attempt stops being recorded —
+/// or starts being recorded differently — without anything failing.
+///
+/// # Parameters
+///
+/// - `records` — the seat's accumulator, in attempt order.
+/// - `model` / `cap` — from the CALLER. A provider knows neither which budget it was handed nor
+///   which seat it served, so neither is readable off a response.
+/// - `outcome` — exactly what the timed call returned, before it is destructured.
+///
+/// # What a failed attempt records
+///
+/// Only [`ProviderError::EmptyCompletion`] knows anything past the model and the cap, and what it
+/// knows is the termination reason. Everything else declares absence: `None` and
+/// [`ReasoningState::NotMeasured`], never zeros, because a zero meaning "nobody counted" is
+/// indistinguishable from a real one.
+///
+/// # What it deliberately does NOT record
+///
+/// [`ProviderError::NoGeneration`] is a defect in this crate: the run aborts and its report will
+/// not exist, so a record for that attempt would assert there was something to measure. The guard
+/// lives here rather than in the caller's match so the decision is not split in two.
+///
+/// # Complexity
+///
+/// O(n) in the length of a carried reasoning trace; O(1) otherwise.
+fn record_attempt(
+    records: &mut Vec<CompletionRecord>,
+    model: &str,
+    cap: u32,
+    outcome: &Result<Result<Completion, ProviderError>, tokio::time::error::Elapsed>,
+) {
+    match outcome {
+        Ok(Ok(completion)) => records.push(CompletionRecord::from_telemetry(
+            model.to_string(),
+            cap,
+            &completion.telemetry,
+        )),
+        // Recorded NOWHERE, and this is CONTINGENT on the caller aborting: the run ends with
+        // `Err`, so no `MagiReport` is ever built and a record here would die in a local
+        // `Vec`. If that consequence is ever softened — a defect of ours degrading the seat
+        // instead of ending the run — this arm silently starts DROPPING attempts that would
+        // then have somewhere to go. Change the two together.
+        Ok(Err(ProviderError::NoGeneration { .. })) => {}
+        // Symmetric with the success arm on purpose: an empty completion now carries the SAME
+        // telemetry a successful one does, so the record is filled the same way. It used to
+        // keep only the termination reason, which said the completion was cut and threw away
+        // the reasoning length that explains WHY -- on the one failure this release exists to
+        // diagnose.
+        Ok(Err(ProviderError::EmptyCompletion { telemetry, .. })) => records.push(
+            CompletionRecord::from_telemetry(model.to_string(), cap, telemetry),
+        ),
+        // Every other failure, and a timeout: the attempt happened and nothing was measured.
+        Ok(Err(_)) | Err(_) => records.push(CompletionRecord::new(model.to_string(), cap)),
+    }
+}
+
+/// Whether a surfaced provider failure is a defect of THIS crate, and what to record if so.
+///
+/// # Why it asks the classifier instead of matching the variant here
+///
+/// A second place deciding what a crate defect is would be a second place that can disagree with
+/// the first. `provider_err_outcome` already owns that decision, exhaustively and without a
+/// catch-all, so this asks it rather than re-answering.
+///
+/// # Parameters
+///
+/// * `err` — the failure as the provider surfaced it.
+/// * `agent` / `model` — the seat and the model in force, neither of which the classifier knows.
+///
+/// # Returns
+///
+/// `Some` only for the one classification whose consequence is the whole run.
+///
+/// # Complexity
+///
+/// O(n) in the rendered error text, which the classifier composes once.
+fn crate_defect_of(err: ProviderError, agent: AgentName, model: &str) -> Option<CrateDefectRecord> {
+    match provider_err_outcome(err) {
+        ModelOutcome::CrateDefect {
+            observation,
+            hypothesis,
+        } => Some(CrateDefectRecord {
+            observation,
+            hypothesis,
+            agent,
+            model: model.to_string(),
+        }),
+        _ => None,
+    }
+}
+
 /// Dispatch a single agent with one-shot retry on schema/parse errors.
 ///
-/// Returns `(Result<AgentOutput, String>, bool)` — a flat tuple, no enum
-///:
-/// - First element: `Ok(output)` on success (first or second attempt),
-///   `Err(reason)` on failure.
-/// - Second element: `true` if a retry attempt was made (regardless of
-///   outcome), `false` otherwise. Used by orchestrator to populate
-///   [`MagiReport::retried_agents`] telemetry.
+/// Returns a flat 5-tuple rather than an enum:
+///
+/// 1. `Ok(output)` on success (first or second attempt), `Err(reason)` on failure.
+/// 2. `true` if a retry attempt was made, whatever its outcome — this is what populates
+///    [`MagiReport::retried_agents`].
+/// 3. The extraction failures this seat accumulated, in attempt order.
+/// 4. One [`CompletionRecord`] per completion ATTEMPT, success or failure alike.
+/// 5. `Some` when the failure was a defect of THIS crate, which the caller raises to abort the
+///    run. `None` for every ordinary failure.
 ///
 /// Retry trigger: `MagiError::Validation` or `MagiError::Deserialization`
 /// from [`parse_and_validate`] on the first attempt. Provider errors and
@@ -1384,34 +1773,50 @@ pub(crate) async fn dispatch_one_agent(
     validator: Arc<Validator>,
     timeout: Duration,
     retry_enabled: bool,
-) -> (Result<AgentOutput, String>, bool, Vec<ExtractionFailure>) {
+) -> (
+    Result<AgentOutput, String>,
+    bool,
+    Vec<ExtractionFailure>,
+    Vec<CompletionRecord>,
+    Option<CrateDefectRecord>,
+) {
     // Attribution is STRUCTURAL here: the model is the one whose provider actually ran,
     // so a failure can never be credited to a model that had not executed yet (E23c).
     let model = agent.provider_model().to_string();
     let mut failures: Vec<ExtractionFailure> = Vec::new();
+    let mut records: Vec<CompletionRecord> = Vec::new();
     // First attempt.
     let first_result = tokio::time::timeout(timeout, agent.execute(&user_prompt, &config)).await;
+    record_attempt(&mut records, &model, config.max_tokens, &first_result);
     let first_raw = match first_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
-            return (
-                Err(MagiError::Provider(provider_err).to_string()),
-                false,
-                failures,
-            );
+            // Routed through the SAME classifier the rotating path uses, so the two cannot
+            // disagree about what counts as a defect of ours. Only that one case changes the
+            // control flow; every other failure keeps the reason string it always had.
+            //
+            // Found by review: the abort existed only on the rotating path, so a defect of
+            // ours in the DEFAULT configuration — no fallback pool — degraded the run to 2/3
+            // and filed itself among ordinary model failures, which is exactly what B-5 says
+            // it must never do.
+            let reason = MagiError::Provider(provider_err.clone()).to_string();
+            let defect = crate_defect_of(provider_err, agent.name(), &model);
+            return (Err(reason), false, failures, records, defect);
         }
         Err(_elapsed) => {
             return (
-                Err(format!("timeout: agent timed out after {timeout:?}")),
+                Err(agent_timeout_message(false, timeout)),
                 false,
                 failures,
+                records,
+                None,
             );
         }
     };
 
     // Parse + validate first response. Success exits here.
-    let first_err = match parse_validate_and_check(&first_raw, agent.name(), &validator) {
-        Ok(output) => return (Ok(output), false, failures),
+    let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), &validator) {
+        Ok(output) => return (Ok(output), false, failures, records, None),
         Err(f) => f,
     };
     failures.push(ExtractionFailure {
@@ -1438,36 +1843,50 @@ pub(crate) async fn dispatch_one_agent(
             MagiError::Validation(_) | MagiError::Deserialization(_)
         );
     if !should_retry {
-        return (Err(first_err.error.to_string()), false, failures);
+        return (
+            Err(first_err.error.to_string()),
+            false,
+            failures,
+            records,
+            None,
+        );
     }
 
     // Single-shot retry with corrective feedback prompt.
-    let retry_prompt =
-        build_retry_prompt(&user_prompt, first_err.cause, &first_err.error.to_string());
+    let retry_prompt = build_retry_prompt(
+        &user_prompt,
+        first_err.cause,
+        &first_err.error.to_string(),
+        // What the FIRST attempt's backend said about why it stopped. The crate has it in
+        // hand here, and it is the difference between telling a model not to stop and
+        // telling it the budget stopped it.
+        first_raw.telemetry.finish.clone(),
+    );
     let second_result = tokio::time::timeout(timeout, agent.execute(&retry_prompt, &config)).await;
+    record_attempt(&mut records, &model, config.max_tokens, &second_result);
     let second_raw = match second_result {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => {
-            return (
-                Err(format!(
-                    "retry-failed: {}",
-                    MagiError::Provider(provider_err)
-                )),
-                true,
-                failures,
+            let reason = format!(
+                "retry-failed: {}",
+                MagiError::Provider(provider_err.clone())
             );
+            let defect = crate_defect_of(provider_err, agent.name(), &model);
+            return (Err(reason), true, failures, records, defect);
         }
         Err(_elapsed) => {
             return (
-                Err(format!("retry-failed: timeout after {timeout:?}")),
+                Err(agent_timeout_message(true, timeout)),
                 true,
                 failures,
+                records,
+                None,
             );
         }
     };
 
-    match parse_validate_and_check(&second_raw, agent.name(), &validator) {
-        Ok(output) => (Ok(output), true, failures),
+    match parse_validate_and_check(&second_raw.text, agent.name(), &validator) {
+        Ok(output) => (Ok(output), true, failures, records, None),
         Err(f) => {
             // `attempt: 2` — the corrective retry, on the SAME model. The counter is
             // per-model by construction, so it restarts at 1 if a rotation happens later
@@ -1477,7 +1896,13 @@ pub(crate) async fn dispatch_one_agent(
                 attempt: 2,
                 cause: f.cause,
             });
-            (Err(format!("retry-failed: {}", f.error)), true, failures)
+            (
+                Err(format!("retry-failed: {}", f.error)),
+                true,
+                failures,
+                records,
+                None,
+            )
         }
     }
 }
@@ -1504,38 +1929,6 @@ fn default_rotations(
         .collect()
 }
 
-/// Marks a rotation whose condemnation reached only the mage that saw it.
-///
-/// The subject names in this module's classifying `match` expressions — `outcome` and `err` — are
-/// COUPLED to the continuous-integration check that forbids a catch-all arm in them. Renaming
-/// either turns that check into one that watches nothing and still reports success. If a third
-/// classifier appears, it has to be added there or it is unguarded from the day it is written.
-///
-/// # Why the detail carries this and the kind does not
-///
-/// Two rotation causes are mage-local — an oversized body and a failure reported by a third-party
-/// backend — yet both report `RotationKind::Transport`, which elsewhere means a run-wide
-/// condemnation. That enum is public and not `#[non_exhaustive]`, so giving them their own variant
-/// would be a breaking change in a minor release; the distinction rides in the detail instead.
-///
-/// A shared constant rather than the words typed at each site: the point is that a reader — human
-/// or otherwise — can tell the two cases apart, and two hand-written prefixes drift until they
-/// cannot. A test asserts every mage-local outcome carries it.
-///
-/// This does NOT make the telemetry equivalent to a typed variant. Reading it still means reading
-/// a string, and a consumer that greps for it is coupled to prose. It makes the information
-/// present rather than absent, which is the most a frozen enum allows.
-///
-/// # What replaces this
-///
-/// The right shape is dedicated rotation kinds for the mage-local causes, so the distinction is
-/// carried by the type and no one has to parse anything. That is a breaking change to a public,
-/// exhaustively-matchable enum, so it waits for the next major — where it is recorded as planned
-/// work, not left as an idea in a comment. No helper is offered for detecting the prefix: nothing
-/// in this crate consumes it, and a predicate written for a caller that does not exist is dead
-/// code that makes a convention look like an interface.
-const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
-
 /// The rotation detail for an oversized response body.
 ///
 /// # Parameters
@@ -1550,7 +1943,7 @@ const MAGE_LOCAL_PREFIX: &str = "mage-local: ";
 /// the loop runs this same code. Returning `String` rather than `Option<String>` keeps the caller
 /// from needing a fallback it would have to invent.
 fn oversized_detail(limit: usize) -> String {
-    format!("{MAGE_LOCAL_PREFIX}response body exceeded {limit} bytes")
+    format!("response body exceeded {limit} bytes")
 }
 
 /// The rotation detail for a failure reported by a third-party backend.
@@ -1559,7 +1952,7 @@ fn oversized_detail(limit: usize) -> String {
 /// - `kind`: the shape the external provider declared.
 /// - `detail`: the rendered error, already capped by the constructor.
 fn external_failure_detail(kind: ExternalErrorKind, detail: &str) -> String {
-    format!("{MAGE_LOCAL_PREFIX}external ({kind:?}): {detail}")
+    format!("external ({kind:?}): {detail}")
 }
 
 /// Rough chars-per-token ratio for the coarse `min_window_tokens` pre-filter
@@ -1640,7 +2033,7 @@ fn warn_on_probe_disagreement(targets: &[(String, Arc<dyn ProviderProbe>)]) {
 /// **Only [`ProviderError::Network`]** (connection refused / host unreachable /
 /// DNS) counts as connection evidence. An `Http` (incl. 5xx), a `Timeout`, or a
 /// `RetryAbandoned` condemns the lineage run-wide but is **not** connection
-/// evidence — someone answered, or the model is merely slow.
+/// evidence — someone joined, or the model is merely slow.
 ///
 /// The exclusion of [`ProviderError::RetryAbandoned`] is deliberate and is NOT a
 /// bug: a truly-down endpoint yields **fast** connection-refused `Network` errors
@@ -1678,10 +2071,20 @@ fn is_connection(err: &ProviderError) -> bool {
         // this crate has no way to know whether that says anything about the lineages the OTHER
         // two seats are using, and aborting the whole run on that guess is unrecoverable.
         ProviderError::External { .. } => false,
+        // None of the three is connection-class: in all of them the endpoint ANSWERED. The
+        // endpoint-down latch exists for a backend that cannot be reached, and feeding it from a
+        // response that arrived would make the run abort on a healthy endpoint.
+        ProviderError::ResponseContract { .. }
+        | ProviderError::EmptyCompletion { .. }
+        | ProviderError::NoGeneration { .. } => false,
     }
 }
 
 /// Outcome of a single model attempt (including its own corrective schema retry).
+///
+/// `Debug` so a failing classifier test can say what it got instead of only what it wanted. The
+/// type is private, so this adds nothing to the public surface.
+#[derive(Debug)]
 enum ModelOutcome {
     /// A valid verdict was committed.
     Success(AgentOutput),
@@ -1695,6 +2098,26 @@ enum ModelOutcome {
         detail: String,
         connection: bool,
         kind: RotationKind,
+    },
+    /// A content/contract failure the endpoint answered with — **mage-local**, then rotate.
+    ///
+    /// Separate from [`ModelOutcome::Transport`] because that arm calls
+    /// `register_transport_failure`, which condemns the lineage **run-wide**. `connection` only
+    /// governs the endpoint-down latch, NOT the scope of the condemnation, so routing a
+    /// mage-local cause through `Transport` with `connection: false` would still take the
+    /// lineage away from the other two seats — which is the defect this milestone exists to fix.
+    MageLocal { detail: String, kind: RotationKind },
+    /// The backend generated nothing at all: a defect in THIS crate, not a model failure.
+    ///
+    /// Carries only what the classifier OBSERVED. It does not build the final error, because
+    /// that needs facts the classifier cannot have — which seats had already answered — and
+    /// filling those with an empty vector would read as "none" when it means "not yet".
+    ///
+    /// Does not rotate, by construction: rotating would reproduce our own bad request against
+    /// every seat in turn.
+    CrateDefect {
+        observation: String,
+        hypothesis: &'static str,
     },
     /// Body over the cap on a successful response — **mage-local**, then rotate.
     ///
@@ -1734,23 +2157,25 @@ async fn attempt_model(
     retry_enabled: bool,
     was_retried: &mut bool,
     failures: &mut Vec<ExtractionFailure>,
+    records: &mut Vec<CompletionRecord>,
 ) -> ModelOutcome {
     // First attempt.
     let first =
         tokio::time::timeout(timeout, agent.execute_with(provider, user_prompt, config)).await;
+    record_attempt(records, provider.model(), config.max_tokens, &first);
     let first_raw = match first {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
         Err(_elapsed) => {
             return ModelOutcome::Transport {
-                detail: format!("timeout: agent timed out after {timeout:?}"),
+                detail: agent_timeout_message(false, timeout),
                 connection: false,
                 kind: RotationKind::Timeout,
             };
         }
     };
 
-    let first_err = match parse_validate_and_check(&first_raw, agent.name(), validator) {
+    let first_err = match parse_validate_and_check(&first_raw.text, agent.name(), validator) {
         Ok(output) => return ModelOutcome::Success(output),
         Err(f) => f,
     };
@@ -1794,22 +2219,27 @@ async fn attempt_model(
 
     // Single corrective retry on the SAME model.
     *was_retried = true;
-    let retry_prompt =
-        build_retry_prompt(user_prompt, first_err.cause, &first_err.error.to_string());
+    let retry_prompt = build_retry_prompt(
+        user_prompt,
+        first_err.cause,
+        &first_err.error.to_string(),
+        first_raw.telemetry.finish.clone(),
+    );
     let second =
         tokio::time::timeout(timeout, agent.execute_with(provider, &retry_prompt, config)).await;
+    record_attempt(records, provider.model(), config.max_tokens, &second);
     let second_raw = match second {
         Ok(Ok(raw)) => raw,
         Ok(Err(provider_err)) => return provider_err_outcome(provider_err),
         Err(_elapsed) => {
             return ModelOutcome::Transport {
-                detail: format!("retry-failed: timeout after {timeout:?}"),
+                detail: agent_timeout_message(true, timeout),
                 connection: false,
                 kind: RotationKind::Timeout,
             };
         }
     };
-    match parse_validate_and_check(&second_raw, agent.name(), validator) {
+    match parse_validate_and_check(&second_raw.text, agent.name(), validator) {
         Ok(output) => ModelOutcome::Success(output),
         Err(f) => {
             failures.push(ExtractionFailure {
@@ -1854,6 +2284,23 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
             connection,
             kind: RotationKind::Timeout,
         },
+        // A REAL HTTP status, and every one of them keeps the run-wide route -- including the
+        // per-candidate-looking ones. `404 model not found` and `400` are the tempting
+        // exceptions: they say something about ONE candidate, so condemning its whole lineage
+        // costs the other two seats a model that may be fine.
+        //
+        // They stay here on purpose, and the reason is the one this crate already applies in
+        // the other direction. Mage-local is the safe default when the crate CANNOT tell what a
+        // failure implies; here it can tell far less than the status suggests. A `404` from a
+        // gateway, a proxy, or a load balancer says nothing about a model — and this crate
+        // cannot distinguish those from a daemon that genuinely lacks the tag, because they are
+        // the same status on the same wire. Splitting on the number would claim a diagnosis
+        // nobody made.
+        //
+        // What makes leaving it acceptable is that it is NOT new and NOT what this release is
+        // about: `3.2.0` routed these identically through the compat provider, so nothing
+        // regresses. Narrowing it needs its own evidence, the way `think: false` got measured
+        // rather than assumed.
         ProviderError::Http { .. }
         | ProviderError::Network { .. }
         | ProviderError::Auth { .. }
@@ -1864,8 +2311,32 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
             connection,
             kind: RotationKind::Transport,
         },
+        ProviderError::ResponseContract { .. } => ModelOutcome::MageLocal {
+            detail: MagiError::Provider(err).to_string(),
+            kind: RotationKind::ResponseContract,
+        },
+        ProviderError::EmptyCompletion { .. } => ModelOutcome::MageLocal {
+            detail: MagiError::Provider(err).to_string(),
+            kind: RotationKind::EmptyCompletion,
+        },
+        // The observation and the hypothesis travel as SEPARATE fields, so the distinction
+        // survives however someone later formats the message.
+        ProviderError::NoGeneration { done_reason } => ModelOutcome::CrateDefect {
+            observation: format!(
+                "no generation - token counters absent (termination: {done_reason:?})"
+            ),
+            hypothesis: CRATE_DEFECT_HYPOTHESIS,
+        },
     }
 }
+
+/// The one cause known to produce an accepted request that generates nothing.
+///
+/// Stated as a hypothesis and kept apart from the observation because it rests on a single
+/// captured case. A second cause with the same footprint would not make the observation wrong;
+/// it would make this wrong, and whoever finds it has to be able to tell which was which.
+const CRATE_DEFECT_HYPOTHESIS: &str =
+    "the known cause is a request without `messages`, which points at a defect in magi-core";
 
 /// Returns `Some(MagiError::EndpointDown)` iff the registry's endpoint-down latch
 /// is set, else `None`. The latch is the single source of truth for the fast-fail
@@ -1880,6 +2351,97 @@ async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
     }
 }
 
+/// The seats already JOINED when an abort was reached.
+///
+/// One owner, because this rule has drifted once already: an earlier version of the
+/// non-rotating path counted successes only and claimed to be symmetric with this one.
+///
+/// The name says `joined`, not `answered`, and the distinction is load-bearing — membership is
+/// decided by dispatch and join ORDER, so a seat that answered while this was being built is
+/// absent. It is a diagnostic hint, never a census.
+fn joined_so_far(
+    successful: &[AgentOutput],
+    failed: &BTreeMap<AgentName, String>,
+) -> BTreeMap<AgentName, ()> {
+    successful
+        .iter()
+        .map(|o| (o.agent, ()))
+        .chain(failed.keys().map(|n| (*n, ())))
+        .collect()
+}
+
+/// Builds the run-aborting error from a latched defect.
+///
+/// # Why the EXCLUSION lives here and not at the two call sites
+///
+/// The seat that hit the defect is dropped, because it already travels as `agent` and counting
+/// it would make the field disagree with its own documentation. That rule was written out twice,
+/// and the two copies differed: one produced a sorted set and the other produced whatever order
+/// the successes happened to be in. Neither was wrong, but a field whose contents depend on
+/// which dispatcher ran is a field nobody can reason about.
+fn crate_defect_error(d: CrateDefectRecord, joined: &BTreeMap<AgentName, ()>) -> MagiError {
+    MagiError::CrateDefect {
+        observation: d.observation,
+        hypothesis: d.hypothesis,
+        agent: d.agent,
+        model: d.model,
+        joined_before_abort: joined.keys().copied().filter(|a| *a != d.agent).collect(),
+    }
+}
+
+/// Resolves whether the run must abort, and in WHICH order the two reasons are considered.
+///
+/// # The order is the invariant, not an implementation detail
+///
+/// A defect of THIS crate is raised BEFORE endpoint-down. Both can be latched at once — a bad
+/// request of ours reaches one seat while two other lineages genuinely lose their connection —
+/// and whichever is reported is the one the operator investigates. Reporting the outage would
+/// send them to inspect an environment that is not at fault, which is the exact misdirection
+/// this milestone exists to remove, recreated one level up.
+///
+/// Losing the outage costs nothing: it is environmental, it persists, and the next run reports
+/// it. Losing the defect costs the bug, because it hides in the noise of the normal.
+///
+/// It is a FUNCTION rather than two calls at each site because it had already drifted: the
+/// panic arm consulted one latch and skipped the other entirely.
+async fn resolve_run_abort(
+    reg: &LineageRegistry,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
+) -> Option<MagiError> {
+    if let Some(err) = resolve_crate_defect(reg, joined_before_abort).await {
+        return Some(err);
+    }
+    resolve_endpoint_down(reg).await
+}
+
+/// Raises a latched defect of THIS crate into the run-aborting error.
+///
+/// # Parameters
+///
+/// * `reg` — the run's registry, where the seat that hit it left the record.
+/// * `joined_before_abort` — the seats that had already been joined when the abort was reached. Known
+///   only here: the registry never learns it, which is why the record does not carry it.
+///
+/// # Returns
+///
+/// `Some` when a defect was latched, in which case the caller must return it and abandon the
+/// run. `None` otherwise.
+///
+/// # Why it aborts rather than degrading the seat
+///
+/// `failed_agents` is where model failures land every day, so a bug of ours filed there is
+/// invisible in the noise of the normal. The cost of aborting is bounded by construction: the
+/// discriminant is that NO generation happened, so the backend answers in fractions of a second
+/// and the other seats have barely started.
+async fn resolve_crate_defect(
+    reg: &LineageRegistry,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
+) -> Option<MagiError> {
+    reg.crate_defect()
+        .await
+        .map(|d| crate_defect_error(d, joined_before_abort))
+}
+
 /// Lost-signal recovery for an ABNORMAL agent exit (panic / `JoinError`), factored
 /// out for race-free unit testing.
 ///
@@ -1892,14 +2454,25 @@ pub(crate) async fn resolve_abnormal_exit(
     agent: AgentName,
     err: &tokio::task::JoinError,
     reg: &LineageRegistry,
+    joined_before_abort: &BTreeMap<AgentName, ()>,
 ) -> Option<MagiError> {
-    let decision = resolve_endpoint_down(reg).await;
-    if decision.is_some() {
-        tracing::warn!(
+    let decision = resolve_run_abort(reg, joined_before_abort).await;
+    // The message names WHICH latch decided it. It used to say endpoint-down unconditionally,
+    // which stopped being true the moment this started consulting both — so an abort caused by
+    // a defect of ours was logged as an outage. That is this milestone's own thesis, reproduced
+    // inside the abort path built to end it.
+    match &decision {
+        Some(MagiError::CrateDefect { .. }) => tracing::warn!(
+            agent = agent.display_name(),
+            cause = %err,
+            "abnormal agent exit with a crate-defect latch set; aborting run"
+        ),
+        Some(_) => tracing::warn!(
             agent = agent.display_name(),
             cause = %err,
             "abnormal agent exit with endpoint-down latch set; aborting run"
-        );
+        ),
+        None => {}
     }
     decision
 }
@@ -1938,6 +2511,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
     AgentRotation,
     bool,
     Vec<ExtractionFailure>,
+    Vec<CompletionRecord>,
 ) {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
@@ -1956,7 +2530,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
         chain: Vec::new(),
         used: [model_configured].into_iter().collect(),
         failed_lineages: std::collections::BTreeSet::new(),
-        window_rejected: BTreeMap::new(),
+        digest_collisions: BTreeMap::new(),
         rotations_done: 0,
         ran_unmeasured: false,
     };
@@ -1968,6 +2542,9 @@ pub(crate) async fn dispatch_one_agent_rotating(
     // records, so the sequence reads as the seat's full history and ttempt restarts
     // at 1 per model (E23c).
     let mut failures: Vec<ExtractionFailure> = Vec::new();
+    // Same shape and the same reason: the seat's completion records accumulate ACROSS
+    // rotations, so the sequence reads as its full history, one entry per attempt.
+    let mut records: Vec<CompletionRecord> = Vec::new();
 
     loop {
         let outcome = attempt_model(
@@ -1980,6 +2557,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
             retry_enabled,
             &mut was_retried,
             &mut failures,
+            &mut records,
         )
         .await;
 
@@ -1995,30 +2573,89 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     .and_then(|c| c.window)
                     .is_none();
                 guard.mark_succeeded();
-                return (Ok(output), state.to_rotation(), was_retried, failures);
+                return (
+                    Ok(output),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                    records,
+                );
             }
             ModelOutcome::Unexpected(detail) => {
                 registry.release(agent_name).await;
                 guard.mark_released();
-                return (Err(detail), state.to_rotation(), was_retried, failures);
+                return (
+                    Err(detail),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                    records,
+                );
+            }
+            ModelOutcome::MageLocal { detail, kind } => {
+                // Mage-local, exactly like `Schema`: this seat gives up on this lineage and the
+                // other two keep it. Note what is NOT called here — `register_transport_failure`.
+                state.failed_lineages.insert(current_lineage.clone());
+                (kind, detail)
+            }
+            ModelOutcome::CrateDefect {
+                observation,
+                hypothesis,
+            } => {
+                // No rotation: our own bad request would reproduce on every seat. Surfaced as a
+                // defect of THIS crate rather than dropped into `failed_agents`, where model
+                // failures land every day and a bug of ours would be invisible in the noise.
+                registry.release(agent_name).await;
+                guard.mark_released();
+                // LATCHED, so the join loop can abort the whole run. The registry deliberately
+                // does not learn WHICH seats answered — only the orchestrator knows that, and
+                // filling it here would write an empty vector meaning "not yet" into a field
+                // that reads as "none".
+                registry
+                    .latch_crate_defect(CrateDefectRecord {
+                        observation: observation.clone(),
+                        hypothesis,
+                        agent: agent_name,
+                        model: current_provider.model().to_string(),
+                    })
+                    .await;
+                // The seat's own error channel is a `String` (see `ModelOutcome::Unexpected`).
+                // It is filled anyway rather than left blank: if the abort were ever bypassed,
+                // a blank seat would be worse than a named one. `joined_before_abort` is empty HERE
+                // because this task cannot know it — the abort path fills it from the map the
+                // join loop already holds.
+                return (
+                    Err(MagiError::CrateDefect {
+                        observation,
+                        hypothesis,
+                        agent: agent_name,
+                        model: current_provider.model().to_string(),
+                        joined_before_abort: Vec::new(),
+                    }
+                    .to_string()),
+                    state.to_rotation(),
+                    was_retried,
+                    failures,
+                    records,
+                );
             }
             ModelOutcome::OversizedResponse { limit } => {
-                // Mage-local, exactly like Schema: this mage will not retry this lineage, but the
-                // other seats still may. Reported as `Transport` in telemetry because that enum is
-                // public and not `#[non_exhaustive]` — a new variant would be a SemVer break — so
-                // the precision rides in `detail` instead.
+                // Mage-local, exactly like `Schema`: this seat will not retry this lineage, and
+                // the other two keep it. It ALWAYS behaved this way; until `4.0.0` it could not
+                // SAY so, because `RotationKind` was public and not `#[non_exhaustive]`, making a
+                // new variant a SemVer break — so the precision rode in the `detail` text. The
+                // major spends that break, and the text goes back to being just text.
                 state.failed_lineages.insert(current_lineage.clone());
-                (RotationKind::Transport, oversized_detail(limit))
+                (RotationKind::OversizedResponse, oversized_detail(limit))
             }
             ModelOutcome::ExternalFailure { detail, kind } => {
-                // Mage-local, exactly like `Schema` and `OversizedResponse`: this seat gives up on
-                // this lineage, the other seats keep theirs. Reported as `Transport` for the same
-                // reason as `OversizedResponse` — `RotationKind` is public and NOT
-                // `#[non_exhaustive]`, so a new variant would be a SemVer break in a minor — so
-                // the precision rides in `detail`, where it is at least not lost.
+                // Mage-local for the same reason as `OversizedResponse`, and reported by its own
+                // kind for the same reason: this crate cannot know whether a third-party
+                // backend's failure says anything about the lineages the other seats are on, so
+                // it never condemns run-wide — and now the telemetry says that in the type.
                 state.failed_lineages.insert(current_lineage.clone());
                 (
-                    RotationKind::Transport,
+                    RotationKind::ExternalFailure,
                     external_failure_detail(kind, &detail),
                 )
             }
@@ -2075,6 +2712,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     state.to_rotation(),
                     was_retried,
                     failures,
+                    records,
                 );
             }
         }
@@ -2292,32 +2930,29 @@ mod input_threshold_tests {
     }
 
     #[test]
-    fn every_mage_local_rotation_detail_says_so() {
-        // Both of these report `Transport`, which everywhere else means the whole run was
-        // condemned. Without the marker a reader of `rotations` cannot tell a content failure that
-        // cost one seat from an outage that cost the run — and that is the question the telemetry
-        // is read to answer. Asserted against the functions the rotation loop itself calls, so
-        // this cannot pass while the loop emits something else.
+    fn a_mage_local_rotation_detail_says_what_happened_and_not_its_scope() {
+        // Both of these used to report `Transport`, which everywhere else means the whole run was
+        // condemned, so the scope had to be spelled out in prose for a reader of `rotations` to
+        // tell a content failure that cost one seat from an outage that cost the run. Since
+        // `4.0.0` each has its own kind, and the prose goes back to describing the event.
         let oversized = oversized_detail(4096);
         let external = external_failure_detail(ExternalErrorKind::Network, "backend refused");
 
-        // The LITERAL, not the constant, and this is the one place in the file where naming a
-        // value twice is right. Written as `starts_with(MAGE_LOCAL_PREFIX)` the assertion agrees
-        // with whatever the constant happens to be — empty it and `starts_with("")` is true of
-        // every string, so the test passes while the marker is gone.
+        // The prefix these two used to carry is GONE, and its absence is asserted rather than
+        // assumed. It existed as a stopgap while `RotationKind` was frozen: with a variant per
+        // cause the scope is carried by the TYPE, and a copy of it in prose is information that
+        // can only ever contradict the type it duplicates.
         //
-        // Verified by MUTATION, and stated precisely because the two probes are not the same:
-        // removing the prefix from one of the helpers below turns this red, which is the defect
-        // that matters. (Emptying the constant itself does not compile, so that mutation proves
-        // nothing either way — worth saying, since it is the first one a reader would try.)
+        // Asserted against the functions the rotation loop itself calls, so this cannot pass
+        // while the loop emits something else.
         for detail in [&oversized, &external] {
             assert!(
-                detail.starts_with("mage-local: "),
-                "a mage-local rotation must announce itself: {detail}"
+                !detail.starts_with("mage-local: "),
+                "the type says the scope now; the text must not say it again: {detail}"
             );
         }
-        // And still say what happened — a marker that replaced the diagnosis would be worse than
-        // no marker.
+        // And they still say WHAT happened — deleting the prefix must not have deleted the
+        // diagnosis with it.
         assert!(oversized.contains("4096"), "{oversized}");
         assert!(external.contains("backend refused"), "{external}");
         assert!(external.contains("Network"), "{external}");
@@ -2483,8 +3118,178 @@ mod input_threshold_tests {
 
 #[cfg(test)]
 mod tests {
+    use crate::provider::{FinishReason, ReasoningState};
+
+    // ---- Task 3b: the arms are proved HERE, not seventeen tasks later ----
+
+    /// `is_mage_local()` must AGREE with what the classifier actually does, for every error
+    /// this crate can surface.
+    ///
+    /// # Why an accessor needs binding at all
+    ///
+    /// It is a second source of truth for scope: the classifier decides `MageLocal` versus
+    /// `Transport` in one place, and this method answers the same question in another. Nothing
+    /// made the two agree, so they could drift — and the whole point of `4.0.0`'s telemetry is
+    /// that a consumer can trust the reported scope. A consumer branching on `is_mage_local()`
+    /// while the run condemns run-wide would be told the opposite of what happened.
+    ///
+    /// This walks every variant rather than sampling, so a variant added later has to be added
+    /// here to compile — which is the same forcing function the exhaustive match provides.
+    #[test]
+    fn the_scope_accessor_agrees_with_the_classifier_for_every_variant() {
+        use crate::error::ResponseContractCause;
+        use crate::provider::FinishReason;
+
+        let cases: Vec<ProviderError> = vec![
+            ProviderError::Timeout {
+                message: "elapsed".into(),
+            },
+            ProviderError::Network {
+                message: "refused".into(),
+            },
+            ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: Vec::new(),
+                received_at: None,
+            },
+            ProviderError::ResponseTooLarge { limit: 1 },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::RedirectRefused,
+                detail: String::new(),
+            },
+            ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
+                cap: 4096,
+            },
+            ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured(),
+                cap: 4096,
+            },
+        ];
+
+        for err in cases {
+            let rendered = format!("{err:?}");
+            match provider_err_outcome(err) {
+                // The classifier says mage-local, so the accessor must too.
+                ModelOutcome::MageLocal { kind, .. } => assert!(
+                    kind.is_mage_local(),
+                    "{rendered} is classified mage-local but its kind denies it"
+                ),
+                // And run-wide is the direction that costs the other two seats a lineage, so
+                // an accessor claiming mage-local there is the more dangerous disagreement.
+                ModelOutcome::Transport { kind, .. } => assert!(
+                    !kind.is_mage_local(),
+                    "{rendered} condemns run-wide but its kind claims to be mage-local"
+                ),
+                // These two carry their scope in the OUTCOME rather than in a `kind`: both are
+                // mage-local, and `4.0.0` is what gave them their own `RotationKind` instead of
+                // the `mage-local:` string prefix they wore since `3.1.0`. Pinned here so the
+                // renaming cannot quietly put them back on a run-wide cause.
+                ModelOutcome::OversizedResponse { .. } => assert!(
+                    RotationKind::OversizedResponse.is_mage_local(),
+                    "an oversized body is a content failure: the server answered perfectly"
+                ),
+                ModelOutcome::ExternalFailure { .. } => assert!(
+                    RotationKind::ExternalFailure.is_mage_local(),
+                    "this crate cannot know what a third-party backend's failure implies for                      the lineages the other seats are using"
+                ),
+                other => panic!("{rendered} produced no scoped outcome: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn each_contract_variant_gets_the_consequence_the_spec_assigned() {
+        use crate::error::ResponseContractCause;
+
+        // A unit test over the classifier — cheap, no registry, no async. It pins the decision at
+        // the moment it is made instead of leaving the arms unexercised until the task that
+        // observes the registry.
+        //
+        // WHY `MageLocal` AND NOT `Transport { connection: false }`, which is what a first
+        // reading suggests: `connection` governs the endpoint-down LATCH, not the SCOPE of the
+        // condemnation. `ModelOutcome::Transport` calls `register_transport_failure`, which
+        // condemns the lineage RUN-WIDE for every seat regardless of `connection` — its own
+        // rustdoc says so and that behaviour is deliberate for genuine transport faults. Routing
+        // a content failure through it with `connection: false` would still take the lineage away
+        // from the other two mages, which is precisely the defect this milestone exists to fix.
+        let contract = ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
+        };
+        match provider_err_outcome(contract) {
+            ModelOutcome::MageLocal { kind, .. } => {
+                assert_eq!(kind, RotationKind::ResponseContract);
+                assert!(kind.is_mage_local());
+            }
+            other => panic!("family 1 is mage-local, got {other:?}"),
+        }
+
+        let empty = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
+            cap: 4096,
+        };
+        match provider_err_outcome(empty) {
+            ModelOutcome::MageLocal { kind, .. } => {
+                assert_eq!(kind, RotationKind::EmptyCompletion);
+                assert!(kind.is_mage_local());
+            }
+            other => panic!("family 2 is mage-local, got {other:?}"),
+        }
+
+        // The SIGNAL, not a MagiError: the classifier does not know which seats had already
+        // joined, and filling that with an empty vector would read as "none" when it means
+        // "not yet".
+        let defect = ProviderError::NoGeneration {
+            done_reason: Some(crate::provider::FinishReason::Load),
+        };
+        match provider_err_outcome(defect) {
+            ModelOutcome::CrateDefect {
+                observation,
+                hypothesis,
+            } => {
+                assert!(observation.contains("counters absent"), "{observation}");
+                assert!(hypothesis.contains("magi-core"), "{hypothesis}");
+            }
+            other => panic!("family 3 is a crate defect, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_contract_failure_is_connection_class() {
+        use crate::error::ResponseContractCause;
+
+        // In all three the endpoint ANSWERED. The endpoint-down latch exists for a backend that
+        // cannot be reached; feeding it from a response that arrived would abort the run on a
+        // healthy endpoint.
+        for err in [
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            },
+            ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured(),
+                cap: 16_384,
+            },
+            ProviderError::NoGeneration { done_reason: None },
+        ] {
+            assert!(!is_connection(&err), "{err:?}");
+        }
+    }
     use super::*;
     use crate::prompts::lookup_prompt;
+    use crate::provider::Completion;
     use crate::schema::*;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2636,7 +3441,7 @@ mod tests {
     struct MockProvider {
         name: String,
         model: String,
-        responses: Vec<Result<String, ProviderError>>,
+        responses: Vec<Result<Completion, ProviderError>>,
         call_count: AtomicUsize,
     }
 
@@ -2645,7 +3450,10 @@ mod tests {
             Self {
                 name: name.to_string(),
                 model: model.to_string(),
-                responses: responses.into_iter().map(Ok).collect(),
+                responses: responses
+                    .into_iter()
+                    .map(|t| Ok(Completion::new(t)))
+                    .collect(),
                 call_count: AtomicUsize::new(0),
             }
         }
@@ -2654,7 +3462,10 @@ mod tests {
             Self {
                 name: name.to_string(),
                 model: model.to_string(),
-                responses,
+                responses: responses
+                    .into_iter()
+                    .map(|r| r.map(Completion::new))
+                    .collect(),
                 call_count: AtomicUsize::new(0),
             }
         }
@@ -2671,7 +3482,7 @@ mod tests {
             _system_prompt: &str,
             _user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             let idx = self.call_count.fetch_add(1, Ordering::SeqCst);
             let idx = idx % self.responses.len();
             self.responses[idx].clone()
@@ -3404,6 +4215,25 @@ mod tests {
             !report.report.contains("Extraction Failures"),
             "a clean run must not grow a section: the text stays byte-identical"
         );
+
+        // The eligibility snapshot REACHES the report, seeded for every seat.
+        //
+        // This `Magi` has no rotation config, so it pins the NO-ROTATION seeder and
+        // nothing else — an earlier form of this comment claimed it covered "either
+        // producer", which was false and would have told the next reader the wiring
+        // was pinned when half of it was not. The rotating producer, which is the only
+        // one that can emit a candidate row, is pinned by
+        // `rotation_integration::test_rotates_on_transport_to_next_lineage`.
+        assert_eq!(
+            report.pool_eligibility.len(),
+            3,
+            "every seat is covered, including the ones that never rotated: {:?}",
+            report.pool_eligibility
+        );
+        assert!(
+            report.pool_eligibility.values().all(|rows| rows.is_empty()),
+            "with no pool declared there is no candidate to rule out"
+        );
         // And the formatter agrees when asked directly with a fully-seeded clean map.
         let seeded: BTreeMap<AgentName, Vec<ExtractionFailure>> = report
             .extraction_failures
@@ -3484,7 +4314,8 @@ mod tests {
         handle.abort();
         let join_err = handle.await.unwrap_err();
 
-        let decision = resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg).await;
+        let decision =
+            resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg, &BTreeMap::new()).await;
         assert!(
             matches!(decision, Some(MagiError::EndpointDown { .. })),
             "abnormal exit must recover EndpointDown from the registry latch"
@@ -3752,7 +4583,10 @@ mod tests {
     #[test]
     fn test_magi_config_default_values() {
         let config = MagiConfig::default();
-        assert_eq!(config.timeout, Duration::from_secs(300));
+        // 300 -> 660: the ceiling now covers the worst case of one retry chain rather than one
+        // attempt. `the_agent_ceiling_covers_the_worst_case_of_the_chain` carries the reasoning;
+        // this line moved with the value it pins.
+        assert_eq!(config.timeout, Duration::from_secs(660));
         assert_eq!(config.max_input_len, 4 * 1024 * 1024);
     }
 
@@ -3828,9 +4662,9 @@ mod tests {
                 _s: &str,
                 _u: &str,
                 _c: &CompletionConfig,
-            ) -> Result<String, ProviderError> {
+            ) -> Result<Completion, ProviderError> {
                 self.counter.fetch_add(1, OrderingV05::SeqCst);
-                Ok(String::new())
+                Ok(Completion::new(String::new()))
             }
             fn name(&self) -> &str {
                 "count"
@@ -4201,7 +5035,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4229,7 +5063,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
                 .to_string(),
@@ -4259,7 +5093,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: design\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4291,7 +5125,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4322,7 +5156,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4353,7 +5187,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4378,7 +5212,7 @@ mod tests {
         let agent = Agent::new(AgentName::Balthasar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4401,7 +5235,7 @@ mod tests {
         let agent = Agent::new(AgentName::Caspar, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4426,7 +5260,7 @@ mod tests {
         let agent = Agent::new(AgentName::Melchior, provider as Arc<dyn LlmProvider>);
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4456,7 +5290,7 @@ mod tests {
         let validator = Arc::new(Validator::new());
         let cfg = CompletionConfig::default();
 
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "MODE: x\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---".to_string(),
             cfg,
@@ -4489,7 +5323,7 @@ mod tests {
         let cfg = CompletionConfig::default();
 
         // retry_enabled=false
-        let (result, retried, _failures) = dispatch_one_agent(
+        let (result, retried, _failures, _records, _defect) = dispatch_one_agent(
             agent,
             "p".to_string(),
             cfg,
@@ -4913,7 +5747,7 @@ mod tests {
             system_prompt: &str,
             user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.captured
                 .lock()
                 .unwrap()
@@ -4928,7 +5762,7 @@ mod tests {
                 AgentName::Balthasar => "balthasar",
                 AgentName::Caspar => "caspar",
             };
-            Ok(mock_agent_json(agent_str, "approve", 0.9))
+            Ok(Completion::new(mock_agent_json(agent_str, "approve", 0.9)))
         }
 
         fn name(&self) -> &str {
@@ -4958,9 +5792,9 @@ mod tests {
                 _s: &str,
                 _u: &str,
                 _c: &CompletionConfig,
-            ) -> Result<String, ProviderError> {
+            ) -> Result<Completion, ProviderError> {
                 self.calls.fetch_add(1, Ordering::SeqCst);
-                Ok(String::new())
+                Ok(Completion::new(String::new()))
             }
             fn name(&self) -> &str {
                 "tally"
@@ -5534,6 +6368,862 @@ mod tests {
             assert_eq!(
                 probe.digest().await.expect("mock never errors").as_deref(),
                 Some("sha:m9")
+            );
+        }
+    }
+    // ---------------------------------------------------------------------
+    // Task 13b — populating `completions`: success AND failure, one entry per
+    // ATTEMPT. Recording only the cut ones is the very blindness this release
+    // exists to end, so the clean run is the first test, not an afterthought.
+    // ---------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn a_run_with_no_cuts_still_records_one_entry_per_completion() {
+        // BD-5: ALL of them. Without this the consumer is blind until the first
+        // cut — and 4096 did not fail all at once, it had been scraping by.
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("a clean run");
+        assert!(!report.degraded, "nothing went wrong in this run");
+        assert_eq!(
+            report.completions.values().map(Vec::len).sum::<usize>(),
+            3,
+            "one entry per completion, on a run where nothing was cut"
+        );
+        assert!(
+            report.extraction_failures.values().all(Vec::is_empty),
+            "a recorded completion is not an extraction failure"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_recorded_model_and_cap_come_from_the_caller_not_the_response() {
+        // Neither is readable off a response: a provider does not know which budget
+        // it was handed nor which seat it served. Both come from the orchestrator,
+        // and that is what makes the record actionable under rotation.
+        let magi = MagiBuilder::new(trio()).build().expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("a clean run");
+        let recs: Vec<_> = report.completions.values().flatten().collect();
+        assert!(!recs.is_empty());
+        assert!(recs.iter().all(|r| r.model == "test-model"));
+        assert!(
+            recs.iter()
+                .all(|r| r.cap == CompletionConfig::default().max_tokens)
+        );
+    }
+
+    #[tokio::test]
+    async fn a_completion_that_failed_is_recorded_too() {
+        // The most diagnostic attempt of all is the one that produced no verdict,
+        // and it is exactly the one that is lost if recording hangs off the happy
+        // path.
+        let melchior = Arc::new(MockProvider::success(
+            "mock",
+            "test-model",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ));
+        let balthasar = Arc::new(MockProvider::success(
+            "mock",
+            "test-model",
+            vec![mock_agent_json("balthasar", "approve", 0.85)],
+        ));
+        let caspar = Arc::new(MockProvider::mixed(
+            "mock",
+            "cut-model",
+            vec![Err(ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
+                cap: 4096,
+            })],
+        ));
+        let magi = MagiBuilder::new(melchior as Arc<dyn LlmProvider>)
+            .with_agent(
+                AgentName::Balthasar,
+                balthasar as Arc<dyn LlmProvider>,
+                Lineage::new("b"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                caspar as Arc<dyn LlmProvider>,
+                Lineage::new("c"),
+            )
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("two seats still answer");
+
+        let recs = &report.completions[&AgentName::Caspar];
+        assert_eq!(recs.len(), 1, "the failed attempt is still an attempt");
+        assert_eq!(recs[0].model, "cut-model");
+        // Only `EmptyCompletion` knows anything past the model and the cap, and
+        // what it knows is the termination.
+        assert_eq!(recs[0].finish, Some(FinishReason::Length));
+        // Absence is declared, never filled with zeros that read as a measurement.
+        assert_eq!(recs[0].completion_tokens, None);
+        assert_eq!(recs[0].reasoning, ReasoningState::NotMeasured);
+        // Disjoint sets: nothing failed EXTRACTION here, there was nothing to extract.
+        assert!(
+            report
+                .extraction_failures
+                .get(&AgentName::Caspar)
+                .is_none_or(Vec::is_empty)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_schema_retry_leaves_two_entries_with_the_same_model() {
+        // `21-ter` in its workable form: two calls by the ORCHESTRATOR, both
+        // visible, against the same model. It is what pins that the record is per
+        // ATTEMPT and not per model. (A transport retry is invisible here by
+        // construction: it happens inside `RetryProvider`, which hands back one
+        // result.)
+        let caspar = Arc::new(MockProvider::success(
+            "mock",
+            "retry-model",
+            vec![
+                "no markers at all".to_string(),
+                mock_agent_json("caspar", "approve", 0.95),
+            ],
+        ));
+        let magi = MagiBuilder::new(trio())
+            .with_agent(
+                AgentName::Caspar,
+                caspar as Arc<dyn LlmProvider>,
+                Lineage::new("c"),
+            )
+            .build()
+            .expect("builds");
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("the corrective retry recovers the seat");
+
+        let models: Vec<_> = report.completions[&AgentName::Caspar]
+            .iter()
+            .map(|r| r.model.as_str())
+            .collect();
+        assert_eq!(models.len(), 2, "two attempts, two records");
+        assert_eq!(models[0], models[1], "same model, corrected prompt");
+    }
+
+    /// A defect of OURS must be reported even when the environment is failing at the same time.
+    ///
+    /// # Why this is not a preference between two true statements
+    ///
+    /// Both latches can be set at once: our bad request reaches one seat while two other
+    /// lineages genuinely lose their connection. Whichever the run reports is the one an
+    /// operator investigates — and reporting the outage sends them to inspect an environment
+    /// that is not at fault. That is the exact misdirection this milestone exists to remove,
+    /// recreated one level up from where it was found.
+    ///
+    /// The asymmetry decides it: an outage is environmental and persists, so losing it costs
+    /// one run's diagnosis. A defect of ours that is masked hides in the noise of ordinary
+    /// model failure, which is how it survives for releases.
+    #[tokio::test]
+    async fn a_crate_defect_outranks_a_simultaneous_endpoint_outage() {
+        let mut init = BTreeMap::new();
+        for (agent, lineage, model) in [
+            (AgentName::Melchior, "alibaba", "q"),
+            (AgentName::Balthasar, "moonshot", "k"),
+            (AgentName::Caspar, "deepseek", "d"),
+        ] {
+            init.insert(
+                agent,
+                ActiveEntry {
+                    lineage: Lineage::new(lineage),
+                    model: model.into(),
+                },
+            );
+        }
+        let reg = LineageRegistry::new(init);
+
+        // Two distinct lineages lose their connection: the endpoint-down latch is set.
+        reg.register_transport_failure(Lineage::new("alibaba"), true)
+            .await;
+        reg.register_transport_failure(Lineage::new("moonshot"), true)
+            .await;
+        assert!(
+            reg.endpoint_down_signalled().await,
+            "the outage must really be latched, or this test proves nothing"
+        );
+
+        // And a third seat hits a defect of ours.
+        reg.latch_crate_defect(CrateDefectRecord {
+            observation: "no generation - token counters absent".to_string(),
+            hypothesis: CRATE_DEFECT_HYPOTHESIS,
+            agent: AgentName::Caspar,
+            model: "d".to_string(),
+        })
+        .await;
+
+        let err = resolve_run_abort(&reg, &BTreeMap::new())
+            .await
+            .expect("both latches are set, so the run must abort");
+
+        assert!(
+            matches!(err, MagiError::CrateDefect { .. }),
+            "an outage must not mask a defect of ours: {err}"
+        );
+    }
+
+    #[test]
+    fn a_crate_defect_records_nothing_because_its_report_will_not_exist() {
+        // Recording an attempt whose run is invalidated would assert there was
+        // something to measure. The guard is the CALLER's, so that the other ten
+        // cases are not complicated by an `Option` return for the sake of one.
+        let mut records = Vec::new();
+        record_attempt(
+            &mut records,
+            "m",
+            4096,
+            &Ok(Err(ProviderError::NoGeneration {
+                done_reason: Some(FinishReason::Load),
+            })),
+        );
+        assert!(records.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_timed_out_attempt_is_recorded_with_nothing_measured() {
+        // An attempt that timed out is still an attempt. Nothing came back, so
+        // nothing is claimed — but the model and the cap are known regardless,
+        // because the caller set them.
+        let mut records = Vec::new();
+        let timed_out = tokio::time::timeout(Duration::from_millis(1), async {
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            Ok(Completion::new(String::new()))
+        })
+        .await;
+        record_attempt(&mut records, "slow-model", 16_384, &timed_out);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].model, "slow-model");
+        assert_eq!(records[0].cap, 16_384);
+        assert_eq!(records[0].finish, None);
+        assert_eq!(records[0].reasoning, ReasoningState::NotMeasured);
+    }
+
+    #[test]
+    fn a_completion_record_is_built_in_exactly_one_place() {
+        // A second construction site is how an attempt stops being recorded, or starts being
+        // recorded differently, without anything failing.
+        //
+        // Stated as the invariant rather than as a count: a magic number would have to be
+        // edited every time an arm is added, and editing it is how the check stops checking.
+        // Splitting on the module opener, not on a bare `#[cfg(test)]` — this file has an
+        // earlier one on a `#[cfg(test)]` accessor, and splitting there put production code in
+        // the "test" half and made the assertion pass while guarding nothing.
+        // Line endings NORMALISED first, and this is not defensive tidying: the repo checks out
+        // with CRLF on Windows, so an LF-anchored search over `include_str!` finds nothing and
+        // the test fails for a reason unrelated to what it guards. It passed only because these
+        // files happened to have been rewritten with LF in place.
+        // The invariant is CRATE-WIDE, so the file list is WALKED, never enumerated. A
+        // hand-maintained allowlist is the mechanism this project has already removed twice:
+        // it reports success over whatever nobody remembered to add, and a new module is
+        // exactly what nobody remembers. All three reviewers named this independently.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut files: Vec<std::path::PathBuf> = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).expect("src/ must be readable") {
+                let path = entry.expect("a readable entry").path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    files.push(path);
+                }
+            }
+        }
+        files.sort();
+        assert!(
+            files.len() >= 10,
+            "the walk found {} files; it is not reaching src/",
+            files.len()
+        );
+
+        for path in files {
+            let name = path
+                .strip_prefix(&root)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .into_owned();
+            let raw = std::fs::read_to_string(&path).expect("a readable source file");
+            // Line endings normalised first: the repo checks out with CRLF on Windows, so an
+            // LF-anchored search finds nothing and the test fails for an unrelated reason.
+            let src = raw.replace("\r\n", "\n");
+            // ANY test module, not just one called `tests` -- this crate has several, and
+            // treating one of them as production is how the guard gained a false positive.
+            let mut production = String::new();
+            let mut in_test_mod = false;
+            let mut depth = 0i32;
+            let mut prev_is_cfg_test = false;
+            for line in src.lines() {
+                let t = line.trim();
+                if !in_test_mod && prev_is_cfg_test && t.starts_with("mod ") && t.ends_with('{') {
+                    in_test_mod = true;
+                    depth = 1;
+                    prev_is_cfg_test = false;
+                    continue;
+                }
+                if in_test_mod {
+                    depth += line.matches('{').count() as i32;
+                    depth -= line.matches('}').count() as i32;
+                    if depth <= 0 {
+                        in_test_mod = false;
+                    }
+                    continue;
+                }
+                prev_is_cfg_test = t == "#[cfg(test)]";
+                // A doc EXAMPLE is prose that happens to compile, and constructs on purpose.
+                if !t.starts_with("///") {
+                    production.push_str(line);
+                    production.push('\n');
+                }
+            }
+
+            // In this file the one legal site is carved out; everywhere else there is none.
+            let outside = if name == "orchestrator.rs" {
+                let start = production
+                    .find("fn record_attempt(")
+                    .expect("the single recording site must exist");
+                let closer = concat!(
+                    "
+", "}", "
+"
+                );
+                let end = production[start..]
+                    .find(closer)
+                    .map(|k| start + k)
+                    .expect("the helper must be a complete function");
+                assert!(
+                    production[start..end].contains("CompletionRecord::from_telemetry"),
+                    "the carve-out must contain the site, or it excludes nothing"
+                );
+                format!("{}{}", &production[..start], &production[end..])
+            } else {
+                production
+            };
+
+            assert!(
+                !outside.contains("CompletionRecord::"),
+                "only `record_attempt` may build a record; a path-form site in {name}"
+            );
+            // The STRUCT-LITERAL form too. `#[non_exhaustive]` blocks it from OTHER crates
+            // only, so inside this one it compiles and the check above would not see it.
+            // Line-based, because `struct X {` and `impl X {` carry the same three tokens and
+            // are DECLARATIONS: matching the raw substring reported both, and the tempting
+            // fix was to drop the check rather than to narrow it.
+            let literal = concat!("CompletionRecord", " {");
+            let smuggled = outside.lines().find(|l| {
+                let t = l.trim_start();
+                l.contains(literal)
+                    && !t.starts_with("struct ")
+                    && !t.starts_with("pub struct ")
+                    && !t.starts_with("impl ")
+            });
+            assert!(
+                smuggled.is_none(),
+                "only `record_attempt` may build a record; a struct-literal site in {name}: {smuggled:?}"
+            );
+        }
+    }
+
+    /// Acceptance criterion 1, observed from the REGISTRY — which is what the criterion asks for
+    /// and what its first attempt did not do.
+    ///
+    /// # The test this replaces was circular, and the mutation proved it
+    ///
+    /// It asserted over `report_run_failed`, a helper that derives the condemned set from the
+    /// rotation KINDS. So `condemned.is_empty()` and `hop.kind() == EmptyCompletion` were the
+    /// same fact stated twice, and nothing read the registry at all. Injecting the exact
+    /// regression it existed to catch — a `register_transport_failure` call in the mage-local
+    /// arm — left it **green**.
+    ///
+    /// This drives the rotating dispatcher directly and asks the registry, which is the only
+    /// thing that can distinguish "the arm did not condemn run-wide" from "the telemetry says it
+    /// did not".
+    #[tokio::test]
+    async fn the_mage_local_arm_never_condemns_a_lineage_run_wide() {
+        let registry = Arc::new(LineageRegistry::new(
+            [(
+                AgentName::Caspar,
+                ActiveEntry {
+                    lineage: Lineage::new("deepseek"),
+                    model: "deepseek".to_string(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ));
+
+        // A seat whose provider returns an empty completion, and a fallback that answers.
+        let primary = Arc::new(MockProvider::mixed(
+            "mock",
+            "deepseek",
+            vec![Err(ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
+                cap: 16_384,
+            })],
+        )) as Arc<dyn LlmProvider>;
+        let fallback = Arc::new(MockProvider::success(
+            "mock",
+            "glm",
+            vec![mock_agent_json("caspar", "approve", 0.95)],
+        )) as Arc<dyn LlmProvider>;
+
+        let agent = Agent::new(AgentName::Caspar, Arc::clone(&primary));
+        let pool = FallbackPool::builder()
+            .push(fallback, Lineage::new("zhipu"))
+            .max_rotations(2)
+            .build();
+
+        let (result, rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
+            agent,
+            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
+
+        assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
+
+        // THE observation, and the one the derived helper could not make: the registry's
+        // run-wide condemned set is untouched, so the lineage stays claimable by any other seat.
+        let condemned = registry.run_failed_lineages().await;
+        assert!(
+            condemned.is_empty(),
+            "an empty completion is mage-local: it must never enter the run-wide set: {condemned:?}"
+        );
+
+        // And the seat itself DID give up on that lineage — otherwise the assertion above would
+        // be satisfied by an arm that simply never condemned anything at all.
+        assert_eq!(rotation.chain.len(), 1);
+        assert_eq!(rotation.chain[0].kind(), RotationKind::EmptyCompletion);
+    }
+
+    /// The cross-milestone crossing: what the classifier decided is what the
+    /// eligibility snapshot reports.
+    ///
+    /// Each milestone passes its own gate and both touch `rotation.rs`, so their
+    /// interaction is verified by neither. The crossing is concrete: the classifier
+    /// decides whether a mage-local failure condemns a lineage run-wide, and the
+    /// snapshot reads exactly that set to decide whether the other seats may use it.
+    ///
+    /// # Why both halves, and why the second one is not decoration
+    ///
+    /// The first half alone would be **vacuous**: the condemned set comes back
+    /// empty, so no cause is emitted and the assertion holds whatever the snapshot
+    /// does — including if it never emitted that cause at all. The second half
+    /// feeds a populated set, which is the only path by which the variant can
+    /// appear, since the normal pre-dispatch call passes an empty one.
+    #[tokio::test]
+    async fn a_mage_local_failure_does_not_condemn_the_lineage_for_the_other_seats() {
+        let registry = Arc::new(LineageRegistry::new(
+            [(
+                AgentName::Caspar,
+                ActiveEntry {
+                    lineage: Lineage::new("deepseek"),
+                    model: "deepseek".to_string(),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        ));
+        let primary = Arc::new(MockProvider::mixed(
+            "mock",
+            "deepseek",
+            vec![Err(ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(FinishReason::Length),
+                cap: 16_384,
+            })],
+        )) as Arc<dyn LlmProvider>;
+        let fallback = Arc::new(MockProvider::success(
+            "mock",
+            "glm",
+            vec![mock_agent_json("caspar", "approve", 0.95)],
+        )) as Arc<dyn LlmProvider>;
+        let pool = FallbackPool::builder()
+            .push(Arc::clone(&fallback), Lineage::new("zhipu"))
+            .max_rotations(2)
+            .build();
+        let (result, _rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
+            Agent::new(AgentName::Caspar, primary),
+            "MODE: code-review
+---BEGIN USER CONTEXT n---
+x
+---END USER CONTEXT n---"
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
+        assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
+
+        // The classifier's decision, read from where it is made. Asserted directly as
+        // well as fed onward: the crossing is only meaningful if this half is stated.
+        let condemned = registry.run_failed_lineages().await;
+        assert!(
+            condemned.is_empty(),
+            "a mage-local failure must not enter the run-wide set: {condemned:?}"
+        );
+
+        // The snapshot, fed that exact set. Melchior is a DIFFERENT seat, and the
+        // candidate carries the lineage CASPAR gave up on — which is the only way this
+        // assertion can fail. An earlier form used an unrelated lineage, so injecting
+        // the regression it exists to catch left it green: `LineageCondemnedRunWide`
+        // only fires when the condemned set holds the CANDIDATE's lineage.
+        let seats = [(
+            AgentName::Melchior,
+            ActiveEntry {
+                lineage: Lineage::new("alibaba"),
+                model: "mm".to_string(),
+            },
+        )]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+        let candidates = [crate::rotation::FallbackCandidate {
+            provider: Arc::clone(&fallback),
+            lineage: Lineage::new("deepseek"),
+            probe: None,
+        }];
+        let snapshot = |condemned: &BTreeSet<Lineage>| {
+            crate::rotation::pool_eligibility_snapshot(&crate::rotation::EligibilityInputs {
+                seats: &seats,
+                progress: &BTreeMap::new(),
+                run_failed_lineages: condemned,
+                capabilities: &BTreeMap::new(),
+                candidates: &candidates,
+                max_rotations: 2,
+                min_window_tokens: 0,
+                strict_context_guard: false,
+            })[&AgentName::Melchior][0]
+                .causes
+                .clone()
+        };
+        assert!(
+            snapshot(&condemned).is_empty(),
+            "a lineage one seat failed locally stays eligible for the others: {:?}",
+            snapshot(&condemned)
+        );
+
+        // THE POSITIVE HALF. Without it the assertion above passes even if the cause
+        // were never emitted at all, because the set it read was empty.
+        assert_eq!(
+            snapshot(&BTreeSet::from([Lineage::new("deepseek")])),
+            vec![crate::rotation::IneligibilityCause::LineageCondemnedRunWide],
+            "and a run-wide condemnation IS reported, exactly and alone"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // MS2 — shared retry-budget helpers (Task 1a)
+    //
+    // Written here, once, because five MS2 tasks use them. A helper created twice is how
+    // two of them diverge.
+    // -----------------------------------------------------------------------
+
+    /// A `Magi` built with the three values the time-budget tasks vary, and nothing else.
+    ///
+    /// Touches no network: every seat is a `MockProvider`. `max_rotations` lives on the
+    /// fallback POOL rather than on `MagiConfig`, which is why it is threaded through here
+    /// instead of being set on the config alongside the other two.
+    pub(super) fn build_with(timeout: Duration, max_rotations: u32, schema_retry: bool) -> Magi {
+        let pool = FallbackPool::builder()
+            .max_rotations(max_rotations)
+            .push(
+                crate::test_support::ScriptProvider::new(
+                    "m-fallback",
+                    vec![crate::test_support::Beh::Ok],
+                ) as Arc<dyn LlmProvider>,
+                Lineage::new("zhipu"),
+            )
+            .build();
+
+        let mut builder = MagiBuilder::new(crate::test_support::ScriptProvider::new(
+            "m-default",
+            vec![crate::test_support::Beh::Ok],
+        ) as Arc<dyn LlmProvider>)
+        .with_timeout(timeout)
+        .with_fallback_pool(pool);
+
+        if !schema_retry {
+            builder = builder.with_retry_disabled();
+        }
+        builder
+            .build()
+            .expect("build_with: the mock trio always builds")
+    }
+
+    /// A provider that never answers, so the agent ceiling is what ends the call.
+    ///
+    /// Sleeps rather than opening a socket: the property under test is the CEILING, and a real
+    /// hanging server would add a second thing that can fail.
+    struct HangingProvider;
+
+    #[async_trait::async_trait]
+    impl LlmProvider for HangingProvider {
+        async fn complete(
+            &self,
+            _s: &str,
+            _u: &str,
+            _c: &CompletionConfig,
+        ) -> Result<Completion, ProviderError> {
+            // Far longer than any ceiling a test sets; the timeout cancels this future.
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            unreachable!("the agent ceiling must cut this call before it returns")
+        }
+        fn name(&self) -> &str {
+            "hanging"
+        }
+        fn model(&self) -> &str {
+            "m-hanging"
+        }
+    }
+
+    /// Runs a trio whose Caspar hangs, with the agent ceiling set to `d`.
+    ///
+    /// Returns `Ok`: one hung seat DEGRADES the run, it does not abort it. Taking `d` is what
+    /// lets a test observe the ceiling message without waiting the shipped default.
+    pub(super) async fn run_against_a_hanging_backend_with_ceiling(
+        d: Duration,
+    ) -> Result<MagiReport, MagiError> {
+        let magi = MagiBuilder::new(crate::test_support::ScriptProvider::new(
+            "m-default",
+            vec![crate::test_support::Beh::Ok],
+        ) as Arc<dyn LlmProvider>)
+        .with_timeout(d)
+        .with_agent(
+            AgentName::Caspar,
+            Arc::new(HangingProvider) as Arc<dyn LlmProvider>,
+            Lineage::new("deepseek"),
+        )
+        .build()
+        .expect("the hanging trio always builds");
+        magi.analyze(&Mode::CodeReview, "fn main() {}").await
+    }
+
+    /// `build_with` must honour all three values it takes.
+    ///
+    /// A builder helper that quietly ignored one of its arguments would make every test built on
+    /// it assert against a configuration it did not ask for.
+    #[test]
+    fn build_with_honours_the_three_values_it_takes() {
+        let m = build_with(Duration::from_secs(42), 3, false);
+        assert_eq!(m.config.timeout, Duration::from_secs(42));
+        assert!(
+            !m.config.retry_on_schema_error,
+            "schema_retry = false must disable the corrective retry"
+        );
+    }
+
+    /// The hung seat DEGRADES the run rather than aborting it, and the ceiling is what ends it.
+    ///
+    /// Asserting `Ok` is the point: a hang that came back as `Err` would mean one unreachable
+    /// seat had taken the whole run down with it.
+    #[tokio::test]
+    async fn a_hanging_seat_degrades_the_run_within_the_given_ceiling() {
+        let started = std::time::Instant::now();
+        let report = run_against_a_hanging_backend_with_ceiling(Duration::from_millis(200))
+            .await
+            .expect("one hung seat degrades the run, it does not abort it");
+        assert!(
+            report.degraded,
+            "a seat lost to the ceiling must leave the run degraded"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the ceiling passed in must be what ends the call, not the shipped default"
+        );
+    }
+
+    /// The agent ceiling, pinned by its number for the same reason the other six are.
+    #[test]
+    fn the_agent_ceiling_covers_the_worst_case_of_the_chain() {
+        assert_eq!(MagiConfig::default().timeout, Duration::from_secs(660));
+    }
+
+    /// The worst case is per SEAT and never multiplies by the trio.
+    ///
+    /// The crate does not know whether the backend parallelises or serialises the three mages;
+    /// multiplying by three would assert a serialisation nobody measured.
+    #[test]
+    fn the_worst_case_is_per_seat_and_never_multiplies_by_the_trio() {
+        // `max_rotations` is deliberately NOT 2. With 2 the model count is `1 + 2 = 3`, which is
+        // also the number of mages — so the correct formula and one that multiplied by the trio
+        // produce the identical number, and this test would pass against the very thing its name
+        // forbids. With 1 and 4 the two disagree.
+        let magi = build_with(Duration::from_secs(1800), 1, true);
+        assert_eq!(magi.worst_case_per_seat(), Duration::from_secs(7_200)); // 1800 * 2 * 2
+        let magi2 = build_with(Duration::from_secs(1800), 1, false);
+        assert_eq!(magi2.worst_case_per_seat(), Duration::from_secs(3_600)); // 1800 * 1 * 2
+        // A third point, so no single wrong constant fits all three.
+        let magi3 = build_with(Duration::from_secs(600), 4, true);
+        assert_eq!(magi3.worst_case_per_seat(), Duration::from_secs(6_000)); // 600 * 2 * 5
+    }
+
+    /// It never returns `Err`, however absurd the configuration.
+    ///
+    /// The moment it rejects something it is the cap this project decided not to have.
+    #[test]
+    fn it_never_returns_err_no_matter_how_absurd_the_configuration() {
+        let magi = build_with(Duration::from_secs(86_400), 9, true);
+        // Returns a `Duration`, not a `Result`: the type is the assertion.
+        let d: Duration = magi.worst_case_per_seat();
+        assert!(d > Duration::ZERO);
+    }
+
+    /// The timeout message names the CONFIGURED ceiling as the ceiling.
+    ///
+    /// The message must name the ceiling AS the ceiling. It cannot report a measurement: this
+    /// path is only reached when our own timeout fires, so elapsed is always exactly the ceiling
+    /// — printing both would be one number twice, shaped like a comparison.
+    ///
+    /// The helper uses a SHORT ceiling and the assertion is about that number, not about 660:
+    /// the property is "the message publishes the configured ceiling", true for any value, and a
+    /// test that waited 660 s is a test nobody runs.
+    ///
+    /// `Ok` is expected: one hung seat DEGRADES the run. All four timeout sites write into
+    /// `failed_agents` and none returns `Err`.
+    #[tokio::test]
+    async fn the_timeout_message_carries_the_configured_ceiling() {
+        let report = run_against_a_hanging_backend_with_ceiling(Duration::from_millis(200))
+            .await
+            .expect("one hung seat degrades the run; it does not abort it");
+        let s = report
+            .failed_agents
+            .values()
+            .next()
+            .expect("the hung seat is recorded");
+        assert!(
+            s.contains("200ms"),
+            "must publish the configured ceiling, whatever it is: {s}"
+        );
+        assert!(
+            s.contains("ceiling"),
+            "the elapsed time alone does not say whose cut it was: {s}"
+        );
+    }
+
+    /// Every agent-timeout site uses the shared message.
+    ///
+    /// SCOPE: this is a STRUCTURAL check and is fragile to a refactor that changes the spelling.
+    /// It does not replace the semantic test above; it catches the one thing that one cannot —
+    /// a FIFTH site nobody covered. (There are four today, and the semantic test exercises the
+    /// behaviour of one of them; what is unguarded is a new one arriving with its own `format!`.)
+    ///
+    /// It reads the file it lives in, so the test module is cut off before counting: otherwise
+    /// its own literals are counted and it fails for a reason that is not its own.
+    #[test]
+    fn every_timeout_site_uses_the_shared_message() {
+        let src = include_str!("orchestrator.rs");
+        // Cut at the test MODULE, not at the first `#[cfg(test)]`. That first one sits on a
+        // production helper, hundreds of lines before any timeout site, so cutting there left
+        // zero sites — which the plausibility assertion below caught rather than letting `0 == 0`
+        // report success.
+        //
+        // The marker must be FOUND. Falling back to the whole file would make this test count its
+        // own literals, and — the direction that matters — it would disarm silently the day
+        // someone renames the module.
+        //
+        // What the fallback does TODAY is fail (`sites = 5`, `uses = 7`), but that is an accident
+        // of how many times this module happens to name the helper: it counted 5 == 5 and PASSED
+        // until the phase test added two more mentions. A guard whose correctness depends on a
+        // tie being broken elsewhere is not a guard, which is why the marker is required instead.
+        let cut = src
+            .find(
+                "
+mod tests {",
+            )
+            .expect("the test module marker must exist, or this test is counting its own literals");
+        let prod = &src[..cut];
+        // Only the AGENT timeouts — but counted so that an UNRECOGNISED one fails rather than
+        // ties. The previous form matched one exact spelling, so the fifth site this guard exists
+        // to catch is precisely the one it would miss: written as `timeout(self.config.timeout,`
+        // or across two lines, it counted zero and `uses == sites` still held. A guard that
+        // reports success while guarding nothing is this codebase's recurring defect.
+        let all = prod.matches("tokio::time::timeout(").count();
+        let sites = prod.matches("tokio::time::timeout(timeout,").count();
+        assert_eq!(
+            all, sites,
+            "a `tokio::time::timeout(` this guard does not recognise was added: it counts by an              exact spelling, so an unrecognised one would be invisible to the check below rather              than failing it. Either use the `(timeout,` form or teach this test the new one"
+        );
+        // Without this the test is VACUOUS if the cut lands early — a `#[cfg(test)]` over any
+        // production helper is enough — because `0 == 0` passes. A test reporting success having
+        // looked at nothing is the green-by-omission this project keeps finding.
+        assert!(
+            sites >= 4,
+            "the test-module cut left {sites} sites, which is not plausible"
+        );
+        let uses = prod
+            .matches("agent_timeout_message(")
+            .count()
+            .saturating_sub(1); // the definition
+        assert_eq!(
+            uses, sites,
+            "{sites} timeout sites but {uses} use the shared message: the ones missing report a cut without naming the configured ceiling"
+        );
+    }
+
+    /// The two phases render differently, and each names the ceiling.
+    ///
+    /// Without this, swapping the two phase strings leaves the whole suite green while a
+    /// first-call timeout reports the `retry-failed:` prefix — which this module documents as
+    /// meaning the corrective retry was reached.
+    #[test]
+    fn the_two_timeout_phases_are_distinguishable_and_both_name_the_ceiling() {
+        let d = Duration::from_secs(42);
+        let first = agent_timeout_message(false, d);
+        let retry = agent_timeout_message(true, d);
+        assert_ne!(first, retry, "the two phases must be tellable apart");
+        assert!(
+            first.starts_with("timeout: agent timed out"),
+            "the first call must NOT claim the corrective retry was reached: {first}"
+        );
+        assert!(
+            retry.starts_with("retry-failed:"),
+            "the corrective retry must say so: {retry}"
+        );
+        for m in [&first, &retry] {
+            assert!(
+                m.contains("42s"),
+                "both must name the configured ceiling: {m}"
             );
         }
     }

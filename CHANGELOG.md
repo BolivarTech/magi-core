@@ -4,6 +4,195 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-08-24
+
+### One story, not two: the completion budget and the time budget
+
+These are presented together on purpose. The retry numbers changed **because** the token cap
+did, and reading them as two items that happened to land in the same release invites the next
+reader to decouple them.
+
+A reasoning model spent its entire output budget reasoning and returned empty content. Raising
+the cap to `16_384` is what makes a legitimate verdict fit — and it also more than doubles the
+wall clock a futile chain burns (~36 s per attempt at 4096 against ~87 s at 16384, three attempts
+deep). That is what made the time defaults, whose incoherence predates this release, impossible
+to leave alone.
+
+### The defect this release exists for
+
+A reasoning model, against a large payload, spent its whole output budget reasoning and returned
+`content: ""` with `finish_reason: "length"`. The crate never read `finish_reason`, turned that
+into an HTTP error carrying a synthetic status of zero, and from there into a **transport**
+failure — which condemns a lineage **run-wide**, taking it from the other two mages over what one
+mage had seen. The operator was told "transport" and went to look at a network that had answered
+`HTTP 200` perfectly.
+
+**A contract failure had been wearing an HTTP error's clothes**, and inherited run-wide semantics
+by carrying the wrong type. That is what this release removes.
+
+### Added
+
+- **`CompletionConfig::reasoning` — a `ReasoningControl`, and a provider that cannot honour it
+  DECLARES so** rather than ignoring it in silence. The declaration travels as a typed state in
+  the telemetry, distinguishable from "supported, and the model did not reason". Failing instead
+  would break a heterogeneous trio where the consumer only wanted the channel off where it could
+  be; what was never acceptable is doing it silently.
+
+- **`MagiReport.completions` — one record per completion ATTEMPT**, not only the ones that were
+  cut. Model, termination reason, cap in force, tokens spent and the reasoning state. Records
+  rather than counters: with rotation, *which model* is the question that decides what leaves the
+  pool. Recording every one is what tells a consumer **how close** it came, which is the blindness
+  this whole release came out of — `4096` did not fail suddenly, it had been scraping by.
+
+- **`reasoning_trace`, opt-in and additive.** Off, the report carries the trace's **length**; on,
+  the length **and** its text. The length never disappears. Turning it on accepts four things,
+  stated in its rustdoc: the text is the model's, it does not pass the `Validator`, it is not
+  redacted, and it is unbounded — measured at ~141 k characters per agent on the models
+  tested, multiplied by rotation, with no upper bound: another model reasons more.
+
+- **`MagiReport.pool_eligibility` — which fallback candidates each seat could NOT have rotated
+  into, and why.** One row per seat per pool candidate, with `causes` empty meaning eligible.
+  Two new public types carry it: `CandidateEligibility` and `IneligibilityCause`, both exported
+  from the prelude.
+
+  **It covers seats that never rotated**, which is more than a record of what happened could
+  give: it is recomputed from the same inputs the candidate filter reads, not captured from the
+  filter as it ran. That also means it reports **every** failing condition rather than the first
+  — the real filter is a short-circuiting `&&` chain, so reporting what it saw would name an
+  arbitrary member of several true reasons.
+
+  Two things it deliberately does not do, both stated in its rustdoc. It is a **snapshot taken
+  before dispatch**, so a lineage that fails halfway through is not reflected here — that is what
+  `rotations` is for. And the window comparison it reports is a **coarse lower bound**
+  (`chars/4`), which the variant is named for: `WindowBelowCoarseEstimate`, not
+  `WindowTooSmall`, because no token count was performed.
+
+  The map is always emitted, so a report this crate wrote never shows it absent; reading back a
+  document written before the field existed is the only way to see that, and there the loss is in
+  the old document. An empty **vector** for a seat means that
+  seat had no candidates at all — which is every seat when no pool was declared — and NOT that
+  everything was eligible: the snapshot emits one row per candidate and leaves `causes` empty on
+  an eligible one, so "nothing was rejected" is a non-empty vector of empty-cause rows. Keeping
+  absent and empty distinguishable is why the field carries no `skip_serializing_if`.
+
+- **`RetryConfig::limited_retry_classes` and `limited_max_retries`.** Classes that can each
+  consume a whole client timeout — `Timeout` and `Network` — get their own attempt count
+  (default `1`, two attempts) instead of `max_retries`. The cap is resolved from the class of the
+  error that **just** happened, so a chain opening with a `429` and meeting a hang on the second
+  attempt is governed by the hang. `0` is legitimate ("rotate straight away") and is not
+  rejected.
+- **`Magi::worst_case_per_seat()`** returns `timeout * calls_per_model * (1 + max_rotations)`
+  from the effective configuration. The ceiling used to be emergent: setting `timeout = 1800 s`,
+  sensible against a local backend, buys three hours per seat with nothing saying so. It informs
+  and never rejects — the moment it refused a configuration it would be the cap this crate
+  deliberately does not impose. **Per seat, never per run:** whether a backend parallelises or
+  serialises the three mages belongs to the deployment.
+- **A warning when `operation_budget` falls below its floor**, where the budget cuts before the
+  second attempt of a hang starts — a silent loss of the determinism the per-class count exists
+  for. Only the floor: being above the window's ceiling costs wall clock and is exactly what
+  raising `client_timeout` produces, which the local-deployment guidance prescribes, so warning
+  there would fire on a configuration this crate's own docs instruct. The floor is computed from
+  the SHIPPED client timeout, which `RetryConfig` cannot see — if you raised yours, your floor is
+  higher and the guard cannot know.
+- **A warning when `limited_max_retries` exceeds `max_retries`**, which the retry loop caps, so
+  the limited classes would silently get fewer attempts than asked for.
+
+### Changed
+
+- **`RetryConfig::operation_budget` 600 s → 450 s** and **`MagiConfig::timeout` 300 s → 660 s.**
+  Waiting times change for a consumer who never configured them, which makes this a contract
+  change rather than an internal adjustment. The budget is now a **backstop**: the per-class
+  attempt count cuts first, and the budget exists so that if something escapes it the
+  abandonment is typed rather than an opaque cut. `450` is not free choice: `[302, 603)` is
+  the only window that keeps both properties, and `450` sits inside it.
+- **The agent timeout message names the configured ceiling.** It cannot report a measurement —
+  this path is only reached when our own timeout fires, so elapsed is always exactly the ceiling —
+  so it publishes our number plainly rather than printing it twice as a false comparison. The new
+  ceiling crosses the range where infrastructure timeouts live, so a cut an operator sees may
+  come from their proxy; publishing our own number makes the difference legible.
+- **A hang now produces two requests where it produced four.** If you counted on four, set
+  `limited_max_retries` to match `max_retries`; it cannot usefully exceed it, and the crate now
+  warns if you try. Consequence worth knowing: `Network` is both attempt-limited and the only
+  class feeding the endpoint-down latch, so with rotation engaged a lineage reaches that verdict
+  in half the attempts — the threshold is unchanged, the wall clock to reach it is not.
+
+- **`LlmProvider::complete()` returns `Completion`, not `String`.** The trait break that gave
+  telemetry a channel: nothing else could carry the termination reason, the tokens spent, the cap
+  in force and whether the backend even supports a reasoning control. An outside implementor
+  migrates with **two** changes — the signature and the return (`Ok(text.into())`) — and reports
+  `NotMeasured`, never zeros. A zero that means "could not measure" is the same lie a defaulted
+  `estimated_tokens: 0` would be.
+
+- **`OllamaProvider` completes on native `/api/chat`, unconditionally**, and its
+  `OpenAiCompatibleProvider` wrapper is gone. Measured, not assumed: `think: false` is **inert**
+  on the `/v1` compatibility layer and effective natively — 602 tokens and a valid verdict in
+  7.7 s, against 32 768 tokens and nothing in 2 m 13 s. Shipping the flag on `/v1` would have
+  shipped a knob that appears to work.
+
+  Unconditional rather than routed, because a second mode shipped into a public surface costs
+  another major to remove, so it does not get removed. `OpenAiCompatibleProvider` keeps the compatibility wire (it gained the `Completion` return and the new deserialization like every provider, but no native routing) and
+  remains the path for OpenAI cloud, LocalAI, vLLM, LM Studio and llama.cpp-server.
+
+- **`RotationKind` is typed per cause and `#[non_exhaustive]`, with `is_mage_local()`.** In
+  `3.2.0` **two** causes were mage-local while reporting `Transport`, which everywhere else
+  means the run was condemned — its own comment said so and `MAGE_LOCAL_PREFIX` had exactly
+  two call sites; `3.1.0` carried the distinction in that prefix inside a `detail` string
+  because a frozen enum allowed nothing better. **That prefix is gone.** Two more causes join them — an empty completion and a response-contract
+  failure, mage-local in substance while classified run-wide, which is the defect this release
+  exists to fix — so four causes changed label. `is_mage_local()` returns true for **five** variants:
+  those four plus `Schema`, which was already correct. The accessor is not
+  sugar: with `#[non_exhaustive]` a consumer must write a `_ =>` arm, and that arm would classify
+  the next cause into the wrong category with nothing failing.
+
+- **`CompletionConfig::max_tokens` defaults to `16_384`, up from `4096`.** Not hygiene for its own
+  sake: with the real system prompt on a 62k bundle, `glm-5.2` demanded **10 686** completion
+  tokens for a valid verdict, so the old default truncated a legitimate verdict from a model that
+  is not even the pathological case.
+  In a degraded run captured before this change, the second candidate of a seat's rotation chain
+  is **measured converging** at both 8 192 and 16 384 — that run would have been 3/3 instead of
+  2/3.
+
+  **The Anthropic provider forwards this value without clamping**, and the per-model output
+  ceiling varies. The three aliases this crate resolves are all 4.x and sit far above it, so a
+  consumer on the default configuration cannot trip on this; a consumer pinning a literal pre-4.x
+  model id and never touching `max_tokens` can. See the migration guide.
+
+### Removed
+
+- **`ProviderError::Http { status: 0 }` no longer exists.** The synthetic status is deleted
+  outright, so `Http.status` now only ever holds a real HTTP status — which makes lineage
+  condemnation honest **by construction** rather than by comment.
+
+  Response-contract failures split by **consequence**, not by case: `ResponseContract` (the
+  endpoint returned something unusable) and `EmptyCompletion` (the model produced no content) are
+  both **mage-local**, while `NoGeneration` — the backend accepted the request and generated
+  nothing, with the token counters **absent** rather than zero — is raised to
+  `MagiError::CrateDefect` and **aborts the run**. A defect of ours must not hide in
+  `failed_agents`, where model failures land every day.
+
+- **`ClaudeProvider::parse_response` is gone**, folded into that provider's own completion path.
+
+### Fixed
+
+- **The `retry_after_cap` warning relates the wait to the budget**, and fires at `>=`: a
+  honoured wait is never interrupted, so one at least as long as the budget runs in full and the
+  chain gets at most one of them before abandoning. It deliberately does not compare the accumulated chain, which would fire on this
+  crate's own defaults and be silenced on day one.
+- **The budget symptom detection declares its scope.** It reads as though it covered the layering
+  invariant and does not: it fires at the second attempt, so when the outer timeout cancels the
+  call first — the shape of the defect — nothing is emitted. A guard that appears to cover more
+  than it does is worse than none.
+- **Two `3.3.0` references in published rustdoc are gone.** That version was absorbed by this
+  major and was lying to every docs.rs reader.
+
+### Migration
+
+`docs/migration-v4.0.md` covers every observable change, and its **Infrastructure Timeout
+Checklist** must be run before upgrading: a proxy that cuts the connection now reaches the crate as
+`Network`, the one class that feeds the endpoint-down latch. With rotation engaged, cuts on two
+distinct lineages abort the run with an error that does not mention the proxy; without rotation —
+the default — there is no latch and the run simply degrades.
+
 ## [3.2.0] - 2026-08-10
 
 ### Added
@@ -57,6 +246,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Corrected two rustdoc claims that the retry-defaults coherence work is "tracked for 3.2.0".
   That number now belongs to this release; the defaults work is tracked for **3.3.0**. The
   `3.1.0` entry below is left as written — it is a record of what was true then.
+  *[Superseded: `3.3.0` was never cut. That work was absorbed into `4.0.0`. This entry is left
+  as written for the same reason it gives for leaving `3.1.0` alone — it records what was true
+  then — but a reader arriving here should not go looking for the version it names.]*
 
 ## [3.1.0] - 2026-07-31
 

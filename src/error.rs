@@ -1,7 +1,8 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
+use std::fmt;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -44,6 +45,75 @@ pub enum AbandonReason {
         /// The configured budget.
         budget: Duration,
     },
+}
+
+/// The phrase that marks the branch where the cap IS the fix.
+///
+/// A constant rather than a literal repeated in three files, because the wording is
+/// declared non-contractual in the migration guide and was nonetheless pinned by raw
+/// substrings in the tests of two providers -- so rewording it for clarity broke tests
+/// that were meant to assert the BRANCH, not the sentence. The message is composed from
+/// these and the tests assert these, which is what makes the pin structural.
+pub(crate) const REMEDY_PRESCRIBES: &str = "configurable via";
+
+/// The phrase that marks the branch where the backend named a reason and it is not the budget.
+pub(crate) const REMEDY_RULED_OUT: &str = "does not address";
+
+/// The phrase that marks the branch where neither direction is supportable.
+pub(crate) const REMEDY_UNKNOWN: &str = "cannot be told";
+
+/// The half of the empty-completion message that depends on what stopped the model.
+///
+/// The cap is stated either way, because "what budget was in force" is an
+/// observation. What is conditional is the PRESCRIPTION: telling an operator to
+/// raise `max_tokens` when the backend said it refused sends them to change a
+/// number that had nothing to do with it -- the same shape of misdiagnosis as the
+/// `http error 0` this release removed, one layer in.
+///
+/// The third branch is the one that took two rounds to get right. Saying "not the
+/// budget" for a reason this crate does not interpret asserts a negative it cannot
+/// support. So the unknown case says what is true -- that it cannot be told -- and
+/// the vendor vocabularies were widened until only genuinely novel values land
+/// there.
+///
+/// **The prescribing branch is hedged, and it has to be.** `Length` covers two
+/// conditions with OPPOSITE remedies -- an undersized output budget and a prompt
+/// that filled the context window -- because that is how both wires report them.
+/// Prescribing the cap unconditionally would have been the same defect as the one
+/// above, one branch over: correct for half the inputs and harmful for the rest.
+///
+/// # Parameters
+///
+/// * `bearing` -- from `CompletionTelemetry::budget_bearing`.
+///
+/// # Returns
+///
+/// The sentence tail, already carrying its leading punctuation.
+fn empty_completion_remedy(
+    bearing: crate::provider::BudgetBearing,
+    prompt_tokens: Option<u32>,
+) -> String {
+    use crate::provider::BudgetBearing as B;
+    match bearing {
+        B::MayExplain => {
+            // The measurement is PRINTED, not merely named. Telling a reader to compare
+            // `prompt_tokens` against the context window while withholding the number is
+            // advice they cannot act on from the message they are holding.
+            let measured = match prompt_tokens {
+                Some(n) => format!("The prompt measured {n} tokens: if that is"),
+                None => "The prompt was not measured; if it is".to_string(),
+            };
+            format!(
+                ", {REMEDY_PRESCRIBES} `CompletionConfig::max_tokens`. {measured} already near the model's context window, it is the input that has to shrink and raising the cap will not help -- both causes arrive under the same termination and this crate does not guess between them."
+            )
+        }
+        B::RuledOut => format!(
+            ", but the termination the backend reported is not the budget running out, so raising `CompletionConfig::max_tokens` {REMEDY_RULED_OUT} this."
+        ),
+        B::Unknown => format!(
+            ", and the termination the backend reported is not one this crate interprets, so whether the budget was reached {REMEDY_UNKNOWN} from it."
+        ),
+    }
 }
 
 /// Errors originating from LLM provider implementations.
@@ -173,6 +243,223 @@ pub enum ProviderError {
         /// The SHAPE of the failure.
         kind: ExternalErrorKind,
     },
+
+    /// The endpoint answered, but what it sent does not satisfy the response contract.
+    ///
+    /// **Mage-local, and the reason is that a lineage is not an endpoint**: in the usual
+    /// deployment all three mages reach the SAME backend with DIFFERENT lineages, so condemning
+    /// one lineage run-wide would not shield the others from a misbehaving endpoint — it would
+    /// pay the cost of the condemnation without buying its protection. Where the scope of a
+    /// fault is in doubt, this crate condemns mage-local, because the error is asymmetric:
+    /// condemning run-wide when it should have been local takes a HEALTHY candidate away from
+    /// the other two seats, while the reverse only costs each seat one attempt discovering the
+    /// same thing.
+    ///
+    /// # Where `Http { status: 0 }` went
+    ///
+    /// Until `4.0.0` an unreadable body became an `Http` error carrying a synthetic status of
+    /// zero — a contract failure wearing an HTTP error's clothes, which is how it inherited
+    /// run-wide semantics it was never entitled to. There is no synthetic status any more, and
+    /// `Http.status` now only ever holds a real one.
+    #[error("response contract violated: {reason}{}", crate::error::suffix(.detail))]
+    #[non_exhaustive]
+    ResponseContract {
+        /// Which part of the contract was not met.
+        reason: ResponseContractCause,
+        /// Which operation and endpoint it happened on, redacted, when the caller knew.
+        ///
+        /// Empty when there is nothing to add: a body that parsed and carried no message
+        /// describes itself, and the seat is already named where the failure is reported.
+        ///
+        /// It exists because the variant that replaced the synthetic HTTP status inherited none
+        /// of its `body`, and one of the cases routed here is a redirect-policy failure — where
+        /// the whole diagnostic value is WHICH endpoint refused. `3.1.0` spent a milestone
+        /// establishing that a redacted URL must still say which endpoint failed; dropping it
+        /// here would have taken that back for one path without anyone deciding to.
+        ///
+        /// Composed by the crate's single transport-error mapper, which is the only place that
+        /// renders an endpoint at all — so whatever appears here is redacted by construction.
+        ///
+        /// **Bounded**, at [`MAX_CONTRACT_DETAIL_CHARS`]. It reaches the serialized report, which
+        /// this crate has already identified as its most-shared and least-inspected channel, and
+        /// every other outside-authored text that gets there is capped.
+        ///
+        /// Where the bound actually comes from, stated precisely because the obvious phrasing
+        /// is wrong: `#[non_exhaustive]` stops only ANOTHER crate from writing the literal.
+        /// Inside this one it does not, and most sites do write it — with an **empty** detail,
+        /// because their cause is already typed and free text would restate it untyped. An
+        /// empty string needs no bound. Every site that passes real text goes through the
+        /// crate-private `response_contract` constructor, which is what caps it. (Named, not
+        /// linked: it is `pub(crate)`, and public docs cannot link to a private item.)
+        detail: String,
+    },
+
+    /// The model produced no usable content.
+    ///
+    /// Commonly the model spent its entire output budget in a reasoning channel and emitted
+    /// nothing: HTTP 200, `finish_reason` of `length`, empty content.
+    ///
+    /// **Mage-local**: the endpoint answered perfectly — it answered *nothing*. That says
+    /// nothing about what a DIFFERENT mage would get from the same lineage.
+    ///
+    /// # Not retried
+    ///
+    /// Retrying with the same budget reproduces the failure by construction, and that is
+    /// measured, not assumed.
+    #[error(
+        "empty completion: the model returned no content (termination: {:?}). \
+         The output budget in force was {cap} tokens{}",
+        .telemetry.finish,
+        empty_completion_remedy(.telemetry.budget_bearing(), .telemetry.prompt_tokens)
+    )]
+    #[non_exhaustive]
+    EmptyCompletion {
+        /// What the provider measured about the completion that came back empty.
+        ///
+        /// It carries the termination reason, the token counts and -- the reason this is a
+        /// whole telemetry rather than a lone reason -- the **reasoning measurement**. That is
+        /// the exact failure this release exists to diagnose: the model spent its entire output
+        /// budget reasoning and emitted nothing. Reporting the cut without the number that
+        /// explains it leaves the operator with "empty, budget 16384" and no evidence of where
+        /// the budget went, which is the blindness this milestone set out to end.
+        ///
+        /// It is the same type the success path returns, so
+        /// [`CompletionRecord::from_telemetry`](crate::reporting::CompletionRecord::from_telemetry)
+        /// fills a record identically either way: one shape, not two that can drift.
+        telemetry: crate::provider::CompletionTelemetry,
+        /// The output budget in force for the completion that came back empty.
+        ///
+        /// It exists so the MESSAGE can name the number the operator has to change. It is not
+        /// the source of [`crate::reporting::CompletionRecord::cap`], which is set by the caller
+        /// for the same reason stated there — a provider does not know what it was given, so a
+        /// record that read the budget off a response would be reporting the provider's opinion
+        /// of it. The two are the same number by construction, and the caller owns it.
+        cap: u32,
+    },
+
+    /// The backend accepted the request and generated nothing at all.
+    ///
+    /// **This is a defect in `magi-core`, not a failure of the model**, and it does not rotate:
+    /// rotating would reproduce our own bad request against every seat in turn. The orchestrator
+    /// raises it to [`MagiError`] and aborts the run.
+    ///
+    /// # The message separates what was OBSERVED from what is INFERRED
+    ///
+    /// The observation is that the token counters are **absent** — absent, not zero — which is
+    /// the discriminant. The inference is the cause, and it rests on a single captured case, so
+    /// it is stated as a hypothesis. A second cause producing the same footprint would not make
+    /// the observation wrong; it would make the hypothesis wrong, and whoever finds it needs to
+    /// see which was which.
+    ///
+    /// # Known false positive
+    ///
+    /// `done_reason: "load"` literally means the model was loading, so a transient cold start is
+    /// the most plausible way to see this footprint without anyone having written a bad request.
+    /// A cold start was captured and does **not** match — it answers `stop`, with content and
+    /// with counters present — but that is one observation, not a proof of exclusivity.
+    #[error(
+        "no generation - token counters absent (termination: {done_reason:?}); the known cause \
+         of this is a request without `messages`, which points at a defect in magi-core"
+    )]
+    #[non_exhaustive]
+    NoGeneration {
+        /// The termination reason observed, when the backend reported one.
+        done_reason: Option<crate::provider::FinishReason>,
+    },
+}
+
+/// Renders an optional diagnostic tail, so an empty one adds no punctuation.
+///
+/// A free function rather than an `Option<String>` field: the empty case is common and an
+/// `Option` would make every construction site write `None` for it, which reads as a decision
+/// where there was none.
+pub(crate) fn suffix(detail: &str) -> String {
+    if detail.is_empty() {
+        String::new()
+    } else {
+        format!(" ({detail})")
+    }
+}
+
+/// Which part of a provider's response contract was not met.
+///
+/// One variant per sub-case, inside a single [`ProviderError::ResponseContract`], because the
+/// unit of separation in [`ProviderError`] is the **consequence** and all three of these share it.
+/// Splitting them into sibling error variants would force the orchestrator's classifier to nest
+/// a match to reach the same answer — and this crate has already paid for a nested match that
+/// stole the outer one's state.
+///
+/// # Migrating from a synthetic `Http { status: 0 }`
+///
+/// This example is a **doctest**, so it is compiled: the same shape written into
+/// `docs/migration-v4.0.md` is prose that nothing checks, and one snippet there had already
+/// gone stale against a field rename before anyone noticed. Whatever a reader copies should
+/// have been compiled at least once.
+///
+/// ```
+/// use magi_core::prelude::{ProviderError, ResponseContractCause};
+///
+/// fn is_a_contract_failure(err: &ProviderError) -> bool {
+///     match err {
+///         ProviderError::ResponseContract { reason, .. } => match reason {
+///             ResponseContractCause::Unreadable => true,
+///             ResponseContractCause::NoMessage => true,
+///             ResponseContractCause::RedirectRefused => true,
+///             // `#[non_exhaustive]`: a cause added later lands here rather than
+///             // failing to compile for every consumer.
+///             _ => true,
+///         },
+///         _ => false,
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ResponseContractCause {
+    /// The body could not be read as the format the provider speaks.
+    ///
+    /// Retryable, and it is the only one of these that is: a body can be unreadable because it
+    /// was **truncated in transit** — a connection cut mid-response, a proxy that clipped it —
+    /// and asking again can genuinely return something different.
+    Unreadable,
+
+    /// The body parsed, but carried no message for this crate to read.
+    ///
+    /// Named for what is missing rather than for the wire's field name: `{"choices": []}` is
+    /// perfectly VALID JSON that simply does not carry what the contract promises, so a name
+    /// saying "malformed" would be false for this half of the family. And `choices` is OpenAI's
+    /// vocabulary, while this type is public and this crate is provider-agnostic.
+    NoMessage,
+
+    /// The endpoint answered with a redirect chain this crate would not follow.
+    ///
+    /// Not retryable: the same request follows the same chain and fails the same way, so a retry
+    /// only spends budget.
+    ///
+    /// # Why it lives among the contract causes and not on its own
+    ///
+    /// The unit of separation in [`ProviderError`] is the **consequence**, and this shares its
+    /// consequence exactly with [`Self::NoMessage`] — mage-local, never retried. A sibling error
+    /// variant would force the orchestrator's classifier to reach the same answer through a
+    /// second arm, and this crate has already paid for a classifier that grew one match too many.
+    ///
+    /// # What it must never be
+    ///
+    /// [`ProviderError::Network`], whose connection class feeds the endpoint-down latch: two of
+    /// these would abort a whole run over a misconfigured redirect chain seen by one seat. Until
+    /// `4.0.0` this case borrowed the synthetic zero status for exactly that reason, which is how
+    /// a routing decision ended up encoded in a number that was never an HTTP status.
+    RedirectRefused,
+}
+
+impl fmt::Display for ResponseContractCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Unreadable => "the response body could not be read",
+            Self::NoMessage => "the response carried no message",
+            Self::RedirectRefused => "the response was a redirect chain this crate will not follow",
+        })
+    }
 }
 
 /// Marker appended when text is cut, so a truncated message never reads as a complete one.
@@ -235,7 +522,52 @@ pub enum ExternalErrorKind {
     Other,
 }
 
+/// Upper bound on [`ProviderError::ResponseContract`]'s `detail`, in characters.
+///
+/// Chosen to match the reasoning already written for the rotation detail: long enough for a
+/// composed message naming an operation and a redacted endpoint, short enough that a hostile or
+/// merely verbose backend cannot inflate a report through it.
+pub const MAX_CONTRACT_DETAIL_CHARS: usize = 256;
+
 impl ProviderError {
+    /// Builds a [`ProviderError::ResponseContract`] with its `detail` bounded.
+    ///
+    /// # Why a constructor rather than a convention
+    ///
+    /// The field's invariant used to be prose — *"composed by the single transport-error mapper,
+    /// so it is redacted by construction"*. That was true of every site that existed, which is
+    /// not the same as being true. A bound stated only in a doc comment is enforced by whoever
+    /// reads it, and this text reaches the serialized report.
+    ///
+    /// Truncation is on a character boundary and never panics.
+    ///
+    /// # `pub(crate)`, and the redaction gate is what said so
+    ///
+    /// It was written `pub` and the CI rule refused it: `error.rs` holds exactly ONE public
+    /// door, and whatever that door builds is what the outside world can build. A contract
+    /// failure is this crate's own reading of a response — an external provider claiming one
+    /// would be asserting something only the parser can know. `external` stays the only public
+    /// constructor, which is the shape `3.1.0` settled on.
+    /// Gated with its only caller, the shared transport mapper, which exists only when an
+    /// HTTP provider is compiled in. Without the gate the default feature set fails on an
+    /// unused function -- and silencing that with an attribute would have kept a
+    /// constructor alive in a build where nothing can construct.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    pub(crate) fn response_contract(
+        reason: ResponseContractCause,
+        detail: impl Into<String>,
+    ) -> Self {
+        let mut detail = detail.into();
+        if detail.chars().count() > MAX_CONTRACT_DETAIL_CHARS {
+            let cut = detail
+                .char_indices()
+                .nth(MAX_CONTRACT_DETAIL_CHARS)
+                .map_or(detail.len(), |(i, _)| i);
+            detail.truncate(cut);
+        }
+        Self::ResponseContract { reason, detail }
+    }
+
     /// Builds a failure from an [`LlmProvider`] implemented outside this crate.
     ///
     /// [`LlmProvider`]: crate::provider::LlmProvider
@@ -251,8 +583,10 @@ impl ProviderError {
     ///
     /// # Why this exists at all
     ///
-    /// Every variant of this enum is `#[non_exhaustive]`, so none can be built with a struct
-    /// expression from another crate. Without a constructor an external provider could *compile*
+    /// Every struct-like variant of this enum is `#[non_exhaustive]`, so none of them can be
+    /// built with a struct expression from another crate. (`NestedSession` is a bare unit variant
+    /// and is constructible, which helps nobody: it names a condition only this crate
+    /// detects.) Without a constructor an external provider could *compile*
     /// but could not **fail in a typed way** — which pushed implementors toward lying with an
     /// unrelated variant or panicking. `#[non_exhaustive]` and this constructor are a pair;
     /// either alone is broken.
@@ -371,6 +705,47 @@ pub enum MagiError {
         lineages: Vec<crate::rotation::Lineage>,
     },
 
+    /// A defect in **this crate**, detected at run time. Aborts the run.
+    ///
+    /// # Why this is not a `failed_agents` entry
+    ///
+    /// `failed_agents` is where model failures land every day. A bug of ours filed there is
+    /// invisible in the noise of the normal, and the operator goes and looks at the model. This
+    /// project has already paid that bill once, on a defect that masqueraded as a provider error
+    /// and cost a great deal to identify as local.
+    ///
+    /// # The message separates OBSERVATION from HYPOTHESIS, and so does this type
+    ///
+    /// The two are distinct **fields**, not two halves of one sentence, so the distinction
+    /// survives however the text is later formatted. What was measured is a fact; what caused it
+    /// is an inference drawn from a single captured case.
+    #[error("defect in magi-core, run aborted: {observation}; {hypothesis} (agent {}, model {model})", .agent.display_name())]
+    #[non_exhaustive]
+    CrateDefect {
+        /// What was MEASURED, with no causal claim attached.
+        observation: String,
+        /// The known cause, offered as a hypothesis. Text this crate authors, never the wire's.
+        hypothesis: &'static str,
+        /// The seat that hit it.
+        agent: crate::schema::AgentName,
+        /// The model in force when it happened.
+        model: String,
+        /// The seats that had already been **joined** when the abort was reached.
+        ///
+        /// # It is a hint, not a census — and the distinction is why it is named this way
+        ///
+        /// Membership is decided by dispatch and join ORDER, not by who answered: a seat that
+        /// had produced its verdict but had not yet been joined is absent from this list. So it
+        /// cannot be read as *did this hit every seat, or one?* — an earlier version of this
+        /// documentation claimed exactly that, and the code never supported it.
+        ///
+        /// What it is good for is the opposite direction: a NON-empty list proves other seats
+        /// got that far, which is what tells you the defect is not simply "the run never
+        /// started". Empty is the common case, because the discriminant is that no generation
+        /// happened, so the backend answers in fractions of a second.
+        joined_before_abort: Vec<crate::schema::AgentName>,
+    },
+
     /// A resolvable system prompt violates the verdict-marker contract.
     ///
     /// Returned by `MagiBuilder::build()` **before any provider is resolved**, and by
@@ -423,7 +798,179 @@ impl From<serde_json::Error> for MagiError {
 
 #[cfg(test)]
 mod tests {
+
+    // ---- Task 3b: the three response-contract variants ----
+
+    #[test]
+    fn the_unit_of_separation_is_the_consequence_not_the_case() {
+        // One variant per family, with a typed reason inside for the sub-cases. A single
+        // `Contract { reason }` spanning all three families would force the orchestrator's
+        // classifier to NEST a match to decide the consequence — and this crate already paid for
+        // that: one of the 3.1.0 defects was a nested match that stole the outer one's state.
+        let a = ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
+        };
+        let b = ProviderError::ResponseContract {
+            reason: ResponseContractCause::Unreadable,
+            detail: String::new(),
+        };
+        assert_eq!(
+            std::mem::discriminant(&a),
+            std::mem::discriminant(&b),
+            "both sub-cases share one variant because they share one consequence"
+        );
+    }
+
+    #[test]
+    fn empty_choices_is_valid_json_so_the_name_must_not_say_malformed() {
+        // `{"choices": []}` parses perfectly; it simply does not carry what the contract
+        // promises. A name saying "malformed" would be false for half the family. And
+        // `NoMessage`, not `NoChoices`: `choices` is OpenAI vocabulary and this type is PUBLIC.
+        let n = format!("{:?}", ResponseContractCause::NoMessage);
+        assert!(!n.to_lowercase().contains("malformed"), "{n}");
+        assert!(!n.to_lowercase().contains("choices"), "{n}");
+    }
+
+    #[test]
+    fn no_generation_carries_the_observed_reason_and_nothing_else() {
+        // The counters are ABSENT — that IS the discriminant. Inventing a zero for them would
+        // assert a measurement that never happened.
+        let e = ProviderError::NoGeneration {
+            done_reason: Some(crate::provider::FinishReason::Load),
+        };
+        assert!(!format!("{e:?}").contains("tokens"));
+    }
+
+    #[test]
+    fn an_empty_completion_names_the_cap_and_says_it_is_configurable() {
+        // The whole point of the diagnosis axis: the message has to contain its own fix. An
+        // operator reading "http error 0" went and looked at a network that answered 200.
+        let rendered = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
+            cap: 4096,
+        }
+        .to_string();
+        assert!(rendered.contains("4096"), "{rendered}");
+        assert!(rendered.contains("max_tokens"), "{rendered}");
+        assert!(
+            !rendered.to_lowercase().contains("http"),
+            "a content failure must not render as a transport one: {rendered}"
+        );
+    }
+
+    #[test]
+    fn an_empty_completion_prescribes_the_cap_only_where_the_cap_is_the_fix() {
+        // BOTH messages state the budget in force, because "what was the budget" is an
+        // observation. What must not survive a refusal is the PRESCRIPTION: sending an
+        // operator to raise `max_tokens` when the backend said it refused is the same shape
+        // of misdiagnosis as the `http error 0` this release removed, one layer down -- and
+        // it reached here through the one lane the termination narrowing does not cover, a
+        // text-only response that came back blank.
+        //
+        // Three groups, not two. The unknown group is the correction of a first attempt that
+        // put every unrecognised reason on the "not the budget" side, which asserted a
+        // negative from an uninterpreted string -- the same defect, sign flipped.
+        let render = |f: Option<FinishReason>| {
+            let mut t = crate::provider::CompletionTelemetry::unmeasured();
+            if let Some(f) = f {
+                t = t.with_finish(f);
+            }
+            ProviderError::EmptyCompletion {
+                telemetry: t,
+                cap: 16_384,
+            }
+            .to_string()
+        };
+
+        // Unknown is NOT evidence that the budget was untouched, so absent prescribes too.
+        for may in [None, Some(FinishReason::Length)] {
+            let s = render(may);
+            assert!(s.contains("16384"), "{s}");
+            assert!(
+                s.contains("not measured"),
+                "the sentence names the prompt as the other cause, so it must say whether the prompt was measured: {s}"
+            );
+            assert!(
+                s.contains(REMEDY_PRESCRIBES),
+                "the budget can explain this, so the message must carry its own fix: {s}"
+            );
+            assert!(!s.contains(REMEDY_RULED_OUT), "{s}");
+            assert!(!s.contains(REMEDY_UNKNOWN), "{s}");
+        }
+
+        // Reasons this crate INTERPRETS, and neither of them is the budget.
+        for ruled_out in [FinishReason::Stop, FinishReason::Load] {
+            let s = render(Some(ruled_out));
+            assert!(
+                s.contains("16384"),
+                "the budget in force stays an observation: {s}"
+            );
+            assert!(
+                s.contains(REMEDY_RULED_OUT),
+                "prescribing the cap for a reason the backend named is a misdiagnosis: {s}"
+            );
+            assert!(
+                !s.contains(REMEDY_PRESCRIBES),
+                "prescription survived a termination that rules it out: {s}"
+            );
+        }
+
+        // A reason this crate does NOT interpret -- one no vendor publishes, which is what
+        // this branch is for now that both published vocabularies are translated. It could
+        // be anything, a new way of saying the room ran out included, so claiming the budget
+        // was not involved would be inventing evidence in the other direction.
+        let s = render(Some(FinishReason::Other(
+            "a_reason_invented_after_this_was_written".to_string(),
+        )));
+        assert!(s.contains("16384"), "{s}");
+        assert!(
+            s.contains(REMEDY_UNKNOWN),
+            "an uninterpreted reason supports neither direction: {s}"
+        );
+        assert!(!s.contains(REMEDY_PRESCRIBES), "{s}");
+        assert!(!s.contains(REMEDY_RULED_OUT), "{s}");
+
+        // The number is PRINTED when it exists. Naming `prompt_tokens` as the thing to
+        // compare while withholding it is advice the reader cannot act on.
+        let measured = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(FinishReason::Length)
+                .with_prompt_tokens(63_924),
+            cap: 16_384,
+        }
+        .to_string();
+        assert!(
+            measured.contains("63924"),
+            "the prompt measurement must appear in the sentence that tells you to check it: {measured}"
+        );
+    }
+
+    #[test]
+    fn a_crate_defect_keeps_the_observation_apart_from_the_hypothesis() {
+        // Separate FIELDS, not two halves of one sentence, so the distinction survives however
+        // the text is later formatted. The attribution rests on a single captured case; whoever
+        // meets a second cause with the same footprint has to be able to see which was which.
+        let e = MagiError::CrateDefect {
+            observation: "no generation - token counters absent".to_string(),
+            hypothesis: "the known cause is a request without `messages`",
+            agent: crate::schema::AgentName::Caspar,
+            model: "glm-5.2:cloud".to_string(),
+            // Empty is the honest value here: nothing had answered when a scripted defect fires.
+            joined_before_abort: Vec::new(),
+        };
+        let rendered = e.to_string();
+        assert!(rendered.contains("no generation - token counters absent"));
+        assert!(rendered.contains("the known cause is"));
+        assert!(
+            rendered.contains("magi-core"),
+            "the category has to be legible, or the bug hides in the noise of ordinary model \
+             failures: {rendered}"
+        );
+    }
     use super::*;
+    use crate::provider::FinishReason;
 
     // -- MS2: EndpointDown variant --
 
@@ -765,5 +1312,155 @@ mod tests {
         // failure from an outage without the third party having spelled it out in prose.
         let err = ProviderError::external("nope", ExternalErrorKind::Auth);
         assert!(err.to_string().contains("Auth"), "{err}");
+    }
+    // ---------------------------------------------------------------------
+    // Task 14 — the empty-completion error names the budget that cut it.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn the_empty_completion_error_carries_its_own_fix() {
+        // A-4. Until `4.0.0` an operator saw "transport" here and went to look at a
+        // network that had answered HTTP 200 perfectly. The message has to name the
+        // number that cut the completion AND say that the number is theirs to change,
+        // or it diagnoses without being actionable.
+        let e = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
+            cap: 16_384,
+        };
+        let s = e.to_string();
+        assert!(s.contains("16384"), "it must name the cap that cut it: {s}");
+        assert!(
+            s.contains("max_tokens"),
+            "and that the cap is configurable: {s}"
+        );
+        assert!(
+            !s.to_lowercase().contains("http"),
+            "it is not an HTTP failure, and saying so would send the reader to the wrong place: {s}"
+        );
+    }
+
+    #[test]
+    fn a_genuine_empty_and_a_budget_empty_read_differently() {
+        // The two need opposite remedies — raise the budget, or look at the model —
+        // so a message that renders them identically has diagnosed nothing.
+        let a = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Stop),
+            cap: 16_384,
+        };
+        let b = ProviderError::EmptyCompletion {
+            telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                .with_finish(crate::provider::FinishReason::Length),
+            cap: 16_384,
+        };
+        assert_ne!(a.to_string(), b.to_string());
+    }
+
+    #[test]
+    fn a_contract_failure_can_still_say_which_endpoint_it_happened_on() {
+        // The property `3.1.0` spent a milestone establishing: a redacted URL must still name the
+        // endpoint that failed. Deleting the synthetic HTTP status took its `body` with it, and
+        // one of the cases routed to the replacement is a redirect-policy failure — where WHICH
+        // endpoint refused is the entire diagnostic. Review caught it going silently missing.
+        let with = ProviderError::ResponseContract {
+            reason: ResponseContractCause::RedirectRefused,
+            detail: "POST https://api.example.com/v1?key=[REDACTED]: too many redirects".into(),
+        };
+        let rendered = with.to_string();
+        assert!(rendered.contains("api.example.com"), "{rendered}");
+        assert!(rendered.contains("redirect"), "{rendered}");
+
+        // And a cause that describes itself adds no punctuation for a detail it does not have.
+        let without = ProviderError::ResponseContract {
+            reason: ResponseContractCause::NoMessage,
+            detail: String::new(),
+        };
+        assert!(
+            !without.to_string().contains("()"),
+            "an empty detail must not render as empty parentheses: {without}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_messages_carry_no_space_runs_from_a_joined_source_line() {
+        // A run of interior spaces is the fingerprint of a source string that was
+        // wrapped across lines and re-joined without the indentation being stripped:
+        // the SOURCE reads fine and the RENDERED message does not. These strings reach
+        // `failed_agents` and the serialized report — the most-shared, least-inspected
+        // channel this crate has — so the defect ships even though nothing fails.
+        //
+        // Asserted over the rendered text of the variants this milestone added rather
+        // than by scanning the source: a scan would have to reproduce Rust's literal
+        // rules to avoid flagging ordinary indentation, and a check that is harder to
+        // read than the thing it guards is the one that gets deleted.
+        let rendered = [
+            ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(crate::provider::FinishReason::Length),
+                cap: 16_384,
+            }
+            .to_string(),
+            ProviderError::NoGeneration {
+                done_reason: Some(crate::provider::FinishReason::Load),
+            }
+            .to_string(),
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
+            }
+            .to_string(),
+        ];
+        for s in rendered {
+            assert!(
+                !s.contains("   "),
+                "a rendered message must not carry a run of spaces: {s:?}"
+            );
+        }
+    }
+    /// The detail is BOUNDED, and not merely documented as bounded.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    #[test]
+    fn a_contract_detail_is_capped_at_the_declared_length() {
+        let long = "x".repeat(MAX_CONTRACT_DETAIL_CHARS * 4);
+        let err = ProviderError::response_contract(ResponseContractCause::RedirectRefused, long);
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(detail.chars().count(), MAX_CONTRACT_DETAIL_CHARS);
+    }
+
+    /// A shorter detail is kept whole: the cap truncates, it does not pad or normalise.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    #[test]
+    fn a_contract_detail_under_the_cap_is_untouched() {
+        let err = ProviderError::response_contract(
+            ResponseContractCause::RedirectRefused,
+            "redirect refused by policy for https://gw.example.com/v1",
+        );
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(
+            detail,
+            "redirect refused by policy for https://gw.example.com/v1"
+        );
+    }
+
+    /// Truncation lands on a CHARACTER boundary and never panics.
+    ///
+    /// A composed message can carry a redacted endpoint with non-ASCII in its path, and cutting
+    /// by byte offset there is a panic, not a truncation. This crate has already shipped one
+    /// release for a slicing bug of exactly that shape.
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    #[test]
+    fn a_multi_byte_contract_detail_is_cut_without_panicking() {
+        let long = "é".repeat(MAX_CONTRACT_DETAIL_CHARS * 2);
+        let err = ProviderError::response_contract(ResponseContractCause::Unreadable, long);
+        let ProviderError::ResponseContract { detail, .. } = &err else {
+            panic!("the constructor must build its own variant");
+        };
+        assert_eq!(detail.chars().count(), MAX_CONTRACT_DETAIL_CHARS);
+        assert!(detail.chars().all(|c| c == 'é'));
     }
 }

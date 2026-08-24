@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Convenience re-exports for common magi-core types.
 //!
@@ -13,6 +13,7 @@
 // Error types
 pub use crate::error::{
     AbandonReason, ExternalErrorKind, MAX_EXTERNAL_MESSAGE_BYTES, MagiError, ProviderError,
+    ResponseContractCause,
 };
 
 // Backoff / retry policy
@@ -29,13 +30,14 @@ pub use crate::consensus::{ConsensusConfig, ConsensusEngine, ConsensusResult};
 
 // Reporting
 pub use crate::reporting::{
-    BANNER_INNER, BANNER_WIDTH, InputSize, MagiReport, ReportConfig, ReportError, ReportFormatter,
-    TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
+    BANNER_INNER, BANNER_WIDTH, CompletionRecord, InputSize, MagiReport, ReportConfig, ReportError,
+    ReportFormatter, TOKENS_PER_BYTE_DIVISOR, estimate_tokens,
 };
 
 // Provider trait and config
 pub use crate::provider::{
-    CompletionConfig, DEFAULT_CLIENT_TIMEOUT, LlmProvider, RetryConfig, RetryProvider,
+    Completion, CompletionConfig, CompletionTelemetry, DEFAULT_CLIENT_TIMEOUT, FinishReason,
+    LlmProvider, ReasoningControl, ReasoningState, RetryConfig, RetryProvider,
     default_model_for_mode, resolve_claude_alias,
 };
 
@@ -49,7 +51,8 @@ pub use crate::orchestrator::{
 
 // Rotation (MS2): declare fallbacks/lineages and read rotation telemetry.
 pub use crate::rotation::{
-    AgentRotation, FallbackPool, Lineage, ProviderProbe, RotationEvent, RotationKind,
+    AgentRotation, CandidateEligibility, FallbackPool, IneligibilityCause, Lineage, ProviderProbe,
+    RotationEvent, RotationKind,
 };
 
 // Feature-gated providers

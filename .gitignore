@@ -46,10 +46,34 @@ dev-docs/
 # curated-graph backups the rebuild hook writes).
 graphify-out/cost.json
 graphify-out/.graphify_python
+# Tool-versioned AST cache: derived data, rebuilt offline by `graphify update`,
+# and keyed by the graphify version. Tracking it made every upgrade a commit that
+# deletes one version tree and adds another (0.9.9 -> 0.9.41 was 529 files, 40 MB)
+# without telling a reader of this repository anything. What IS tracked, and what
+# the tracking decision was actually about, is the structure map itself:
+# graph.json, GRAPH_REPORT.md and wiki/.
+graphify-out/cache/
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
-# Rewritten by every `graphify query`, so without this line the working tree is
-# dirty after any graph lookup and the clean-status check of §8 fires on noise.
-graphify-out/cache/last_query_stamp
 
 # Usage-gate artifact (scripts/claude_usage.py output)
 claude-usage.txt
+
+# The harness builds into its own workspace root, and the repo's `/target/` rule
+# is anchored, so this directory needs its own line. Without it every harness
+# build leaves the tree dirty, which breaks both the clean-status release check
+# and the harness's own assertion that it leaves no trace in the repo.
+smoke/target/
+
+# The harness is a BINARY and wants a reproducible build, so its lock is tracked.
+# The bare `Cargo.lock` pattern above matches at any depth and would swallow it.
+!smoke/Cargo.lock
+
+# The real, operator-supplied config. `magi-smoke.toml.example` documents the WHY
+# of each key and IS tracked; this is the copy someone actually edits.
+smoke/magi-smoke.toml
+# The feature matrix no longer builds here: it uses
+# `<temp>/magi-smoke-feature-matrix/<combination>` instead, so the harness does
+# not put a gigabyte of build output inside somebody's checkout. The rule stays
+# only to keep artifacts left by a pre-move build out of git; nothing writes
+# here any more, and it can go once no such tree survives.
+smoke/target-matrix/

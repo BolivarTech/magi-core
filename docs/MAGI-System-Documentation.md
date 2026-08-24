@@ -64,7 +64,7 @@ The adaptation preserves the fundamental property of the original system: each a
 
 ### 2.2 Why Three Perspectives and Not Two or Five
 
-Three is the minimum number that allows majority voting without deadlock. With two agents, a disagreement produces a tie with no resolution mechanism. With five, computational cost triples without a proportional improvement in decision quality (diminishing returns). Three also allows each agent to have a strong, differentiated identity, while five would dilute the perspectives into overlapping concerns.
+Three is the minimum number that allows majority voting without deadlock. With two agents, a disagreement produces a tie with no resolution mechanism. With five, the cost per run grows by two thirds without a proportional improvement in decision quality (diminishing returns). Three also allows each agent to have a strong, differentiated identity, while five would dilute the perspectives into overlapping concerns.
 
 ### 2.3 Addressing Cognitive Biases
 
@@ -75,7 +75,7 @@ The adversarial multi-perspective model addresses well-documented cognitive bias
 | **Confirmation bias** | Three agents with different evaluation criteria are unlikely to share the same blind spots |
 | **Anchoring** | Agents analyze independently — no agent sees the others' output before forming its own verdict |
 | **Groupthink** | Caspar (Critic) is designed to be adversarial; its role is to find fault, not agree |
-| **Optimism bias** | The weight-based scoring penalizes reject (-1) more heavily than approve (+1), making negative signals harder to override |
+| **Optimism bias** | Approve (+1) and reject (-1) are symmetric in magnitude, but only the go side has a half-weight option: there is a conditional approve and no conditional reject, so mixed panels drift positive |
 | **Status quo bias** | Each agent evaluates from first principles against its own criteria, not against "how things are done" |
 | **Overconfidence** | The confidence formula produces lower scores when agents disagree, surfacing genuine uncertainty |
 
@@ -138,14 +138,24 @@ lib.rs (crate root)
 ├── validate.rs       — Validator with ValidationLimits, zero-width Unicode stripping
 ├── consensus.rs      — ConsensusEngine: weighted scoring, epsilon-aware classification
 ├── reporting.rs      — ReportFormatter (52-char ASCII banner), MagiReport
-├── provider.rs       — LlmProvider async trait (Send+Sync), RetryProvider
-├── prompts.rs        — 3 submodules loading 9 system prompt .md files via include_str!
+├── provider.rs       — LlmProvider async trait (Send+Sync), Completion, RetryProvider
+├── backoff.rs        — capped exponential backoff, full jitter, Retry-After parsing
+├── finding_id.rs     — stable SHA-256 finding identity
+├── prompts/          — PUBLIC. 3 MODE-AGNOSTIC system prompts via include_str! + validate_prompt
+├── user_prompt.rs    — PRIVATE. Sanitization pipeline + nonce-delimited payload construction
+├── verdict_markers.rs — PUBLIC. The verdict sentinel: extract, marker consts, causes
+├── rotation.rs       — per-agent lineage rotation, RotationKind, pool eligibility
+├── test_support.rs   — PUBLIC behind `test-utils`: RoutingMockProvider and friends
 ├── agent.rs          — Agent struct, AgentFactory with per-agent/per-mode overrides
 ├── orchestrator.rs   — Magi struct + MagiBuilder, analyze() via concurrent dispatch
-├── prelude.rs        — Re-exports of all public types
+├── prelude.rs        — Re-exports of the COMMON types (not every public one)
 └── providers/
+    ├── provider_url.rs — PRIVATE. Owns the URL, renders it redacted, builds requests
     ├── claude.rs     — ClaudeProvider (HTTP, feature: claude-api)
-    └── claude_cli.rs — ClaudeCliProvider (subprocess, feature: claude-cli)
+    ├── claude_cli.rs — ClaudeCliProvider (subprocess, feature: claude-cli)
+    ├── openai_compat.rs — OpenAiCompatibleProvider (feature: openai-compat)
+    ├── ollama.rs     — OllamaProvider, native /api/chat + probe (feature: ollama)
+    └── ollama_wire.rs — PRIVATE. The native request/response shapes and their parsing
 ```
 
 ### 4.2 Dependency Flow
@@ -179,7 +189,7 @@ User input
 Magi::analyze() — validates input size
   │
   ▼
-AgentFactory::create_agents() — 3 agents with mode-specific prompts
+AgentFactory::create_agents_with_prompts() — 3 agents, mode-agnostic prompts + overrides
   │
   ├──────────────────┬──────────────────┐
   ▼                  ▼                  ▼
@@ -190,16 +200,18 @@ Melchior           Balthasar          Caspar
 parse_agent_response() — strip code fences, extract JSON
   │                  │                  │
   ▼                  ▼                  ▼
-Validator::validate() — confidence, text lengths, findings
+Validator::validate_mut() — confidence, text lengths, findings
   │
   ▼
 ConsensusEngine::determine() — scoring + dedup + dissent
   │
   ▼
-ReportFormatter::format_report() — ASCII banner + markdown
+ReportFormatter::format_report_with_input_size() — ASCII banner + markdown
   │
   ▼
-MagiReport { agents, consensus, banner, report, degraded, failed_agents }
+MagiReport { agents, consensus, banner, report, degraded, failed_agents,
+             retried_agents, extraction_failures, rotations, input_size,
+             completions, pool_eligibility }
 ```
 
 ### 4.4 Concurrency Model
@@ -229,7 +241,14 @@ Each agent responds with a JSON object (deserialized as `AgentOutput`):
   "summary": "One-line verdict summary",
   "reasoning": "Detailed analysis (2-5 paragraphs)",
   "findings": [
-    { "severity": "critical | warning | info", "title": "Short title", "detail": "Explanation" }
+    {
+      "severity": "critical | warning | info",
+      "title": "Short title",
+      "detail": "Explanation",
+      "file": "src/main.rs",
+      "line": 42,
+      "category": "logic-error"
+    }
   ],
   "recommendation": "What this agent recommends"
 }
@@ -239,7 +258,7 @@ Key fields:
 
 - **verdict**: The binary vote (`conditional` counts as approve for majority but generates conditions in the report).
 - **confidence**: Agent certainty in its own verdict (0.0-1.0). Validated to reject NaN/Infinity.
-- **findings**: Atomic units of analysis — the consensus engine deduplicates and merges by case-insensitive title.
+- **findings**: Atomic units of analysis — the consensus engine deduplicates by stable id when a finding carries a file and a positive line, and by case-insensitive title otherwise. See §5.4.
 
 ### 5.2 Voting Rules
 
@@ -253,11 +272,14 @@ score = sum(weight) / num_agents
 | Score | Condition           | Consensus            |
 |-------|---------------------|----------------------|
 | 1.0   | Unanimous approve  | **STRONG GO**        |
-| > 0   | Has conditionals   | **GO WITH CAVEATS**  |
+| > 0   | Has conditionals   | **GO WITH CAVEATS (N-M)** |
 | > 0   | No conditionals    | **GO (N-M)**         |
 | 0     | Tie                | **HOLD -- TIE**      |
 | < 0   | Mixed              | **HOLD (N-M)**       |
 | -1.0  | Unanimous reject   | **STRONG NO-GO**     |
+
+`(N-M)` is the effective split, and **the order flips with the verdict**: the `GO` labels print
+(go side, no side) while `HOLD` prints (no side, go side), so `HOLD (2-1)` means two rejects.
 
 In degraded mode (2/3 agents), STRONG labels are capped to their regular counterparts.
 
@@ -280,7 +302,7 @@ Key properties:
 
 The consensus engine merges findings from all agents:
 
-1. **Deduplication by title**: Case-insensitive matching with zero-width Unicode characters stripped via regex.
+1. **Deduplication by id, falling back to title**: a finding that carries a file and a positive line gets a stable SHA-256 identity and dedupes on that; one without a location dedupes on its title, case-insensitively and with zero-width Unicode characters stripped via regex. Title-only was the rule before `1.0.0`.
 2. **Severity escalation**: When the same finding has different severities across agents, the highest wins (Critical > Warning > Info).
 3. **Sorting**: Final findings sorted by severity (Critical first).
 4. **Source tracking**: Each deduplicated finding lists all contributing agents in its `sources` array.
@@ -334,7 +356,7 @@ Not everything needs MAGI. A trivial bug, a typo, or a question with an obvious 
 
 ### 7.4 LLM-Agnostic Design
 
-magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API — Claude, Gemini, OpenAI, or local models can all serve as the underlying engine. The built-in Claude providers are feature-gated and optional.
+magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API — Claude, OpenAI, Ollama and other local runtimes already ship as feature-gated providers, and Gemini would be additive. All of them are optional.
 
 This means the same consensus engine, validation, and reporting pipeline works regardless of which LLM powers the agents — or even if different agents use different models.
 
@@ -350,7 +372,7 @@ This means the same consensus engine, validation, and reporting pipeline works r
 | BALTHASAR-2 (mother) | `AgentName::Balthasar` — pragmatism and team protection |
 | CASPAR-3 (woman) | `AgentName::Caspar` — adversarial instinct and risk detection |
 | 2-of-3 voting | `ConsensusEngine` with weight-based majority rules |
-| Personality transplant | System prompts (9 markdown files, 3 agents x 3 modes) |
+| Personality transplant | System prompts (3 markdown files, one per agent, mode-agnostic since v0.3.0) |
 | Terminal Dogma | `MagiBuilder` (hidden configuration depth) |
 | AT Field | Agent independence (parallel execution, no shared context) |
 | Pribnow Box | `Validator` (schema validation — containment layer) |
@@ -365,13 +387,13 @@ magi-core is a **Rust port and generalization** of the [MAGI Python plugin](http
 magi-core preserves the same consensus algorithm, confidence formula, and findings deduplication logic, but repackages them as a general-purpose Rust library with:
 
 - **Async trait-based provider abstraction** (`LlmProvider`) instead of hardcoded `claude -p` subprocess calls.
-- **Feature-gated providers** for Claude HTTP API and CLI, with the door open for Gemini, OpenAI, and local models.
+- **Feature-gated providers** for the Claude HTTP API and CLI, the OpenAI-compatible wire (`openai-compat`) and Ollama's native path (`ollama`), with the door open for Gemini.
 - **Compile-time embedded prompts** via `include_str!` instead of runtime file loading.
 - **Builder pattern** (`MagiBuilder`) for flexible configuration.
 - **Type-safe domain model** with Rust enums, serde serialization, and comprehensive validation.
 
 ---
 
-*Technical reference document for magi-core v1.0.0.*
+*Technical reference document for magi-core v4.0.0.*
 *The MAGI concept originates from Neon Genesis Evangelion (Hideaki Anno, Gainax, 1995).*
 *The implementation as a Rust library is a creative adaptation for LLM-agnostic multi-perspective analysis.*

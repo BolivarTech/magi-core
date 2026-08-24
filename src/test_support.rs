@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-05-16
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Test-only support utilities. Gated `#[cfg(any(test, feature = "test-utils"))]`
 //! at the module declaration in `lib.rs`.
@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use crate::agent::CURRENT_AGENT_IDENTITY;
 use crate::error::{ExternalErrorKind, ProviderError};
 use crate::orchestrator::{Magi, MagiBuilder};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::reporting::MagiReport;
 use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
@@ -88,7 +88,7 @@ impl LlmProvider for RoutingMockProvider {
         _system_prompt: &str,
         _user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         let identity =
             CURRENT_AGENT_IDENTITY
                 .try_with(|name| *name)
@@ -114,7 +114,7 @@ impl LlmProvider for RoutingMockProvider {
                 stderr: format!("RoutingMockProvider: sequence exhausted for {identity:?}"),
             });
         }
-        Ok(seq.remove(0)?)
+        Ok(Completion::new(seq.remove(0)?))
     }
 
     fn name(&self) -> &str {
@@ -142,6 +142,19 @@ impl LlmProvider for RoutingMockProvider {
 /// consume it.
 static BAD_JSON: LazyLock<String> =
     LazyLock::new(|| format!("{VERDICT_OPEN}\nnot json at all\n{VERDICT_CLOSE}"));
+
+/// A block that OPENS and never closes — the signature of a response cut off mid-flight.
+///
+/// The JSON inside is deliberately well-formed and complete: what is missing is only the
+/// closing marker, so the failure is `Unterminated` and not `InvalidJson`. A truncated body
+/// with mangled JSON would fail for the nearer reason and never exercise the sentinel's
+/// unterminated arm at all.
+static TRUNCATED: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{VERDICT_OPEN}\n{{\"agent\":\"caspar\",\"verdict\":\"approve\",\"confidence\":0.9,\
+         \"summary\":\"ok\",\"reasoning\":\"r\",\"recommendation\":\"go\",\"findings\":[]}}"
+    )
+});
 
 /// AGENT-AWARE valid verdict body. Reads the `CURRENT_AGENT_IDENTITY` task-local
 /// (set by [`crate::agent::Agent::execute`]/`execute_with`) and emits a verdict
@@ -179,8 +192,22 @@ pub fn valid_verdict_for_current_agent() -> String {
 /// One behavior per attempt index; the last entry repeats for further calls.
 #[derive(Clone)]
 pub enum Beh {
-    /// Return a valid, agent-aware verdict.
+    /// Return a valid, agent-aware verdict, with a MEASURED telemetry attached.
+    ///
+    /// Measured rather than blank because the success path's whole job is copying that
+    /// telemetry into the report; with `unmeasured()` every field a test could look at is
+    /// `None`, so the copy is observable only in a unit test of the conversion and never end
+    /// to end. The values model an ordinary completion: it ended on its own (`Stop`), well
+    /// under its budget, having reasoned a little.
     Ok,
+    /// Return a valid, agent-aware verdict that was nonetheless CUT at the output budget.
+    ///
+    /// The case the report's two telemetry maps are required to keep DISJOINT: extraction
+    /// succeeded, so nothing belongs in `extraction_failures`, while `completions` must still
+    /// record that the answer arrived at the ceiling. Scripted because that disjointness is a
+    /// property of the orchestrator filling both maps, and a test that inserts into one of
+    /// them by hand asserts only its own fixture.
+    OkAtTheCap,
     /// Surface `ProviderError::Network` (connection-level → counts toward
     /// endpoint-down).
     Network,
@@ -194,6 +221,27 @@ pub enum Beh {
     /// `serde_json`, so this variant would test the *absence* of markers instead of bad
     /// JSON. The full reasoning is on the private `BAD_JSON` constant.
     BadJson,
+    /// Return a block that OPENS and never closes (`Unterminated` → schema failure →
+    /// mage-local rotation).
+    ///
+    /// The JSON inside is complete on purpose: only the closing marker is missing, so the
+    /// failure is the sentinel's unterminated arm and not the nearer `InvalidJson` one.
+    Truncated,
+    /// Surface `ProviderError::NoGeneration` — the footprint of a request THIS CRATE built
+    /// wrongly, which the backend accepted and did not generate from.
+    ///
+    /// Scripted so the abort can be observed end to end. It is the one behaviour here whose
+    /// consequence is the whole RUN rather than one seat, and reading that from a report
+    /// field is impossible — the run produces no report at all.
+    NoGeneration,
+    /// Surface `ProviderError::EmptyCompletion` — the model returned no content because it
+    /// spent the whole output budget before producing any.
+    ///
+    /// The headline failure of `4.0.0`, and the one whose CONSEQUENCE changed: it is
+    /// mage-local, so the seat rotates and the lineage stays available to the other two.
+    /// Scripted because that consequence can only be observed by watching the registry
+    /// across a real rotation, not by classifying an error in isolation.
+    EmptyCompletion,
     /// Surface `ProviderError::ResponseTooLarge`.
     ///
     /// A CONTENT failure that looks superficially like transport: the server answered fine, it
@@ -245,8 +293,8 @@ impl LlmProvider for ScriptProvider {
         &self,
         _s: &str,
         _u: &str,
-        _c: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+        config: &CompletionConfig,
+    ) -> Result<Completion, ProviderError> {
         let i = self.calls.fetch_add(1, Ordering::SeqCst);
         let beh = self
             .script
@@ -255,8 +303,53 @@ impl LlmProvider for ScriptProvider {
             .cloned()
             .unwrap_or(Beh::Ok);
         match beh {
-            Beh::Ok => Ok(valid_verdict_for_current_agent()),
-            Beh::BadJson => Ok(BAD_JSON.clone()),
+            Beh::Ok => Ok(
+                Completion::new(valid_verdict_for_current_agent()).with_telemetry(
+                    crate::provider::CompletionTelemetry::unmeasured()
+                        .with_finish(crate::provider::FinishReason::Stop)
+                        .with_completion_tokens(512)
+                        .with_prompt_tokens(1_024)
+                        .with_reasoning(crate::provider::ReasoningState::Measured {
+                            chars: 64,
+                            text: None,
+                        }),
+                ),
+            ),
+            Beh::OkAtTheCap => Ok(Completion::new(valid_verdict_for_current_agent())
+                .with_telemetry(
+                    crate::provider::CompletionTelemetry::unmeasured()
+                        .with_finish(crate::provider::FinishReason::Length)
+                        .with_completion_tokens(config.max_tokens)
+                        .with_reasoning(crate::provider::ReasoningState::Measured {
+                            chars: 4_096,
+                            text: None,
+                        }),
+                )),
+            Beh::BadJson => Ok(Completion::new(BAD_JSON.clone())),
+            Beh::Truncated => Ok(Completion::new(TRUNCATED.clone())),
+            // Modelled on `resp-C.json`, the capture this milestone is named after: the model
+            // spent the WHOLE budget reasoning and emitted nothing, so `completion_tokens`
+            // equals the cap and the reasoning measurement is non-zero. A double that returned
+            // a bare termination reason would let an integration test believe the empty path
+            // carries no measurement -- which is precisely the defect being fixed.
+            Beh::EmptyCompletion => Err(ProviderError::EmptyCompletion {
+                telemetry: crate::provider::CompletionTelemetry::unmeasured()
+                    .with_finish(crate::provider::FinishReason::Length)
+                    .with_completion_tokens(config.max_tokens)
+                    .with_reasoning(crate::provider::ReasoningState::Measured {
+                        chars: 15_409,
+                        text: None,
+                    }),
+                // READ, never invented: a double that hardcodes the budget lets a test
+                // configure a different one, assert the record carries it, and pass on a
+                // number the production path never chose.
+                cap: config.max_tokens,
+            }),
+            Beh::NoGeneration => Err(ProviderError::NoGeneration {
+                // The value the one captured case carried. Named rather than `None` so the
+                // scripted footprint matches the real one it stands for.
+                done_reason: Some(crate::provider::FinishReason::Load),
+            }),
             Beh::Network => Err(ProviderError::Network {
                 message: "connection refused".into(),
             }),
@@ -320,8 +413,8 @@ impl LlmProvider for MockProbe {
         _s: &str,
         _u: &str,
         _c: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
-        Ok(valid_verdict_for_current_agent())
+    ) -> Result<Completion, ProviderError> {
+        Ok(Completion::new(valid_verdict_for_current_agent()))
     }
     fn name(&self) -> &str {
         &self.name
@@ -544,19 +637,19 @@ mod tests {
             .scope(AgentName::Melchior, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r1, "MEL_1");
+        assert_eq!(r1.text, "MEL_1");
 
         let r2 = CURRENT_AGENT_IDENTITY
             .scope(AgentName::Balthasar, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r2, "BAL_1");
+        assert_eq!(r2.text, "BAL_1");
 
         let r3 = CURRENT_AGENT_IDENTITY
             .scope(AgentName::Melchior, mp.complete("sys", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r3, "MEL_2");
+        assert_eq!(r3.text, "MEL_2");
     }
 
     #[tokio::test]
@@ -607,7 +700,7 @@ mod tests {
             .scope(AgentName::Melchior, mp.complete("s", "x", &cfg))
             .await
             .unwrap();
-        assert_eq!(r2, "MEL_2");
+        assert_eq!(r2.text, "MEL_2");
     }
 
     /// Invariant — each prompt file still contains the agent
@@ -622,7 +715,7 @@ mod tests {
     }
 
     #[test]
-    fn test_the_two_scripted_bodies_fail_and_succeed_where_their_names_claim() {
+    fn test_every_scripted_body_fails_and_succeeds_where_its_name_claims() {
         use crate::verdict_markers::{ExtractionFailureCause, extract};
 
         // Both causes map to `Deserialization`, so every rotation test passes either
@@ -639,6 +732,17 @@ mod tests {
         let block = extract(&ok).expect("the success body must be correctly delimited");
         serde_json::from_str::<crate::schema::AgentOutput>(block)
             .expect("the success body must deserialize as a full 7-key verdict");
+
+        // TRUNCATED is the THIRD scripted body and the newest, so it is the one whose
+        // meaning is likeliest to drift -- and its drift is invisible: `Unterminated` and
+        // `MissingMarkers` both land on a schema failure, so every rotation test passes
+        // either way. That is precisely how `Beh::BadJson` drifted from "bad JSON" to "no
+        // markers" unnoticed when the wire format changed. Pinning is what makes it loud.
+        assert_eq!(
+            extract(&TRUNCATED).unwrap_err().cause(),
+            ExtractionFailureCause::Unterminated,
+            "TRUNCATED must fail because the CLOSING marker is missing, not because              delimitation never started"
+        );
 
         // And the guard rail for the reverse drift: a bare body no longer models a
         // cooperative provider at all.

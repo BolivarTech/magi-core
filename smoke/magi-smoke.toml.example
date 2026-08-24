@@ -1,0 +1,81 @@
+# magi-smoke.toml.example — copy to magi-smoke.toml (which is gitignored).
+#
+# EVERY VALUE HERE IS ALSO THE BUILT-IN DEFAULT, and a test compares the two
+# (`the_example_file_matches_the_built_in_defaults`). Copying this file changes
+# nothing by itself: it exists so the WHY of each key is readable, and so editing
+# one is a deliberate act rather than a discovery. `cargo run` with no config file
+# behaves exactly as if this file had been copied unchanged.
+#
+# The NAME is different from magi-rs's magi.toml ON PURPOSE, in both directions:
+# the harness cannot pick up a production config by accident, and a production
+# tool cannot pick up the harness's. Both files can live in the same directory.
+#
+# Credentials NEVER live here: they travel by environment variable. A literal
+# value in this file is a configuration error, not a convenience.
+
+endpoint = "http://localhost:11434"
+
+# Contention probe. One trivial request; if it does not answer within this many
+# seconds the run reports "cannot test", never "failed".
+# 10 s is an order of magnitude of slack over an idle endpoint's sub-second reply.
+# Against a COLD local model, loading can take longer — the probe retries once
+# with a widened window, so "clone and run" works without pre-warming.
+probe_timeout_secs = 10
+
+# Bytes, not tokens: bytes are what the generator can measure without a
+# tokenizer. The token count is the load-bearing property but NOT the
+# controllable magnitude, so it is asserted at runtime instead (>= 50000).
+payload_target_bytes = 250000
+
+# Target size, in bytes, of the payload THIS stage's runs analyse. Separate from
+# the value above, which sizes the large-payload scenario this stage does not
+# run. Small by default because these runs exercise paths rather than reproduce
+# the large-input failure — and configurable because raising it is exactly how
+# that failure is reproduced, by hand, once.
+run_payload_bytes = 2048
+
+[budgets]
+happy_secs         = 120   # ~8-9 s measured (run H) x slack
+large_payload_secs = 300   # ~90 s estimated; evidence run D took 2m13s to return NOTHING
+injected_secs      = 180   # two models, the first fails fast by injection
+no_backend_secs    = 30    # touches no network except the published docs
+
+# The array-of-tables sections MUST BE LAST IN THE FILE. In TOML every loose key
+# must precede the first array-of-tables, so a key added after this point parses
+# into the wrong table, silently. "Last in the file" leaves nowhere to get it
+# wrong. Another array-of-tables may follow — `[[fallbacks]]` does — because the
+# rule constrains loose keys, not sections.
+#
+# The mixed-trio scenario needs ONE seat whose provider CANNOT honour the
+# reasoning control. Without it, the property that replaced "fail loudly" cannot
+# be exercised at all.
+# `lineage` is REQUIRED: it is the rotation diversity key and the crate takes it
+# in the builder signature. It is never inferred from the model name.
+[[seats]]
+agent = "melchior"
+model = "qwen3.5:397b-cloud"
+lineage = "alibaba"
+supports_reasoning_control = true
+
+[[seats]]
+agent = "balthasar"
+model = "kimi-k2.6:cloud"
+lineage = "moonshot"
+supports_reasoning_control = false
+
+[[seats]]
+agent = "caspar"
+model = "glm-5.2:cloud"
+lineage = "zhipu"
+supports_reasoning_control = true
+
+# Rotation candidates, shared by the whole trio rather than declared per seat —
+# the crate's fallback pool belongs to the run, not to a mage. Without at least
+# one the rotation run has nowhere to rotate TO, and the scenario that reads it
+# can only report that it could not be tested.
+#
+# `lineage` must DIFFER from every seat's: rotation exists to reach a different
+# lineage, so a candidate that shares one buys nothing.
+[[fallbacks]]
+model = "deepseek-v4-pro:cloud"
+lineage = "deepseek"

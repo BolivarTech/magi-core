@@ -31,19 +31,28 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Structured findings** *(v1.0)* — `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified** — validate against your own diff
 - **Finding deduplication** — co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
 - **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
-- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via an immutable `RetryConfig`.
+- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via `RetryConfig`, whose fields are public: build one from `default()` and set what you need.
 
-> ⚠️ **Upgrading to 2.0?** The HTTP providers now apply a **300 s total request
-> timeout** where there was none before — a `complete()` call that used to hang
-> forever (or take >300 s) will now fail with `ProviderError::Timeout`. Raise it
-> with `OpenAiCompatibleProvider::with_timeout(...)`. The **worst-case latency
-> with the defaults is ~15 minutes** per call (10 min `operation_budget` + one
-> 5 min timeout); wrap in `tokio::time::timeout` for a harder bound. The complete list
-> of 2.0 breaking changes is in the `[2.0.0]` entry of `CHANGELOG.md`.
+> ⚠️ **How long a call can take.** The HTTP providers apply a **300 s total request
+> timeout** (`with_timeout(...)` to change it), and since `4.0.0` the retry chain is
+> bounded by an attempt **count** rather than by elapsed time: the classes that can
+> each burn a whole client timeout get two attempts, so the worst case per call is
+> `(1 + limited_max_retries) × client_timeout + backoffs` ≈ **601 s**, against an
+> agent ceiling of 660 s. **That bound is for a HOMOGENEOUS chain** of attempt-limited
+> failures. A mixed one — a `429`, which keeps the general count, followed by a hang —
+> is bounded by `operation_budget + max(client_timeout, retry_after_cap + jitter)`
+> ≈ **751 s**, which is ABOVE the ceiling: there the cut is an opaque timeout rather
+> than a typed abandonment. `docs/migration-v4.0.md` §9 has the full table.
+>
+> **Do not compute it as `operation_budget + client_timeout`.** That relation held
+> before `4.0.0` and is now deliberately unsatisfied — the budget became a backstop
+> rather than the operating limit. `Magi::worst_case_per_seat()` derives the number
+> from the configuration you actually built, which is what to read instead of any
+> figure written here. Full table and the reasoning: `docs/migration-v4.0.md` §9.
 - **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
 - **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
 - **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to the reference implementation's verdict-sentinel release, applied verbatim with no local divergence, verified via SHA-256 fixture in CI
-- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), and `openai-compat` (OpenAI Chat Completions — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server) ship as optional features
+- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), `openai-compat` (OpenAI Chat Completions — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server) and `ollama` (the native `/api/chat` path, since `4.0.0`) ship as optional features
 - **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
 - **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
 
@@ -53,12 +62,16 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "3.0"
+magi-core = "4.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
+# Only if you implement `LlmProvider` yourself: the trait is declared with
+# `#[async_trait]` and this crate does not re-export the macro.
+async-trait = "0.1"
+
 # Enable one or both built-in providers:
-# magi-core = { version = "3.0", features = ["claude-cli"] }
-# magi-core = { version = "3.0", features = ["claude-api"] }
+# magi-core = { version = "4.0", features = ["claude-cli"] }
+# magi-core = { version = "4.0", features = ["claude-api"] }
 ```
 
 ### Basic Usage
@@ -91,10 +104,17 @@ use std::time::Duration;
 let default_provider: Arc<dyn LlmProvider> = /* ... */;
 let caspar_provider: Arc<dyn LlmProvider> = /* ... */;
 
+// `ConsensusConfig` is `#[non_exhaustive]`, so a struct literal is `E0639` from any
+// crate but this one. Start from `default()` and set what you need. (These two ARE the
+// defaults, shown to make the shape explicit.)
+let mut consensus = ConsensusConfig::default();
+consensus.min_agents = 2;
+consensus.epsilon = 1e-9;
+
 let magi = Magi::builder(default_provider)
     .with_provider(AgentName::Caspar, caspar_provider)
     .with_timeout(Duration::from_secs(60))
-    .with_consensus_config(ConsensusConfig { min_agents: 2, epsilon: 1e-9 })
+    .with_consensus_config(consensus)
     .build()?;
 
 let report = magi.analyze(&Mode::Design, "Propose a caching layer").await?;
@@ -156,7 +176,8 @@ would itself deserialize as a valid verdict (a fabrication template), fails `bui
 `MagiError::PromptContract`, and no request is sent.
 
 Check yours in your own test suite rather than discovering it at build time.
-`prompts::validate_prompt` is the exact function `build()` runs, so what it accepts is
+`prompts::validate_prompt` runs the same check `build()` does (`build()` calls
+`validate_prompt_for`; `validate_prompt` delegates to it), so what it accepts is
 what `build()` accepts:
 
 ```rust
@@ -182,7 +203,12 @@ structured output on that provider.
 
 ### Cost Control with Complexity Gate
 
-*(v0.5+)* `analyze` always costs 3 Claude calls. To avoid spending on
+*(v0.5+)* `analyze` dispatches one call per mage, and more when a mage has to be
+recovered: a corrective retry doubles a seat's calls and each rotation adds another
+model, so the ceiling with the defaults and a fallback pool is 18 rather than 3 — and that
+counts orchestrator dispatches, not billed requests: wrap a provider in `RetryProvider` and
+each dispatch can become up to four HTTP calls for the classes that keep the general count. To
+avoid spending on
 trivial inputs, install a caller-supplied predicate via
 `MagiBuilder::with_complexity_gate`. When it returns `false`, `analyze`
 returns `MagiError::SkippedByComplexityGate` with **zero LLM dispatch**.
@@ -290,7 +316,7 @@ println!("{}", report.banner);
               +-----+-----+-----+-----+
                     |                 |
               +-----+-----+   +------+------+
-              |  Validator |   |  Consensus  |
+              | Validator |   |  Consensus  |
               +-----------+   +------+------+
                                      |
                               +------+------+
@@ -304,19 +330,28 @@ println!("{}", report.banner);
 error         (foundation — no internal deps)
 schema        (domain types: Verdict, Severity, Mode, AgentName, Category, Finding, AgentOutput)
 finding_id    (stable SHA-256 finding identity + fail-soft file/line/category deserializers)
-validate      (field validation with regex zero-width stripping, NFKC + casefold)
+validate      (field validation, regex zero-width stripping; NFKC + casefold live in consensus)
 consensus     (weighted scoring, classification, finding dedup)
 reporting     (ASCII banner + markdown report generation)
-provider      (LlmProvider trait, CompletionConfig, RetryProvider)
+provider      (LlmProvider trait, Completion, CompletionConfig, ReasoningControl, RetryProvider)
+backoff       (capped exponential backoff, full jitter, Retry-After parsing, RetryClass)
+verdict_markers (the verdict sentinel: public extract + marker constants + causes)
+rotation      (per-agent lineage rotation, RotationKind, pool eligibility snapshot)
 prompts       (3 mode-agnostic prompts embedded via include_str!, lookup helper)
 prompts_md/   (byte-for-byte Python reference: melchior.md, balthasar.md, caspar.md)
-user_prompt   (sanitization pipeline + nonce-delimited payload construction)
-agent         (Agent struct, AgentFactory — no Mode parameter as of v0.3)
+user_prompt   (private) — sanitization pipeline + nonce-delimited payload construction
+agent         (Agent struct — no Mode parameter as of v0.3; AgentFactory still takes one)
 orchestrator  (Magi, MagiBuilder — composes everything)
+prelude       (re-exports of the COMMON types — start here; a few, such as ExtractionFailure
+               and DedupFinding, need their own module path)
+test_support  [feature: test-utils]        — RoutingMockProvider and friends, for downstream tests
 providers/
   claude          [feature: claude-api]      — HTTP via reqwest
   claude_cli      [feature: claude-cli]      — subprocess via tokio::process
-  openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + Ollama/LocalAI/vLLM/LM Studio)
+  openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + LocalAI/vLLM/LM Studio)
+  ollama          [feature: ollama]          — native /api/chat completions + the /api/show + /api/tags probe
+  ollama_wire     (private)                  — the native request/response shapes and their parsing
+  provider_url    (private)                  — owns the URL, renders it redacted, builds every request
 ```
 
 ### Prompt Injection Defense
@@ -335,7 +370,10 @@ The sanitization pipeline runs in a fixed order:
 
 1. `normalize_newlines` — converts Unicode line terminators (`\r\n`, `\r`,
    U+0085, U+000B, U+000C, U+2028, U+2029) to `\n`.
-2. `strip_invisibles` — removes zero-width and bidi formatting characters.
+2. `strip_invisibles` — removes the whole `Cf` category plus four explicit code points.
+   One of those, `U+202F` NARROW NO-BREAK SPACE, is `Zs` and **renders visibly**, so
+   French-typography input loses it before dispatch. Stated as a category rather than a
+   list because an enumerated list here drifted out of sync with the code once already.
 3. `neutralize_headers` — prefixes any line starting with `MODE`, `CONTEXT`,
    `---BEGIN`, or `---END` with two spaces so it cannot be parsed as a
    delimiter. Both flanks of the keyword are matched by a **non-letter** rule,
@@ -362,8 +400,10 @@ before a header was an accepted limitation through 2.1.0; 2.2.0 closes it.)
 | < 0   | Mixed                 | **HOLD (N-M)**               |
 | -1.0  | Unanimous reject      | **STRONG NO-GO**             |
 
-`(N-M)` is the effective split: approves and conditionals on the "go" side,
-rejects on the "no" side. In degraded mode (2/3 agents), STRONG labels are
+`(N-M)` is the effective split, and **the order flips with the verdict**: the `GO`
+labels print (go side, no side) while `HOLD` prints (no side, go side), so `HOLD (2-1)`
+means two rejects. Approves and conditionals count on the "go" side, rejects on the
+"no" side. In degraded mode (2/3 agents), STRONG labels are
 capped to their regular counterparts.
 
 ## Implementing a Custom Provider
@@ -381,8 +421,11 @@ impl LlmProvider for MyProvider {
         system_prompt: &str,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
-        // Call your LLM backend here
+    ) -> Result<Completion, ProviderError> {
+        // Call your LLM backend here, then:
+        //   Ok(text.into())
+        // An implementor that measures nothing gets telemetry that SAYS so,
+        // rather than reporting zeros that would read as a measurement.
         todo!()
     }
 
@@ -422,7 +465,7 @@ When a mage's model goes dead during a run, the crate rotates that single agent 
 > - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages abort the whole run before consensus; a genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could over-abort — accepted (YAGNI).
 > - **A hanging/slow endpoint is NOT fast-failed.** A hung endpoint surfaces as `Timeout`/`RetryAbandoned`, which by design does NOT count toward endpoint-down (only connection-refused `Network` does); it is condemned and rotated, not aborted.
 > - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected — so your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
-> - **No built-in hard cap on total run time.** Worst case per mage is about `(max_rotations + 1) × operation_budget`; wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling (an optional builder run-timeout is backlog).
+> - **No built-in hard cap on total run time.** Ask the crate rather than deriving it: `Magi::worst_case_per_seat()` returns `timeout × calls_per_model × (1 + max_rotations)` read off the configuration you actually built. The defaults give **22 minutes per seat only when you declared neither a pool nor a probe**; declaring **either** engages rotation and makes it 66, because a probing agent without a pool gets an empty one seeded with the default rotation count. Whether the run costs that once or three times over depends on whether your backend serves the three mages in parallel, which the crate cannot know. Wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling.
 > - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down — the same boundary as the hanging-endpoint note.
 
 ### Declaring fallbacks
@@ -479,18 +522,22 @@ With no rotations the text output is unchanged from the pre-rotation format.
 
 ### Ollama probe (feature `ollama`)
 
-Enable the `ollama` feature to use `OllamaProvider`, which provides OpenAI-compatible completions plus a native probe:
+Enable the `ollama` feature to use `OllamaProvider`, which completes over Ollama's **native**
+`/api/chat` endpoint and adds a native probe:
 
 ```rust
-// Either spelling works: the OpenAI-compatible endpoint, or the daemon root.
-let ollama = OllamaProvider::new("http://localhost:11434/v1", "qwen3:8b")?;
+// Either spelling works: the daemon root, or the legacy `/v1` suffix.
+let ollama = OllamaProvider::new("http://localhost:11434", "qwen3:8b")?;
 ```
 
-`OllamaProvider` accepts **either** `http://localhost:11434/v1` (the OpenAI-compatible endpoint,
-the same shape `OpenAiCompatibleProvider` takes) **or** `http://localhost:11434` (the daemon
-root). Ollama serves `/v1` and `/api` as siblings, so giving one is enough to find the other.
-A reverse-proxy prefix is preserved either way: `https://gw.example.com/ollama/v1` probes
-`https://gw.example.com/ollama/api/*`.
+`OllamaProvider` accepts **either** `http://localhost:11434` (the daemon root) **or**
+`http://localhost:11434/v1`, which is **normalised away** rather than used: since `4.0.0` both
+completions and probes speak the native `/api/*` API, and nothing addresses `/v1`. The suffix is
+still accepted so an existing configuration keeps working. A reverse-proxy prefix is preserved
+either way: `https://gw.example.com/ollama/v1` reaches `https://gw.example.com/ollama/api/*`.
+
+If you route or log by path, that is the one thing to repoint — `docs/migration-v4.0.md` §4 has
+the checklist.
 
 The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
 
@@ -527,7 +574,7 @@ use magi_core::prelude::*;
 Err(ProviderError::external("backend unreachable", ExternalErrorKind::Network))
 ```
 
-That constructor is the **only** way to build a `ProviderError` from outside this crate — the
+That constructor is the only way to build a **struct-like** `ProviderError` variant from outside this crate (`NestedSession` is a bare unit variant and is constructible, which helps nobody: it names a condition only this crate detects) — the
 transport variants stay closed, because their fields drive which model lineages get condemned. The
 `kind` you pass names the **shape** of the failure; this crate decides the consequences (whether it
 is retried, and how far the condemnation reaches). A complete implementation is in
@@ -539,9 +586,9 @@ is retried, and how far the condemnation reaches). A complete implementation is 
 |------------------|---------|--------------------------------------|
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
-| `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + Ollama/LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. |
-| `ollama`         | off     | `OllamaProvider` (enables `openai-compat`) — OpenAI-compatible completions **plus** the native `ProviderProbe` (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
-| `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Stable within the 1.x line. |
+| `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. For Ollama use the `ollama` feature below: since `4.0.0` it completes on the native `/api/chat` path, not through this one. |
+| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe`. Still enables `openai-compat` (for `reqwest` and the shared URL machinery, **not** for the completions path), so `OpenAiCompatibleProvider` is exported too. The probe endpoints belong to `OllamaProvider`, the only production `ProviderProbe`: context window via `/api/show`, weights digest via `/api/tags`, both used by rotation's window/digest verify. |
+| `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Its surface is covered by the crate's stability policy like any other public item, so it moves on a minor at the earliest. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with
 no optional features enabled.

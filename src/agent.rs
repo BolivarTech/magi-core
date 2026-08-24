@@ -1,9 +1,9 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.0.0
+// Date: 2026-08-23
 
 use crate::error::{MagiError, ProviderError};
-use crate::provider::{CompletionConfig, LlmProvider};
+use crate::provider::{Completion, CompletionConfig, LlmProvider};
 use crate::schema::{AgentName, Mode};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -107,19 +107,26 @@ impl Agent {
     /// Executes the agent by sending the user prompt to the LLM provider.
     ///
     /// Delegates to [`LlmProvider::complete`] with this agent's system prompt.
-    /// Returns the raw LLM response string — parsing is the orchestrator's responsibility.
+    /// Returns the [`Completion`] — its text plus the telemetry the provider measured —
+    /// unparsed; extracting the verdict is the orchestrator's responsibility.
     ///
     /// # Parameters
     /// - `user_prompt`: The user's input content.
-    /// - `config`: Completion parameters (max_tokens, temperature).
+    /// - `config`: Completion parameters (`max_tokens`, `temperature`, `reasoning`,
+    ///   `reasoning_trace`).
     ///
     /// # Errors
     /// Returns `ProviderError` on LLM communication failure.
+    ///
+    /// # Returns
+    ///
+    /// The whole [`Completion`], not just its text: the telemetry rides along to the report, and
+    /// dropping it here would break the diagnosis axis inside the task that enables it.
     pub async fn execute(
         &self,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         // Set CURRENT_AGENT_IDENTITY for the duration of the provider call
         // so test-only providers (RoutingMockProvider) can route responses
         // per-agent. Production providers ignore the task-local.
@@ -148,7 +155,7 @@ impl Agent {
         provider: &Arc<dyn LlmProvider>,
         user_prompt: &str,
         config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         CURRENT_AGENT_IDENTITY
             .scope(
                 self.name,
@@ -328,7 +335,9 @@ impl AgentFactory {
     /// respect the v0.3 overrides map set via
     /// `with_custom_prompt_for_mode` / `with_custom_prompt_all_modes`.
     /// This method falls back to embedded defaults only (ignores
-    /// orchestrator-level overrides) and will be removed in v0.4.0.
+    /// orchestrator-level overrides). It was marked for removal in v0.4.0, which shipped in May
+    /// 2026 with this method still here; three majors later it is still here, so treat the
+    /// deprecation as the warning and not as a scheduled date. Removing it needs its own cycle.
     #[deprecated(
         since = "0.3.0",
         note = "create_agents does NOT apply overrides set via \
@@ -411,9 +420,9 @@ mod tests {
             _system_prompt: &str,
             _user_prompt: &str,
             _config: &CompletionConfig,
-        ) -> Result<String, ProviderError> {
+        ) -> Result<Completion, ProviderError> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
-            Ok(self.response.clone())
+            Ok(Completion::new(self.response.clone()))
         }
 
         fn name(&self) -> &str {
@@ -541,7 +550,7 @@ mod tests {
         let config = CompletionConfig::default();
 
         let result = agent.execute("user input", &config).await;
-        assert_eq!(result.unwrap(), "response text");
+        assert_eq!(result.unwrap().text, "response text");
         assert_eq!(provider.calls(), 1);
     }
 

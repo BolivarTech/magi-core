@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-08-09
+// Version: 4.0.0
+// Date: 2026-08-23
 
 //! Proves, by compiling as a SEPARATE crate, that a rotation probe can be declared
 //! WITHOUT handing over the provider that serves completions.
@@ -53,10 +53,10 @@ impl LlmProvider for HostedModel {
         _system_prompt: &str,
         _user_prompt: &str,
         _config: &CompletionConfig,
-    ) -> Result<String, ProviderError> {
+    ) -> Result<Completion, ProviderError> {
         // Never invoked — this example proves registration compiles, not that a
         // completion runs.
-        Ok(String::new())
+        Ok(Completion::new(String::new()))
     }
 
     fn name(&self) -> &str {
