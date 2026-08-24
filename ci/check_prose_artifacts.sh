@@ -93,6 +93,18 @@ PATTERNS='["'"'"'] \+ [A-Za-z_][A-Za-z0-9_]* \+ ["'"'"']
 \{NL\}
 chr\([0-9][0-9]*\)'
 
+# ONE PROBE SHAPE PER PATTERN, in the same order, and the self-test asserts the
+# two counts match. This is the third axis this guard's honesty rests on, after
+# the roots and the extensions, and it was the one still open: there were four
+# patterns and three shapes, so `{NL}` was guarded by nothing. Measured -- with
+# that pattern deleted and a live `{NL}` in `ci/run_all_checks.sh`, both modes
+# exited 0. Adding a pattern without its shape now fails loudly instead of
+# quietly widening the legend while narrowing the guard.
+PROBE_SHAPES="# built ' + EM + ' here
+# a {EM} here
+# a {NL} here
+# a chr(8212) here"
+
 # THE SCAN SET, and what it is NOT. `cargo package --list` emits 176 files; this
 # scans four directories and three root files, which is where prose that a human
 # wrote lives. It does NOT scan `tests/` or `.github/` -- 34 shipped files -- and
@@ -196,16 +208,30 @@ if [ "${1:-}" = "--self-test" ]; then
     fi
   done
 
+  # A shape per pattern, asserted rather than assumed. Fed by here-document and
+  # not by a pipe on purpose: a `while read` at the end of a pipeline runs in a
+  # subshell, so every `fails` increment inside it would be discarded and this
+  # loop would report success no matter what it found.
+  n_patterns="$(printf '%s\n' "$PATTERNS" | grep -c . || true)"
+  n_shapes="$(printf '%s\n' "$PROBE_SHAPES" | grep -c . || true)"
+  if [ "$n_patterns" -ne "$n_shapes" ]; then
+    echo "SELF-TEST: $n_shapes probe shapes for $n_patterns patterns" >&2
+    exit 1
+  fi
+
   for target in $PROBE_FILES; do
     [ -f "$TMP/$target" ] || { echo "SELF-TEST: probe target missing: $target" >&2; fails=$((fails + 1)); continue; }
-    for probe in "# built ' + EM + ' here" "# a {EM} here" "# a chr(8212) here"; do
+    while IFS= read -r probe; do
+      [ -n "$probe" ] || continue
       printf '%s\n' "$probe" >> "$TMP/$target"
       if [ -z "$(scan "$TMP")" ]; then
         echo "check_prose_artifacts SELF-TEST FAILED: not detected in $target: $probe" >&2
         fails=$((fails + 1))
       fi
       sed -i '$ d' "$TMP/$target"
-    done
+    done <<EOF
+$PROBE_SHAPES
+EOF
   done
 
   # The exemption is the dangerous part of any guard, so it gets a probe of its
@@ -231,7 +257,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   n_targets="$(printf '%s\n' $PROBE_FILES | grep -c . || true)"
-  echo "check_prose_artifacts: self-test OK (3 shapes x $n_targets probe files caught; clean copy silent)"
+  echo "check_prose_artifacts: self-test OK ($n_shapes shapes x $n_targets probe files caught; clean copy silent)"
   exit 0
 fi
 
