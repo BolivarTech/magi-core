@@ -96,7 +96,8 @@ pub struct CompletionConfig {
     /// 4. **It has no cap, and how big it gets is a formula, not a number.** Every completion is
     ///    recorded, so a seat that rotates accumulates one trace per model: worst case
     ///    `(1 + max_rotations) x calls_per_model` traces **per agent**, times three agents —
-    ///    **up to 18 per run** with the shipped defaults. Traces of **~141 000 characters per
+    ///    **up to 18 per run** once a pool **or a probe** is declared, and **6** with neither,
+    ///    since rotation does not engage at all then. Traces of **~141 000 characters per
     ///    agent** have been measured, which is a **measured reference and not a ceiling**:
     ///    another model reasons more and the number grows.
     ///

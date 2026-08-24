@@ -57,6 +57,23 @@ SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 # exactly the deliberation such a change deserves.
 REQUIRED_ROOTS='src ci docs examples README.md CHANGELOG.md Cargo.toml'
 
+# And the same treatment for the extensions, because pinning only the roots left
+# the identical hole one level down: the self-test used to discover its probes
+# THROUGH `scan_targets`, so narrowing that function's `-name` filter narrowed the
+# expectation with it. Measured, not feared -- dropping `*.sh` from the filter and
+# planting a placeholder in `ci/run_all_checks.sh`, the exact file this guard was
+# written for, left BOTH modes exiting 0. Dropping `*.rs` or `*.md` did go red,
+# but only by luck: `examples/` is all `.rs` and `docs/` all `.md`, so those roots
+# went empty, while `ci/` holds 90 `.rs` fixtures that kept it looking populated.
+#
+# Re-running those four mutations, three now go red and `toml` stays green. That
+# green is CORRECT and not a fourth hole: no `.toml` exists under any scanned
+# directory, and the only one that ships is `Cargo.toml`, which arrives through
+# SCAN_FILES rather than the `find`. It is listed for the day one appears, and on
+# that day the self-test demands it -- its discovery is a `find` of its own, so it
+# sees the file whatever the scanner's filter says.
+REQUIRED_EXTS='rs sh md toml'
+
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
 #
@@ -84,6 +101,12 @@ chr\([0-9][0-9]*\)'
 # names and compiles examples, and never compares file lists. Said plainly
 # rather than left as an implication.
 #
+# It also runs slightly WIDER than the tarball in one place: `docs/test/` is
+# scanned and is `exclude`d from the package, so this can go red over the smoke
+# certificate. Left that way on purpose -- being noisy about a file that does not
+# ship is the harmless direction, and carving an exception into the scan is how
+# the interesting direction gets carved next.
+#
 # THIS FILE IS THE ONE EXEMPTION, and an exemption is the dangerous part of any
 # guard, so it is anchored to the exact path rather than matched as a substring
 # (an unanchored filter exempted anything whose path merely CONTAINED this name).
@@ -92,26 +115,12 @@ chr\([0-9][0-9]*\)'
 # file's own prose is unguarded, which is acceptable only because it is the file
 # whose subject IS those shapes.
 
-# `scan_targets [dir...]` lists the shipped files to scan. With no argument it
-# lists the whole scan set. With directories, it lists only those and omits the
-# root files -- which is how the self-test derives one probe per root from THIS
-# function instead of keeping a parallel list of its own. A probe list written by
-# hand cannot notice that a root stopped being scanned, and noticing that is the
-# entire job of the self-test.
 scan_targets() {
-  if [ "$#" -eq 0 ]; then
-    set -- $SCAN_DIRS
-    _roots_only=0
-  else
-    _roots_only=1
-  fi
-  find "$@" -type f \
+  find $SCAN_DIRS -type f \
     \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \) 2>/dev/null |
     sed 's#^\./##' |
-    grep -v '^ci/check_prose_artifacts\.sh$' || true
-  if [ "$_roots_only" -eq 0 ]; then
-    ls $SCAN_FILES 2>/dev/null || true
-  fi
+    grep -v '^ci/check_prose_artifacts\.sh$'
+  ls $SCAN_FILES 2>/dev/null
 }
 
 scan() {
@@ -144,9 +153,12 @@ if [ "${1:-}" = "--self-test" ]; then
   # of SCAN_DIRS left both modes exiting 0 with a real placeholder in a shipped
   # file.
   #
-  # Note which half is derived and which is fixed, because swapping them silently
-  # disarms this: the ROOTS come from the fixed list, so a narrowing is refused;
-  # only the file WITHIN a root is discovered, so a rename inside it is absorbed.
+  # Note which halves are fixed and which is derived, because swapping them
+  # silently disarms this. The ROOT and the EXTENSION both come from fixed lists,
+  # so narrowing either one is refused; only WHICH FILE of that kind gets picked
+  # is discovered, so a rename is absorbed. And the discovery below is a `find` of
+  # its own rather than a call into `scan_targets`: deriving the expectation from
+  # the function under test is what let the extension hole through.
   fails=0
   PROBE_FILES=""
   for _root in $REQUIRED_ROOTS; do
@@ -161,17 +173,27 @@ if [ "${1:-}" = "--self-test" ]; then
         continue
         ;;
     esac
-    if [ -d "$_root" ]; then
-      _probe="$(scan_targets "$_root" | LC_ALL=C sort | head -1)"
-    else
-      _probe="$_root"
-    fi
-    if [ -z "$_probe" ]; then
-      echo "SELF-TEST: no scannable file under $_root" >&2
-      fails=$((fails + 1))
+    if [ ! -d "$_root" ]; then
+      PROBE_FILES="$PROBE_FILES $_root"
       continue
     fi
-    PROBE_FILES="$PROBE_FILES $_probe"
+    # One probe per (root, extension) pair that EXISTS in the tree. A pair that
+    # does not occur is skipped rather than demanded -- `docs/` holds no `.rs`
+    # and requiring one would fail on a true statement about the repository.
+    _found_any=0
+    for _ext in $REQUIRED_EXTS; do
+      _probe="$(find "$_root" -type f -name "*.$_ext" 2>/dev/null |
+        sed 's#^\./##' |
+        grep -v '^ci/check_prose_artifacts\.sh$' |
+        LC_ALL=C sort | head -1 || true)"
+      [ -n "$_probe" ] || continue
+      PROBE_FILES="$PROBE_FILES $_probe"
+      _found_any=1
+    done
+    if [ "$_found_any" -eq 0 ]; then
+      echo "SELF-TEST: no scannable file under $_root" >&2
+      fails=$((fails + 1))
+    fi
   done
 
   for target in $PROBE_FILES; do
@@ -209,7 +231,7 @@ if [ "${1:-}" = "--self-test" ]; then
     exit 1
   fi
   n_targets="$(printf '%s\n' $PROBE_FILES | grep -c . || true)"
-  echo "check_prose_artifacts: self-test OK (3 shapes x $n_targets required roots caught; clean copy silent)"
+  echo "check_prose_artifacts: self-test OK (3 shapes x $n_targets probe files caught; clean copy silent)"
   exit 0
 fi
 

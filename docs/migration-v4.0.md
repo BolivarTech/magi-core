@@ -353,8 +353,8 @@ substitutes.
 Turning it on accepts: the text is the **model's**, not this crate's; it does **not** pass the
 `Validator`; it is **not redacted**; and it has **no cap** — worst case
 `(1 + max_rotations) × calls_per_model` traces per agent, times three agents, which is up to
-**18 per run** once a fallback pool is declared (with none, rotation does not engage and it is
-6), and traces of ~141 000 characters per agent have been
+**18 per run** once a fallback pool **or a probe** is declared (with neither, rotation does not
+engage and it is 6), and traces of ~141 000 characters per agent have been
 measured. That figure is a measured reference, not a ceiling.
 
 ---
