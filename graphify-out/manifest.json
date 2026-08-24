@@ -205,8 +205,8 @@
     "semantic_hash": ""
   },
   "src/providers/ollama.rs": {
-    "mtime": 1787541043.8043823,
-    "ast_hash": "9c4c77efc5fe77dcc81f4185c9cea758",
+    "mtime": 1787572452.0337164,
+    "ast_hash": "ecb008a4924881b8a5f3c654c1ec1971",
     "semantic_hash": ""
   },
   "src/verdict_markers.rs": {
@@ -950,8 +950,8 @@
     "semantic_hash": ""
   },
   "ci/check_prose_artifacts.sh": {
-    "mtime": 1787561891.6097968,
-    "ast_hash": "7e2c90c2a746d504ad078db0be152120",
+    "mtime": 1787572542.6025558,
+    "ast_hash": "56753df1f550cd917d6bad3febb40918",
     "semantic_hash": ""
   }
 }
