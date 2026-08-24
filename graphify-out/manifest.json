@@ -30,8 +30,8 @@
     "semantic_hash": ""
   },
   "src/orchestrator.rs": {
-    "mtime": 1787534613.2702441,
-    "ast_hash": "7ed6afef0c892b32a5a4ccb4a4681bc2",
+    "mtime": 1787537538.4778426,
+    "ast_hash": "c00a9d565945df28ee7b5ee5114138ae",
     "semantic_hash": ""
   },
   "src/prelude.rs": {
@@ -40,12 +40,12 @@
     "semantic_hash": ""
   },
   "src/prompts/mod.rs": {
-    "mtime": 1787534651.8915627,
-    "ast_hash": "6272a6a29a58655347cef02587057760",
+    "mtime": 1787537538.4798417,
+    "ast_hash": "fefe07ac054d8a35cdd1c6e7d6b6ed42",
     "semantic_hash": ""
   },
   "src/provider.rs": {
-    "mtime": 1787534487.4018757,
+    "mtime": 1787535816.183538,
     "ast_hash": "4b3461a43d102d7a9956afadae36b438",
     "semantic_hash": ""
   },
@@ -125,18 +125,18 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1787534769.2208586,
-    "ast_hash": "ea5de79f3e0268bb10d0f07c0623fcda",
+    "mtime": 1787537644.0111094,
+    "ast_hash": "80387e4b5edad91f10f5204a3c23c0ff",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1787534674.0169418,
-    "ast_hash": "eb582d319f6de80195f853909d9fb20b",
+    "mtime": 1787537703.8293033,
+    "ast_hash": "e6b93a5065c08931c4e147e994e66f46",
     "semantic_hash": ""
   },
   "docs/MAGI-System-Documentation.md": {
-    "mtime": 1787534696.6644173,
-    "ast_hash": "638a0a16593a8aa14909f0d728725d76",
+    "mtime": 1787537703.8303022,
+    "ast_hash": "32b24d4113794f6f90e91a977e8c6f2b",
     "semantic_hash": ""
   },
   "src/prompts_md/README.md": {
@@ -665,8 +665,8 @@
     "semantic_hash": ""
   },
   "ci/run_all_checks.sh": {
-    "mtime": 1787534452.9121919,
-    "ast_hash": "d666ed06cdd93f1670e24793533b13ba",
+    "mtime": 1787537538.4738438,
+    "ast_hash": "b561dc5da31a8fec39cc77a46a0cca44",
     "semantic_hash": ""
   },
   "ci/fixtures/redaction/pattern7builderalias_bad.rs": {
@@ -710,8 +710,8 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1787534344.6652403,
-    "ast_hash": "97ed9ba04990e5affc28a455120093a6",
+    "mtime": 1787537663.3242655,
+    "ast_hash": "adb18ba243a209de6c99e30b8129ee76",
     "semantic_hash": ""
   },
   "smoke/Cargo.toml": {
@@ -880,8 +880,8 @@
     "semantic_hash": ""
   },
   "docs/migration-v4.0.md": {
-    "mtime": 1787534613.2773755,
-    "ast_hash": "7abcee23eadd6b0d22e180f5706c6119",
+    "mtime": 1787537607.3234127,
+    "ast_hash": "0b0528ed95ae7fa51b5014bdc33d143b",
     "semantic_hash": ""
   },
   "ci/check_pending.sh": {
