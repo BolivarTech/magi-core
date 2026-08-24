@@ -4,7 +4,7 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.0.0] - 2026-08-23
+## [4.0.0] - 2026-08-24
 
 ### One story, not two: the completion budget and the time budget
 

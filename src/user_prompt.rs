@@ -225,9 +225,10 @@ const VERDICT_MARKER_TOKENS: &[&str] = &[VERDICT_OPEN, VERDICT_CLOSE];
 /// 1. `normalize_newlines` converts `\r`, U+0085, U+000B/C, U+2028/9 to
 ///    `\n` so subsequent line-anchored matching sees uniform line breaks
 ///
-/// 2. `strip_invisibles` removes zero-width / bidi / BOM / soft-hyphen
-///    characters so a ZWSP-prefixed `MODE:` cannot evade the line-start
-///    regex
+/// 2. `strip_invisibles` removes the invisible and separator characters of
+///    [`crate::validate::INVISIBLE_AND_SEPARATOR_RE`] — the set is named
+///    there, not restated here — so a ZWSP-prefixed `MODE:` cannot evade the
+///    line-start regex
 /// 3. `neutralize_headers` covers line-start `MODE:` / `CONTEXT:` /
 ///    `---BEGIN USER CONTEXT` / `---END USER CONTEXT` tokens (existing
 ///    v0.3 anti-injection defense).
@@ -484,7 +485,8 @@ pub(crate) fn build_user_prompt(
 ) -> Result<String, MagiError> {
     // Step 1: normalize all Unicode line separators to \n.
     let step1 = normalize_newlines(content);
-    // Step 2: strip zero-width and bidi invisible characters.
+    // Step 2: strip the invisible and separator characters of
+    // INVISIBLE_AND_SEPARATOR_RE (whole Cf category plus four explicit points).
     let step2 = strip_invisibles(&step1);
     // Step 3: neutralize reserved header keywords by inserting "  " prefix.
     let sanitized = neutralize_headers(&step2);

@@ -16,7 +16,14 @@ categories = ["algorithms", "asynchronous"]
 # out, only corrected by publishing again — which is what a doc-only release
 # already cost this project once. Excluded in the same change that introduces
 # the directory, not after.
-exclude = ["docs/test/"]
+#
+# The knowledge graph is tracked in git on purpose — someone reading or
+# contributing to this repository gets the structure map with the checkout. It
+# is not, however, anything a consumer who wrote `magi-core = "4.0"` can use:
+# it was 7.8 MB of a 9.8 MB package, of which 3.5 MB was a browser viewer, and
+# cargo packages by "what git tracks" unless told otherwise. Tracked, yes;
+# shipped, no. Whoever wants it takes it from the repository or the tag.
+exclude = ["docs/test/", "graphify-out/", ".graphifyignore"]
 
 [dependencies]
 thiserror = "2"

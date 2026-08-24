@@ -48,6 +48,15 @@ cd "$ROOT"
 SCAN_DIRS='src ci docs examples'
 SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 
+# The scan set is declared TWICE, and the duplication IS the check. Above is what
+# the scanner walks; below is what it is REQUIRED to walk. Deriving the second
+# from the first would make the self-test agree with whatever the first says, and
+# a narrowing would sail through -- which is the defect this file already paid for
+# once. An expectation computed from the thing it checks asserts nothing.
+# Dropping a root is still allowed; it now costs an edit in two places, which is
+# exactly the deliberation such a change deserves.
+REQUIRED_ROOTS='src ci docs examples README.md CHANGELOG.md Cargo.toml'
+
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
 #
@@ -67,13 +76,13 @@ PATTERNS='["'"'"'] \+ [A-Za-z_][A-Za-z0-9_]* \+ ["'"'"']
 \{NL\}
 chr\([0-9][0-9]*\)'
 
-# THE SCAN SET, and what it is NOT. `cargo package --list` emits 184 files; this
+# THE SCAN SET, and what it is NOT. `cargo package --list` emits 176 files; this
 # scans four directories and three root files, which is where prose that a human
-# wrote lives. It does NOT scan `tests/`, `.github/`, or `graphify-out/` -- about
-# fifty shipped files -- and an earlier version of this comment claimed the
-# packaged-consumer step proved the set matched the tarball, which was false:
-# that step parses `[[example]]` names and compiles examples, and never compares
-# file lists. Said plainly rather than left as an implication.
+# wrote lives. It does NOT scan `tests/` or `.github/` -- 34 shipped files -- and
+# an earlier version of this comment claimed the packaged-consumer step proved
+# the set matched the tarball, which was false: that step parses `[[example]]`
+# names and compiles examples, and never compares file lists. Said plainly
+# rather than left as an implication.
 #
 # THIS FILE IS THE ONE EXEMPTION, and an exemption is the dangerous part of any
 # guard, so it is anchored to the exact path rather than matched as a substring
@@ -82,12 +91,27 @@ chr\([0-9][0-9]*\)'
 # scanning itself would fail always. The cost is stated rather than hidden: this
 # file's own prose is unguarded, which is acceptable only because it is the file
 # whose subject IS those shapes.
+
+# `scan_targets [dir...]` lists the shipped files to scan. With no argument it
+# lists the whole scan set. With directories, it lists only those and omits the
+# root files -- which is how the self-test derives one probe per root from THIS
+# function instead of keeping a parallel list of its own. A probe list written by
+# hand cannot notice that a root stopped being scanned, and noticing that is the
+# entire job of the self-test.
 scan_targets() {
-  find $SCAN_DIRS -type f \
+  if [ "$#" -eq 0 ]; then
+    set -- $SCAN_DIRS
+    _roots_only=0
+  else
+    _roots_only=1
+  fi
+  find "$@" -type f \
     \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \) 2>/dev/null |
     sed 's#^\./##' |
-    grep -v '^ci/check_prose_artifacts\.sh$'
-  ls $SCAN_FILES 2>/dev/null
+    grep -v '^ci/check_prose_artifacts\.sh$' || true
+  if [ "$_roots_only" -eq 0 ]; then
+    ls $SCAN_FILES 2>/dev/null || true
+  fi
 }
 
 scan() {
@@ -111,11 +135,45 @@ if [ "${1:-}" = "--self-test" ]; then
   cp -r $SCAN_DIRS "$TMP/" 2>/dev/null || true
   cp $SCAN_FILES "$TMP/" 2>/dev/null || true
 
-  # One probe per scanned root, so narrowing SCAN_DIRS or SCAN_FILES fails here.
-  PROBE_FILES="src/lib.rs ci/run_all_checks.sh docs/migration-v4.0.md README.md CHANGELOG.md Cargo.toml"
-  PROBE_FILES="$PROBE_FILES $(ls examples/*.rs 2>/dev/null | head -1)"
-
+  # One probe per REQUIRED root, and the probe file itself is discovered rather
+  # than named. The previous version named six paths and derived the seventh from
+  # `examples/*.rs`, which is the flat layout only: with `examples/<name>/main.rs`
+  # -- the form the packaged-consumer check supports -- the substitution yielded
+  # nothing, the entry vanished, and nothing complained, because a loop can only
+  # report a target that is LISTED. Reproduced: that shape plus a later narrowing
+  # of SCAN_DIRS left both modes exiting 0 with a real placeholder in a shipped
+  # file.
+  #
+  # Note which half is derived and which is fixed, because swapping them silently
+  # disarms this: the ROOTS come from the fixed list, so a narrowing is refused;
+  # only the file WITHIN a root is discovered, so a rename inside it is absorbed.
   fails=0
+  PROBE_FILES=""
+  for _root in $REQUIRED_ROOTS; do
+    # Coverage first: a required root that the scanner no longer walks is the
+    # narrowing this self-test exists to refuse, and it is reported as such
+    # instead of as a puzzling missing file three lines later.
+    case " $SCAN_DIRS $SCAN_FILES " in
+      *" $_root "*) ;;
+      *)
+        echo "SELF-TEST: $_root is required but is not in the scan set" >&2
+        fails=$((fails + 1))
+        continue
+        ;;
+    esac
+    if [ -d "$_root" ]; then
+      _probe="$(scan_targets "$_root" | LC_ALL=C sort | head -1)"
+    else
+      _probe="$_root"
+    fi
+    if [ -z "$_probe" ]; then
+      echo "SELF-TEST: no scannable file under $_root" >&2
+      fails=$((fails + 1))
+      continue
+    fi
+    PROBE_FILES="$PROBE_FILES $_probe"
+  done
+
   for target in $PROBE_FILES; do
     [ -f "$TMP/$target" ] || { echo "SELF-TEST: probe target missing: $target" >&2; fails=$((fails + 1)); continue; }
     for probe in "# built ' + EM + ' here" "# a {EM} here" "# a chr(8212) here"; do
@@ -128,6 +186,20 @@ if [ "${1:-}" = "--self-test" ]; then
     done
   done
 
+  # The exemption is the dangerous part of any guard, so it gets a probe of its
+  # own: a shipped path that merely CONTAINS this script's name must still be
+  # scanned. The anchoring that makes that true was added without a test, and a
+  # fix left unpinned is how the previous one came back -- widening the filter to
+  # an unanchored substring passes every check above while this one goes red.
+  _decoy_dir="$TMP/docs/$(basename "$0").d"
+  mkdir -p "$_decoy_dir"
+  printf '%s\n' "# a {EM} here" > "$_decoy_dir/probe.md"
+  if [ -z "$(scan "$TMP")" ]; then
+    echo "check_prose_artifacts SELF-TEST FAILED: the exemption swallowed $_decoy_dir/probe.md" >&2
+    fails=$((fails + 1))
+  fi
+  rm -rf "$_decoy_dir"
+
   if [ -n "$(scan "$TMP")" ]; then
     echo "check_prose_artifacts SELF-TEST FAILED: clean copy reported a hit" >&2
     fails=$((fails + 1))
@@ -136,8 +208,8 @@ if [ "${1:-}" = "--self-test" ]; then
   if [ "$fails" -ne 0 ]; then
     exit 1
   fi
-  n_targets="$(printf '%s\n' $PROBE_FILES | grep -c .)"
-  echo "check_prose_artifacts: self-test OK (3 shapes x $n_targets scanned roots caught; clean copy silent)"
+  n_targets="$(printf '%s\n' $PROBE_FILES | grep -c . || true)"
+  echo "check_prose_artifacts: self-test OK (3 shapes x $n_targets required roots caught; clean copy silent)"
   exit 0
 fi
 
