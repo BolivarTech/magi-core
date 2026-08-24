@@ -107,11 +107,13 @@ impl Agent {
     /// Executes the agent by sending the user prompt to the LLM provider.
     ///
     /// Delegates to [`LlmProvider::complete`] with this agent's system prompt.
-    /// Returns the raw LLM response string — parsing is the orchestrator's responsibility.
+    /// Returns the [`Completion`] — its text plus the telemetry the provider measured —
+    /// unparsed; extracting the verdict is the orchestrator's responsibility.
     ///
     /// # Parameters
     /// - `user_prompt`: The user's input content.
-    /// - `config`: Completion parameters (max_tokens, temperature).
+    /// - `config`: Completion parameters (`max_tokens`, `temperature`, `reasoning`,
+    ///   `reasoning_trace`).
     ///
     /// # Errors
     /// Returns `ProviderError` on LLM communication failure.

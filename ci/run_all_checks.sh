@@ -116,8 +116,22 @@ CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features openai-
 step "tests (default features)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo nextest run
 
-step "docs"
+step "docs (all features)"
 CARGO_TARGET_DIR="$ALL_DIR" RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+
+# BOTH feature sets, for the reason already written for doctests below: an item behind a feature
+# gate is the one a default-features consumer never sees. Until this line the gate built docs
+# under `--all-features` ONLY, and was therefore structurally unable to see the configuration
+# docs.rs builds ' + EM + ' which is no `default` at all, since this crate declares none. Five intra-doc
+# links in `provider.rs`, a file that renders under every feature set, dangled on the default set
+# and nothing could report it. Two of the five had just been ADDED by a fix.
+#
+# `Cargo.toml` now carries `[package.metadata.docs.rs] all-features = true`, so the published
+# page resolves them either way. This step exists because that metadata is a promise about a
+# service we cannot run locally, and the promise is worth nothing if the docs only build under
+# one set.
+step "docs (default features)"
+CARGO_TARGET_DIR="$DEF_DIR" RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
 # LAST among the cargo steps, and the order is load-bearing on Windows. Running this before a
 # `cargo build` made the build fail to LINK — error 1104/1201, "cannot open file" — because the

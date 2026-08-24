@@ -384,7 +384,7 @@ pub(crate) fn suffix(detail: &str) -> String {
 /// Which part of a provider's response contract was not met.
 ///
 /// One variant per sub-case, inside a single [`ProviderError::ResponseContract`], because the
-/// unit of separation in [`ProviderError`] is the **consequence** and both of these share it.
+/// unit of separation in [`ProviderError`] is the **consequence** and all three of these share it.
 /// Splitting them into sibling error variants would force the orchestrator's classifier to nest
 /// a match to reach the same answer — and this crate has already paid for a nested match that
 /// stole the outer one's state.
@@ -583,8 +583,9 @@ impl ProviderError {
     ///
     /// # Why this exists at all
     ///
-    /// Every variant of this enum is `#[non_exhaustive]`, so none can be built with a struct
-    /// expression from another crate. Without a constructor an external provider could *compile*
+    /// Every struct-like variant of this enum is `#[non_exhaustive]`, so none of them can be
+    /// built with a struct expression from another crate. (`NestedSession` is a bare unit variant
+    /// and is constructible, which helps nobody: it names a condition only this crate detects.) Without a constructor an external provider could *compile*
     /// but could not **fail in a typed way** — which pushed implementors toward lying with an
     /// unrelated variant or panicking. `#[non_exhaustive]` and this constructor are a pair;
     /// either alone is broken.

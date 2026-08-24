@@ -38,7 +38,11 @@ consensus engine synthesizes their verdicts into a unified report.
 > bounded by an attempt **count** rather than by elapsed time: the classes that can
 > each burn a whole client timeout get two attempts, so the worst case per call is
 > `(1 + limited_max_retries) × client_timeout + backoffs` ≈ **601 s**, against an
-> agent ceiling of 660 s.
+> agent ceiling of 660 s. **That bound is for a HOMOGENEOUS chain** of attempt-limited
+> failures. A mixed one — a `429`, which keeps the general count, followed by a hang —
+> is bounded by `operation_budget + max(client_timeout, retry_after_cap + jitter)`
+> ≈ **751 s**, which is ABOVE the ceiling: there the cut is an opaque timeout rather
+> than a typed abandonment. `docs/migration-v4.0.md` §9 has the full table.
 >
 > **Do not compute it as `operation_budget + client_timeout`.** That relation held
 > before `4.0.0` and is now deliberately unsatisfied — the budget became a backstop
@@ -172,7 +176,8 @@ would itself deserialize as a valid verdict (a fabrication template), fails `bui
 `MagiError::PromptContract`, and no request is sent.
 
 Check yours in your own test suite rather than discovering it at build time.
-`prompts::validate_prompt` is the exact function `build()` runs, so what it accepts is
+`prompts::validate_prompt` runs the same check `build()` does (`build()` calls
+`validate_prompt_for`; `validate_prompt` delegates to it), so what it accepts is
 what `build()` accepts:
 
 ```rust
@@ -328,12 +333,12 @@ consensus     (weighted scoring, classification, finding dedup)
 reporting     (ASCII banner + markdown report generation)
 provider      (LlmProvider trait, Completion, CompletionConfig, ReasoningControl, RetryProvider)
 backoff       (capped exponential backoff, full jitter, Retry-After parsing, RetryClass)
-verdict_markers (the verdict sentinel: extract/locate_block, marker constants, causes)
+verdict_markers (the verdict sentinel: public extract + marker constants + causes)
 rotation      (per-agent lineage rotation, RotationKind, pool eligibility snapshot)
 prompts       (3 mode-agnostic prompts embedded via include_str!, lookup helper)
 prompts_md/   (byte-for-byte Python reference: melchior.md, balthasar.md, caspar.md)
 user_prompt   (sanitization pipeline + nonce-delimited payload construction)
-agent         (Agent struct, AgentFactory — no Mode parameter as of v0.3)
+agent         (Agent struct — no Mode parameter as of v0.3; AgentFactory still takes one)
 orchestrator  (Magi, MagiBuilder — composes everything)
 providers/
   claude          [feature: claude-api]      — HTTP via reqwest
@@ -449,7 +454,7 @@ When a mage's model goes dead during a run, the crate rotates that single agent 
 > - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages abort the whole run before consensus; a genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could over-abort — accepted (YAGNI).
 > - **A hanging/slow endpoint is NOT fast-failed.** A hung endpoint surfaces as `Timeout`/`RetryAbandoned`, which by design does NOT count toward endpoint-down (only connection-refused `Network` does); it is condemned and rotated, not aborted.
 > - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected — so your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
-> - **No built-in hard cap on total run time.** Ask the crate rather than deriving it: `Magi::worst_case_per_seat()` returns `timeout × calls_per_model × (1 + max_rotations)` read off the configuration you actually built. **Declaring a pool is what makes it 66 minutes per seat**; with no pool the crate's own defaults give 22, since there is a single model. Whether the run costs that once or three times over depends on whether your backend serves the three mages in parallel, which the crate cannot know. Wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling.
+> - **No built-in hard cap on total run time.** Ask the crate rather than deriving it: `Magi::worst_case_per_seat()` returns `timeout × calls_per_model × (1 + max_rotations)` read off the configuration you actually built. The defaults give **22 minutes per seat only when you declared neither a pool nor a probe**; declaring **either** engages rotation and makes it 66, because a probing agent without a pool gets an empty one seeded with the default rotation count. Whether the run costs that once or three times over depends on whether your backend serves the three mages in parallel, which the crate cannot know. Wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling.
 > - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down — the same boundary as the hanging-endpoint note.
 
 ### Declaring fallbacks

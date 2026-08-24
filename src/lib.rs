@@ -18,9 +18,11 @@
 //! **Ask the crate for the worst case; do not derive it.**
 //! [`Magi::worst_case_per_seat`](crate::orchestrator::Magi::worst_case_per_seat)
 //! computes it from the configuration you actually built. Two figures get
-//! quoted and only one of them is the default: with no fallback pool there is a
-//! single model, so it is **22 minutes per seat**; declaring a pool brings
-//! rotation in and the same defaults give 66. Whether a run costs that once or
+//! quoted and the condition that separates them is not the one you would guess:
+//! it is **22 minutes per seat** only if you declared **neither a fallback pool
+//! nor a probe**, which is the single-model case. Declaring **either** engages
+//! rotation — a probing agent with no pool substitutes an empty one seeded with
+//! the default rotation count — and the same defaults then give 66. Whether a run costs that once or
 //! three times over depends on whether your backend serves the three mages in
 //! parallel, which this crate cannot know. Wrap the call in
 //! `tokio::time::timeout` if you need a harder bound.

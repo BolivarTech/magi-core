@@ -55,7 +55,7 @@ pub struct CompletionConfig {
     ///
     /// # One backend takes this value verbatim, and can reject it
     ///
-    /// [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) passes `max_tokens` straight
+    /// `ClaudeProvider` passes `max_tokens` straight
     /// through without comparing it against the model's own output ceiling, and asking for more
     /// than that ceiling is a **400 from Anthropic**, not a degraded answer. It is deliberately
     /// not clamped: a silent clamp would be exactly the quiet no-op this crate refuses elsewhere.
@@ -109,10 +109,10 @@ pub struct CompletionConfig {
     ///
     /// | provider | trace channel |
     /// |---|---|
-    /// | [`OllamaProvider`](crate::providers::ollama::OllamaProvider) | `message.thinking` |
-    /// | [`OpenAiCompatibleProvider`](crate::providers::openai_compat::OpenAiCompatibleProvider) | `message.reasoning` |
-    /// | [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) | `thinking` and `redacted_thinking` blocks |
-    /// | [`ClaudeCliProvider`](crate::providers::claude_cli::ClaudeCliProvider) | none — it reports [`ReasoningState::NotMeasured`] |
+    /// | `OllamaProvider` (feature `ollama`) | `message.thinking` |
+    /// | `OpenAiCompatibleProvider` (feature `openai-compat`) | `message.reasoning` |
+    /// | `ClaudeProvider` (feature `claude-api`) | `thinking` and `redacted_thinking` blocks |
+    /// | `ClaudeCliProvider` (feature `claude-cli`) | none — it reports [`ReasoningState::NotMeasured`] |
     ///
     /// **The Claude HTTP provider is not an exception to the hazards above.** This table said it
     /// had no channel, which was simply wrong: extended thinking returns `thinking` blocks, and

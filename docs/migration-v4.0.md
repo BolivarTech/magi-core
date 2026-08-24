@@ -185,10 +185,12 @@ observation. What is conditional is the advice, on three cases:
 and it will be reworded when a clearer sentence is found. Do not branch on the text — branch on
 `FinishReason`, which is typed, `#[non_exhaustive]`, and the thing the wording is derived from.
 
-The third case exists because asserting the other way would be inventing evidence:
-`model_context_window_exceeded` reaches it and *is* about running out of room. Telling an operator
-to raise `max_tokens` because the model refused would be the same misdiagnosis as the `http error
-0` this release removed, one layer in.
+The third case exists because asserting the other way would be inventing evidence. Its example
+used to be `model_context_window_exceeded`, and that is no longer true: since it is translated to
+`FinishReason::Length` it now reaches the FIRST row instead — see §7. What the third case still
+covers is a reason this crate does not recognise at all, where telling an operator to raise
+`max_tokens` because the model refused would be the same misdiagnosis as the `http error 0` this
+release removed, one layer in.
 
 **`NoGeneration` is different from the rest and aborts the run.** It means the backend accepted a
 request and generated nothing, whose known cause is a request this crate built wrongly. It is
@@ -293,8 +295,11 @@ load until that reader tolerates the new key. Additive is not the same as invisi
 > **There are TWO new keys, and the other one is the one you cannot miss.** `completions` carries
 > `skip_serializing_if`, so a run with nothing to report omits it entirely and a strict reader may
 > never meet it. **`pool_eligibility` does not** — it is emitted on every report, empty map
-> included, deliberately, because an absent key and an empty one answer different questions
-> (nothing was ineligible, versus no snapshot was taken). So a strict reader that tolerates
+> included, deliberately, because an absent key and an empty one answer different questions (no
+> snapshot was taken, versus the seats had no candidates). **Do not read an empty vector as
+> "everything was eligible"** — the snapshot emits one row per candidate with `causes` empty when
+> it is eligible, so that case is a non-empty vector; an empty one means there were no candidates,
+> which is every seat when you declare no pool. So a strict reader that tolerates
 > `completions` and stops there **still fails to load every single `4.0.0` report**. Tolerate
 > both. Its values are `CandidateEligibility`, each carrying an `IneligibilityCause`; both types
 > are in the prelude, and the field's own rustdoc states that the snapshot is **pre-dispatch** and

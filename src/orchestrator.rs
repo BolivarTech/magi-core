@@ -111,10 +111,11 @@ pub struct MagiConfig {
     /// corrective schema retry), across `1 + max_rotations` models. The worst case **per seat**
     /// is therefore `timeout * calls_per_model * (1 + max_rotations)`.
     ///
-    /// **With the crate's own defaults that is 22 minutes, not 66.** Rotation is engaged only
-    /// when a fallback pool or a primary probe was declared; without one there is a single model,
-    /// so `660 x 2 x 1 = 1320 s`. Declaring a pool brings `DEFAULT_MAX_ROTATIONS` into it and the
-    /// figure becomes `660 x 2 x 3 = 3960 s`. [`Magi::worst_case_per_seat`] computes it from the
+    /// **With the crate's own defaults that is 22 minutes, not 66 — but only if you declared
+    /// NEITHER a pool nor a probe.** Rotation engages on either one, so `with_probing_agent` with
+    /// no pool substitutes an empty pool carrying `DEFAULT_MAX_ROTATIONS` and the figure is 66
+    /// after all. Measured, not derived: `660 x 2 x 1 = 1320 s` for the bare builder, and
+    /// `660 x 2 x 3 = 3960 s` as soon as either is present. [`Magi::worst_case_per_seat`] computes it from the
     /// effective configuration rather than from either of those numbers.
     ///
     /// **Per seat, never per run:** whether the backend serves the three mages in parallel or

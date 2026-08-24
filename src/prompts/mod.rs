@@ -17,7 +17,8 @@
 //!    have a production consumer at all.
 //!
 //! Visibility is deliberately **narrow**: the three accessors and `validate_prompt` are
-//! public; `lookup_prompt` and `embedded_prompt_for` stay `pub(crate)`.
+//! public, as is `validate_prompt_for`, which the builder calls and which `validate_prompt`
+//! delegates to; `lookup_prompt` and `embedded_prompt_for` stay `pub(crate)`.
 //!
 //! Being public also makes doctests possible here for the first time — a doctest is
 //! compiled as an *external* crate, so it could not reach a private item before.

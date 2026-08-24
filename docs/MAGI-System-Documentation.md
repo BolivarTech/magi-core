@@ -143,8 +143,9 @@ lib.rs (crate root)
 ├── finding_id.rs     — stable SHA-256 finding identity
 ├── prompts/          — PUBLIC. 3 MODE-AGNOSTIC system prompts via include_str! + validate_prompt
 ├── user_prompt.rs    — sanitization pipeline + nonce-delimited payload construction
-├── verdict_markers.rs — PUBLIC. The verdict sentinel: extract/locate_block, causes
+├── verdict_markers.rs — PUBLIC. The verdict sentinel: extract, marker consts, causes
 ├── rotation.rs       — per-agent lineage rotation, RotationKind, pool eligibility
+├── test_support.rs   — PUBLIC behind `test-utils`: RoutingMockProvider and friends
 ├── agent.rs          — Agent struct, AgentFactory with per-agent/per-mode overrides
 ├── orchestrator.rs   — Magi struct + MagiBuilder, analyze() via concurrent dispatch
 ├── prelude.rs        — Re-exports of all public types
@@ -188,7 +189,7 @@ User input
 Magi::analyze() — validates input size
   │
   ▼
-AgentFactory::create_agents() — 3 agents with mode-specific prompts
+AgentFactory::create_agents_with_prompts() — 3 agents, mode-agnostic prompts + overrides
   │
   ├──────────────────┬──────────────────┐
   ▼                  ▼                  ▼
@@ -199,13 +200,13 @@ Melchior           Balthasar          Caspar
 parse_agent_response() — strip code fences, extract JSON
   │                  │                  │
   ▼                  ▼                  ▼
-Validator::validate() — confidence, text lengths, findings
+Validator::validate_mut() — confidence, text lengths, findings
   │
   ▼
 ConsensusEngine::determine() — scoring + dedup + dissent
   │
   ▼
-ReportFormatter::format_report() — ASCII banner + markdown
+ReportFormatter::format_report_with_input_size() — ASCII banner + markdown
   │
   ▼
 MagiReport { agents, consensus, banner, report, degraded, failed_agents,
@@ -246,7 +247,7 @@ Each agent responds with a JSON object (deserialized as `AgentOutput`):
       "detail": "Explanation",
       "file": "src/main.rs",
       "line": 42,
-      "category": "correctness"
+      "category": "logic-error"
     }
   ],
   "recommendation": "What this agent recommends"
@@ -257,7 +258,7 @@ Key fields:
 
 - **verdict**: The binary vote (`conditional` counts as approve for majority but generates conditions in the report).
 - **confidence**: Agent certainty in its own verdict (0.0-1.0). Validated to reject NaN/Infinity.
-- **findings**: Atomic units of analysis — the consensus engine deduplicates and merges by case-insensitive title.
+- **findings**: Atomic units of analysis — the consensus engine deduplicates by stable id when a finding carries a file and a positive line, and by case-insensitive title otherwise. See §5.4.
 
 ### 5.2 Voting Rules
 
