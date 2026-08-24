@@ -146,10 +146,11 @@ this release exists to end.
 
 **One behaviour change inside this one, if you use the Anthropic provider with extended
 thinking.** A response that exhausts `max_tokens` comes back carrying a thinking block and no
-text block. That used to surface as `ResponseContract { NoMessage }` — a broken contract — and
-now surfaces as `EmptyCompletion`, naming the budget that cut it. A genuinely empty `content`
-array is still `NoMessage`: nothing was sent at all, and no termination reason makes that
-legitimate.
+text block. In `3.2.0` that surfaced as `Http { status: 0, body: "no text content block in
+response" }` — the synthetic status this section is about — and it now surfaces as
+`EmptyCompletion`, naming the budget that cut it. A genuinely empty `content` array becomes
+`ResponseContract { NoMessage }`, a variant new in `4.0.0`: nothing was sent at all, and no
+termination reason makes that legitimate.
 
 **What you do:** match the contract variants. `ResponseContractCause` is exported from the
 prelude; its own variants are plain unit variants, and it is the enum that carries
@@ -293,8 +294,10 @@ validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` 
 load until that reader tolerates the new key. Additive is not the same as invisible.
 
 > **There are TWO new keys, and the other one is the one you cannot miss.** `completions` carries
-> `skip_serializing_if`, so a run with nothing to report omits it entirely and a strict reader may
-> never meet it. **`pool_eligibility` does not** — it is emitted on every report, empty map
+> `skip_serializing_if`, but that attribute **never fires on a report this crate returns**: every
+> dispatched seat leaves at least one record, success or failure. Do not read the attribute as
+> "you might never see this key" — you will see it on every report. **`pool_eligibility` carries no
+> such attribute at all** — it is emitted on every report, empty map
 > included, deliberately, because an absent key and an empty one answer different questions (no
 > snapshot was taken, versus the seats had no candidates). **Do not read an empty vector as
 > "everything was eligible"** — the snapshot emits one row per candidate with `causes` empty when
@@ -318,14 +321,15 @@ attempt that was cut and still produced a valid verdict belongs in the first and
 filing it in the second would assert a failure that did not happen, and a consumer counting that
 list to gate a run would start seeing failures where extraction went perfectly.
 
-### `ReasoningState`'s `Debug` output changed
+### `ReasoningState`'s `Debug` withholds the trace text
 
-**Before:** `#[derive(Debug)]`, which printed the trace text when a consumer had opted into
-carrying it.
+There is no "before" here: `ReasoningState` is new in `4.0.0`, so nothing you have today prints
+it. Recorded because the behaviour is not the derived one a reader would assume.
 
-**After:** hand-written, rendering `text: "<N chars withheld>"` instead.
+**What it does:** a hand-written `Debug` renders `text: "<N chars withheld>"` rather than the
+trace itself.
 
-**What you do:** nothing, unless you were parsing `Debug` output — which you should not be. The
+**What you do:** nothing, unless you plan to parse `Debug` output — which you should not. The
 reason it changed is that the trace is model-authored text that never passes the `Validator` and
 is never redacted, and `ProviderError` derives `Debug` and can hold this type, so a consumer
 logging an error with `{:?}` was carrying it into their logs. The elision is announced rather
@@ -348,8 +352,9 @@ measured. That figure is a measured reference, not a ceiling.
 
 ## 7. The vendor termination vocabularies are fully translated
 
-**Before:** on the Anthropic wire, `end_turn`, `stop_sequence`, `tool_use` and `max_tokens` were
-translated and everything else became `FinishReason::Other`.
+**Before:** nothing was translated, because nothing was read. `3.2.0`'s `ClaudeResponse`
+deserializes `content` and nothing else — no `stop_reason`, and no `FinishReason` type to put it
+in. That is the premise this whole guide opens with.
 
 **After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
 `model_context_window_exceeded` reads as `FinishReason::Length`. On the OpenAI-compatible wire,

@@ -135,9 +135,10 @@ by carrying the wrong type. That is what this release removes.
   `3.2.0` **two** causes were mage-local while reporting `Transport`, which everywhere else
   means the run was condemned — its own comment said so and `MAGE_LOCAL_PREFIX` had exactly
   two call sites; `3.1.0` carried the distinction in that prefix inside a `detail` string
-  because a frozen enum allowed nothing better. **That prefix is gone**, and the count is now
-  four, because an empty completion and a response-contract failure were mage-local in
-  substance while being classified run-wide — which is the defect this release exists to fix. The accessor is not
+  because a frozen enum allowed nothing better. **That prefix is gone.** Two more causes join them — an empty completion and a response-contract
+  failure, mage-local in substance while classified run-wide, which is the defect this release
+  exists to fix — so four causes changed label. `is_mage_local()` returns true for **five** variants:
+  those four plus `Schema`, which was already correct. The accessor is not
   sugar: with `#[non_exhaustive]` a consumer must write a `_ =>` arm, and that arm would classify
   the next cause into the wrong category with nothing failing.
 

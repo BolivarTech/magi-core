@@ -142,7 +142,7 @@ lib.rs (crate root)
 ├── backoff.rs        — capped exponential backoff, full jitter, Retry-After parsing
 ├── finding_id.rs     — stable SHA-256 finding identity
 ├── prompts/          — PUBLIC. 3 MODE-AGNOSTIC system prompts via include_str! + validate_prompt
-├── user_prompt.rs    — sanitization pipeline + nonce-delimited payload construction
+├── user_prompt.rs    — PRIVATE. Sanitization pipeline + nonce-delimited payload construction
 ├── verdict_markers.rs — PUBLIC. The verdict sentinel: extract, marker consts, causes
 ├── rotation.rs       — per-agent lineage rotation, RotationKind, pool eligibility
 ├── test_support.rs   — PUBLIC behind `test-utils`: RoutingMockProvider and friends
@@ -155,7 +155,7 @@ lib.rs (crate root)
     ├── claude_cli.rs — ClaudeCliProvider (subprocess, feature: claude-cli)
     ├── openai_compat.rs — OpenAiCompatibleProvider (feature: openai-compat)
     ├── ollama.rs     — OllamaProvider, native /api/chat + probe (feature: ollama)
-    └── ollama_wire.rs — the native request/response shapes and their parsing
+    └── ollama_wire.rs — PRIVATE. The native request/response shapes and their parsing
 ```
 
 ### 4.2 Dependency Flow

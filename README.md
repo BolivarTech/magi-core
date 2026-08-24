@@ -328,7 +328,7 @@ println!("{}", report.banner);
 error         (foundation — no internal deps)
 schema        (domain types: Verdict, Severity, Mode, AgentName, Category, Finding, AgentOutput)
 finding_id    (stable SHA-256 finding identity + fail-soft file/line/category deserializers)
-validate      (field validation with regex zero-width stripping, NFKC + casefold)
+validate      (field validation, regex zero-width stripping; NFKC + casefold live in consensus)
 consensus     (weighted scoring, classification, finding dedup)
 reporting     (ASCII banner + markdown report generation)
 provider      (LlmProvider trait, Completion, CompletionConfig, ReasoningControl, RetryProvider)
@@ -337,14 +337,17 @@ verdict_markers (the verdict sentinel: public extract + marker constants + cause
 rotation      (per-agent lineage rotation, RotationKind, pool eligibility snapshot)
 prompts       (3 mode-agnostic prompts embedded via include_str!, lookup helper)
 prompts_md/   (byte-for-byte Python reference: melchior.md, balthasar.md, caspar.md)
-user_prompt   (sanitization pipeline + nonce-delimited payload construction)
+user_prompt   (private) — sanitization pipeline + nonce-delimited payload construction
 agent         (Agent struct — no Mode parameter as of v0.3; AgentFactory still takes one)
 orchestrator  (Magi, MagiBuilder — composes everything)
+prelude       (re-exports of every public type — the one import a consumer needs)
+test_support  [feature: test-utils]        — RoutingMockProvider and friends, for downstream tests
 providers/
   claude          [feature: claude-api]      — HTTP via reqwest
   claude_cli      [feature: claude-cli]      — subprocess via tokio::process
   openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + LocalAI/vLLM/LM Studio)
   ollama          [feature: ollama]          — native /api/chat completions + the /api/show + /api/tags probe
+  ollama_wire     (private)                  — the native request/response shapes and their parsing
   provider_url    (private)                  — owns the URL, renders it redacted, builds every request
 ```
 
@@ -391,8 +394,10 @@ before a header was an accepted limitation through 2.1.0; 2.2.0 closes it.)
 | < 0   | Mixed                 | **HOLD (N-M)**               |
 | -1.0  | Unanimous reject      | **STRONG NO-GO**             |
 
-`(N-M)` is the effective split: approves and conditionals on the "go" side,
-rejects on the "no" side. In degraded mode (2/3 agents), STRONG labels are
+`(N-M)` is the effective split, and **the order flips with the verdict**: the `GO`
+labels print (go side, no side) while `HOLD` prints (no side, go side), so `HOLD (2-1)`
+means two rejects. Approves and conditionals count on the "go" side, rejects on the
+"no" side. In degraded mode (2/3 agents), STRONG labels are
 capped to their regular counterparts.
 
 ## Implementing a Custom Provider

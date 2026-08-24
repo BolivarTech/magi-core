@@ -149,7 +149,7 @@ pub struct MagiConfig {
     ///
     /// **The ordering above assumes you opted into [`RetryProvider`]** — [`MagiBuilder::build`]
     /// does not wrap providers in one, so without it steps 1 and 2 have no subject. **This field
-    /// applies either way**, and a consumer with no `RetryProvider` feels the 300 —> 660 s change
+    /// applies either way**, and a consumer with no `RetryProvider` feels the 300 -> 660 s change
     /// most directly: nothing else bounds the call.
     ///
     /// [`RetryConfig`]: crate::provider::RetryConfig

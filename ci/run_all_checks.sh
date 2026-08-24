@@ -122,7 +122,7 @@ CARGO_TARGET_DIR="$ALL_DIR" RUSTDOCFLAGS="-D warnings" cargo doc --all-features 
 # BOTH feature sets, for the reason already written for doctests below: an item behind a feature
 # gate is the one a default-features consumer never sees. Until this line the gate built docs
 # under `--all-features` ONLY, and was therefore structurally unable to see the configuration
-# docs.rs builds ' + EM + ' which is no `default` at all, since this crate declares none. Five intra-doc
+# docs.rs builds — which is no `default` at all, since this crate declares none. Five intra-doc
 # links in `provider.rs`, a file that renders under every feature set, dangled on the default set
 # and nothing could report it. Two of the five had just been ADDED by a fix.
 #
