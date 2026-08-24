@@ -125,8 +125,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1787554581.2390585,
-    "ast_hash": "a4b31af21118595944818e810178d4c5",
+    "mtime": 1787580417.951218,
+    "ast_hash": "fb27fede1e3742199ded93b7af991737",
     "semantic_hash": ""
   },
   "README.md": {
@@ -205,8 +205,8 @@
     "semantic_hash": ""
   },
   "src/providers/ollama.rs": {
-    "mtime": 1787572452.0337164,
-    "ast_hash": "ecb008a4924881b8a5f3c654c1ec1971",
+    "mtime": 1787580382.0100572,
+    "ast_hash": "e5c5a88fd5bf6ce15638ebce52977287",
     "semantic_hash": ""
   },
   "src/verdict_markers.rs": {
