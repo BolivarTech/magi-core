@@ -1,12 +1,12 @@
 # Smoke Certificate
 
-- version: 3.2.0
-- commit: 6f4cedd
-- date: 2026-08-23 (UTC)
+- version: 4.0.0
+- commit: 36488a9
+- date: 2026-08-24 (UTC)
 - dependency mode: tree
-- real cost: 8 backend run(s) in 244.0s
-- rounds needed: 3
-- invocation: --smoke-2 --round 3
+- real cost: 8 backend run(s) in 295.7s
+- rounds needed: 1
+- invocation: --smoke-2
 - fixtures: 0 declared, 0 verified by a live scenario, 0 unverified
 - result: 50 passed, 8 not passed, 58 total
 
