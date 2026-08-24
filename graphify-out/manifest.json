@@ -805,8 +805,8 @@
     "semantic_hash": ""
   },
   "smoke/README.md": {
-    "mtime": 1787602694.8944468,
-    "ast_hash": "7238ac9ab7de3136bbaef17d55c88677",
+    "mtime": 1787614053.8248727,
+    "ast_hash": "e4ade0cb2fb9209692e5a02ea349fc27",
     "semantic_hash": ""
   },
   "smoke/src/git.rs": {

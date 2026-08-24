@@ -906,7 +906,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "payload.rs",
       "id": "smoke_src_payload"
     },
@@ -917,7 +917,7 @@
       "source_location": "L545",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "a_root_that_exists_but_cannot_be_read_is_reported_while_an_absent_one_is_not()",
       "id": "smoke_src_payload_a_root_that_exists_but_cannot_be_read_is_reported_while_an_absent_one_is_not"
     },
@@ -928,7 +928,7 @@
       "source_location": "L571",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "a_subdirectory_that_cannot_be_read_is_an_error_not_a_silent_skip()",
       "id": "smoke_src_payload_a_subdirectory_that_cannot_be_read_is_an_error_not_a_silent_skip"
     },
@@ -939,7 +939,7 @@
       "source_location": "L432",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "a_target_landing_inside_a_multibyte_character_still_returns_exactly_target_bytes()",
       "id": "smoke_src_payload_a_target_landing_inside_a_multibyte_character_still_returns_exactly_target_bytes"
     },
@@ -950,7 +950,7 @@
       "source_location": "L461",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "an_entry_the_walk_cannot_read_is_an_error_not_a_dropped_file()",
       "id": "smoke_src_payload_an_entry_the_walk_cannot_read_is_an_error_not_a_dropped_file"
     },
@@ -961,7 +961,7 @@
       "source_location": "L177",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "collect_from_entries()",
       "id": "smoke_src_payload_collect_from_entries"
     },
@@ -972,7 +972,7 @@
       "source_location": "L89",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "collect_rs()",
       "id": "smoke_src_payload_collect_rs"
     },
@@ -983,7 +983,7 @@
       "source_location": "L132",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "collect_subdir()",
       "id": "smoke_src_payload_collect_subdir"
     },
@@ -994,7 +994,7 @@
       "source_location": "L421",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "falls_short_of_target_fails_loudly_instead_of_returning_a_small_payload()",
       "id": "smoke_src_payload_falls_short_of_target_fails_loudly_instead_of_returning_a_small_payload"
     },
@@ -1005,7 +1005,7 @@
       "source_location": "L315",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "generate()",
       "id": "smoke_src_payload_generate"
     },
@@ -1016,7 +1016,7 @@
       "source_location": "L404",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "ordering_is_bytewise_on_slash_normalized_paths_not_filesystem_order()",
       "id": "smoke_src_payload_ordering_is_bytewise_on_slash_normalized_paths_not_filesystem_order"
     },
@@ -1027,7 +1027,7 @@
       "source_location": "L222",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "payload",
       "id": "smoke_src_payload_payload"
     },
@@ -1038,7 +1038,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "payloaderror",
       "id": "smoke_src_payload_payloaderror"
     },
@@ -1049,7 +1049,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": ".fmt()",
       "id": "smoke_src_payload_payloaderror_fmt"
     },
@@ -1060,7 +1060,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "display",
       "id": "smoke_src_payload_rs_display"
     },
@@ -1071,7 +1071,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "formatter",
       "id": "smoke_src_payload_rs_formatter"
     },
@@ -1082,7 +1082,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "i",
       "id": "smoke_src_payload_rs_i"
     },
@@ -1093,7 +1093,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "path",
       "id": "smoke_src_payload_rs_path"
     },
@@ -1104,7 +1104,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "pathbuf",
       "id": "smoke_src_payload_rs_pathbuf"
     },
@@ -1115,7 +1115,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "result",
       "id": "smoke_src_payload_rs_result"
     },
@@ -1126,7 +1126,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "string",
       "id": "smoke_src_payload_rs_string"
     },
@@ -1137,7 +1137,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "vec",
       "id": "smoke_src_payload_rs_vec"
     },
@@ -1148,7 +1148,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "sort_deterministically()",
       "id": "smoke_src_payload_sort_deterministically"
     },
@@ -1159,9 +1159,31 @@
       "source_location": "L489",
       "_origin": "ast",
       "community": 1,
-      "community_name": "payload.rs",
+      "community_name": "tempdir_with",
       "norm_label": "symlinks_are_skipped()",
       "id": "smoke_src_payload_symlinks_are_skipped"
+    },
+    {
+      "label": "an_isolated_package_passes_the_workspace_check()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2403",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "tempdir_with",
+      "norm_label": "an_isolated_package_passes_the_workspace_check()",
+      "id": "smoke_src_preflight_an_isolated_package_passes_the_workspace_check"
+    },
+    {
+      "label": "tempdir_with()",
+      "file_type": "code",
+      "source_file": "smoke/src/testkit.rs",
+      "source_location": "L94",
+      "_origin": "ast",
+      "community": 1,
+      "community_name": "tempdir_with",
+      "norm_label": "tempdir_with()",
+      "id": "smoke_src_testkit_tempdir_with"
     },
     {
       "label": "user_prompt.rs",
@@ -4285,6 +4307,39 @@
       "id": "deref"
     },
     {
+      "label": "pid_is_alive()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1555",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "TempDir",
+      "norm_label": "pid_is_alive()",
+      "id": "smoke_src_preflight_pid_is_alive"
+    },
+    {
+      "label": "sweep_stale_temps()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1514",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "TempDir",
+      "norm_label": "sweep_stale_temps()",
+      "id": "smoke_src_preflight_sweep_stale_temps"
+    },
+    {
+      "label": "the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2424",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "TempDir",
+      "norm_label": "the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked()",
+      "id": "smoke_src_preflight_the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked"
+    },
+    {
       "label": "the_startup_sweep_removes_only_temps_whose_pid_is_dead()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
@@ -4316,6 +4371,17 @@
       "community_name": "TempDir",
       "norm_label": "is_privilege_refusal()",
       "id": "smoke_src_testkit_is_privilege_refusal"
+    },
+    {
+      "label": "make_dir_link()",
+      "file_type": "code",
+      "source_file": "smoke/src/testkit.rs",
+      "source_location": "L198",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "TempDir",
+      "norm_label": "make_dir_link()",
+      "id": "smoke_src_testkit_make_dir_link"
     },
     {
       "label": "make_symlink()",
@@ -4470,6 +4536,17 @@
       "community_name": "TempDir",
       "norm_label": ".path()",
       "id": "smoke_src_testkit_tempdir_path"
+    },
+    {
+      "label": "a_directory_link_is_skipped_rather_than_followed_out_of_the_tree()",
+      "file_type": "code",
+      "source_file": "smoke/src/weakened.rs",
+      "source_location": "L350",
+      "_origin": "ast",
+      "community": 12,
+      "community_name": "TempDir",
+      "norm_label": "a_directory_link_is_skipped_rather_than_followed_out_of_the_tree()",
+      "id": "smoke_src_weakened_a_directory_link_is_skipped_rather_than_followed_out_of_the_tree"
     },
     {
       "label": "pattern1d_good.rs",
@@ -5220,17 +5297,6 @@
       "id": "docs_magi_system_documentation_2_translation_to_the_software_engineering_domain"
     },
     {
-      "label": "a_backend_that_does_not_hold_the_probe_model_is_INCONCLUSIVE_not_clear()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L3083",
-      "_origin": "ast",
-      "community": 134,
-      "community_name": "testkit.rs",
-      "norm_label": "a_backend_that_does_not_hold_the_probe_model_is_inconclusive_not_clear()",
-      "id": "smoke_src_preflight_a_backend_that_does_not_hold_the_probe_model_is_inconclusive_not_clear"
-    },
-    {
       "label": "a_broken_proxy_makes_the_preflight_say_cannot_test_not_failed()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
@@ -5251,6 +5317,17 @@
       "community_name": "testkit.rs",
       "norm_label": "a_cold_model_passes_on_the_second_probe_attempt()",
       "id": "smoke_src_preflight_a_cold_model_passes_on_the_second_probe_attempt"
+    },
+    {
+      "label": "an_endpoint_slow_every_time_still_reports_cannot_test()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2727",
+      "_origin": "ast",
+      "community": 134,
+      "community_name": "testkit.rs",
+      "norm_label": "an_endpoint_slow_every_time_still_reports_cannot_test()",
+      "id": "smoke_src_preflight_an_endpoint_slow_every_time_still_reports_cannot_test"
     },
     {
       "label": "testkit.rs",
@@ -5605,15 +5682,15 @@
       "id": "smoke_src_testkit_stub_that_answers_with_bytes"
     },
     {
-      "label": "stub_that_holds_no_model()",
+      "label": "stub_that_is_always_slow()",
       "file_type": "code",
       "source_file": "smoke/src/testkit.rs",
-      "source_location": "L953",
+      "source_location": "L756",
       "_origin": "ast",
       "community": 134,
       "community_name": "testkit.rs",
-      "norm_label": "stub_that_holds_no_model()",
-      "id": "smoke_src_testkit_stub_that_holds_no_model"
+      "norm_label": "stub_that_is_always_slow()",
+      "id": "smoke_src_testkit_stub_that_is_always_slow"
     },
     {
       "label": "stub_that_is_slow_on_first_request_only()",
@@ -7818,13 +7895,24 @@
       "id": "ci_fixtures_redaction_pattern1positional_good_f"
     },
     {
+      "label": "fixtures.rs",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "fixtures.rs",
+      "id": "smoke_src_fixtures"
+    },
+    {
       "label": "a_file_on_disk_that_nobody_declares_is_an_orphan_too()",
       "file_type": "code",
       "source_file": "smoke/src/fixtures.rs",
       "source_location": "L880",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_file_on_disk_that_nobody_declares_is_an_orphan_too()",
       "id": "smoke_src_fixtures_a_file_on_disk_that_nobody_declares_is_an_orphan_too"
     },
@@ -7835,7 +7923,7 @@
       "source_location": "L816",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_fixture_whose_hash_changed_is_rejected()",
       "id": "smoke_src_fixtures_a_fixture_whose_hash_changed_is_rejected"
     },
@@ -7846,7 +7934,7 @@
       "source_location": "L1028",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_manifest_path_that_escapes_the_corpus_is_refused()",
       "id": "smoke_src_fixtures_a_manifest_path_that_escapes_the_corpus_is_refused"
     },
@@ -7857,7 +7945,7 @@
       "source_location": "L1068",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_missing_fixtures_directory_is_reported_not_silently_clean()",
       "id": "smoke_src_fixtures_a_missing_fixtures_directory_is_reported_not_silently_clean"
     },
@@ -7868,7 +7956,7 @@
       "source_location": "L1004",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_nested_corpus_is_refused_because_the_walk_does_not_recurse()",
       "id": "smoke_src_fixtures_a_nested_corpus_is_refused_because_the_walk_does_not_recurse"
     },
@@ -7879,9 +7967,20 @@
       "source_location": "L1133",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_readable_entry_is_still_crossed_against_the_manifest()",
       "id": "smoke_src_fixtures_a_readable_entry_is_still_crossed_against_the_manifest"
+    },
+    {
+      "label": "a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L665",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone()",
+      "id": "smoke_src_fixtures_a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone"
     },
     {
       "label": "a_verified_by_naming_a_live_scenario_is_accepted()",
@@ -7890,7 +7989,7 @@
       "source_location": "L982",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_verified_by_naming_a_live_scenario_is_accepted()",
       "id": "smoke_src_fixtures_a_verified_by_naming_a_live_scenario_is_accepted"
     },
@@ -7901,7 +8000,7 @@
       "source_location": "L931",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_verified_by_naming_no_live_scenario_is_rejected()",
       "id": "smoke_src_fixtures_a_verified_by_naming_no_live_scenario_is_rejected"
     },
@@ -7912,7 +8011,7 @@
       "source_location": "L960",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "a_verified_by_with_an_empty_id_is_rejected()",
       "id": "smoke_src_fixtures_a_verified_by_with_an_empty_id_is_rejected"
     },
@@ -7923,7 +8022,7 @@
       "source_location": "L845",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "an_empty_manifest_verifies_clean_which_is_exactly_e1()",
       "id": "smoke_src_fixtures_an_empty_manifest_verifies_clean_which_is_exactly_e1"
     },
@@ -7934,7 +8033,7 @@
       "source_location": "L859",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "an_orphaned_entry_is_detected()",
       "id": "smoke_src_fixtures_an_orphaned_entry_is_detected"
     },
@@ -7945,7 +8044,7 @@
       "source_location": "L906",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "an_unrecognized_currency_form_is_rejected()",
       "id": "smoke_src_fixtures_an_unrecognized_currency_form_is_rejected"
     },
@@ -7956,7 +8055,7 @@
       "source_location": "L890",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "an_unrecognized_currency_reason_makes_the_harness_decline_to_run()",
       "id": "smoke_src_fixtures_an_unrecognized_currency_reason_makes_the_harness_decline_to_run"
     },
@@ -7967,7 +8066,7 @@
       "source_location": "L206",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": ".from_str()",
       "id": "smoke_src_fixtures_manifest_from_str"
     },
@@ -7978,9 +8077,42 @@
       "source_location": "L268",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": ".verify()",
       "id": "smoke_src_fixtures_manifest_verify"
+    },
+    {
+      "label": "Output",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "output",
+      "id": "smoke_src_fixtures_rs_output"
+    },
+    {
+      "label": "Path",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "path",
+      "id": "smoke_src_fixtures_rs_path"
+    },
+    {
+      "label": "PathBuf",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "pathbuf",
+      "id": "smoke_src_fixtures_rs_pathbuf"
     },
     {
       "label": "Self",
@@ -7989,9 +8121,86 @@
       "source_location": "",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "self",
       "id": "smoke_src_fixtures_rs_self"
+    },
+    {
+      "label": "run_sync_from()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L623",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "run_sync_from()",
+      "id": "smoke_src_fixtures_run_sync_from"
+    },
+    {
+      "label": "sync_fixtures_creates_nothing_beside_the_fixture_directory()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L743",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "sync_fixtures_creates_nothing_beside_the_fixture_directory()",
+      "id": "smoke_src_fixtures_sync_fixtures_creates_nothing_beside_the_fixture_directory"
+    },
+    {
+      "label": "sync_fixtures_writes_the_same_place_from_any_directory()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L635",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "sync_fixtures_writes_the_same_place_from_any_directory()",
+      "id": "smoke_src_fixtures_sync_fixtures_writes_the_same_place_from_any_directory"
+    },
+    {
+      "label": "sync_script_replica()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L604",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "sync_script_replica()",
+      "id": "smoke_src_fixtures_sync_script_replica"
+    },
+    {
+      "label": "the_audit_hands_on_the_counts_it_computed()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L1205",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "the_audit_hands_on_the_counts_it_computed()",
+      "id": "smoke_src_fixtures_the_audit_hands_on_the_counts_it_computed"
+    },
+    {
+      "label": "the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L714",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit()",
+      "id": "smoke_src_fixtures_the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit"
+    },
+    {
+      "label": "the_tracked_manifest_is_what_the_script_generates()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L767",
+      "_origin": "ast",
+      "community": 18,
+      "community_name": "fixtures.rs",
+      "norm_label": "the_tracked_manifest_is_what_the_script_generates()",
+      "id": "smoke_src_fixtures_the_tracked_manifest_is_what_the_script_generates"
     },
     {
       "label": "fixture_dir()",
@@ -8000,31 +8209,9 @@
       "source_location": "L46",
       "_origin": "ast",
       "community": 18,
-      "community_name": "tempdir_with",
+      "community_name": "fixtures.rs",
       "norm_label": "fixture_dir()",
       "id": "smoke_src_paths_fixture_dir"
-    },
-    {
-      "label": "an_isolated_package_passes_the_workspace_check()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2403",
-      "_origin": "ast",
-      "community": 18,
-      "community_name": "tempdir_with",
-      "norm_label": "an_isolated_package_passes_the_workspace_check()",
-      "id": "smoke_src_preflight_an_isolated_package_passes_the_workspace_check"
-    },
-    {
-      "label": "tempdir_with()",
-      "file_type": "code",
-      "source_file": "smoke/src/testkit.rs",
-      "source_location": "L94",
-      "_origin": "ast",
-      "community": 18,
-      "community_name": "tempdir_with",
-      "norm_label": "tempdir_with()",
-      "id": "smoke_src_testkit_tempdir_with"
     },
     {
       "label": "Finding",
@@ -8214,6 +8401,17 @@
       "id": "smoke_src_preflight_a_backend_holding_every_seat_model_passes_the_check"
     },
     {
+      "label": "a_backend_listing_the_whole_trio_gets_past_the_backend_step()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2763",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "a_backend_listing_the_whole_trio_gets_past_the_backend_step()",
+      "id": "smoke_src_preflight_a_backend_listing_the_whole_trio_gets_past_the_backend_step"
+    },
+    {
       "label": "a_backend_that_actually_generated_is_served()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
@@ -8335,6 +8533,17 @@
       "id": "smoke_src_preflight_a_fallback_sharing_a_seats_model_is_rejected"
     },
     {
+      "label": "a_listing_larger_than_the_cap_is_not_held_in_memory()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2854",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "a_listing_larger_than_the_cap_is_not_held_in_memory()",
+      "id": "smoke_src_preflight_a_listing_larger_than_the_cap_is_not_held_in_memory"
+    },
+    {
       "label": "a_listing_whose_entries_cannot_be_read_is_not_read_as_holding_none()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
@@ -8355,17 +8564,6 @@
       "community_name": "preflight.rs",
       "norm_label": "a_partially_unreadable_listing_is_unknown_rather_than_complete()",
       "id": "smoke_src_preflight_a_partially_unreadable_listing_is_unknown_rather_than_complete"
-    },
-    {
-      "label": "a_probe_answered_with_404_names_both_possible_causes_too()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2336",
-      "_origin": "ast",
-      "community": 181,
-      "community_name": "preflight.rs",
-      "norm_label": "a_probe_answered_with_404_names_both_possible_causes_too()",
-      "id": "smoke_src_preflight_a_probe_answered_with_404_names_both_possible_causes_too"
     },
     {
       "label": "a_rotation_candidate_the_backend_does_not_hold_is_refused_too()",
@@ -8421,17 +8619,6 @@
       "community_name": "preflight.rs",
       "norm_label": "an_unreadable_listing_does_not_refuse_a_rotation_candidate_either()",
       "id": "smoke_src_preflight_an_unreadable_listing_does_not_refuse_a_rotation_candidate_either"
-    },
-    {
-      "label": "an_unsuccessful_status_is_not_described_as_a_successful_answer()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1587",
-      "_origin": "ast",
-      "community": 181,
-      "community_name": "preflight.rs",
-      "norm_label": "an_unsuccessful_status_is_not_described_as_a_successful_answer()",
-      "id": "smoke_src_preflight_an_unsuccessful_status_is_not_described_as_a_successful_answer"
     },
     {
       "label": "announce_cost()",
@@ -8511,15 +8698,26 @@
       "id": "smoke_src_preflight_payload_bytes_for"
     },
     {
-      "label": "probe_inconclusive_message()",
+      "label": "preflight_step_order()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1018",
+      "source_location": "L190",
       "_origin": "ast",
       "community": 181,
       "community_name": "preflight.rs",
-      "norm_label": "probe_inconclusive_message()",
-      "id": "smoke_src_preflight_probe_inconclusive_message"
+      "norm_label": "preflight_step_order()",
+      "id": "smoke_src_preflight_preflight_step_order"
+    },
+    {
+      "label": "Self",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "self",
+      "id": "smoke_src_preflight_rs_self"
     },
     {
       "label": "the_announced_cost_counts_every_seat_and_both_sides_of_the_wire()",
@@ -8544,6 +8742,17 @@
       "id": "smoke_src_preflight_the_cost_announced_is_the_cost_of_the_runs_that_will_actually_happen"
     },
     {
+      "label": "the_order_is_config_then_fixtures_then_backend()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1714",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "the_order_is_config_then_fixtures_then_backend()",
+      "id": "smoke_src_preflight_the_order_is_config_then_fixtures_then_backend"
+    },
+    {
       "label": "the_package_matcher_finds_a_harness_path_and_leaves_the_crates_alone()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
@@ -8553,6 +8762,17 @@
       "community_name": "preflight.rs",
       "norm_label": "the_package_matcher_finds_a_harness_path_and_leaves_the_crates_alone()",
       "id": "smoke_src_preflight_the_package_matcher_finds_a_harness_path_and_leaves_the_crates_alone"
+    },
+    {
+      "label": "the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2740",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list()",
+      "id": "smoke_src_preflight_the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list"
     },
     {
       "label": "the_probe_window_is_configurable_and_defaults_to_ten_seconds()",
@@ -8643,6 +8863,17 @@
       "id": "smoke_src_preflight_with_no_backend_the_announcement_says_nothing_will_be_spent"
     },
     {
+      "label": "workspace_absorption_is_detected()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L2364",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "workspace_absorption_is_detected()",
+      "id": "smoke_src_preflight_workspace_absorption_is_detected"
+    },
+    {
       "label": "stage_e1_run_ids()",
       "file_type": "code",
       "source_file": "smoke/src/runner.rs",
@@ -8652,6 +8883,17 @@
       "community_name": "preflight.rs",
       "norm_label": "stage_e1_run_ids()",
       "id": "smoke_src_runner_stage_e1_run_ids"
+    },
+    {
+      "label": "stub_that_lists_models()",
+      "file_type": "code",
+      "source_file": "smoke/src/testkit.rs",
+      "source_location": "L820",
+      "_origin": "ast",
+      "community": 181,
+      "community_name": "preflight.rs",
+      "norm_label": "stub_that_lists_models()",
+      "id": "smoke_src_testkit_stub_that_lists_models"
     },
     {
       "label": "pattern5nestedcfg_good.rs",
@@ -8973,6 +9215,17 @@
       "id": "ci_fixtures_redaction_pattern5stmt_good_later"
     },
     {
+      "label": "an_entry_that_cannot_be_read_is_reported_not_silently_dropped()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L1087",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "Manifest",
+      "norm_label": "an_entry_that_cannot_be_read_is_reported_not_silently_dropped()",
+      "id": "smoke_src_fixtures_an_entry_that_cannot_be_read_is_reported_not_silently_dropped"
+    },
+    {
       "label": "FixtureAudit",
       "file_type": "code",
       "source_file": "smoke/src/fixtures.rs",
@@ -9072,6 +9325,17 @@
       "id": "smoke_src_fixtures_manifest_check_currency"
     },
     {
+      "label": ".cross_disk_against_manifest()",
+      "file_type": "code",
+      "source_file": "smoke/src/fixtures.rs",
+      "source_location": "L458",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "Manifest",
+      "norm_label": ".cross_disk_against_manifest()",
+      "id": "smoke_src_fixtures_manifest_cross_disk_against_manifest"
+    },
+    {
       "label": ".load()",
       "file_type": "code",
       "source_file": "smoke/src/fixtures.rs",
@@ -9103,6 +9367,28 @@
       "community_name": "Manifest",
       "norm_label": ".offending_component()",
       "id": "smoke_src_fixtures_manifest_offending_component"
+    },
+    {
+      "label": "BTreeSet",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "Manifest",
+      "norm_label": "btreeset",
+      "id": "smoke_src_fixtures_rs_btreeset"
+    },
+    {
+      "label": "I",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 19,
+      "community_name": "Manifest",
+      "norm_label": "i",
+      "id": "smoke_src_fixtures_rs_i"
     },
     {
       "label": "Option",
@@ -14718,7 +15004,7 @@
       "label": "10. `cargo audit` for the harness",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L406",
+      "source_location": "L416",
       "_origin": "ast",
       "id": "smoke_readme_10_cargo_audit_for_the_harness",
       "community": 220,
@@ -14729,7 +15015,7 @@
       "label": "11. The reproduction that justifies the harness",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L420",
+      "source_location": "L430",
       "_origin": "ast",
       "id": "smoke_readme_11_the_reproduction_that_justifies_the_harness",
       "community": 220,
@@ -14817,7 +15103,7 @@
       "label": "7. The coverage cliff: several SKIPs sharing a run-id are ONE failure",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L255",
+      "source_location": "L265",
       "_origin": "ast",
       "id": "smoke_readme_7_the_coverage_cliff_several_skips_sharing_a_run_id_are_one_failure",
       "community": 220,
@@ -14828,7 +15114,7 @@
       "label": "8. Known limitations",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L264",
+      "source_location": "L274",
       "_origin": "ast",
       "id": "smoke_readme_8_known_limitations",
       "community": 220,
@@ -14839,7 +15125,7 @@
       "label": "9.1 What the answers-nothing stub actually tested, which was nothing",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L365",
+      "source_location": "L375",
       "_origin": "ast",
       "id": "smoke_readme_9_1_what_the_answers_nothing_stub_actually_tested_which_was_nothing",
       "community": 220,
@@ -14850,7 +15136,7 @@
       "label": "9. Running it \u2014 six invocations, not one",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L298",
+      "source_location": "L308",
       "_origin": "ast",
       "id": "smoke_readme_9_running_it_six_invocations_not_one",
       "community": 220,
@@ -14872,7 +15158,7 @@
       "label": "Not to be confused with the MAGI gate's economy",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L249",
+      "source_location": "L259",
       "_origin": "ast",
       "id": "smoke_readme_not_to_be_confused_with_the_magi_gate_s_economy",
       "community": 220,
@@ -14883,7 +15169,7 @@
       "label": "The corollary, which is accepted rather than hidden",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L232",
+      "source_location": "L238",
       "_origin": "ast",
       "id": "smoke_readme_the_corollary_which_is_accepted_rather_than_hidden",
       "community": 220,
@@ -14894,7 +15180,7 @@
       "label": "The hard invariant",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L226",
+      "source_location": "L232",
       "_origin": "ast",
       "id": "smoke_readme_the_hard_invariant",
       "community": 220,
@@ -14905,7 +15191,7 @@
       "label": "The slow stub the saturated-endpoint invocation needs",
       "file_type": "document",
       "source_file": "smoke/README.md",
-      "source_location": "L313",
+      "source_location": "L323",
       "_origin": "ast",
       "id": "smoke_readme_the_slow_stub_the_saturated_endpoint_invocation_needs",
       "community": 220,
@@ -17603,15 +17889,15 @@
       "id": "ci_fixtures_redaction_pattern1pretty_bad_f"
     },
     {
-      "label": "an_endpoint_slow_every_time_still_reports_cannot_test()",
+      "label": "a_backend_that_does_not_hold_the_probe_model_is_INCONCLUSIVE_not_clear()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2727",
+      "source_location": "L3083",
       "_origin": "ast",
       "community": 249,
       "community_name": ".probe",
-      "norm_label": "an_endpoint_slow_every_time_still_reports_cannot_test()",
-      "id": "smoke_src_preflight_an_endpoint_slow_every_time_still_reports_cannot_test"
+      "norm_label": "a_backend_that_does_not_hold_the_probe_model_is_inconclusive_not_clear()",
+      "id": "smoke_src_preflight_a_backend_that_does_not_hold_the_probe_model_is_inconclusive_not_clear"
     },
     {
       "label": "the_backend_step_and_the_probe_step_ask_different_questions()",
@@ -17658,15 +17944,15 @@
       "id": "smoke_src_runner_runner_probe"
     },
     {
-      "label": "stub_that_is_always_slow()",
+      "label": "stub_that_holds_no_model()",
       "file_type": "code",
       "source_file": "smoke/src/testkit.rs",
-      "source_location": "L756",
+      "source_location": "L953",
       "_origin": "ast",
       "community": 249,
       "community_name": ".probe",
-      "norm_label": "stub_that_is_always_slow()",
-      "id": "smoke_src_testkit_stub_that_is_always_slow"
+      "norm_label": "stub_that_holds_no_model()",
+      "id": "smoke_src_testkit_stub_that_holds_no_model"
     },
     {
       "label": "stub_that_records_requests()",
@@ -22893,17 +23179,6 @@
       "id": "ci_fixtures_redaction_pattern5nestedwatched_bad_f"
     },
     {
-      "label": "make_dir_link()",
-      "file_type": "code",
-      "source_file": "smoke/src/testkit.rs",
-      "source_location": "L198",
-      "_origin": "ast",
-      "community": 301,
-      "community_name": "weakened.rs",
-      "norm_label": "make_dir_link()",
-      "id": "smoke_src_testkit_make_dir_link"
-    },
-    {
       "label": "weakened.rs",
       "file_type": "code",
       "source_file": "smoke/src/weakened.rs",
@@ -22913,17 +23188,6 @@
       "community_name": "weakened.rs",
       "norm_label": "weakened.rs",
       "id": "smoke_src_weakened"
-    },
-    {
-      "label": "a_directory_link_is_skipped_rather_than_followed_out_of_the_tree()",
-      "file_type": "code",
-      "source_file": "smoke/src/weakened.rs",
-      "source_location": "L350",
-      "_origin": "ast",
-      "community": 301,
-      "community_name": "weakened.rs",
-      "norm_label": "a_directory_link_is_skipped_rather_than_followed_out_of_the_tree()",
-      "id": "smoke_src_weakened_a_directory_link_is_skipped_rather_than_followed_out_of_the_tree"
     },
     {
       "label": "a_malformed_mark_fails_instead_of_becoming_invisible_to_grep()",
@@ -29887,15 +30151,26 @@
       "id": "smoke_src_scenarios_f_the_three_unobservable_properties_are_out_of_scope_and_say_why"
     },
     {
-      "label": "a_probe_that_is_slow_names_both_possible_causes()",
+      "label": "Announcement",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2327",
+      "source_location": "L60",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "a_probe_that_is_slow_names_both_possible_causes()",
-      "id": "smoke_src_preflight_a_probe_that_is_slow_names_both_possible_causes"
+      "community_name": "run",
+      "norm_label": "announcement",
+      "id": "smoke_src_preflight_announcement"
+    },
+    {
+      "label": ".fmt()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L91",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": ".fmt()",
+      "id": "smoke_src_preflight_announcement_fmt"
     },
     {
       "label": "audit_published_package()",
@@ -29904,7 +30179,7 @@
       "source_location": "L2494",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "audit_published_package()",
       "id": "smoke_src_preflight_audit_published_package"
     },
@@ -29915,7 +30190,7 @@
       "source_location": "L523",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "check_lock_is_tracked()",
       "id": "smoke_src_preflight_check_lock_is_tracked"
     },
@@ -29926,20 +30201,9 @@
       "source_location": "L482",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "check_workspace_isolation()",
       "id": "smoke_src_preflight_check_workspace_isolation"
-    },
-    {
-      "label": "classify_probe_body()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L925",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "String",
-      "norm_label": "classify_probe_body()",
-      "id": "smoke_src_preflight_classify_probe_body"
     },
     {
       "label": "harness_files_in_listing()",
@@ -29948,20 +30212,9 @@
       "source_location": "L2472",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "harness_files_in_listing()",
       "id": "smoke_src_preflight_harness_files_in_listing"
-    },
-    {
-      "label": "Inconclusive",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1050",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "String",
-      "norm_label": "inconclusive",
-      "id": "smoke_src_preflight_inconclusive"
     },
     {
       "label": "listed_models()",
@@ -29970,9 +30223,20 @@
       "source_location": "L791",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "listed_models()",
       "id": "smoke_src_preflight_listed_models"
+    },
+    {
+      "label": "no_backend_skips_the_backend_steps_and_nothing_else()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L3001",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "no_backend_skips_the_backend_steps_and_nothing_else()",
+      "id": "smoke_src_preflight_no_backend_skips_the_backend_steps_and_nothing_else"
     },
     {
       "label": "nothing_under_the_harness_reaches_the_published_crate()",
@@ -29981,7 +30245,7 @@
       "source_location": "L2539",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "nothing_under_the_harness_reaches_the_published_crate()",
       "id": "smoke_src_preflight_nothing_under_the_harness_reaches_the_published_crate"
     },
@@ -29992,42 +30256,53 @@
       "source_location": "L2444",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "packageaudit",
       "id": "smoke_src_preflight_packageaudit"
     },
     {
-      "label": "pid_is_alive()",
+      "label": "PreflightError",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1555",
+      "source_location": "L104",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "pid_is_alive()",
-      "id": "smoke_src_preflight_pid_is_alive"
+      "community_name": "run",
+      "norm_label": "preflighterror",
+      "id": "smoke_src_preflight_preflighterror"
     },
     {
-      "label": "Probe",
+      "label": ".cannot_test()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L945",
+      "source_location": "L130",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "probe",
-      "id": "smoke_src_preflight_probe"
+      "community_name": "run",
+      "norm_label": ".cannot_test()",
+      "id": "smoke_src_preflight_preflighterror_cannot_test"
     },
     {
-      "label": "probe_failure_message()",
+      "label": ".fmt()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1073",
+      "source_location": "L144",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "probe_failure_message()",
-      "id": "smoke_src_preflight_probe_failure_message"
+      "community_name": "run",
+      "norm_label": ".fmt()",
+      "id": "smoke_src_preflight_preflighterror_fmt"
+    },
+    {
+      "label": "raise_proxy()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1090",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "raise_proxy()",
+      "id": "smoke_src_preflight_raise_proxy"
     },
     {
       "label": "reachable()",
@@ -30036,20 +30311,64 @@
       "source_location": "L621",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "reachable()",
       "id": "smoke_src_preflight_reachable"
     },
     {
-      "label": "Duration",
+      "label": "Debug",
       "file_type": "code",
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "duration",
-      "id": "smoke_src_preflight_rs_duration"
+      "community_name": "run",
+      "norm_label": "debug",
+      "id": "smoke_src_preflight_rs_debug"
+    },
+    {
+      "label": "Display",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "display",
+      "id": "smoke_src_preflight_rs_display"
+    },
+    {
+      "label": "Error",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "error",
+      "id": "smoke_src_preflight_rs_error"
+    },
+    {
+      "label": "Formatter",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "formatter",
+      "id": "smoke_src_preflight_rs_formatter"
+    },
+    {
+      "label": "Into",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "_origin": "ast",
+      "community": 5,
+      "community_name": "run",
+      "norm_label": "into",
+      "id": "smoke_src_preflight_rs_into"
     },
     {
       "label": "Option",
@@ -30058,7 +30377,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "option",
       "id": "smoke_src_preflight_rs_option"
     },
@@ -30069,7 +30388,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "path",
       "id": "smoke_src_preflight_rs_path"
     },
@@ -30080,7 +30399,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "result",
       "id": "smoke_src_preflight_rs_result"
     },
@@ -30091,7 +30410,7 @@
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "string",
       "id": "smoke_src_preflight_rs_string"
     },
@@ -30102,53 +30421,53 @@
       "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
+      "community_name": "run",
       "norm_label": "vec",
       "id": "smoke_src_preflight_rs_vec"
     },
     {
-      "label": "sweep_stale_temps()",
+      "label": "run()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1514",
+      "source_location": "L224",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "sweep_stale_temps()",
-      "id": "smoke_src_preflight_sweep_stale_temps"
+      "community_name": "run",
+      "norm_label": "run()",
+      "id": "smoke_src_preflight_run"
     },
     {
-      "label": "the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked()",
+      "label": "Stage",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2424",
+      "source_location": "L118",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked()",
-      "id": "smoke_src_preflight_the_preflight_stops_if_smoke_cargo_lock_is_not_actually_tracked"
+      "community_name": "run",
+      "norm_label": "stage",
+      "id": "smoke_src_preflight_stage"
     },
     {
-      "label": "try_once()",
+      "label": "Result",
       "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L855",
+      "source_file": "",
+      "source_location": "",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "try_once()",
-      "id": "smoke_src_preflight_try_once"
+      "community_name": "run",
+      "norm_label": "result",
+      "id": "smoke_src_testkit_rs_result"
     },
     {
-      "label": "workspace_absorption_is_detected()",
+      "label": "run_against_an_unreachable_backend()",
       "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2364",
+      "source_file": "smoke/src/testkit.rs",
+      "source_location": "L1018",
       "_origin": "ast",
       "community": 5,
-      "community_name": "String",
-      "norm_label": "workspace_absorption_is_detected()",
-      "id": "smoke_src_preflight_workspace_absorption_is_detected"
+      "community_name": "run",
+      "norm_label": "run_against_an_unreachable_backend()",
+      "id": "smoke_src_testkit_run_against_an_unreachable_backend"
     },
     {
       "label": "FixedRng",
@@ -30734,147 +31053,114 @@
       "id": "smoke_src_config_rs_duration"
     },
     {
-      "label": "a_backend_listing_the_whole_trio_gets_past_the_backend_step()",
+      "label": "a_probe_answered_with_404_names_both_possible_causes_too()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2763",
+      "source_location": "L2336",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "a_backend_listing_the_whole_trio_gets_past_the_backend_step()",
-      "id": "smoke_src_preflight_a_backend_listing_the_whole_trio_gets_past_the_backend_step"
+      "norm_label": "a_probe_answered_with_404_names_both_possible_causes_too()",
+      "id": "smoke_src_preflight_a_probe_answered_with_404_names_both_possible_causes_too"
     },
     {
-      "label": "a_listing_larger_than_the_cap_is_not_held_in_memory()",
+      "label": "a_probe_that_is_slow_names_both_possible_causes()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2854",
+      "source_location": "L2327",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "a_listing_larger_than_the_cap_is_not_held_in_memory()",
-      "id": "smoke_src_preflight_a_listing_larger_than_the_cap_is_not_held_in_memory"
+      "norm_label": "a_probe_that_is_slow_names_both_possible_causes()",
+      "id": "smoke_src_preflight_a_probe_that_is_slow_names_both_possible_causes"
     },
     {
-      "label": "PreflightError",
+      "label": "an_unsuccessful_status_is_not_described_as_a_successful_answer()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L104",
+      "source_location": "L1587",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "preflighterror",
-      "id": "smoke_src_preflight_preflighterror"
+      "norm_label": "an_unsuccessful_status_is_not_described_as_a_successful_answer()",
+      "id": "smoke_src_preflight_an_unsuccessful_status_is_not_described_as_a_successful_answer"
     },
     {
-      "label": ".cannot_test()",
+      "label": "classify_probe_body()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L130",
+      "source_location": "L925",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": ".cannot_test()",
-      "id": "smoke_src_preflight_preflighterror_cannot_test"
+      "norm_label": "classify_probe_body()",
+      "id": "smoke_src_preflight_classify_probe_body"
     },
     {
-      "label": "raise_proxy()",
+      "label": "Inconclusive",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1090",
+      "source_location": "L1050",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "raise_proxy()",
-      "id": "smoke_src_preflight_raise_proxy"
+      "norm_label": "inconclusive",
+      "id": "smoke_src_preflight_inconclusive"
     },
     {
-      "label": "Display",
+      "label": "Probe",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L945",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "Config",
+      "norm_label": "probe",
+      "id": "smoke_src_preflight_probe"
+    },
+    {
+      "label": "probe_failure_message()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1073",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "Config",
+      "norm_label": "probe_failure_message()",
+      "id": "smoke_src_preflight_probe_failure_message"
+    },
+    {
+      "label": "probe_inconclusive_message()",
+      "file_type": "code",
+      "source_file": "smoke/src/preflight.rs",
+      "source_location": "L1018",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "Config",
+      "norm_label": "probe_inconclusive_message()",
+      "id": "smoke_src_preflight_probe_inconclusive_message"
+    },
+    {
+      "label": "Duration",
       "file_type": "code",
       "source_file": "",
       "source_location": "",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "display",
-      "id": "smoke_src_preflight_rs_display"
+      "norm_label": "duration",
+      "id": "smoke_src_preflight_rs_duration"
     },
     {
-      "label": "Error",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "error",
-      "id": "smoke_src_preflight_rs_error"
-    },
-    {
-      "label": "Into",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "into",
-      "id": "smoke_src_preflight_rs_into"
-    },
-    {
-      "label": "Self",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "self",
-      "id": "smoke_src_preflight_rs_self"
-    },
-    {
-      "label": "run()",
+      "label": "try_once()",
       "file_type": "code",
       "source_file": "smoke/src/preflight.rs",
-      "source_location": "L224",
+      "source_location": "L855",
       "_origin": "ast",
       "community": 55,
       "community_name": "Config",
-      "norm_label": "run()",
-      "id": "smoke_src_preflight_run"
-    },
-    {
-      "label": "Stage",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L118",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "stage",
-      "id": "smoke_src_preflight_stage"
-    },
-    {
-      "label": "the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L2740",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list()",
-      "id": "smoke_src_preflight_the_preflight_itself_refuses_a_seat_model_the_backend_does_not_list"
-    },
-    {
-      "label": "stub_that_lists_models()",
-      "file_type": "code",
-      "source_file": "smoke/src/testkit.rs",
-      "source_location": "L820",
-      "_origin": "ast",
-      "community": 55,
-      "community_name": "Config",
-      "norm_label": "stub_that_lists_models()",
-      "id": "smoke_src_testkit_stub_that_lists_models"
+      "norm_label": "try_once()",
+      "id": "smoke_src_preflight_try_once"
     },
     {
       "label": "pattern5nestedmatch_bad.rs",
@@ -37366,182 +37652,6 @@
       "id": "src_verdict_markers_extractionfailurecause"
     },
     {
-      "label": "fixtures.rs",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L1",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "fixtures.rs",
-      "id": "smoke_src_fixtures"
-    },
-    {
-      "label": "a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L665",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone()",
-      "id": "smoke_src_fixtures_a_sync_that_cannot_finish_leaves_the_tracked_manifest_alone"
-    },
-    {
-      "label": "an_entry_that_cannot_be_read_is_reported_not_silently_dropped()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L1087",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "an_entry_that_cannot_be_read_is_reported_not_silently_dropped()",
-      "id": "smoke_src_fixtures_an_entry_that_cannot_be_read_is_reported_not_silently_dropped"
-    },
-    {
-      "label": ".cross_disk_against_manifest()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L458",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": ".cross_disk_against_manifest()",
-      "id": "smoke_src_fixtures_manifest_cross_disk_against_manifest"
-    },
-    {
-      "label": "BTreeSet",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "btreeset",
-      "id": "smoke_src_fixtures_rs_btreeset"
-    },
-    {
-      "label": "I",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "i",
-      "id": "smoke_src_fixtures_rs_i"
-    },
-    {
-      "label": "Output",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "output",
-      "id": "smoke_src_fixtures_rs_output"
-    },
-    {
-      "label": "Path",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "path",
-      "id": "smoke_src_fixtures_rs_path"
-    },
-    {
-      "label": "PathBuf",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "pathbuf",
-      "id": "smoke_src_fixtures_rs_pathbuf"
-    },
-    {
-      "label": "run_sync_from()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L623",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "run_sync_from()",
-      "id": "smoke_src_fixtures_run_sync_from"
-    },
-    {
-      "label": "sync_fixtures_creates_nothing_beside_the_fixture_directory()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L743",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "sync_fixtures_creates_nothing_beside_the_fixture_directory()",
-      "id": "smoke_src_fixtures_sync_fixtures_creates_nothing_beside_the_fixture_directory"
-    },
-    {
-      "label": "sync_fixtures_writes_the_same_place_from_any_directory()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L635",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "sync_fixtures_writes_the_same_place_from_any_directory()",
-      "id": "smoke_src_fixtures_sync_fixtures_writes_the_same_place_from_any_directory"
-    },
-    {
-      "label": "sync_script_replica()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L604",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "sync_script_replica()",
-      "id": "smoke_src_fixtures_sync_script_replica"
-    },
-    {
-      "label": "the_audit_hands_on_the_counts_it_computed()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L1205",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "the_audit_hands_on_the_counts_it_computed()",
-      "id": "smoke_src_fixtures_the_audit_hands_on_the_counts_it_computed"
-    },
-    {
-      "label": "the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L714",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit()",
-      "id": "smoke_src_fixtures_the_input_list_the_sync_script_reads_is_exempt_from_the_orphan_audit"
-    },
-    {
-      "label": "the_tracked_manifest_is_what_the_script_generates()",
-      "file_type": "code",
-      "source_file": "smoke/src/fixtures.rs",
-      "source_location": "L767",
-      "_origin": "ast",
-      "community": 90,
-      "community_name": "fixtures.rs",
-      "norm_label": "the_tracked_manifest_is_what_the_script_generates()",
-      "id": "smoke_src_fixtures_the_tracked_manifest_is_what_the_script_generates"
-    },
-    {
       "label": "paths.rs",
       "file_type": "code",
       "source_file": "smoke/src/paths.rs",
@@ -37705,116 +37815,6 @@
       "community_name": "paths.rs",
       "norm_label": "writable_locations()",
       "id": "smoke_src_paths_writable_locations"
-    },
-    {
-      "label": "Announcement",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L60",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "announcement",
-      "id": "smoke_src_preflight_announcement"
-    },
-    {
-      "label": ".fmt()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L91",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": ".fmt()",
-      "id": "smoke_src_preflight_announcement_fmt"
-    },
-    {
-      "label": "no_backend_skips_the_backend_steps_and_nothing_else()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L3001",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "no_backend_skips_the_backend_steps_and_nothing_else()",
-      "id": "smoke_src_preflight_no_backend_skips_the_backend_steps_and_nothing_else"
-    },
-    {
-      "label": "preflight_step_order()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L190",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "preflight_step_order()",
-      "id": "smoke_src_preflight_preflight_step_order"
-    },
-    {
-      "label": ".fmt()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L144",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": ".fmt()",
-      "id": "smoke_src_preflight_preflighterror_fmt"
-    },
-    {
-      "label": "Debug",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "debug",
-      "id": "smoke_src_preflight_rs_debug"
-    },
-    {
-      "label": "Formatter",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "formatter",
-      "id": "smoke_src_preflight_rs_formatter"
-    },
-    {
-      "label": "the_order_is_config_then_fixtures_then_backend()",
-      "file_type": "code",
-      "source_file": "smoke/src/preflight.rs",
-      "source_location": "L1714",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "the_order_is_config_then_fixtures_then_backend()",
-      "id": "smoke_src_preflight_the_order_is_config_then_fixtures_then_backend"
-    },
-    {
-      "label": "Result",
-      "file_type": "code",
-      "source_file": "",
-      "source_location": "",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "result",
-      "id": "smoke_src_testkit_rs_result"
-    },
-    {
-      "label": "run_against_an_unreachable_backend()",
-      "file_type": "code",
-      "source_file": "smoke/src/testkit.rs",
-      "source_location": "L1018",
-      "_origin": "ast",
-      "community": 92,
-      "community_name": "Announcement",
-      "norm_label": "run_against_an_unreachable_backend()",
-      "id": "smoke_src_testkit_run_against_an_unreachable_backend"
     },
     {
       "label": "AgentOutput",
@@ -103919,7 +103919,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L226",
+      "source_location": "L232",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_6_1_which_models_to_run_it_with_cheap_every_time_but_the_last",
@@ -103930,7 +103930,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L232",
+      "source_location": "L238",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_6_1_which_models_to_run_it_with_cheap_every_time_but_the_last",
@@ -103941,7 +103941,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L249",
+      "source_location": "L259",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_6_1_which_models_to_run_it_with_cheap_every_time_but_the_last",
@@ -103952,7 +103952,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L313",
+      "source_location": "L323",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_9_running_it_six_invocations_not_one",
@@ -103963,7 +103963,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L365",
+      "source_location": "L375",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_9_running_it_six_invocations_not_one",
@@ -104029,7 +104029,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L255",
+      "source_location": "L265",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
@@ -104040,7 +104040,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L264",
+      "source_location": "L274",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
@@ -104051,7 +104051,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L298",
+      "source_location": "L308",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
@@ -104073,7 +104073,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L406",
+      "source_location": "L416",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
@@ -104084,7 +104084,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "smoke/README.md",
-      "source_location": "L420",
+      "source_location": "L430",
       "weight": 1.0,
       "_origin": "ast",
       "source": "smoke_readme_magi_smoke_the_smoke_harness",
@@ -132927,5 +132927,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "c4a6105b1b49aac243af290a59ad734dcc465adf"
+  "built_at_commit": "cb2b820e69acfbe177908ce4cfd0ec89bd2934db"
 }
