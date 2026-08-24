@@ -137,8 +137,9 @@ by carrying the wrong type. That is what this release removes.
   the next cause into the wrong category with nothing failing.
 
 - **`CompletionConfig::max_tokens` defaults to `16_384`, up from `4096`.** Not hygiene for its own
-  sake: `glm-5.2` needed **4 864** completion tokens for a valid verdict on a 62k payload, so the
-  old default truncated a legitimate verdict from a model that is not even the pathological case.
+  sake: with the real system prompt on a 62k bundle, `glm-5.2` demanded **10 686** completion
+  tokens for a valid verdict, so the old default truncated a legitimate verdict from a model that
+  is not even the pathological case.
   In a degraded run captured before this change, the second candidate of a seat's rotation chain
   is **measured converging** at both 8 192 and 16 384 — that run would have been 3/3 instead of
   2/3.

@@ -138,14 +138,23 @@ lib.rs (crate root)
 ├── validate.rs       — Validator with ValidationLimits, zero-width Unicode stripping
 ├── consensus.rs      — ConsensusEngine: weighted scoring, epsilon-aware classification
 ├── reporting.rs      — ReportFormatter (52-char ASCII banner), MagiReport
-├── provider.rs       — LlmProvider async trait (Send+Sync), RetryProvider
-├── prompts.rs        — 3 submodules loading 9 system prompt .md files via include_str!
+├── provider.rs       — LlmProvider async trait (Send+Sync), Completion, RetryProvider
+├── backoff.rs        — capped exponential backoff, full jitter, Retry-After parsing
+├── finding_id.rs     — stable SHA-256 finding identity
+├── prompts/          — PUBLIC. 3 MODE-AGNOSTIC system prompts via include_str! + validate_prompt
+├── user_prompt.rs    — sanitization pipeline + nonce-delimited payload construction
+├── verdict_markers.rs — PUBLIC. The verdict sentinel: extract/locate_block, causes
+├── rotation.rs       — per-agent lineage rotation, RotationKind, pool eligibility
 ├── agent.rs          — Agent struct, AgentFactory with per-agent/per-mode overrides
 ├── orchestrator.rs   — Magi struct + MagiBuilder, analyze() via concurrent dispatch
 ├── prelude.rs        — Re-exports of all public types
 └── providers/
+    ├── provider_url.rs — PRIVATE. Owns the URL, renders it redacted, builds requests
     ├── claude.rs     — ClaudeProvider (HTTP, feature: claude-api)
-    └── claude_cli.rs — ClaudeCliProvider (subprocess, feature: claude-cli)
+    ├── claude_cli.rs — ClaudeCliProvider (subprocess, feature: claude-cli)
+    ├── openai_compat.rs — OpenAiCompatibleProvider (feature: openai-compat)
+    ├── ollama.rs     — OllamaProvider, native /api/chat + probe (feature: ollama)
+    └── ollama_wire.rs — the native request/response shapes and their parsing
 ```
 
 ### 4.2 Dependency Flow
@@ -199,7 +208,9 @@ ConsensusEngine::determine() — scoring + dedup + dissent
 ReportFormatter::format_report() — ASCII banner + markdown
   │
   ▼
-MagiReport { agents, consensus, banner, report, degraded, failed_agents }
+MagiReport { agents, consensus, banner, report, degraded, failed_agents,
+             retried_agents, extraction_failures, rotations, input_size,
+             completions, pool_eligibility }
 ```
 
 ### 4.4 Concurrency Model
@@ -229,7 +240,14 @@ Each agent responds with a JSON object (deserialized as `AgentOutput`):
   "summary": "One-line verdict summary",
   "reasoning": "Detailed analysis (2-5 paragraphs)",
   "findings": [
-    { "severity": "critical | warning | info", "title": "Short title", "detail": "Explanation" }
+    {
+      "severity": "critical | warning | info",
+      "title": "Short title",
+      "detail": "Explanation",
+      "file": "src/main.rs",
+      "line": 42,
+      "category": "correctness"
+    }
   ],
   "recommendation": "What this agent recommends"
 }
@@ -280,7 +298,7 @@ Key properties:
 
 The consensus engine merges findings from all agents:
 
-1. **Deduplication by title**: Case-insensitive matching with zero-width Unicode characters stripped via regex.
+1. **Deduplication by id, falling back to title**: a finding that carries a file and a positive line gets a stable SHA-256 identity and dedupes on that; one without a location dedupes on its title, case-insensitively and with zero-width Unicode characters stripped via regex. Title-only was the rule before `1.0.0`.
 2. **Severity escalation**: When the same finding has different severities across agents, the highest wins (Critical > Warning > Info).
 3. **Sorting**: Final findings sorted by severity (Critical first).
 4. **Source tracking**: Each deduplicated finding lists all contributing agents in its `sources` array.
@@ -350,7 +368,7 @@ This means the same consensus engine, validation, and reporting pipeline works r
 | BALTHASAR-2 (mother) | `AgentName::Balthasar` — pragmatism and team protection |
 | CASPAR-3 (woman) | `AgentName::Caspar` — adversarial instinct and risk detection |
 | 2-of-3 voting | `ConsensusEngine` with weight-based majority rules |
-| Personality transplant | System prompts (9 markdown files, 3 agents x 3 modes) |
+| Personality transplant | System prompts (3 markdown files, one per agent, mode-agnostic since v0.3.0) |
 | Terminal Dogma | `MagiBuilder` (hidden configuration depth) |
 | AT Field | Agent independence (parallel execution, no shared context) |
 | Pribnow Box | `Validator` (schema validation — containment layer) |
@@ -372,6 +390,6 @@ magi-core preserves the same consensus algorithm, confidence formula, and findin
 
 ---
 
-*Technical reference document for magi-core v1.0.0.*
+*Technical reference document for magi-core v4.0.0.*
 *The MAGI concept originates from Neon Genesis Evangelion (Hideaki Anno, Gainax, 1995).*
 *The implementation as a Rust library is a creative adaptation for LLM-agnostic multi-perspective analysis.*

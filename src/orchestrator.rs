@@ -131,9 +131,12 @@ pub struct MagiConfig {
     ///
     /// 1. **`client_timeout`** — the slowest legitimate request you have seen, set per provider
     ///    with its `with_timeout`. Everything else derives from it.
-    /// 2. **[`RetryConfig::operation_budget`]** — keep it inside the window its own rustdoc
-    ///    documents, or you lose either the deterministic second attempt (floor) or the
-    ///    `Retry-After` cut (ceiling). Neither loss announces itself.
+    /// 2. **[`RetryConfig::operation_budget`]** — keep it at or above the floor its own rustdoc
+    ///    gives (`client_timeout + base_delay + 1`), or you lose the deterministic second attempt
+    ///    of a hang. **That one the crate warns about**, computed from the SHIPPED client timeout,
+    ///    so if you raised yours the guard cannot see your real floor. Going far above costs wall
+    ///    clock on the `Retry-After` path and is deliberately NOT warned, because it is what step
+    ///    1 above produces.
     /// 3. **`MagiConfig::timeout`** (this field) — at least the chain's worst case.
     ///
     /// Then read [`Magi::worst_case_per_seat`]: it tells you what you just bought. It is a
@@ -143,8 +146,10 @@ pub struct MagiConfig {
     /// is indistinguishable from a badly chosen one — and the user finds out when their model
     /// dies at five minutes for a reason that is not theirs.
     ///
-    /// **It applies only if you opt into [`RetryProvider`]**: [`MagiBuilder::build`] does not wrap
-    /// providers in one.
+    /// **The ordering above assumes you opted into [`RetryProvider`]** — [`MagiBuilder::build`]
+    /// does not wrap providers in one, so without it steps 1 and 2 have no subject. **This field
+    /// applies either way**, and a consumer with no `RetryProvider` feels the 300 —> 660 s change
+    /// most directly: nothing else bounds the call.
     ///
     /// [`RetryConfig`]: crate::provider::RetryConfig
     /// [`RetryConfig::operation_budget`]: crate::provider::RetryConfig::operation_budget

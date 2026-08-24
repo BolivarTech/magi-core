@@ -31,7 +31,7 @@ consensus engine synthesizes their verdicts into a unified report.
 - **Structured findings** *(v1.0)* — `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified** — validate against your own diff
 - **Finding deduplication** — co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
 - **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
-- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via an immutable `RetryConfig`.
+- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via `RetryConfig`, whose fields are public: build one from `default()` and set what you need.
 
 > ⚠️ **How long a call can take.** The HTTP providers apply a **300 s total request
 > timeout** (`with_timeout(...)` to change it), and since `4.0.0` the retry chain is
@@ -60,6 +60,10 @@ Add to your `Cargo.toml`:
 [dependencies]
 magi-core = "4.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# Only if you implement `LlmProvider` yourself: the trait is declared with
+# `#[async_trait]` and this crate does not re-export the macro.
+async-trait = "0.1"
 
 # Enable one or both built-in providers:
 # magi-core = { version = "4.0", features = ["claude-cli"] }
@@ -96,10 +100,17 @@ use std::time::Duration;
 let default_provider: Arc<dyn LlmProvider> = /* ... */;
 let caspar_provider: Arc<dyn LlmProvider> = /* ... */;
 
+// `ConsensusConfig` is `#[non_exhaustive]`, so a struct literal is `E0639` from any
+// crate but this one. Start from `default()` and set what you need. (These two ARE the
+// defaults, shown to make the shape explicit.)
+let mut consensus = ConsensusConfig::default();
+consensus.min_agents = 2;
+consensus.epsilon = 1e-9;
+
 let magi = Magi::builder(default_provider)
     .with_provider(AgentName::Caspar, caspar_provider)
     .with_timeout(Duration::from_secs(60))
-    .with_consensus_config(ConsensusConfig { min_agents: 2, epsilon: 1e-9 })
+    .with_consensus_config(consensus)
     .build()?;
 
 let report = magi.analyze(&Mode::Design, "Propose a caching layer").await?;
@@ -315,7 +326,10 @@ finding_id    (stable SHA-256 finding identity + fail-soft file/line/category de
 validate      (field validation with regex zero-width stripping, NFKC + casefold)
 consensus     (weighted scoring, classification, finding dedup)
 reporting     (ASCII banner + markdown report generation)
-provider      (LlmProvider trait, CompletionConfig, RetryProvider)
+provider      (LlmProvider trait, Completion, CompletionConfig, ReasoningControl, RetryProvider)
+backoff       (capped exponential backoff, full jitter, Retry-After parsing, RetryClass)
+verdict_markers (the verdict sentinel: extract/locate_block, marker constants, causes)
+rotation      (per-agent lineage rotation, RotationKind, pool eligibility snapshot)
 prompts       (3 mode-agnostic prompts embedded via include_str!, lookup helper)
 prompts_md/   (byte-for-byte Python reference: melchior.md, balthasar.md, caspar.md)
 user_prompt   (sanitization pipeline + nonce-delimited payload construction)
@@ -325,6 +339,8 @@ providers/
   claude          [feature: claude-api]      — HTTP via reqwest
   claude_cli      [feature: claude-cli]      — subprocess via tokio::process
   openai_compat   [feature: openai-compat]   — OpenAI Chat Completions HTTP (OpenAI + LocalAI/vLLM/LM Studio)
+  ollama          [feature: ollama]          — native /api/chat completions + the /api/show + /api/tags probe
+  provider_url    (private)                  — owns the URL, renders it redacted, builds every request
 ```
 
 ### Prompt Injection Defense
@@ -555,7 +571,7 @@ is retried, and how far the condemnation reaches). A complete implementation is 
 | `claude-api`     | off     | HTTP provider via `reqwest`          |
 | `claude-cli`     | off     | Subprocess provider via `tokio::process` |
 | `openai-compat`  | off     | OpenAI Chat Completions HTTP provider (`OpenAiCompatibleProvider`) — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server via a configurable `base_url`. For Ollama use the `ollama` feature below: since `4.0.0` it completes on the native `/api/chat` path, not through this one. |
-| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe`. Still enables `openai-compat` (for `reqwest` and the shared URL machinery, **not** for the completions path), so `OpenAiCompatibleProvider` is exported too (context window via `/api/show`, weights digest via `/api/tags`) used by rotation's window/digest verify. |
+| `ollama`         | off     | `OllamaProvider` — **native** `/api/chat` completions **plus** the native `ProviderProbe`. Still enables `openai-compat` (for `reqwest` and the shared URL machinery, **not** for the completions path), so `OpenAiCompatibleProvider` is exported too. The probe endpoints belong to `OllamaProvider`, the only production `ProviderProbe`: context window via `/api/show`, weights digest via `/api/tags`, both used by rotation's window/digest verify. |
 | `test-utils`     | off     | Exposes `magi_core::test_support::RoutingMockProvider` for downstream integration tests. Its surface is covered by the crate's stability policy like any other public item, so it moves on a minor at the earliest. |
 
 The core library (orchestrator, consensus, reporting, validation) compiles with

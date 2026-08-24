@@ -131,14 +131,16 @@ impl OllamaProvider {
         Self::with_timeout(base_url, model, DEFAULT_CLIENT_TIMEOUT)
     }
 
-    /// Like [`new`](Self::new) but bounds **both** HTTP clients this type builds — the one
-    /// serving completions and the one serving the probe — with `timeout`.
+    /// Like [`new`](Self::new) but bounds the HTTP client this type builds with `timeout`, which
+    /// covers completions and the probe alike — they share it.
     ///
     /// [`new`](Self::new) delegates here with [`DEFAULT_CLIENT_TIMEOUT`], so the default is
     /// unchanged: 300 s, which is generous on purpose because a local daemon may be loading a
     /// model from cold on the first call.
     ///
-    /// The timeout covers the entire request, from send to the last body byte, on both clients.
+    /// The timeout covers the entire request, from send to the last body byte. It said "both
+    /// clients" until `4.0.0`, which was true while this type wrapped an `OpenAiCompatibleProvider`
+    /// for completions and kept its own for the probe; that wrapper is gone and there is one.
     /// `Duration::MAX` means "no timeout" and is dangerous for the same reason it is on the
     /// sibling provider: a model that hangs while generating hangs forever. Nothing validates
     /// the value here.
@@ -146,8 +148,9 @@ impl OllamaProvider {
     /// # Why this exists
     ///
     /// A consumer that derives its per-agent timeouts from a single ceiling needs the client
-    /// timeout to fit under it — see the layering section on [`RetryConfig`](crate::provider::RetryConfig),
-    /// It gives the current form, and explains why the older
+    /// timeout to fit under it — see the layering section on
+    /// [`RetryConfig`](crate::provider::RetryConfig). It gives the current form and explains why
+    /// the older
     /// `operation_budget + client_timeout <= MagiConfig::timeout` is left unsatisfied by the
     /// shipped defaults **on purpose**: since `4.0.0` the chain is bounded by an attempt count
     /// and the budget is a backstop, so summing the two would buy a ceiling the chain cannot
@@ -252,10 +255,14 @@ impl LlmProvider for OllamaProvider {
     ///   `Unreadable`, `NoMessage`, or `RedirectRefused` — and
     ///   [`ProviderError::EmptyCompletion`] when the model produced no usable content. Both
     ///   are **mage-local**: no lineage is condemned run-wide.
-    /// - [`ProviderError::NoGeneration`] when the daemon accepted the request, generated
-    ///   nothing, and returned **no token counters at all**. That footprint is a defect of
-    ///   THIS crate rather than a failure of the model, so the orchestrator raises it and
-    ///   aborts the run instead of rotating — rotating would reproduce it at every seat.
+    /// - [`ProviderError::NoGeneration`] on the **full four-part footprint**: both token
+    ///   counters absent (absent, not zero), empty content, **and** `done_reason` exactly
+    ///   `load`. Anything short of all four is [`ProviderError::EmptyCompletion`] instead —
+    ///   `tests/fixtures/ec/native-unload-empty-messages.json` meets the first three under
+    ///   `unload` and takes that safer path. The narrowing is deliberate: this footprint is a
+    ///   defect of THIS crate rather than a failure of the model, so the orchestrator raises it
+    ///   and aborts the run instead of rotating — rotating would reproduce it at every seat —
+    ///   and an irreversible consequence is owed a precise trigger, not one symptom.
     async fn complete(
         &self,
         system_prompt: &str,

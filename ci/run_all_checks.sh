@@ -39,7 +39,8 @@
 #
 #   0. "Doctests run LAST" holds among the steps that SHARE a gate target dir, which is what the
 #      ordering below is about. The packaged-consumer step runs after them and is exempt: it works
-#      out of `$ROOT/target` and `$TARGET/packaged-consumer`, touching neither `gate-all` nor
+#      out of `${CARGO_TARGET_DIR:-$ROOT/target}` and its `packaged-consumer` subdirectory,
+#      touching neither `gate-all` nor
 #      `gate-default`, so it cannot contend with anything ordered here. Said explicitly because
 #      this block is what the next person reasons from when they reorder something.
 #

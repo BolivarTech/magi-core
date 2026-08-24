@@ -290,6 +290,16 @@ nobody could measure it. If you match on this field, add the `Option`.
 validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` report will not
 load until that reader tolerates the new key. Additive is not the same as invisible.
 
+> **There are TWO new keys, and the other one is the one you cannot miss.** `completions` carries
+> `skip_serializing_if`, so a run with nothing to report omits it entirely and a strict reader may
+> never meet it. **`pool_eligibility` does not** — it is emitted on every report, empty map
+> included, deliberately, because an absent key and an empty one answer different questions
+> (nothing was ineligible, versus no snapshot was taken). So a strict reader that tolerates
+> `completions` and stops there **still fails to load every single `4.0.0` report**. Tolerate
+> both. Its values are `CandidateEligibility`, each carrying an `IneligibilityCause`; both types
+> are in the prelude, and the field's own rustdoc states that the snapshot is **pre-dispatch** and
+> does not see lineages that fail mid-run — that is what `rotations` is for.
+
 **Why all of them.** Recording only the notable attempts leaves you blind until the first cut,
 which is the blindness this whole release is about: `4096` did not fail all at once, it had been
 scraping by. Knowing how close an attempt came is what makes the next budget a decision instead of
@@ -356,7 +366,10 @@ short because it ran out of room.
 
 **Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
 
-**After:** removed. Nothing replaces it, and nothing inside the crate called it either.
+**After:** removed. Nothing replaces it. It **was** the live parse path in `3.2.0` — the final
+statement of `ClaudeProvider::complete` — which is why the paragraph below can say its behaviour
+changed on the way out; an earlier draft of this line called it uncalled, and that was wrong about
+the very version you are migrating from.
 
 **What you do:** call `complete()`. If you were parsing a captured body outside a request there
 is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite

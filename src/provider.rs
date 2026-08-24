@@ -111,7 +111,13 @@ pub struct CompletionConfig {
     /// |---|---|
     /// | [`OllamaProvider`](crate::providers::ollama::OllamaProvider) | `message.thinking` |
     /// | [`OpenAiCompatibleProvider`](crate::providers::openai_compat::OpenAiCompatibleProvider) | `message.reasoning` |
-    /// | the Claude providers | none — they report [`ReasoningState::NotMeasured`] |
+    /// | [`ClaudeProvider`](crate::providers::claude::ClaudeProvider) | `thinking` and `redacted_thinking` blocks |
+    /// | [`ClaudeCliProvider`](crate::providers::claude_cli::ClaudeCliProvider) | none — it reports [`ReasoningState::NotMeasured`] |
+    ///
+    /// **The Claude HTTP provider is not an exception to the hazards above.** This table said it
+    /// had no channel, which was simply wrong: extended thinking returns `thinking` blocks, and
+    /// with `reasoning_trace` on, that text reaches the report unvalidated and unredacted like
+    /// any other backend's.
     ///
     /// `NotMeasured` there, never `Measured { chars: 0 }`, which would claim a look that never
     /// happened. It is a different question from [`ReasoningState::Unsupported`], which is about

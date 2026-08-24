@@ -333,7 +333,9 @@ impl AgentFactory {
     /// respect the v0.3 overrides map set via
     /// `with_custom_prompt_for_mode` / `with_custom_prompt_all_modes`.
     /// This method falls back to embedded defaults only (ignores
-    /// orchestrator-level overrides) and will be removed in v0.4.0.
+    /// orchestrator-level overrides). It was marked for removal in v0.4.0, which shipped in May
+    /// 2026 with this method still here; three majors later it is still here, so treat the
+    /// deprecation as the warning and not as a scheduled date. Removing it needs its own cycle.
     #[deprecated(
         since = "0.3.0",
         note = "create_agents does NOT apply overrides set via \
