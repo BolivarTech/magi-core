@@ -77,3 +77,9 @@ smoke/magi-smoke.toml
 # only to keep artifacts left by a pre-move build out of git; nothing writes
 # here any more, and it can go once no such tree survives.
 smoke/target-matrix/
+
+# The capture ORIGIN for the fixture corpus, and the default source of
+# `smoke/sync-fixtures.sh`. It is captured against a live backend, so it exists
+# only on the machine that captured it and must never be a build dependency —
+# what the harness actually replays is tracked under `tests/fixtures/ec/`.
+smoke/corpus/

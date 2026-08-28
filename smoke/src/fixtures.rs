@@ -594,7 +594,7 @@ mod tests {
 
     /// Lays out a throw-away replica of the repository — `<root>/smoke/` with a
     /// copy of the real `sync-fixtures.sh` in it, and an empty
-    /// `<root>/sbtdd/ec-evidence/` for the script's source check — and returns
+    /// `<root>/smoke/corpus/` for the script's source check — and returns
     /// the replica's root.
     ///
     /// A replica rather than the real checkout because the script WRITES, and a
@@ -609,7 +609,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("smoke")).expect("replica smoke dir");
-        std::fs::create_dir_all(root.join("sbtdd").join("ec-evidence")).expect("replica source");
+        std::fs::create_dir_all(root.join("smoke").join("corpus")).expect("replica source");
         std::fs::copy(
             crate::paths::smoke_dir().join("sync-fixtures.sh"),
             root.join("smoke").join("sync-fixtures.sh"),
@@ -745,18 +745,32 @@ mod tests {
         // covers the BINARY's write sites, and this script is not the binary. A
         // stray directory here is invisible to that guard and to `git status`
         // alike once somebody ignores it.
+        // Compared against a SNAPSHOT of the replica taken before the run, not
+        // against a literal list. A literal has to be edited every time the
+        // replica lays out one more thing, and the edit that keeps it passing is
+        // indistinguishable from the edit that quietly admits a directory the
+        // script really did create. The difference of the two listings names
+        // only what this run added.
         for cwd in ["", "smoke"] {
             let root = sync_script_replica();
+            let listing = |dir: &std::path::Path| -> Vec<String> {
+                let mut v: Vec<String> = std::fs::read_dir(dir)
+                    .expect("the replica's smoke directory must be readable")
+                    .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+                    .collect();
+                v.sort();
+                v
+            };
+            let before = listing(&root.join("smoke"));
             let out = run_sync_from(&root, &root.join(cwd));
             assert!(out.status.success(), "the script must run from {cwd:?}");
-            let mut created: Vec<String> = std::fs::read_dir(root.join("smoke"))
-                .expect("the replica's smoke directory must be readable")
-                .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            let added: Vec<String> = listing(&root.join("smoke"))
+                .into_iter()
+                .filter(|n| !before.contains(n))
                 .collect();
-            created.sort();
             assert_eq!(
-                created,
-                vec!["fixtures".to_string(), "sync-fixtures.sh".to_string()],
+                added,
+                vec!["fixtures".to_string()],
                 "run from {cwd:?} the script created something beside smoke/fixtures"
             );
             let _ = std::fs::remove_dir_all(&root);

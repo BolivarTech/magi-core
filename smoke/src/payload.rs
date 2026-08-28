@@ -4,9 +4,10 @@
 
 //! Generates the large payload from the working tree.
 //!
-//! It is GENERATED rather than read from a fixture because `sbtdd/` is gitignored:
-//! a developer who clones does not have it, and the harness would fail on a
-//! dependency it could never satisfy. Generated, it also grows with the project.
+//! It is GENERATED rather than read from a fixture because a captured corpus
+//! lives outside the tracked tree: a developer who clones does not have it, and
+//! the harness would fail on a dependency it could never satisfy. Generated, it
+//! also grows with the project.
 //!
 //! The load-bearing property is the TOKEN count, but the controllable magnitude
 //! is BYTES — the token count is asserted at runtime by the scenario instead.

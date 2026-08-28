@@ -74,8 +74,7 @@ const NAME_MODEL_AND_CAP: &str = "every record names its model and the budget it
 const NAME_TERMINATION: &str = "every record carries the termination reason the backend reported";
 const NAME_TRACE_LENGTH_ONLY: &str = "with the flag off, no record carries the trace text";
 
-/// `S13` — a clean run still records one entry per completion
-/// (`sbtdd/smoke-harness-spec.md`, "S13").
+/// `S13` — a clean run still records one entry per completion.
 ///
 /// # Why a CLEAN run is the interesting case, not a cut one
 ///
@@ -213,8 +212,7 @@ fn r17_the_prompt_is_large_in_tokens(records: &[&CompletionRecord]) -> Assertion
     )
 }
 
-/// `S10` — the raised output budget stops the 62 k bundle from costing a seat
-/// (`sbtdd/smoke-harness-spec.md`, "S10").
+/// `S10` — the raised output budget stops the 62 k bundle from costing a seat.
 ///
 /// # The large payload is the whole scenario, not a bigger version of a small one
 ///
@@ -300,7 +298,7 @@ fn s10_the_large_payload_costs_no_seat(ctx: &RunContext<'_>) -> Vec<Assertion> {
 const NAME_TRACE_MEASURED: &str = "a reasoning trace was measured on the large-payload run";
 const NAME_TRACE_TEXT: &str = "with the flag on, the trace carries its text as well as its length";
 
-/// `S11` — the opt-in flag is ADDITIVE (`sbtdd/smoke-harness-spec.md`, "S11").
+/// `S11` — the opt-in flag is ADDITIVE.
 ///
 /// # The comparison is split across two scenarios, on purpose
 ///
@@ -365,8 +363,7 @@ const NAME_NO_EMPTY_MISCLASSIFIED: &str =
 const NAME_CUT_NAMES_BUDGET: &str = "a completion cut by the budget names the budget in its error";
 const NAME_NO_RUN_WIDE: &str = "no content failure condemned a lineage run-wide";
 
-/// `S3` — the failure this release is named for, observed from the outside
-/// (`sbtdd/smoke-harness-spec.md`, "S3").
+/// `S3` — the failure this release is named for, observed from the outside.
 ///
 /// # Three assertions, because three separate things had to be true and only one was
 ///
@@ -472,7 +469,7 @@ fn content_failure_detail(detail: &str) -> bool {
 const NAME_ABORTS: &str = "the run ends with an error that names a defect of this crate";
 const NAME_NOT_A_SEAT: &str = "no report was produced, so no seat was blamed for it";
 
-/// `S9` — the abort, read from the outside (`sbtdd/smoke-harness-spec.md`, "S9").
+/// `S9` — the abort, read from the outside.
 ///
 /// # Why the assertion is about the ERROR and not about a report field
 ///
@@ -538,7 +535,7 @@ const NAME_CONTENT_EMPTY: &str = "the live backend still returns empty content";
 /// response this scenario is about.
 const NATIVE_OK: u16 = 200;
 
-/// `S9b` — erosion detection (`sbtdd/smoke-harness-spec.md`, "S9b").
+/// `S9b` — erosion detection.
 ///
 /// # Not a duplicate of `S9`, and the difference is the whole reason it exists
 ///
@@ -641,8 +638,7 @@ const NAME_SOMEONE_DECLARES: &str =
 const NAME_DISTINGUISHABLE: &str =
     "the declaration is distinguishable from a measured absence of reasoning";
 
-/// `S12` — one seat honours the reasoning control, another cannot, and the run survives
-/// (`sbtdd/smoke-harness-spec.md`, "S12").
+/// `S12` — one seat honours the reasoning control, another cannot, and the run survives.
 ///
 /// # Why this needs a heterogeneous trio and could not be split into two runs
 ///

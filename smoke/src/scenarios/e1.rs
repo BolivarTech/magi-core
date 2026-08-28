@@ -3,8 +3,8 @@
 // Date: 2026-08-23
 
 //! The twelve scenarios valid against `magi-core` `3.2.0`: `S1, S2, S2b, S4, S5,
-//! S6, S7, S14, S15, S16, S20, S21` — the exact set the spec's `§2.3` assigns
-//! to stage E1 (`sbtdd/smoke-harness-spec.md`).
+//! S6, S7, S14, S15, S16, S20, S21` — the exact set stage E1
+//! covers.
 //!
 //! # The rule every `assert_fn` below follows
 //!
@@ -140,8 +140,7 @@ fn preflight_error_for_stage<'a>(ctx: &RunContext<'a>, stage_prefix: &str) -> Re
 // S1 — an outside LlmProvider fails typed
 // ---------------------------------------------------------------------------
 
-/// `S1` — an outside provider can fail in a typed way
-/// (`sbtdd/smoke-harness-spec.md`, "S1").
+/// `S1` — an outside provider can fail in a typed way.
 ///
 /// Reads [`RunId::NoBackend`], whose every seat is
 /// [`crate::external::AlwaysFailsExternally`] — an `LlmProvider` implemented
@@ -249,8 +248,7 @@ fn analyze_produced_a_report(ctx: &RunContext<'_>) -> Assertion {
 // S2 — happy path against a real backend
 // ---------------------------------------------------------------------------
 
-/// `S2` — the happy path against a real backend, through the proxy
-/// (`sbtdd/smoke-harness-spec.md`, "S2").
+/// `S2` — the happy path against a real backend, through the proxy.
 ///
 /// Reads [`RunId::HappySmall`]. Four independent assertions, so a red row says
 /// WHICH property broke rather than "the happy path is unhappy".
@@ -393,8 +391,7 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
 // ---------------------------------------------------------------------------
 
 /// `S2b` — the proxy is TRANSPARENT, checked against `POST /api/show`: a
-/// deterministic endpoint that carries a body, unlike `/api/tags`
-/// (`sbtdd/smoke-harness-spec.md`, "S2b").
+/// deterministic endpoint that carries a body, unlike `/api/tags`.
 ///
 /// Two independent checksums, both over bytes the HARNESS itself sent or
 /// received directly — never two LLM completions, which are not deterministic
@@ -617,8 +614,7 @@ fn why_the_forced_failure_cannot_be_read(ctx: &RunContext<'_>) -> Option<String>
     )
 }
 
-/// `S4` — rotation and its cause, forced by injection
-/// (`sbtdd/smoke-harness-spec.md`, "S4").
+/// `S4` — rotation and its cause, forced by injection.
 ///
 /// Reads [`RunId::Rotation`]. As of `runner.rs`'s `with_fallback_pool` wiring,
 /// this run's trio has a real fallback candidate whose lineage differs from
@@ -788,8 +784,7 @@ fn tags_response_has_a_64_hex_digest(body: &[u8]) -> bool {
     })
 }
 
-/// `S5` — the probe still reads what it expects
-/// (`sbtdd/smoke-harness-spec.md`, "S5").
+/// `S5` — the probe still reads what it expects.
 ///
 /// Reads [`RunId::HappySmall`]'s wire traffic: `analyze()` probes every
 /// probing primary via `POST /api/show` (window) and `GET /api/tags`
@@ -906,8 +901,7 @@ fn answered_probes<'a>(ctx: &RunContext<'a>, path: &str) -> Vec<&'a RequestRecor
 // S6 — without a backend, there is no green
 // ---------------------------------------------------------------------------
 
-/// `S6` — without a backend, there is no green
-/// (`sbtdd/smoke-harness-spec.md`, "S6").
+/// `S6` — without a backend, there is no green.
 ///
 /// `Source::Preflight`: an unreachable backend fails the preflight's `Backend`
 /// step (`preflight::reachable`) before a single scenario runs. Exercised by
@@ -931,8 +925,7 @@ fn s6_no_backend_no_green(ctx: &RunContext<'_>) -> Vec<Assertion> {
 // S7 — a saturated endpoint reports "cannot test", with its declared scope
 // ---------------------------------------------------------------------------
 
-/// `S7` — a saturated endpoint reports "cannot test", with its declared scope
-/// (`sbtdd/smoke-harness-spec.md`, "S7").
+/// `S7` — a saturated endpoint reports "cannot test", with its declared scope.
 ///
 /// `Source::Preflight`: the contention probe's own `Probe` stage. Exercised
 /// by pointing `MAGI_SMOKE_ENDPOINT` at a stub that answers slowly
@@ -985,8 +978,7 @@ fn s7_a_saturated_endpoint_reports_cannot_test_with_its_scope(
 // S14 — an illegible TOML is FATAL, never a silent default
 // ---------------------------------------------------------------------------
 
-/// `S14` — an illegible TOML is FATAL, never a silent default
-/// (`sbtdd/smoke-harness-spec.md`, "S14").
+/// `S14` — an illegible TOML is FATAL, never a silent default.
 ///
 /// `Source::Preflight`: a config that fails to parse never reaches
 /// `preflight::run` at all — it is wrapped as the `Config` stage before the
@@ -1192,8 +1184,7 @@ fn s15_four_assertions(report: &MagiReport, ctx: &RunContext<'_>) -> Vec<Asserti
     ]
 }
 
-/// `S15` — degradation is honest in its FOUR assertions, forced by injection
-/// (`sbtdd/smoke-harness-spec.md`, "S15").
+/// `S15` — degradation is honest in its FOUR assertions, forced by injection.
 ///
 /// Reads [`RunId::Degradation`]. This is the property the "a degraded MAGI run
 /// never approves a gate" discipline rests on
@@ -1274,8 +1265,7 @@ fn status_shows_nothing_outside_the_certificate(porcelain: &str) -> bool {
         .all(|l| l.trim_end().ends_with(CERT_PATH_SUFFIX))
 }
 
-/// `S16` — the harness leaves no trace in the repo, except the certificate
-/// (`sbtdd/smoke-harness-spec.md`, "S16").
+/// `S16` — the harness leaves no trace in the repo, except the certificate.
 ///
 /// `Source::Session`: evaluated ONCE, after every run finished and BEFORE the
 /// certificate is written — the certificate is this scenario's declared
@@ -1352,8 +1342,7 @@ fn s16_no_trace_left_in_the_repo(ctx: &RunContext<'_>) -> Vec<Assertion> {
 // S20 — a broken proxy does NOT produce a scenario red
 // ---------------------------------------------------------------------------
 
-/// `S20` — a broken proxy does NOT produce a scenario red
-/// (`sbtdd/smoke-harness-spec.md`, "S20").
+/// `S20` — a broken proxy does NOT produce a scenario red.
 ///
 /// `Source::Preflight`: `preflight::raise_proxy` fails the `Proxy` step.
 /// Exercised by `cargo run -- --break-proxy`, the harness's own self-test
@@ -1375,8 +1364,7 @@ fn s20_broken_proxy_is_not_a_scenario_red(ctx: &RunContext<'_>) -> Vec<Assertion
 // S21 — the two dependency modes cannot be confused
 // ---------------------------------------------------------------------------
 
-/// `S21` — the two dependency modes cannot be confused
-/// (`sbtdd/smoke-harness-spec.md`, "S21").
+/// `S21` — the two dependency modes cannot be confused.
 ///
 /// `Source::Build`: the property is a `compile_error!` in `alias.rs`, so there
 /// is no BINARY to observe it from at runtime — a scenario that runs has

@@ -466,3 +466,48 @@ see the collapse and cannot see its cause.
 That is precisely the gap `4.0.0` closes, and it is why this record is kept: the value of the
 harness is not that it reproduced a known bug, but that it reproduced it **from outside**, the
 way a consumer meets it.
+
+## 11.1 The captured measurements this harness is calibrated against
+
+Thirty-four completions were captured by hand against a live Ollama between 2026-08-15 and
+2026-08-16, in the course of diagnosing the failure above. **The raw bodies are not in this
+repository**: they were captured against a backend, they belong to the process record rather
+than to the product, and a corpus a cloner does not have must never be something the harness
+needs. What the harness actually replays is the eleven-file subset tracked under
+`tests/fixtures/ec/`; the rest survives as the table below.
+
+Every run used the **real** system prompts (`src/prompts_md/*.md`). That is not a detail: the
+same sweep run with a generic prompt classified `nemotron-3-super` as a survivor at 2 862
+characters of content, and the real prompt turned it into 17 885 characters of reasoning and
+nothing else — a workaround that was staged on the strength of the generic run and failed in
+production.
+
+`cap` is the output budget the request carried. `content` and `trace` are characters; a
+termination of `length` with `content = 0` is the failure this release is named for.
+
+| what it establishes | endpoint | model | cap | finish | used | content | trace |
+|---|---|---|---|---|---|---|---|
+| the budget was the constraint for a model that converges | `/v1` | `glm-5.2` | 4 096 | `length` | 4 096 | 3 913 | 13 697 |
+| …and it converged once the budget allowed it | `/v1` | `glm-5.2` | — | `stop` | 4 864 | 7 862 | 13 742 |
+| raising the budget does NOT generalise — 8x more reasoning, still nothing | `/v1` | `deepseek-v4-pro` | 4 096 | `length` | 4 096 | **0** | 15 409 |
+| " | `/v1` | `deepseek-v4-pro` | 32 768 | `length` | 32 768 | **0** | 122 624 |
+| the trigger is the SIZE of the input: same model, small payload, clean | `/v1` | `deepseek-v4-pro` | — | `stop` | 1 280 | 1 898 | 3 535 |
+| the compatibility endpoint accepts the reasoning switch and IGNORES it | `/v1` | `deepseek-v4-pro` | 8 192 | `length` | 8 192 | **0** | 32 578 |
+| the native endpoint HONOURS it — 602 tokens instead of 32 768 | `/api/chat` | `deepseek-v4-pro` | — | `stop` | **602** | 3 063 | 0 |
+| …and on the full 62 k bundle, natively, with the channel off | `/api/chat` | `deepseek-v4-pro` | — | `stop` | 6 800 | 27 036 | 0 |
+| 8 192 would cut a demand that was actually measured | `/v1` | `glm-5.2` | 16 384 | `stop` | **10 686** | 6 398 | 38 007 |
+| no budget rescues the pathological case | `/v1` | `deepseek-v4-pro` | 32 768 | `length` | 32 768 | **0** | 141 630 |
+| a model that never reasons is untouched by any of it | `/v1` | `gemma4` | 4 096 | `stop` | 707 | 2 920 | 0 |
+
+Two native FAILURE shapes were captured as well, and they are the ones the crate had to learn
+to tell apart, because both arrive as "no content":
+
+| shape | status | body |
+|---|---|---|
+| model does not exist | **404** | `{"error": "..."}` — nothing like the compatibility envelope; the message also strips the `:cloud` suffix from the tag that was asked for, so it does not name the candidate |
+| **our own** request was malformed | **200** | `done_reason: "load"`, `content: ""`, and the token counters **ABSENT** — not zero. That absence is the whole discriminant, and it is why the crate reports a defect of its own rather than blaming a seat |
+
+**What the table cannot tell you, and no capture can:** `done_reason: "load"` literally means the
+model was loading, so the second shape is not exclusive to a bad request of ours. That gap is
+named in the crate's own contract and is why `S9b` interrogates a live backend instead of
+trusting the replayed body forever.

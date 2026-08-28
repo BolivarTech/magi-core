@@ -16,7 +16,11 @@
 # and a completed job with zero items must not read as the same thing.
 set -eu
 
-# ONE base for both paths: the directory this script lives in.
+# ONE base for both paths: the directory this script lives in. The harness is
+# SELF-CONTAINED — neither path may name a directory outside it, or the script
+# stops working the moment that directory is moved or archived, and it stops
+# working SILENTLY: the FATAL below then reads exactly like "nobody has
+# captured a corpus yet".
 #
 # They used to be resolved against different bases — the source against the
 # caller's working directory, the destination against the repository root — so
@@ -32,12 +36,11 @@ set -eu
 # from this directory) has `dirname` return `.`, which is exactly the case the
 # `cd` handles.
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)
 
 # An explicit argument still wins, and is taken AS GIVEN — the caller who passes
 # one is naming a directory they know, and re-anchoring it here would make an
 # absolute path unusable.
-SRC="${1:-$REPO_ROOT/sbtdd/ec-evidence}"
+SRC="${1:-$SCRIPT_DIR/corpus}"
 # The ONLY directory this script writes into. Everything below writes under it,
 # so "creates nothing else" is a property of this one line rather than of every
 # `cp` and `>` agreeing.
@@ -60,8 +63,9 @@ MANIFEST_TMP="${DST}/manifest.toml.partial"
 trap 'rm -f "$MANIFEST_TMP"' EXIT
 
 test -d "$SRC" || {
-  echo "FATAL: source $SRC is missing (it is gitignored, so it only exists" \
-       "on a machine that captured it)"
+  echo "FATAL: source $SRC is missing. The corpus is gitignored, so it" \
+       "only exists on a machine that captured it — capture it there, or" \
+       "pass the origin directory as the first argument."
   exit 2
 }
 
