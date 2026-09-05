@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-05
 
 //! The twelve scenarios valid against `magi-core` `3.2.0`: `S1, S2, S2b, S4, S5,
 //! S6, S7, S14, S15, S16, S20, S21` — the exact set stage E1

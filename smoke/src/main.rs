@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-05
 
 // EVERY module of the harness is declared HERE. Rust does not compile a file
 // nobody declared, so adding `foo.rs` without a line here produces a module

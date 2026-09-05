@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-07-29
+// Version: 4.1.0
+// Date: 2026-09-05
 
 //! The verdict sentinel: delimits an agent's verdict inside its raw output.
 //!
