@@ -68,7 +68,8 @@ SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 # sentence because an earlier version of this comment got the history wrong. A
 # draft in the working tree had it in SCAN_DIRS alone; deleting it from there
 # left the self-test GREEN, because an unpinned root is never probed. That draft
-# was never committed -- `git log -S` finds this line in one commit only -- so
+# was never committed -- `git log -S` finds this DECLARATION in one commit only;
+# the bare string now matches more, since every correction touches it -- so
 # calling it a round that happened was a false record about a state no later
 # reader can reconstruct. What the measurement showed is the part that survives:
 # the two halves have to move together, or the second buys nothing.
@@ -92,12 +93,20 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # probe count silently down from 13 to 12. A floor over a multiset is not a
 # floor.
 #
+# `sort -u` alone was not enough, and the sixth review pass proved it with one
+# character: `sort` compares BYTES, so writing `docs/` beside `docs` is two
+# distinct strings and the count stayed at eight while `tests/fixtures` left the
+# scan. Same symptom again -- 13 probes down to 12, live artifact shipping, both
+# modes green. Hence the `sed`: a leading `./` and any trailing `/` are stripped
+# before the comparison, so the cheap re-spellings collapse onto one entry.
+#
 # LIMIT, declared rather than left to be found, in the same terms as the shape
-# count above: this catches a root DELETED, not a root SWAPPED for another real
-# one. Replacing `tests/fixtures` with a genuinely different eighth root keeps
-# the distinct count at eight and loses the coverage. The regress stops here on
-# purpose -- pinning that would mean asserting each root's identity, which is
-# REQUIRED_ROOTS a third time.
+# count above. Two escapes remain and both are named rather than implied: a root
+# SWAPPED for a genuinely different real one, and a CASE variant (`DOCS`), which
+# is a second spelling on Windows and a different directory on Linux -- folding
+# case would be wrong on the platform CI runs. Either keeps the distinct count at
+# eight and loses the coverage. The regress stops here on purpose -- pinning that
+# would mean asserting each root's identity, which is REQUIRED_ROOTS a third time.
 REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
@@ -120,7 +129,7 @@ REQUIRED_ROOT_COUNT=8
 # four mutations and there are now five. It was measured the same way rather
 # than assumed: removing `*.py` from the filter while leaving `py` here goes
 # RED, twelve failures across both roots that have one. The ratchet extends.
-REQUIRED_EXTS='rs sh md toml py'
+REQUIRED_EXTS='rs sh md toml py sha256'
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
@@ -189,19 +198,32 @@ REQUIRED_SHAPE_COUNT=6
 # `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
 # remains unscanned of the 59 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
-# the three licence files) plus the twelve NON-prose fixtures under
-# `tests/fixtures/` -- JSON and checksum data, which carry no prose by construction.
-# The other four ARE scanned: `ec/README.md` and the three `.py` generators. The
-# README was unscanned until the third review pass and this comment asserted the
-# opposite; the generators were unscanned until the fourth, and this comment
-# called all fifteen of them JSON. They were the worst ones to leave out, and
-# the reason is not the one first written here. That text said they build prose
-# by string concatenation; they do not -- `extract` copies bytes, `gen` writes a
-# `.sha256`, and `_magi_ref` is a data module. The real reason is stronger:
-# `extract_magi_ref_prompts.py` writes into `src/prompts_md/`, whose three files
-# are `include_str!`'d into the shipped crate. A throwaway script whose output is
-# COMPILED IN is the strongest case there is for scanning it, and unlike `ci/`
-# the script itself ships too. The number is given because naming
+# the three licence files) plus the ELEVEN `.json` fixtures under
+# `tests/fixtures/ec/`, which are backend responses CAPTURED from a live provider
+# rather than text anyone here composed -- there is no generator to leave a
+# placeholder in them. The other five ARE scanned: `ec/README.md`, the three
+# `.py` files, and `magi_ref_prompts.sha256`.
+#
+# EACH of those five was added after a review pass said the comment was wrong,
+# which is why the list is spelled out rather than summarised. The README was
+# unscanned until the third pass. The `.py` files until the fourth, and the
+# reason first written for them was false: that text said they build prose by
+# string concatenation, and only `gen` assembles prose at all -- with f-strings
+# and `join`, never the `' + X + '` shape this guard hunts. `extract` copies
+# bytes out of `git show`; `_magi_ref` holds the constants and the blob reader
+# that shells out for them. The reason that does hold is stronger:
+# `extract_magi_ref_prompts.py` writes the three `.md` files under
+# `src/prompts_md/` that are `include_str!`'d into the shipped crate, and the
+# script itself ships too, unlike `ci/`.
+#
+# The `.sha256` waited until the SIXTH, and it is the sharpest of the five: the
+# sentence above used to call all twelve remaining fixtures JSON and checksum
+# data carrying "no prose by construction", while that file opens with seven
+# lines of generated English -- an f-string header and a joined divergence
+# block, em dash included -- and is `include_str!`'d at `prompts/mod.rs`. A
+# generator writing prose into a compiled-in shipped file is this guard's
+# founding scenario, and the coverage map said no such file existed. The
+# enumeration is given because naming
 # only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
@@ -243,7 +265,7 @@ REQUIRED_SHAPE_COUNT=6
 scan_targets() {
   find $SCAN_DIRS -type f \
     \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \
-       -o -name '*.py' \) 2>/dev/null |
+       -o -name '*.py' -o -name '*.sha256' \) 2>/dev/null |
     sed 's#^\./##' |
     grep -v '^ci/check_prose_artifacts\.sh$'
   ls $SCAN_FILES 2>/dev/null
@@ -380,7 +402,9 @@ if [ "${1:-}" = "--self-test" ]; then
   # The floor, before anything is discovered: shrinking REQUIRED_ROOTS is
   # refused rather than absorbed. Without it the loop below happily iterates a
   # shorter list and reports success on the coverage that is left.
-  n_roots="$(printf '%s\n' $REQUIRED_ROOTS | LC_ALL=C sort -u | grep -c . || true)"
+  n_roots="$(printf '%s\n' $REQUIRED_ROOTS |
+    sed -e 's#^\./##' -e 's#/*$##' |
+    LC_ALL=C sort -u | grep -c . || true)"
   if [ "$n_roots" -lt "$REQUIRED_ROOT_COUNT" ]; then
     echo "SELF-TEST: $n_roots required roots, $REQUIRED_ROOT_COUNT expected" >&2
     fails=$((fails + 1))
