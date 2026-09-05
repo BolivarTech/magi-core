@@ -1864,10 +1864,16 @@ mod tests {
 
     #[test]
     fn the_matrix_markers_are_the_text_alias_actually_prints() {
-        // Two hand-written strings that must agree with a file nobody edits
-        // together with this one. Without this, rewording either `compile_error!`
-        // turns every failing combination into CouldNotRun and the scenario skips
-        // forever — silently, which is the direction that costs the most.
+        // THREE hand-written strings that must agree with a file nobody edits
+        // together with this one. Without this, rewording any of the three
+        // `compile_error!`s turns its combination into CouldNotRun and the scenario
+        // skips forever — silently, which is the direction that costs the most.
+        //
+        // The third one was added in 4.1.0 with the `published` retirement and did
+        // NOT get a case here: rewording that assertion left `cargo test --bins` at
+        // 361 passed and the whole per-commit gate green, which is the same
+        // "green forever, silently" failure that replacing the generic marker was
+        // meant to remove. A marker without its tripwire is the tripwire's own hole.
         const ALIAS_SRC: &str = include_str!("alias.rs");
         // EMITS, not merely mentions: `str::contains` stays green when the
         // `compile_error!` is commented out, because the text is still written
@@ -1879,6 +1885,10 @@ mod tests {
         assert!(
             testkit::source_emits(ALIAS_SRC, NEITHER_MODE_MARKER),
             "alias.rs no longer emits {NEITHER_MODE_MARKER:?} from live code"
+        );
+        assert!(
+            testkit::source_emits(ALIAS_SRC, OUT_OF_SERVICE_MARKER),
+            "alias.rs no longer emits {OUT_OF_SERVICE_MARKER:?} from live code"
         );
     }
 }

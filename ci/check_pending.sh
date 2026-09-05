@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Author: Julian Bolivar
-# Version: 4.0.0
-# Date: 2026-08-23
+# Version: 4.1.0
+# Date: 2026-09-05
 #
 # RELEASE gate: published documentation must carry no unfinished sections.
 #
@@ -131,7 +131,7 @@ six_crossings_test() {
     bindir="$(mktemp -d)"
     cp "$SELF" "$bindir/$name"
     chmod +x "$bindir/$name"
-    trap 'rm -rf "$other_rel" "$other_abs" "$bindir"' EXIT
+    trap 'rm -rf "$sandbox" "$other_abs" "$bindir"' EXIT
 
     run_crossing "a: absolute path, from repo root" \
         "$root_dir" env CHECK_PENDING_SELFTEST_NESTED=1 sh "$SELF" --self-test

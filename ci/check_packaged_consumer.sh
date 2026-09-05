@@ -1,7 +1,7 @@
 #!/bin/sh
 # Author: Julian Bolivar
-# Version: 4.0.0
-# Date: 2026-08-23
+# Version: 4.1.0
+# Date: 2026-09-05
 #
 # An OUTSIDE consumer compiles against the PACKAGED source — before publishing.
 #

@@ -148,9 +148,18 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
     subs = subsections(section)
     missing = []
 
+    # The disclosure rows are searched against the section MINUS the `### Deprecated`
+    # body. Without that subtraction the `majority_summary` row is satisfied by its own
+    # deprecation line: the round's single silent content change could go unmentioned
+    # while the floor reported OK, and the comment above claimed the scoping prevented
+    # exactly that. It prevented one direction only.
+    body_only = section
+    if DEPRECATED_HEADING in subs:
+        body_only = section.replace(subs[DEPRECATED_HEADING], "")
+
     for row, kind, tokens in DISCLOSURES:
         if kind == "all":
-            gone = [t for t in tokens if t not in section]
+            gone = [t for t in tokens if t not in body_only]
             if gone:
                 missing.append("%s -- missing: %s" % (row, ", ".join(gone)))
         else:
@@ -169,7 +178,9 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
                                % (name, token, DEPRECATED_HEADING))
 
     if missing:
-        lines = ["FAIL: %d disclosure(s) not named in `## [%s]`" % (len(missing), version)]
+        lines = ["FAIL: %d finding(s) in `## [%s]` -- disclosure rows and deprecations "
+                 "are counted together here; each is named below"
+                 % (len(missing), version)]
         lines.extend("  " + item for item in missing)
         lines.append("NOTE: R-1's derivation caveat (`register_transport_failure`) is NOT "
                      "checked here -- it is verified by reading, not by grep.")
@@ -264,6 +275,15 @@ def self_test():
         "  diagnosis rather than the\n  process's own stderr.")
     case("9  a reflowed compound row still passes", 0, reflowed, "OK")
 
+    # 8b. THE MIRROR of case 8, and the one that was missing: the deprecation line
+    #     present but the CONTENT-change row absent. Before the subtraction above,
+    #     `majority_summary` in `### Deprecated` satisfied the row too, so the single
+    #     silent content break of this round could go unmentioned with the floor green.
+    no_row = full.replace(
+        "- R-8  the summary carries the emitted side: `majority_summary`." + "\n", "")
+    case("8b deprecation alone does not satisfy the row", 1, no_row,
+         "R-8  the summary carries the emitted side")
+
     # 10. ANOTHER VERSION -> SKIP, loudly. This is the case that pins the scoping:
     #     without APPLIES_TO the list is demanded of every future release, and the
     #     4.2.0 engineer meets a red naming defects that are not theirs.
@@ -276,7 +296,7 @@ def self_test():
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 13 cases")
+    print("\nSELF-TEST OK -- 14 cases")
     return 0
 
 

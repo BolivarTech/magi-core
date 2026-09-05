@@ -1,7 +1,7 @@
 #!/bin/sh
 # Author: Julian Bolivar
-# Version: 4.0.0
-# Date: 2026-08-24
+# Version: 4.1.0
+# Date: 2026-09-05
 #
 # Generator artifacts must not reach a file that ships.
 #
@@ -11,11 +11,11 @@
 # reading `# docs.rs builds` followed by an unsubstituted concatenation instead of
 # an em dash. `ci/` WAS packaged then, so it was on its way to crates.io, where
 # nothing can be corrected in place. It is excluded as of 4.1.0, so that exact path
-# is closed -- but the guard is not: `src/`, `docs/`, `README.md` and `CHANGELOG.md`
-# still ship, and they are where prose a human wrote reaches a consumer. The
-# founding incident is kept as history, not as a live description.
-# It was harmless as a shell comment, and that is the
-# point: it was invisible to every gate this project had. `cargo fmt`, `clippy` and
+# is closed -- but the guard is not: `src/`, `docs/`, `examples/`, `README.md`,
+# `CHANGELOG.md` and `Cargo.toml` all still ship, and they are where prose a human
+# wrote reaches a consumer. The founding incident is kept as history, not as a
+# live description. The placeholder was harmless as a shell comment, and that is
+# the point: it was invisible to every gate this project had. `cargo fmt`, `clippy` and
 # the doc build all read over a comment without looking at it, and the thing that
 # caught it was a person reading the diff.
 #
@@ -161,11 +161,14 @@ REQUIRED_SHAPE_COUNT=6
 # of one probe per pair, and it is paid knowingly: probing every scanned file
 # would multiply a check that already runs for a minute by fifty.
 #
-# It also runs slightly WIDER than the tarball in one place: `docs/test/` is
-# scanned and is `exclude`d from the package, so this can go red over the smoke
-# certificate. Left that way on purpose -- being noisy about a file that does not
+# It runs WIDER than the tarball in TWO places, and the second is not slight:
+# `docs/test/` is scanned and excluded from the package, and since 4.1.0 all 102
+# files under `ci/` are scanned and excluded too. So most of what this reads does
+# not ship. Left that way on purpose -- being noisy about a file that does not
 # ship is the harmless direction, and carving an exception into the scan is how
-# the interesting direction gets carved next.
+# the interesting direction gets carved next. *(This paragraph said "slightly
+# WIDER in one place" until R-32 excluded `ci/`; the number moved and the word did
+# not.)*
 #
 # THIS FILE IS THE ONE EXEMPTION, and an exemption is the dangerous part of any
 # guard, so it is anchored to the exact path rather than matched as a substring
@@ -186,8 +189,10 @@ scan_targets() {
 # A scanned path containing whitespace word-splits at the `xargs` below, so
 # `grep` receives two paths that do not exist, its complaint goes to /dev/null,
 # and the file is skipped in silence. Verified with `docs/my note.md` carrying a
-# live placeholder: the plain mode exited 0. None of the 43 packaged paths has
-# whitespace, so this REFUSES the condition rather than paying a `grep` per file
+# live placeholder: the plain mode exited 0. No path in the SCANNED set has
+# whitespace -- which is the set that matters here, and it is not the packaged set:
+# `ci/` is scanned and not packaged. So this REFUSES the condition rather than
+# paying a `grep` per file
 # (~500 invocations per pattern, forty times over, in a check that already takes
 # a minute) to support a filename this repository does not use.
 # An ABSENT root is a failure, not an empty scan. Run where `src/`, `ci/`, `docs/`
@@ -381,11 +386,19 @@ EOF
   # PLAIN mode from a bare directory and requires a refusal -- the same rule the roots
   # check itself enforces: a guard that did not find what to look at is not a guard that
   # passed.
+  # Copied into `$_bare/ci/`, not into `$_bare` itself: the probe resolves its own
+  # ROOT as the PARENT of its directory, so a copy at the top level pointed ROOT at
+  # the shared temp root and the case then depended on unrelated temp content.
   _bare="$(mktemp -d)"
-  cp "$ROOT/ci/check_prose_artifacts.sh" "$_bare/probe.sh"
-  if ( cd "$_bare" && sh probe.sh >/dev/null 2>&1 ); then
-    echo "check_prose_artifacts: SELF-TEST FAILED -- the plain mode reported OK from a" >&2
-    echo "directory with no scan roots, having read zero bytes." >&2
+  mkdir -p "$_bare/ci"
+  cp "$ROOT/ci/check_prose_artifacts.sh" "$_bare/ci/probe.sh"
+  _out="$( cd "$_bare/ci" && sh probe.sh 2>&1 )" && _rc=0 || _rc=1
+  # WHICH refusal, not merely that it refused: any error would satisfy a bare
+  # non-zero, including one that has nothing to do with an empty scan set.
+  if [ "$_rc" = 0 ] || ! printf %s "$_out" | grep -q "scan roots missing"; then
+    echo "check_prose_artifacts: SELF-TEST FAILED -- the plain mode did not refuse an" >&2
+    echo "empty scan set with the roots-missing message. Got rc=$_rc, output:" >&2
+    printf %s\n "$_out" >&2
     rm -rf "$_bare"
     exit 1
   fi

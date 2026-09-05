@@ -37,15 +37,17 @@ categories = ["algorithms", "asynchronous"]
 # tracks" unless told otherwise, so without this line all three shipped anyway.
 #
 # Measured before and after this line was added: `cargo package --list` went from
-# 176 files to 43, a drop of 133 (99 under `ci/`, 32 under `tests/`, 2 under
-# `.github/`). The count is recorded here so a future growth of the package is
+# 179 files to 59, a drop of 120. AS OF THIS COMMIT -- the count moved inside this
+# branch when three more guards landed in `ci/`, so an unmarked figure here goes
+# stale the same way. Re-measure rather than trusting the number. The count is recorded here so a future growth of the package is
 # something the next reader can see, rather than something that just happens.
 #
 # EXPECTED WARNINGS, recorded so a future reader does not read them as a defect:
 # excluding `tests/` makes `cargo package` emit one "ignoring test X as
 # tests/X.rs is not included in the published package" line per integration
-# test. That is the exclusion working, not a problem -- the package ships no
-# tests to run.
+# test. That is the exclusion working, not a problem -- the package ships no test
+# SUITE to run. It does still ship `tests/fixtures/`, which the `#[cfg(test)]`
+# modules under `src/` read; see the note on the exclude entries below.
 #
 # One exception, decided rather than overlooked: a test-only binary at
 # `src/bin/stub_cli.rs` WILL ship when a later milestone adds it. Neither that
@@ -61,7 +63,25 @@ exclude = [
     "graphify-out/",
     ".graphifyignore",
     ".gitignore",
-    "tests/",
+    # NOT `tests/` wholesale, and the reason was found by executing rather than by
+    # reading: TEN `include_str!` calls in FIVE shipped `src/` modules reach into
+    # `tests/fixtures/` from inside `#[cfg(test)]` -- `prompts/mod.rs`, `reporting.rs`,
+    # `providers/ollama_wire.rs`, `providers/openai_compat.rs`. Excluding the whole
+    # directory left those five files in the tarball pointing at fixtures that are not,
+    # so `cargo test` on the published source failed to COMPILE.
+    #
+    # Ordinary consumers never saw it -- `cfg(test)` is not set for a dependency -- but
+    # distribution packagers build tests from the crates.io tarball, and crates.io is
+    # immutable. No gate could have caught it either: `cargo package`'s verification
+    # runs `cargo build`, and `check_packaged_consumer.sh` compiles `examples/`.
+    #
+    # So the suite goes and the fixtures stay. Listed explicitly rather than as a
+    # negation, because a `!` rule silently depends on ordering; the cost is that a
+    # NEW subdirectory of `tests/` would ship until someone adds it here, which is
+    # noise rather than breakage -- the safe direction.
+    "tests/*.rs",
+    "tests/common/",
+    "tests/support/",
     ".github/",
     "ci/",
 ]

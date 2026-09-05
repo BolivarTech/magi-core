@@ -203,6 +203,12 @@ jobs:
       # tags the check fails CLOSED rather than approving by starvation, so removing
       # that setting would stop the release loudly instead of letting it through --
       # but the checkout must keep the tags for this to say anything useful.
+      # `python3` is correct HERE because `setup-python` above provides it. Running
+      # these two locally is a different matter -- the plan puts R-34 discovery on a
+      # developer machine, and on Windows `python3` is often the Store stub, which
+      # exits without running anything. Locally use `sh ci/run_all_checks.sh`, whose
+      # resolver asks a candidate to execute something before believing it, or set
+      # PYTHON to a real interpreter.
       - run: python3 ci/check_header_sync.py --self-test
       - run: python3 ci/check_header_sync.py
       # LAST of the release-path guards, because its input is the CHANGELOG section
