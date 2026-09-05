@@ -184,6 +184,33 @@ scan_targets() {
 # whitespace, so this REFUSES the condition rather than paying a `grep` per file
 # (~500 invocations per pattern, forty times over, in a check that already takes
 # a minute) to support a filename this repository does not use.
+# An ABSENT root is a failure, not an empty scan. Run where `src/`, `ci/`, `docs/`
+# and `examples/` do not exist, the `find` above sends its complaint to /dev/null,
+# `scan_targets` yields nothing, and the plain mode printed OK having read zero
+# bytes -- success reported by a check that never looked at anything. The
+# self-test refuses that condition correctly, but the two modes are separate
+# invocations and only one had the precondition.
+#
+# The distinction that matters is ABSENT versus EMPTY: a root that exists and
+# holds no matching file is a legitimate state (a repository may genuinely have
+# no `examples/` content yet), while a root that is not there means the check is
+# being run from the wrong place. Only the second is refused, and it is refused
+# loudly rather than by silence.
+assert_roots_exist() {
+  _missing=""
+  for _root in $SCAN_DIRS; do
+    [ -d "$_root" ] || _missing="$_missing $_root"
+  done
+  for _file in $SCAN_FILES; do
+    [ -r "$_file" ] || _missing="$_missing $_file"
+  done
+  if [ -n "$_missing" ]; then
+    echo "check_prose_artifacts: FAIL -- scan roots missing:$_missing" >&2
+    echo "check_prose_artifacts: run this from the repository root." >&2
+    exit 1
+  fi
+}
+
 assert_no_whitespace_paths() {
   _bad="$(scan_targets | grep '[[:space:]]' || true)"
   if [ -n "$_bad" ]; then
@@ -208,6 +235,7 @@ scan() {
   done
 }
 
+assert_roots_exist
 assert_no_whitespace_paths
 
 if [ "${1:-}" = "--self-test" ]; then
