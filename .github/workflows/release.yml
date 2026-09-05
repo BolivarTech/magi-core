@@ -177,6 +177,28 @@ jobs:
       # Not in `run_all_checks.sh` — that runs every round, and a marker left for a later
       # milestone would redden rounds that are not responsible for it.
       - run: bash ci/check_pending.sh
+      # RELEASE-ONLY, and AFTER the version resolved above. Both compare against the
+      # bumped `Cargo.toml`; run in the round gate they would fire on every branch that
+      # has not bumped yet, and run BEFORE a bump they compare against the OLD version
+      # and bless exactly the files they exist to catch.
+      #
+      # The README requirement is inside the immutable package and is the crates.io
+      # landing page, so correcting it after publishing means publishing again -- it
+      # shipped wrong at 2.0.0 and 3.0.0.
+      - run: sh ci/check_readme_version.sh --self-test
+      - run: sh ci/check_readme_version.sh
+      # ONCE, not twice, and that is a correction to this milestone's own plan. The plan
+      # asked for two runs -- "discovery" then "guard" -- but this workflow fires on a
+      # push, so nobody repairs anything between them and the second run would observe
+      # the same tree. DISCOVERY IS LOCAL, before the push; this is the guard, and its
+      # red aborts the release.
+      #
+      # It depends on `fetch-depth: 0` above, VERIFIED present on both jobs. Without
+      # tags the check fails CLOSED rather than approving by starvation, so removing
+      # that setting would stop the release loudly instead of letting it through --
+      # but the checkout must keep the tags for this to say anything useful.
+      - run: python ci/check_header_sync.py --self-test
+      - run: python ci/check_header_sync.py
       # `Cargo.lock` is NOT committed — this is a library, so the lock file is
       # deliberately gitignored and every consumer resolves its own. That is why there is
       # no `--locked` assertion here (it would fail by construction) and why the lock is
