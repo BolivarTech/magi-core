@@ -798,12 +798,18 @@ fn evaluate_preflight_only(
 /// # A refusal is only DATA when it is the refusal under test
 ///
 /// For every combination that must NOT compile, `expected` carries the text its
-/// refusal is expected to contain. There are THREE such rows and they do not all
-/// refuse the same way: two are this package's own `compile_error!`s (`tree` and
-/// `published` together, and neither of them), each with its own distinctive
-/// wording, while `published` alone is refused by rustc itself — `E0432`, since
-/// `Completion` does not exist in the pinned `3.2` — and so carries the generic
-/// refusal marker. A failure whose output contains neither failed for some OTHER
+/// refusal is expected to contain. There are THREE such rows, and since `4.1.0`
+/// **all three are this package's own `compile_error!`s**, each with its own
+/// distinctive wording: `tree` and `published` together, neither of them, and
+/// `published` alone.
+///
+/// The third one CHANGED, and the old text is worth naming because it was true
+/// until it was not: `published` alone used to be refused by rustc itself — `E0432`,
+/// since `Completion` does not exist in the pinned `3.2` — and carried the generic
+/// refusal marker. That marker was satisfied by ANY compile error, so the row would
+/// have stayed green after someone deleted the assertion that replaced it. It now
+/// carries the assertion's own text. A failure whose output contains neither failed
+/// for some OTHER
 /// reason — an unreachable registry is the realistic one, since two of the three
 /// have to resolve the published dependency — and that teaches nothing about the
 /// guard. Reading it as `DidNotBuild` would let the scenario report `Pass` while
@@ -952,18 +958,29 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
 /// the per-combination markers on the other half of the matrix.
 const COMPILE_REFUSAL_MARKER: &str = "could not compile";
 
+/// The `published` mode asserts its own retirement. Matching this text, and not the
+/// generic refusal, is what makes the matrix check WHICH red it got -- the same
+/// "not that there is red, but which red" rule the header-sync dry run follows.
+const OUT_OF_SERVICE_MARKER: &str = "out of service since 4.1.0";
+
 pub(crate) const FEATURE_MATRIX: [(&str, Option<&str>); 4] = [
     ("tree", None),
-    // `published` alone RESOLVES but no longer COMPILES: this harness implements
-    // `LlmProvider`, whose `complete()` returns `Completion` since `4.0.0`, and the
-    // pin is `3.2`. It is declared with the generic refusal marker rather than
-    // `None`, which reads as "expected to build".
+    // `published` alone is OUT OF SERVICE since `4.1.0`, and it now says so itself:
+    // the mode carries a `compile_error!` naming its own retirement, and the harness
+    // aliases `magi_core` to the tree crate under this feature so that assertion is
+    // the ONLY diagnostic. Measured 2026-09-05: without that aliasing the build
+    // emitted 20 errors -- the assertion plus 19 from the `3.2` API -- because
+    // `compile_error!` does not abort before type checking.
     //
-    // No verdict depended on it either way — `S21_ASSERTED` does not name this row,
-    // so nothing judged it — but a declared expectation that is false is the class
+    // No verdict depended on this row either way -- `S21_ASSERTED` does not name it,
+    // so nothing judged it -- but a declared expectation that is false is the class
     // this milestone exists to remove, and an unjudged row is exactly where such a
     // thing survives unnoticed.
-    ("published", Some(COMPILE_REFUSAL_MARKER)),
+    // Since 4.1.0 the expectation is not just "it refuses" but WHICH refusal: the
+    // out-of-service assertion, and nothing else. The generic marker would have been
+    // satisfied by any compile error, including the type errors the assertion replaced
+    // -- so the row would still have passed after someone deleted the assertion.
+    ("published", Some(OUT_OF_SERVICE_MARKER)),
     ("tree,published", Some(BOTH_MODES_MARKER)),
     ("", Some(NEITHER_MODE_MARKER)),
 ];
