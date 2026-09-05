@@ -41,8 +41,126 @@ MARKER='PENDING: MS'
 # Everything that reaches a consumer: crates.io ships the package, docs.rs builds the rustdoc.
 TARGETS='docs README.md CHANGELOG.md src'
 
+# Resolve this script's own absolute path, no matter how it was invoked: given as an absolute
+# path, given as a path relative to some directory, or found by searching $PATH. Needed because
+# the self-test below re-invokes this same script from inside a throwaway directory, where a
+# path relative to the ORIGINAL working directory is meaningless -- and the old form,
+# "$OLDPWD/$0", only reconstructed the right path when $0 happened to be relative.
+#
+# `readlink -f` / `realpath` are not used: both are GNU extensions, absent from the BSD/macOS
+# `readlink` this project does not target today but must not assume away -- and the operation
+# needed here is "resolve against the right base directory", not "follow a symlink chain".
+resolve_self() {
+    case "$1" in
+        /*)
+            # Already absolute.
+            printf '%s\n' "$1"
+            ;;
+        */*)
+            # Relative, with a directory component: resolve against the directory this
+            # process was started in, before anything below has a chance to cd away from it.
+            resolve_dir="$(cd "$(dirname "$1")" 2>/dev/null && pwd)" || return 1
+            printf '%s/%s\n' "$resolve_dir" "$(basename "$1")"
+            ;;
+        *)
+            # No directory component at all. This has TWO sources, and assuming only the
+            # second is a defect found by running it: `sh check_pending.sh` from inside
+            # ci/ sets $0 to a bare name that is relative to the CURRENT directory, not
+            # something on $PATH. Trying $PATH first made that invocation fail outright.
+            # The current directory wins because `sh name` never searches $PATH for its
+            # script argument, so that reading is the deterministic one; $PATH is the
+            # fallback, for a copy installed as a command.
+            if [ -r "./$1" ]; then
+                printf '%s/%s
+' "$(pwd)" "$1"
+            else
+                command -v "$1"
+            fi
+            ;;
+    esac
+}
+
+# These two functions expose the defect above: they spawn six real child processes, one per way
+# this script can be invoked, and check that each one's `--self-test` still succeeds.
+#
+# CHECK_PENDING_SELFTEST_NESTED marks a child so it skips this same sub-test; without it, every
+# child would spawn five more, forever.
+run_crossing() {
+    label="$1"; dir="$2"; shift 2
+    if out="$(cd "$dir" && "$@" 2>&1)"; then
+        crossing_rc=0
+    else
+        crossing_rc=$?
+    fi
+    if [ "$crossing_rc" -eq 0 ] && printf '%s' "$out" | grep -q 'self-test OK'; then
+        echo "crossings: PASS -- $label"
+    else
+        echo "crossings: FAIL -- $label (exit $crossing_rc)" >&2
+        printf '%s\n' "$out" >&2
+        frc=1
+    fi
+}
+
+six_crossings_test() {
+    [ "${CHECK_PENDING_SELFTEST_NESTED:-}" = "1" ] && return 0
+
+    frc=0
+    ci_dir="$(dirname "$SELF")"
+    root_dir="$(cd "$ci_dir/.." && pwd)"
+    name="$(basename "$SELF")"
+
+    # (d) needs a directory that is not the repo root and not ci/, reached by a SHORT relative
+    # path -- a sibling of ci/ under the repo root, so "../ci/$name" is unambiguous.
+    other_rel="$root_dir/.check_pending_selftest_other"
+    mkdir -p "$other_rel"
+    # (c) needs a directory with no relation to the repo at all.
+    other_abs="$(mktemp -d)"
+    # (e) needs a directory on $PATH holding nothing else named "$name".
+    bindir="$(mktemp -d)"
+    cp "$SELF" "$bindir/$name"
+    chmod +x "$bindir/$name"
+    trap 'rm -rf "$other_rel" "$other_abs" "$bindir"' EXIT
+
+    run_crossing "a: absolute path, from repo root" \
+        "$root_dir" env CHECK_PENDING_SELFTEST_NESTED=1 sh "$SELF" --self-test
+    run_crossing "b: relative path, from repo root" \
+        "$root_dir" env CHECK_PENDING_SELFTEST_NESTED=1 sh "ci/$name" --self-test
+    run_crossing "c: absolute path, from another directory" \
+        "$other_abs" env CHECK_PENDING_SELFTEST_NESTED=1 sh "$SELF" --self-test
+    run_crossing "d: relative path, from another directory" \
+        "$other_rel" env CHECK_PENDING_SELFTEST_NESTED=1 sh "../ci/$name" --self-test
+    # (e) MEASURED CAVEAT, written so this case cannot claim coverage it does not have:
+    # when a script is found through $PATH the shell hands it an ALREADY-RESOLVED absolute
+    # $0, so this crossing exercises the absolute branch, not the $PATH lookup. It is kept
+    # because it pins the invocation form a user would actually type.
+    run_crossing "e: invoked by name through PATH" \
+        "$root_dir" env CHECK_PENDING_SELFTEST_NESTED=1 "PATH=$bindir:$PATH" "$name" --self-test
+    # (f) is the crossing that actually reaches the no-slash branch, and it FAILED before
+    # the fix in resolve_self: $0 arrives as a bare name relative to the current directory.
+    run_crossing "f: bare name, from the script directory" \
+        "$ci_dir" env CHECK_PENDING_SELFTEST_NESTED=1 sh "$name" --self-test
+
+    rm -rf "$other_rel" "$other_abs" "$bindir"
+    trap - EXIT
+    return "$frc"
+}
+
 self_test() {
     rc=0
+
+    SELF="$(resolve_self "$0")" || {
+        echo "check_pending: FAIL -- could not resolve this script's own path from \$0='$0'" >&2
+        exit 1
+    }
+    [ -r "$SELF" ] || {
+        echo "check_pending: FAIL -- resolved self path '$SELF' is not a readable file" >&2
+        exit 1
+    }
+
+    if [ "${CHECK_PENDING_SELFTEST_NESTED:-}" != "1" ]; then
+        six_crossings_test || rc=1
+    fi
+
     tmp="$(mktemp -d)"
     mkdir -p "$tmp/docs" "$tmp/src"
     printf 'clean
@@ -55,7 +173,7 @@ self_test() {
 ' > "$tmp/src/lib.rs"
 
     # A clean tree must PASS -- otherwise the rule is a wall, not a guard.
-    if ! (cd "$tmp" && sh "$OLDPWD/$0" >/dev/null 2>&1); then
+    if ! (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
         echo "self-test: a clean tree was rejected" >&2; rc=1
     fi
 
@@ -64,7 +182,7 @@ self_test() {
     for f in docs/guide.md README.md CHANGELOG.md src/lib.rs; do
         printf '%s here
 ' "$MARKER" > "$tmp/$f"
-        if (cd "$tmp" && sh "$OLDPWD/$0" >/dev/null 2>&1); then
+        if (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
             echo "self-test: a marker in $f was NOT detected" >&2; rc=1
         fi
         printf 'clean
@@ -73,7 +191,7 @@ self_test() {
 
     # A MISSING target must fail rather than pass, which is defect 1.
     rm -rf "$tmp/docs"
-    if (cd "$tmp" && sh "$OLDPWD/$0" >/dev/null 2>&1); then
+    if (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
         echo "self-test: a missing docs/ was treated as clean" >&2; rc=1
     fi
 

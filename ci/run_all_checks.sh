@@ -150,6 +150,13 @@ CARGO_TARGET_DIR="$DEF_DIR" cargo test --doc
 step "verdict-search rule"
 bash ci/check_r0.sh
 
+# check_pending.sh's MAIN scan stays release-only (its own header explains why: the question it
+# asks only has to be answered once, at the tag). Its self-test belongs here, though: it works
+# entirely inside `mktemp -d`, so it cannot fire on another milestone's `PENDING: MS` marker --
+# the reason the guard itself is release-only does not extend to its self-test.
+step "pending release markers (self-test)"
+sh ci/check_pending.sh --self-test
+
 step "prose artifacts (self-test)"
 sh ci/check_prose_artifacts.sh --self-test
 
