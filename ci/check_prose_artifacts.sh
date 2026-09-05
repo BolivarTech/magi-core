@@ -64,13 +64,26 @@ SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 # once. An expectation computed from the thing it checks asserts nothing.
 # Dropping a root is still allowed; it now costs an edit in two places, which is
 # exactly the deliberation such a change deserves.
-# `tests/fixtures` was added to BOTH halves in the same edit. It went into the
-# scan set alone first, and the review pass that followed measured what that
-# costs: deleting it from SCAN_DIRS left the self-test GREEN, so the coverage
-# just gained could have been dropped in a one-line edit with the whole gate
-# passing -- the exact narrowing this duplication exists to refuse, reopened by
-# the round that closed it.
+# `tests/fixtures` entered BOTH halves in the same commit, and the reason gets a
+# sentence because an earlier version of this comment got the history wrong. A
+# draft in the working tree had it in SCAN_DIRS alone; deleting it from there
+# left the self-test GREEN, because an unpinned root is never probed. That draft
+# was never committed -- `git log -S` finds this line in one commit only -- so
+# calling it a round that happened was a false record about a state no later
+# reader can reconstruct. What the measurement showed is the part that survives:
+# the two halves have to move together, or the second buys nothing.
 REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo.toml'
+
+# AND A FLOOR UNDER THAT LIST, because without it the ratchet held in ONE
+# DIRECTION ONLY. Measured, both ways: deleting a root from SCAN_DIRS goes red,
+# and deleting the same root from REQUIRED_ROOTS is GREEN -- the probe count
+# silently drops and nothing objects. So the narrowing this pair exists to make
+# expensive was available in two edits that are green at every step, provided
+# you removed the expectation first. That is the rung with nothing above it,
+# exactly as the shape list was one level down, and it is closed the same way.
+# Adding a legitimate root means bumping this number, which is the deliberation
+# such a change deserves.
+REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
 # the identical hole one level down: the self-test used to discover its probes
@@ -87,7 +100,7 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # SCAN_FILES rather than the `find`. It is listed for the day one appears, and on
 # that day the self-test demands it -- its discovery is a `find` of its own, so it
 # sees the file whatever the scanner's filter says.
-REQUIRED_EXTS='rs sh md toml'
+REQUIRED_EXTS='rs sh md toml py'
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
@@ -156,10 +169,14 @@ REQUIRED_SHAPE_COUNT=6
 # `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
 # remains unscanned of the 59 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
-# the three licence files) plus the fifteen NON-prose fixtures under
+# the three licence files) plus the twelve NON-prose fixtures under
 # `tests/fixtures/` -- JSON and checksum data, which carry no prose by construction.
-# The sixteenth, `ec/README.md`, IS scanned; it was not until the third review pass,
-# and the comment here asserted the opposite. The number is given because naming
+# The other four ARE scanned: `ec/README.md` and the three `.py` generators. The
+# README was unscanned until the third review pass and this comment asserted the
+# opposite; the generators were unscanned until the fourth, and this comment
+# called all fifteen of them JSON. They were the worst ones to leave out: they
+# BUILD prose by string concatenation, which is the shape named at the top of
+# this file, and unlike `ci/` they SHIP. The number is given because naming
 # only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
@@ -177,11 +194,12 @@ REQUIRED_SHAPE_COUNT=6
 #
 # It runs WIDER than the tarball in TWO places, and the second is not slight:
 # `docs/test/` is scanned and excluded from the package, and since 4.1.0 the `ci/`
-# files are scanned and excluded too -- 99 of the 102 tracked there, because the
-# extension filter below matches `.rs`, `.sh`, `.md` and `.toml` and this round's
-# three guards are `.py`. That gap is named rather than closed: a Python guard
-# carrying an unsubstituted placeholder would go unseen, and `ci/` no longer ships,
-# so the cost is bounded. So most of what this reads does
+# files are scanned and excluded too -- all 102 tracked there. It was 99 for one
+# round, while the filter matched `.rs`, `.sh`, `.md` and `.toml` and this round's
+# three guards were `.py`; the gap was named and left open, on the argument that
+# `ci/` no longer ships so the cost was bounded. The fourth review pass showed the
+# argument does not transfer: `tests/fixtures` holds three `.py` files that DO
+# ship. `.py` joined the filter and both are covered. So most of what this reads does
 # not ship. Left that way on purpose -- being noisy about a file that does not
 # ship is the harmless direction, and carving an exception into the scan is how
 # the interesting direction gets carved next. *(This paragraph said "slightly
@@ -198,7 +216,8 @@ REQUIRED_SHAPE_COUNT=6
 
 scan_targets() {
   find $SCAN_DIRS -type f \
-    \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \) 2>/dev/null |
+    \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \
+       -o -name '*.py' \) 2>/dev/null |
     sed 's#^\./##' |
     grep -v '^ci/check_prose_artifacts\.sh$'
   ls $SCAN_FILES 2>/dev/null
@@ -278,7 +297,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # one is why the probes below cover EVERY scanned root and not just one file:
   # a pattern test cannot see a discovery defect.
   TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
+  # `_bare` is in the trap although it is created far below: the command is
+  # evaluated when the trap fires, so the `${_bare:+...}` form stays empty until
+  # then. It used to be removed by hand, which leaks it if anything between its
+  # creation and that line exits under `set -e`.
+  trap 'rm -rf "$TMP" ${_bare:+"$_bare"}' EXIT
   # NESTED ROOTS KEEP THEIR PARENT PATH, and this is not defensive coding -- it
   # is a measured defect. `cp -r tests/fixtures "$TMP/"` lands the tree at
   # `$TMP/fixtures`, so the probe for `tests/fixtures/ec/README.md` looked in a
@@ -322,6 +345,16 @@ if [ "${1:-}" = "--self-test" ]; then
   # its own rather than a call into `scan_targets`: deriving the expectation from
   # the function under test is what let the extension hole through.
   fails=0
+
+  # The floor, before anything is discovered: shrinking REQUIRED_ROOTS is
+  # refused rather than absorbed. Without it the loop below happily iterates a
+  # shorter list and reports success on the coverage that is left.
+  n_roots="$(printf '%s\n' $REQUIRED_ROOTS | grep -c . || true)"
+  if [ "$n_roots" -lt "$REQUIRED_ROOT_COUNT" ]; then
+    echo "SELF-TEST: $n_roots required roots, $REQUIRED_ROOT_COUNT expected" >&2
+    fails=$((fails + 1))
+  fi
+
   PROBE_FILES=""
   for _root in $REQUIRED_ROOTS; do
     # Coverage first: a required root that the scanner no longer walks is the
@@ -440,8 +473,7 @@ EOF
   if [ "$_rc" = 0 ] || ! printf %s "$_out" | grep -q "scan roots missing"; then
     echo "check_prose_artifacts: SELF-TEST FAILED -- the plain mode did not refuse an" >&2
     echo "empty scan set with the roots-missing message. Got rc=$_rc, output:" >&2
-    printf '%s
-' "$_out" >&2
+    printf '%s\n' "$_out" >&2
     rm -rf "$_bare"
     exit 1
   fi

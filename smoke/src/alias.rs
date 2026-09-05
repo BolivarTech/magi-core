@@ -29,7 +29,7 @@ pub use magi_core_tree as magi_core;
 
 // OUT OF SERVICE since 4.1.0. The assertion is the whole of this mode now, and it
 // must be the ONLY diagnostic a build emits -- a reader who sees it buried under
-// nineteen type errors learns nothing the errors did not already say.
+// eighteen type errors learns nothing the errors did not already say.
 //
 // MEASURED (2026-09-05): with `magi_core` still aliased to `magi_core_pub`,
 // `cargo check --no-default-features --features published` left rustc reporting 19

@@ -67,7 +67,7 @@ exclude = [
     # reading: TEN `include_str!` calls in FOUR shipped `src/` modules reach into
     # `tests/fixtures/` from inside `#[cfg(test)]` -- `prompts/mod.rs`, `reporting.rs`,
     # `providers/ollama_wire.rs`, `providers/openai_compat.rs`. Excluding the whole
-    # directory left those five files in the tarball pointing at fixtures that are not,
+    # directory left those four modules in the tarball pointing at fixtures that are not,
     # so `cargo test` on the published source failed to COMPILE.
     #
     # Ordinary consumers never saw it -- `cfg(test)` is not set for a dependency -- but

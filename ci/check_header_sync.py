@@ -45,11 +45,12 @@ ROOTS = ("src", "tests", "examples", "benches", "smoke/src")
 #
 # The pin is CONDITIONAL and it has ALREADY switched itself off -- earlier than the
 # rationale first written here predicted. That text said the two would re-enter
-# "once the repair ships and is tagged"; in fact the moment their headers were
-# bumped, `(4,1,0) < (4,0,0)` became false and the pin stopped applying, with no tag
-# involved. They are now reached by the general rule, because the repair commit
-# modified them since the last tag. The mechanism was right; the story about when it
-# would stop was not.
+# "once the repair ships and is tagged"; in fact the repair commit modified them,
+# so they are reached by the GENERAL RULE and the pin no longer does any work --
+# no tag involved. Stated in that order because the version comparison is not
+# what stopped it: `if pinned in candidates: continue` fires first, so
+# `(4,1,0) < (4,0,0)` is never evaluated for these two at all. The mechanism was
+# right; the story about when and why it would stop was not.
 PINNED = ("src/consensus.rs", "src/verdict_markers.rs")
 
 HEADER_VERSION = re.compile(r"^//\s*Version:\s*(\S+)\s*$", re.M)

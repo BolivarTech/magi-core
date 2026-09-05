@@ -18,7 +18,8 @@ tree      = ["dep:magi_core_tree"]
 # adding the assertion alone left rustc reporting 19 errors -- this assertion plus
 # EIGHTEEN type errors from the 3.2 API -- because `compile_error!` does not abort
 # before type checking. (A `grep -c '^error'` says 20; the twentieth is cargo's
-# summary line, not a diagnostic. The decomposition is what matters here.) Aliasing to the tree crate lets the rest of the harness
+# summary line, not a diagnostic. The decomposition is what matters here.)
+# Aliasing to the tree crate lets the rest of the harness
 # type-check, so the assertion stands alone and says why.
 # `dep:magi_core_pub` STAYS: keeping the pin resolving is its only remaining job, and
 # dropping it here would silently retire the very thing the mode exists to hold.
