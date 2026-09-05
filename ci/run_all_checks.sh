@@ -162,6 +162,16 @@ bash ci/check_redaction.sh --self-test
 step "redaction rule"
 bash ci/check_redaction.sh
 
+step "fixture redaction (self-test)"
+python ci/check_fixture_redaction.py --self-test
+
+# The ROUND-level backstop, not the trigger. The per-commit window belongs to
+# MS2's capture spike, which runs this over the working tree BEFORE `git add` --
+# the only moment an identifying field can still be removed without a trace. This
+# run catches whatever escaped, in time to rewrite the branch rather than history.
+step "fixture redaction"
+python ci/check_fixture_redaction.py
+
 step "calibration seal"
 bash ci/check_calibration.sh
 
