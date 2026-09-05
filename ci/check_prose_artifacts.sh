@@ -83,6 +83,21 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # exactly as the shape list was one level down, and it is closed the same way.
 # Adding a legitimate root means bumping this number, which is the deliberation
 # such a change deserves.
+#
+# It counts DISTINCT roots, and the `sort -u` is the whole fix rather than a
+# tidiness. Without it the floor was satisfied by a REPEAT: dropping
+# `tests/fixtures` and writing `docs` twice keeps the length at eight, and the
+# fifth review pass demonstrated the consequence -- a live artifact planted in
+# `tests/fixtures/ec/README.md`, a file that SHIPS, passed both modes with the
+# probe count silently down from 13 to 12. A floor over a multiset is not a
+# floor.
+#
+# LIMIT, declared rather than left to be found, in the same terms as the shape
+# count above: this catches a root DELETED, not a root SWAPPED for another real
+# one. Replacing `tests/fixtures` with a genuinely different eighth root keeps
+# the distinct count at eight and loses the coverage. The regress stops here on
+# purpose -- pinning that would mean asserting each root's identity, which is
+# REQUIRED_ROOTS a third time.
 REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
@@ -100,6 +115,11 @@ REQUIRED_ROOT_COUNT=8
 # SCAN_FILES rather than the `find`. It is listed for the day one appears, and on
 # that day the self-test demands it -- its discovery is a `find` of its own, so it
 # sees the file whatever the scanner's filter says.
+#
+# `py` is the FIFTH and arrived a round later, so the paragraph above analyses
+# four mutations and there are now five. It was measured the same way rather
+# than assumed: removing `*.py` from the filter while leaving `py` here goes
+# RED, twelve failures across both roots that have one. The ratchet extends.
 REQUIRED_EXTS='rs sh md toml py'
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
@@ -174,9 +194,14 @@ REQUIRED_SHAPE_COUNT=6
 # The other four ARE scanned: `ec/README.md` and the three `.py` generators. The
 # README was unscanned until the third review pass and this comment asserted the
 # opposite; the generators were unscanned until the fourth, and this comment
-# called all fifteen of them JSON. They were the worst ones to leave out: they
-# BUILD prose by string concatenation, which is the shape named at the top of
-# this file, and unlike `ci/` they SHIP. The number is given because naming
+# called all fifteen of them JSON. They were the worst ones to leave out, and
+# the reason is not the one first written here. That text said they build prose
+# by string concatenation; they do not -- `extract` copies bytes, `gen` writes a
+# `.sha256`, and `_magi_ref` is a data module. The real reason is stronger:
+# `extract_magi_ref_prompts.py` writes into `src/prompts_md/`, whose three files
+# are `include_str!`'d into the shipped crate. A throwaway script whose output is
+# COMPILED IN is the strongest case there is for scanning it, and unlike `ci/`
+# the script itself ships too. The number is given because naming
 # only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
@@ -194,7 +219,8 @@ REQUIRED_SHAPE_COUNT=6
 #
 # It runs WIDER than the tarball in TWO places, and the second is not slight:
 # `docs/test/` is scanned and excluded from the package, and since 4.1.0 the `ci/`
-# files are scanned and excluded too -- all 102 tracked there. It was 99 for one
+# files are scanned and excluded too -- 101 of the 102 tracked there, the missing
+# one being this file, which exempts itself. It was 98 for one
 # round, while the filter matched `.rs`, `.sh`, `.md` and `.toml` and this round's
 # three guards were `.py`; the gap was named and left open, on the argument that
 # `ci/` no longer ships so the cost was bounded. The fourth review pass showed the
@@ -299,16 +325,21 @@ if [ "${1:-}" = "--self-test" ]; then
   TMP="$(mktemp -d)"
   # `_bare` is in the trap although it is created far below: the command is
   # evaluated when the trap fires, so the `${_bare:+...}` form stays empty until
-  # then. It used to be removed by hand, which leaks it if anything between its
-  # creation and that line exits under `set -e`.
+  # then. It is still removed by hand further down, and that stays -- the trap is
+  # the backstop for the window between its creation and that line, where an exit
+  # under `set -e` used to leak it. The second `rm -rf` on a path already gone is
+  # a no-op and does not trip `set -e`.
   trap 'rm -rf "$TMP" ${_bare:+"$_bare"}' EXIT
   # NESTED ROOTS KEEP THEIR PARENT PATH, and this is not defensive coding -- it
   # is a measured defect. `cp -r tests/fixtures "$TMP/"` lands the tree at
   # `$TMP/fixtures`, so the probe for `tests/fixtures/ec/README.md` looked in a
   # directory that does not exist and the self-test went red the moment that root
-  # was pinned. It had been in SCAN_DIRS for a round already without anyone
-  # noticing, because an unpinned root is never probed -- which is precisely the
-  # argument for pinning it.
+  # was pinned. A working-tree draft had put it in SCAN_DIRS alone and nothing
+  # objected, because an unpinned root is never probed -- which is precisely the
+  # argument for pinning it. (That draft was never committed. An earlier version
+  # of this sentence called it a round that happened, and the correction landed
+  # at the REQUIRED_ROOTS block and not here, so for one commit this file
+  # asserted two opposite histories eleven lines apart.)
   #
   # AND THE COPY FAILS LOUDLY. `2>/dev/null || true` meant a root that could not
   # be copied produced a sandbox missing it, silently: the self-test would then
@@ -349,7 +380,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # The floor, before anything is discovered: shrinking REQUIRED_ROOTS is
   # refused rather than absorbed. Without it the loop below happily iterates a
   # shorter list and reports success on the coverage that is left.
-  n_roots="$(printf '%s\n' $REQUIRED_ROOTS | grep -c . || true)"
+  n_roots="$(printf '%s\n' $REQUIRED_ROOTS | LC_ALL=C sort -u | grep -c . || true)"
   if [ "$n_roots" -lt "$REQUIRED_ROOT_COUNT" ]; then
     echo "SELF-TEST: $n_roots required roots, $REQUIRED_ROOT_COUNT expected" >&2
     fails=$((fails + 1))
