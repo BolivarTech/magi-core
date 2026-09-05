@@ -28,7 +28,40 @@ categories = ["algorithms", "asynchronous"]
 # management with nothing in it for a consumer, and its section headers name the
 # local tooling — which the standard this crate is written to forbids in anything
 # that ships. Excluding it settles that without losing the file for contributors.
-exclude = ["docs/test/", "graphify-out/", ".graphifyignore", ".gitignore"]
+#
+# `tests/`, `.github/` and `ci/` are excluded on the same ground as `graphify-out/`
+# above: none of them serves anyone who writes `magi-core = "4.1"` in their own
+# Cargo.toml. `tests/` and `.github/` are this crate's own test suite and CI
+# wiring; `ci/` is the shell-script gate this repository runs on itself. A
+# consumer does not run any of the three, and cargo packages by "what git
+# tracks" unless told otherwise, so without this line all three shipped anyway.
+#
+# Measured before and after this line was added: `cargo package --list` went
+# EXPECTED WARNINGS, recorded so a future reader does not read them as a defect:
+# excluding `tests/` makes `cargo package` emit one "ignoring test X as tests\X.rs
+# is not included in the published package" line per integration test. That is the
+# exclusion working, not a problem -- the package ships no tests to run.
+# from 176 files to 43, a drop of 133 (99 under `ci/`, 32 under `tests/`, 2
+# under `.github/`). The count is recorded here so a future growth of the
+# package is something the next reader can see, rather than something that
+# just happens.
+#
+# One exception, decided rather than overlooked: `src/bin/stub_cli.rs` (added
+# by a later milestone) DOES ship. `required-features` on its `[[bin]]` entry
+# stops it from being BUILT by default; it does not stop it from being
+# PACKAGED, and it is not excluded here — carving it out of the package would
+# reopen the scope of an already-approved milestone. Built and packaged are two
+# different questions, and only the first one is what `required-features`
+# answers.
+exclude = [
+    "docs/test/",
+    "graphify-out/",
+    ".graphifyignore",
+    ".gitignore",
+    "tests/",
+    ".github/",
+    "ci/",
+]
 
 [dependencies]
 thiserror = "2"
