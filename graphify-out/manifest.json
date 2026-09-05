@@ -852,8 +852,8 @@
     "semantic_hash": ""
   },
   "Cargo.toml": {
-    "mtime": 1787596505.4332473,
-    "seen": 1787903690.10045,
+    "mtime": 1788414905.4711344,
+    "seen": 1788607916.0243871,
     "ast_hash": "23cee217b5feccd8c4ae512f538b3c19",
     "semantic_hash": ""
   },
@@ -1143,6 +1143,462 @@
     "mtime": 1787596505.44427,
     "seen": 1787903690.10045,
     "ast_hash": "10392486e677fd21efe5cb666463b38f",
+    "semantic_hash": ""
+  },
+  ".ckp2/_verify_xlate.py": {
+    "mtime": 1788549195.7250228,
+    "seen": 1788607916.0243871,
+    "ast_hash": "37e051a5e8cfa2425884a31557f01e64",
+    "semantic_hash": ""
+  },
+  ".ckp2/build.py": {
+    "mtime": 1788399467.5256562,
+    "seen": 1788607916.0243871,
+    "ast_hash": "8a17c034d56ed40215c7fb68f6e27f45",
+    "semantic_hash": ""
+  },
+  ".ckp2/coherence.py": {
+    "mtime": 1788542631.9818578,
+    "seen": 1788607916.0243871,
+    "ast_hash": "c19db72bf1de194ead6c98471dbd7de5",
+    "semantic_hash": ""
+  },
+  ".ckp2/mark_removable.py": {
+    "mtime": 1788549657.0036333,
+    "seen": 1788607916.0243871,
+    "ast_hash": "f2e4211c66b94fb5d8135dd28be931a9",
+    "semantic_hash": ""
+  },
+  ".ckp2/precheck.py": {
+    "mtime": 1788476225.7478714,
+    "seen": 1788607916.0243871,
+    "ast_hash": "f39fcb1753c7d6f24f43edea03e7c0b3",
+    "semantic_hash": ""
+  },
+  ".ckp2/selfaudit.py": {
+    "mtime": 1788574447.535781,
+    "seen": 1788607916.0243871,
+    "ast_hash": "5f2ffc9d78019a2c3934381d7967bf7e",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS0.md": {
+    "mtime": 1788463780.0916913,
+    "seen": 1788607916.0253868,
+    "ast_hash": "4bad0c4a002d3e284918bd956b49bf9e",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS1.md": {
+    "mtime": 1788554484.0668015,
+    "seen": 1788607916.0253868,
+    "ast_hash": "97bb51e336b4fe2b8fae9d9032af8f90",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS2.md": {
+    "mtime": 1788596091.591509,
+    "seen": 1788607916.0253868,
+    "ast_hash": "289d6d4a8e556c7dcb82263aab406fa1",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS3.md": {
+    "mtime": 1788462590.8425708,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7b42bfc8a56e2a90ee589e662aad907f",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS4.md": {
+    "mtime": 1788462591.548348,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f9cb2233f7949d189d6d622eb07e84d0",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS5.md": {
+    "mtime": 1788462591.9909737,
+    "seen": 1788607916.0253868,
+    "ast_hash": "68b85dadd95ae71c98ad05cab8ca4853",
+    "semantic_hash": ""
+  },
+  ".ckp2/MS6.md": {
+    "mtime": 1788462592.4393363,
+    "seen": 1788607916.0253868,
+    "ast_hash": "2a48252ea4c1db37154df9d7f930ff8e",
+    "semantic_hash": ""
+  },
+  ".ckp2/_S0-plan.md": {
+    "mtime": 1788549392.4292965,
+    "seen": 1788607916.0253868,
+    "ast_hash": "77cbbcb9165615c4d44b5d2c0d2982d0",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS0-L2.txt": {
+    "mtime": 1788462797.5685954,
+    "seen": 1788607916.0253868,
+    "ast_hash": "39c8a5febefe06771be859b07c60e0c9",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS0.txt": {
+    "mtime": 1788461559.9213939,
+    "seen": 1788607916.0253868,
+    "ast_hash": "6aa695994da9170e40d4606ce57b7438",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L1.txt": {
+    "mtime": 1788463176.650128,
+    "seen": 1788607916.0253868,
+    "ast_hash": "0eba64c56e90393c64a070b78fcc4aa4",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L10.txt": {
+    "mtime": 1788494775.398835,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7b8bebff5c304a9894ab91a16c2f930e",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L11.txt": {
+    "mtime": 1788495992.650635,
+    "seen": 1788607916.0253868,
+    "ast_hash": "004cbbc1211140d0c89eb583a2ee45c8",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L12.txt": {
+    "mtime": 1788497931.2255766,
+    "seen": 1788607916.0253868,
+    "ast_hash": "4d18729d81abe090507c9b219105e1ca",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L13.txt": {
+    "mtime": 1788511321.0057538,
+    "seen": 1788607916.0253868,
+    "ast_hash": "3bb553471686f602f045829b36673b14",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L14.txt": {
+    "mtime": 1788513791.9978206,
+    "seen": 1788607916.0253868,
+    "ast_hash": "9991d44232c65a52fb81ad23428fcefb",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L15.txt": {
+    "mtime": 1788518091.894848,
+    "seen": 1788607916.0253868,
+    "ast_hash": "351d8865f460744917ed3aa5b3ada7e5",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L16.txt": {
+    "mtime": 1788522128.021305,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f30532fa5473b0b92f8b817ebd8bccbc",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L17.txt": {
+    "mtime": 1788529339.5066857,
+    "seen": 1788607916.0253868,
+    "ast_hash": "ad6a40af82741bd02f227369f941ad6f",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L18.txt": {
+    "mtime": 1788541607.7584512,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7797b2c060e9f34c34e9b23882da0d52",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L19.txt": {
+    "mtime": 1788543020.67373,
+    "seen": 1788607916.0253868,
+    "ast_hash": "97bf8f0d857b2fd0e1d32b4ff4958029",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L2.txt": {
+    "mtime": 1788463549.1160543,
+    "seen": 1788607916.0253868,
+    "ast_hash": "e8239395ea65564612a1752bac75b7ad",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L20.txt": {
+    "mtime": 1788548409.002282,
+    "seen": 1788607916.0253868,
+    "ast_hash": "cca555424be55774cf60c3ddb760abc3",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L21.txt": {
+    "mtime": 1788549994.3052971,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f53ad3ce4760a573843885673f9f3236",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L22.txt": {
+    "mtime": 1788551990.35658,
+    "seen": 1788607916.0253868,
+    "ast_hash": "c422c48f3aea56d403303b1a5eba443d",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L23.txt": {
+    "mtime": 1788552332.133939,
+    "seen": 1788607916.0253868,
+    "ast_hash": "67f2ded274d30bb9147575beec1eb4d1",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L24.txt": {
+    "mtime": 1788552581.9418316,
+    "seen": 1788607916.0253868,
+    "ast_hash": "852d1524850aeef3b3db53cd5a94ea5a",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L25.txt": {
+    "mtime": 1788553097.1162665,
+    "seen": 1788607916.0253868,
+    "ast_hash": "aa8f38e70198ee3dc4bf84cd88064b75",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L26.txt": {
+    "mtime": 1788553511.106529,
+    "seen": 1788607916.0253868,
+    "ast_hash": "5eabed0da965cd5614676e56a40e12b6",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L27.txt": {
+    "mtime": 1788553830.6991339,
+    "seen": 1788607916.0253868,
+    "ast_hash": "942cc9a4e7e1f951fdec82825ff75ceb",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L28.txt": {
+    "mtime": 1788554217.692707,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7e0c6e66291e8308874296347f36d43d",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L29.txt": {
+    "mtime": 1788554427.73869,
+    "seen": 1788607916.0253868,
+    "ast_hash": "e6429016ec483091532bf8bdba58d403",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L3.txt": {
+    "mtime": 1788474339.0057535,
+    "seen": 1788607916.0253868,
+    "ast_hash": "05f7e898e8fef6602d5c0f5df503add1",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L30.txt": {
+    "mtime": 1788554635.335732,
+    "seen": 1788607916.0253868,
+    "ast_hash": "b6f93a59d7451fdc688832fa1025faab",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L4.txt": {
+    "mtime": 1788474713.6618657,
+    "seen": 1788607916.0253868,
+    "ast_hash": "082937e6eede947541b79afa4c2c0acf",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L5.txt": {
+    "mtime": 1788476580.6898086,
+    "seen": 1788607916.0253868,
+    "ast_hash": "dbc0456aa0aedd1e420a750c68373787",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L6.txt": {
+    "mtime": 1788477391.070027,
+    "seen": 1788607916.0253868,
+    "ast_hash": "d92c3b7823ed1fc8612918a84925a11f",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L7.txt": {
+    "mtime": 1788477846.7827806,
+    "seen": 1788607916.0253868,
+    "ast_hash": "fc15c4fc9d3be560e1096542bea9198c",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L8.txt": {
+    "mtime": 1788492521.4828396,
+    "seen": 1788607916.0253868,
+    "ast_hash": "3bf0c86df51e4f97f46fb374f2f66f69",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS1-L9.txt": {
+    "mtime": 1788494332.9050434,
+    "seen": 1788607916.0253868,
+    "ast_hash": "c7edc8a509aad7b9ba9a59c32a6ec203",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L10.txt": {
+    "mtime": 1788559424.8094053,
+    "seen": 1788607916.0253868,
+    "ast_hash": "171a22db8d22a5d5f9fac36f5513ca1a",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L11.txt": {
+    "mtime": 1788560051.5198894,
+    "seen": 1788607916.0253868,
+    "ast_hash": "93abf378fdce825a7b1ebb9a9657ff74",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L12.txt": {
+    "mtime": 1788560652.6492832,
+    "seen": 1788607916.0253868,
+    "ast_hash": "8bc55b7c9634e51347f344190e53f01b",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L13.txt": {
+    "mtime": 1788560970.4544163,
+    "seen": 1788607916.0253868,
+    "ast_hash": "5ad7a004d2c1c3a4e779c07563fba671",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L14.txt": {
+    "mtime": 1788561196.6960835,
+    "seen": 1788607916.0253868,
+    "ast_hash": "3220a7cbdd5fe84539e39ce06b6cae76",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L15.txt": {
+    "mtime": 1788561472.0059268,
+    "seen": 1788607916.0253868,
+    "ast_hash": "1a18dd2cb6814b4ec6c6e899b5028bf2",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L16.txt": {
+    "mtime": 1788561798.5501077,
+    "seen": 1788607916.0253868,
+    "ast_hash": "3dd96c50affe970d5a34cb8c19a7827e",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L17.txt": {
+    "mtime": 1788562099.1585386,
+    "seen": 1788607916.0253868,
+    "ast_hash": "59ba647f29971bfc0106b32515198f42",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L18.txt": {
+    "mtime": 1788562368.1486952,
+    "seen": 1788607916.0253868,
+    "ast_hash": "8a2fc7231c2690471a8dcdb42c28e3ed",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L19.txt": {
+    "mtime": 1788562595.8117037,
+    "seen": 1788607916.0253868,
+    "ast_hash": "046197356c3c5de1a49ddecc337b78e8",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L20.txt": {
+    "mtime": 1788562939.5604367,
+    "seen": 1788607916.0253868,
+    "ast_hash": "e743626d336fbf9a0efdad6c2c6c1bff",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L21.txt": {
+    "mtime": 1788563257.893147,
+    "seen": 1788607916.0253868,
+    "ast_hash": "6e0cc53cf0a69c16e04f98655a46574b",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L22.txt": {
+    "mtime": 1788563883.06386,
+    "seen": 1788607916.0253868,
+    "ast_hash": "dbf3f2025c71beb971f8ccf4d60fc07a",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L23.txt": {
+    "mtime": 1788564261.1807675,
+    "seen": 1788607916.0253868,
+    "ast_hash": "02dd448a6bc2fbc3cba666af505165cd",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L24.txt": {
+    "mtime": 1788564505.716352,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7ff69a2e3c4a037e5a23c6975d260edf",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L25.txt": {
+    "mtime": 1788564756.7551079,
+    "seen": 1788607916.0253868,
+    "ast_hash": "ebb332521beb3230d153a72e888f2c76",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L26.txt": {
+    "mtime": 1788564995.1453269,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7cb49498e33668ab68efe7b581327ab5",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L27.txt": {
+    "mtime": 1788565295.6673937,
+    "seen": 1788607916.0253868,
+    "ast_hash": "114ef71ce69844d71050d240834bdc29",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L28.txt": {
+    "mtime": 1788565570.4860096,
+    "seen": 1788607916.0253868,
+    "ast_hash": "a3c90c39e1f6f9330ee198ad29f9ca5f",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L29.txt": {
+    "mtime": 1788568464.3522646,
+    "seen": 1788607916.0253868,
+    "ast_hash": "372074ee9ae370848354ccb2c830b639",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L30.txt": {
+    "mtime": 1788569039.366679,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7069a94c5fb955842f45ee825b0c1d18",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L31.txt": {
+    "mtime": 1788571059.0699883,
+    "seen": 1788607916.0253868,
+    "ast_hash": "7288bbbc93215c682607fb04aacd5dcf",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L35.txt": {
+    "mtime": 1788591636.1604087,
+    "seen": 1788607916.0253868,
+    "ast_hash": "4528bbb4dca374251a6d3696e36c177a",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L36.txt": {
+    "mtime": 1788592941.3493807,
+    "seen": 1788607916.0253868,
+    "ast_hash": "a1134adc1e2136ad73a2014f822ad28a",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L37.txt": {
+    "mtime": 1788594505.0845377,
+    "seen": 1788607916.0253868,
+    "ast_hash": "5d99a0842fdbbf9018c5f81a2829eeeb",
+    "semantic_hash": ""
+  },
+  ".ckp2/out-MS2-L38.txt": {
+    "mtime": 1788596433.521032,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f8b0438ea69d7f85ea87cac352d4fd40",
+    "semantic_hash": ""
+  },
+  ".ckp2/xlate-full.txt": {
+    "mtime": 1788548888.1599362,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f9f71b4e0db4d22ad6d15444b5dd3519",
+    "semantic_hash": ""
+  },
+  ".ckp2/xlate-in.txt": {
+    "mtime": 1788548828.8692167,
+    "seen": 1788607916.0253868,
+    "ast_hash": "b339d55bf3bfb7e67da98bee963a600d",
+    "semantic_hash": ""
+  },
+  ".ckp2/xlate-out.txt": {
+    "mtime": 1788549264.6802883,
+    "seen": 1788607916.0253868,
+    "ast_hash": "f63f680e1e8e487fa102557c8a1fc609",
+    "semantic_hash": ""
+  },
+  ".ckp2/xlate-prompt.md": {
+    "mtime": 1788548857.2806282,
+    "seen": 1788607916.0253868,
+    "ast_hash": "cab1274c374df1dc1b1df1c955de7626",
     "semantic_hash": ""
   }
 }

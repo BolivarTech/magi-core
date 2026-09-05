@@ -83,3 +83,6 @@ smoke/target-matrix/
 # only on the machine that captured it and must never be a build dependency —
 # what the harness actually replays is tracked under `tests/fixtures/ec/`.
 smoke/corpus/
+
+# Checkpoint 2 payload scratch: process artefacts, never product.
+.ckp2/
