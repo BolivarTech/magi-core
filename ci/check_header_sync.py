@@ -312,6 +312,22 @@ def self_test():
         return root
     case("9b pin switches itself off when repaired", 0, pin_off, "OK")
 
+    # 11. TWO TAGS spanning the 9 -> 10 boundary. This is the case the docstring's
+    #     headline claim needs and case 7 did NOT provide: case 7 exercises
+    #     `got != want`, which is order-independent, so a TEXT comparison satisfies
+    #     it identically. Ordering only matters where a tag is CHOSEN, and picking
+    #     v4.9.0 over v4.10.0 by text silently disarms the pin -- a pinned file whose
+    #     header reads 4.9.x then satisfies `got < (4, 9, 0) == False` and is skipped,
+    #     which is the one direction the pin exists to cover.
+    def two_tags(tmp):
+        root = _repo(tmp, manifest="4.10.0")
+        (root / "src" / "consensus.rs").write_text(HEADER % "4.9.0", encoding="utf-8")
+        _commit(root, "base")
+        git(["tag", "v4.9.0"], cwd=root)
+        git(["tag", "v4.10.0"], cwd=root)
+        return root
+    case("11 v4.10.0 beats v4.9.0, so the pin fires", 1, two_tags, "consensus.rs")
+
     def absent_root(tmp):
         root = pin_off(tmp)
         return root
@@ -322,7 +338,7 @@ def self_test():
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 11 cases")
+    print("\nSELF-TEST OK -- 12 cases")
     return 0
 
 

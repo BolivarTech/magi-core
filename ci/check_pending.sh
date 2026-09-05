@@ -102,17 +102,29 @@ run_crossing() {
 }
 
 six_crossings_test() {
-    [ "${CHECK_PENDING_SELFTEST_NESTED:-}" = "1" ] && return 0
-
     frc=0
     ci_dir="$(dirname "$SELF")"
     root_dir="$(cd "$ci_dir/.." && pwd)"
     name="$(basename "$SELF")"
 
-    # (d) needs a directory that is not the repo root and not ci/, reached by a SHORT relative
-    # path -- a sibling of ci/ under the repo root, so "../ci/$name" is unambiguous.
-    other_rel="$root_dir/.check_pending_selftest_other"
-    mkdir -p "$other_rel"
+    # NOTHING IS WRITTEN INTO THE REPOSITORY. An earlier version created
+    # `$root_dir/.check_pending_selftest_other`, and the round gate runs this every
+    # round: the happy path cleaned up, but the EXIT trap was installed only after two
+    # `mktemp -d`, a `cp` and a `chmod`, all under `set -eu` -- so a failure in that
+    # window, or a Ctrl-C, left an untracked directory in the tree. That reddens the
+    # clean-status check at finalisation, shows up in plan alignment as a path no task
+    # produced, and widens the scoped test selector to the full suite.
+    #
+    # (d) needs a directory that is neither the copy's directory nor its parent,
+    # reached by a SHORT relative path. A private sandbox gives exactly that without
+    # touching the tree: the copy lives at `$sandbox/ci/$name`, (d) runs from
+    # `$sandbox/other`, and "../ci/$name" resolves between them as it would in the
+    # repository.
+    sandbox="$(mktemp -d)"
+    mkdir -p "$sandbox/ci" "$sandbox/other"
+    cp "$SELF" "$sandbox/ci/$name"
+    chmod +x "$sandbox/ci/$name"
+    other_rel="$sandbox/other"
     # (c) needs a directory with no relation to the repo at all.
     other_abs="$(mktemp -d)"
     # (e) needs a directory on $PATH holding nothing else named "$name".
@@ -140,7 +152,7 @@ six_crossings_test() {
     run_crossing "f: bare name, from the script directory" \
         "$ci_dir" env CHECK_PENDING_SELFTEST_NESTED=1 sh "$name" --self-test
 
-    rm -rf "$other_rel" "$other_abs" "$bindir"
+    rm -rf "$sandbox" "$other_abs" "$bindir"
     trap - EXIT
     return "$frc"
 }

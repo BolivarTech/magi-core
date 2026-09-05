@@ -37,7 +37,7 @@ from pathlib import Path
 #   "all"     -> every token must appear somewhere in the version section
 #   "cooccur" -> every token must appear inside the SAME subsection
 DISCLOSURES = [
-    ("R-1  RetryAbandoned is no longer returned for mage-local classes",
+    ("R-1  the abandoned-retry error keeps its original class",
      "all", ["RetryAbandoned"]),
     # The row LABEL deliberately avoids the literal token: the self-test builds its
     # fixture from these labels, and a label carrying its own token would satisfy the
@@ -45,12 +45,12 @@ DISCLOSURES = [
     ("R-2  the overloaded status becomes retryable", "all", ["529"]),
     ("R-3  CLI failures move from Process to Http",
      "all", ["ProviderError::Process", "ProviderError::Http"]),
-    ("R-4  with_provider clears a previously declared probe",
+    ("R-4  a replaced primary clears its declared probe",
      "all", ["with_provider"]),
     ("R-5  a recovered run no longer aborts", "all", ["EndpointDown"]),
     ("R-6  the preflight keeps a measurement it already paid for",
      "all", ["run_preflight"]),
-    ("R-8  majority_summary carries the emitted side", "all", ["majority_summary"]),
+    ("R-8  the summary carries the emitted side", "all", ["majority_summary"]),
     ("R-8  confidence sums the emitted side", "all", ["ConsensusResult::confidence"]),
     ("R-8  dissent lists other agents", "all", ["ConsensusResult::dissent"]),
     ("R-9  schema failures stop being InvalidJson", "all", ["MalformedObject"]),
@@ -59,7 +59,7 @@ DISCLOSURES = [
     # sixteen. These two were the grep-able ones missing.
     ("R-23 the HOLD label stops reading as a rejection win",
      "all", ["ConsensusResult::consensus"]),
-    ("R-26 finish and completion_tokens stop being None",
+    ("R-26 the CLI reports what the backend said",
      "all", ["FinishReason", "completion_tokens"]),
     ("R-32 tests, .github and ci leave the package", "all", ["exclude = ["]),
     # COMPOUND and CO-OCCURRENT: two loose greps over the whole section would be
@@ -84,6 +84,18 @@ DEPRECATIONS = [
 
 DEPRECATED_HEADING = "### Deprecated"
 
+# THE LIST DESCRIBES ONE RELEASE, so it only judges that release. Without this the
+# guard demands 4.1.0's nineteen disclosures from EVERY future version: the 4.2.0
+# release engineer meets a red naming defects that are not theirs, and the two
+# cheapest ways out are emptying the list (retiring the guard with no decision) or
+# copying 4.1.0's rows into 4.2.0's section (a false record). A guard that is red by
+# default is a guard that gets ignored.
+#
+# It SKIPS loudly rather than passing quietly: a silent OK on another version would
+# read as "checked and clean", which is the opposite of what happened. When the next
+# release needs a floor, it gets its own list and its own APPLIES_TO.
+APPLIES_TO = "4.1.0"
+
 
 def version_section(changelog_text, version):
     """The `## [version]` section, up to the next `## [`. ``None`` when absent."""
@@ -96,7 +108,15 @@ def version_section(changelog_text, version):
 
 
 def subsections(section_text):
-    """Split a version section into ``{heading: body}`` by its `###` headings."""
+    """Split a version section into ``{heading: body}`` by its `###` headings.
+
+    The PREAMBLE -- anything written before the first `###` -- is deliberately not a
+    subsection, which puts a structural requirement on whoever writes the CHANGELOG:
+    the compound row and the deprecations must live under a heading, not loose at the
+    top. It fails CLOSED (the row is reported missing rather than silently accepted),
+    and it is said here because an undocumented requirement is one someone meets by
+    accident.
+    """
     out = {}
     parts = re.split(r"^(### .*)$", section_text, flags=re.M)
     for i in range(1, len(parts), 2):
@@ -111,6 +131,11 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
     if not m:
         return 1, ["FAIL: no parseable `version` in %s" % manifest.as_posix()]
     version = m.group(1)
+
+    if version != APPLIES_TO:
+        return 0, ["SKIP: this disclosure list describes %s and the tree is at %s -- "
+                   "not checked. A release needs its own list; see APPLIES_TO."
+                   % (APPLIES_TO, version)]
 
     text = changelog.read_text(encoding="utf-8") if changelog.is_file() else ""
     section = version_section(text, version)
@@ -239,12 +264,19 @@ def self_test():
         "  diagnosis rather than the\n  process's own stderr.")
     case("9  a reflowed compound row still passes", 0, reflowed, "OK")
 
+    # 10. ANOTHER VERSION -> SKIP, loudly. This is the case that pins the scoping:
+    #     without APPLIES_TO the list is demanded of every future release, and the
+    #     4.2.0 engineer meets a red naming defects that are not theirs.
+    other = "## [4.2.0] - 2026-12-01" + "\n\n" + "### Added" + "\n\n" + "- An ordinary feature." + "\n"
+    case("10 another version SKIPs, loudly", 0, other, "SKIP",
+         manifest='version = "4.2.0"\n')
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 12 cases")
+    print("\nSELF-TEST OK -- 13 cases")
     return 0
 
 

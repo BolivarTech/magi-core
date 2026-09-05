@@ -99,7 +99,6 @@ self_test() {
     _case() {
         _name="$1"
         _want_rc="$2"
-        shift 2
         if check "$_tmp/README.md" "$_tmp/Cargo.toml" >/dev/null 2>&1; then
             _rc=0
         else

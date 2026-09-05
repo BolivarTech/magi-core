@@ -64,7 +64,10 @@ KNOWN_IDENTIFYING = frozenset({
 # Rule names. Every finding carries the rule that produced it, so a self-test case
 # cannot pass because a DIFFERENT rule happened to fire.
 RULE_IDENTIFYING = "KNOWN_IDENTIFYING"
-RULE_UNCONSUMED = "CONSUMED"
+# NOT "CONSUMED": that is the string the PASS branch returns, so a failure printed
+# `FAIL (CONSUMED)` and a self-test asserting `want_rule="CONSUMED"` was satisfied by
+# any finding at all. A rule name that a PASS can also produce is not a rule name.
+RULE_UNCONSUMED = "KEY_NOT_CONSUMED"
 RULE_UNREADABLE = "UNREADABLE_FIXTURE"
 RULE_ROOT_GONE = "ROOT_TRACKED_BUT_ABSENT"
 RULE_ROOT_NEVER = "ROOT_NEVER_EXISTED"
@@ -156,7 +159,7 @@ def check(root=FIXTURE_ROOT):
     if findings:
         rules = sorted({rule for rule, _ in findings})
         return (1, "+".join(rules), [detail for _, detail in findings])
-    return (0, "CONSUMED", ["PASS: every key under %s is in the consumed set"
+    return (0, "ALL_KEYS_CONSUMED", ["PASS: every key under %s is in the consumed set"
                             % root.as_posix()])
 
 
@@ -170,7 +173,7 @@ CLEAN = {"stop_reason": "end_turn", "is_error": False, "result": "hi",
 
 CASES = [
     # (name, files, expect_code, expect_rule, expect_substring)
-    ("1  clean fixture", {"ok.json": CLEAN}, 0, "CONSUMED", "PASS"),
+    ("1  clean fixture", {"ok.json": CLEAN}, 0, "ALL_KEYS_CONSUMED", "PASS"),
     ("2  nested identifying field", {"bad.json": {"usage": {"session_id": "x"}}},
      1, RULE_IDENTIFYING, "identifying field left in a fixture"),
     ("2b unconsumed but harmless key", {"d.json": {"duration_ms": 12}},
@@ -182,10 +185,10 @@ CASES = [
      1, RULE_UNCONSUMED, "key not in the consumed set: output_tokens"),
     ("2e identifying field inside an array",
      {"a.json": {"permission_denials": [{"session_id": "x"}]}},
-     1, None, "permission_denials[].session_id"),
+     1, RULE_IDENTIFYING, "permission_denials[].session_id"),
     ("2f array path carries no index",
      {"b.json": {"permission_denials": [{}, {"uuid": "x"}]}},
-     1, None, "permission_denials[].uuid"),
+     1, RULE_IDENTIFYING, "permission_denials[].uuid"),
 ]
 
 

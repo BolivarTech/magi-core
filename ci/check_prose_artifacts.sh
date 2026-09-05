@@ -9,8 +9,12 @@
 #
 # A Python string-concatenation placeholder reached `ci/run_all_checks.sh` verbatim,
 # reading `# docs.rs builds` followed by an unsubstituted concatenation instead of
-# an em dash. `ci/` is packaged, so it was on its way to crates.io, where nothing
-# can be corrected in place. It was harmless as a shell comment, and that is the
+# an em dash. `ci/` WAS packaged then, so it was on its way to crates.io, where
+# nothing can be corrected in place. It is excluded as of 4.1.0, so that exact path
+# is closed -- but the guard is not: `src/`, `docs/`, `README.md` and `CHANGELOG.md`
+# still ship, and they are where prose a human wrote reaches a consumer. The
+# founding incident is kept as history, not as a live description.
+# It was harmless as a shell comment, and that is the
 # point: it was invisible to every gate this project had. `cargo fmt`, `clippy` and
 # the doc build all read over a comment without looking at it, and the thing that
 # caught it was a person reading the diff.
@@ -134,13 +138,15 @@ PROBE_SHAPES="# built ' + EM + ' here
 # content, which is the shape list a third time.
 REQUIRED_SHAPE_COUNT=6
 
-# THE SCAN SET, and what it is NOT. `cargo package --list` emits 175 files; this
-# scans four directories and three root files, which is where prose that a human
-# wrote lives. It does NOT scan 41 of them: `tests/` and `.github/` are 34, and
-# the other seven are cargo-generated or legal files at the root
+# THE SCAN SET, and what it is NOT. As of 4.1.0 `cargo package --list` emits 43
+# files; this scans four directories and three root files, which is where prose
+# that a human wrote lives. The arithmetic that used to live here -- 175 packaged,
+# 41 unscanned, of which `tests/` and `.github/` were 34 -- is DEAD: R-32 excluded
+# `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
+# remains unscanned of the 43 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
-# the three licence files). The full number is given because naming only the two
-# directories reads as the complete enumeration, and
+# the three licence files), none of which carries prose a human wrote. The number
+# is given because naming only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
 # names and compiles examples, and never compares file lists. Said plainly
@@ -180,7 +186,7 @@ scan_targets() {
 # A scanned path containing whitespace word-splits at the `xargs` below, so
 # `grep` receives two paths that do not exist, its complaint goes to /dev/null,
 # and the file is skipped in silence. Verified with `docs/my note.md` carrying a
-# live placeholder: the plain mode exited 0. None of the 175 packaged paths has
+# live placeholder: the plain mode exited 0. None of the 43 packaged paths has
 # whitespace, so this REFUSES the condition rather than paying a `grep` per file
 # (~500 invocations per pattern, forty times over, in a check that already takes
 # a minute) to support a filename this repository does not use.
@@ -235,6 +241,8 @@ scan() {
   done
 }
 
+# Both preconditions, in the order they matter: there is something to scan at all,
+# and every path it will produce survives the word-splitting below.
 assert_roots_exist
 assert_no_whitespace_paths
 
@@ -366,7 +374,25 @@ EOF
     exit 1
   fi
   n_targets="$(printf '%s\n' $PROBE_FILES | grep -c . || true)"
-  echo "check_prose_artifacts: self-test OK ($n_shapes shapes x $n_targets probe files caught; clean copy silent)"
+
+  # THE EMPTY-SCAN-SET CASE, which nothing pinned. `assert_roots_exist` runs from the
+  # repository root on every other invocation, where it always passes, so deleting the
+  # call in a refactor would reopen the defect with the whole gate green. This runs the
+  # PLAIN mode from a bare directory and requires a refusal -- the same rule the roots
+  # check itself enforces: a guard that did not find what to look at is not a guard that
+  # passed.
+  _bare="$(mktemp -d)"
+  cp "$ROOT/ci/check_prose_artifacts.sh" "$_bare/probe.sh"
+  if ( cd "$_bare" && sh probe.sh >/dev/null 2>&1 ); then
+    echo "check_prose_artifacts: SELF-TEST FAILED -- the plain mode reported OK from a" >&2
+    echo "directory with no scan roots, having read zero bytes." >&2
+    rm -rf "$_bare"
+    exit 1
+  fi
+  rm -rf "$_bare"
+  echo "  [ok] empty scan set is refused"
+
+  echo "check_prose_artifacts: self-test OK ($n_shapes shapes x $n_targets probe files caught; clean copy silent; empty scan set refused)"
   exit 0
 fi
 

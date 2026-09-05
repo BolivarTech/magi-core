@@ -17,12 +17,12 @@ compile_error!(
 );
 
 #[cfg(not(any(feature = "tree", feature = "published")))]
-compile_error!(
-    "one of `tree` or `published` must be enabled: without a source for magi-core there is \
-     nothing to smoke-test. `tree` is the default. The `published` mode still RESOLVES but \
-     no longer COMPILES: this harness implements LlmProvider, whose complete() returns \
-     Completion since 4.0.0, and the pin is 3.2. See the FEATURE_MATRIX note in main.rs."
-);
+compile_error!(concat!(
+    "one of `tree` or `published` must be enabled: without a source for magi-core ",
+    "there is nothing to smoke-test. `tree` is the default. `published` is OUT OF ",
+    "SERVICE since 4.1.0 and refuses with its own assertion naming its retirement, ",
+    "so it is not an alternative here. See the FEATURE_MATRIX note in main.rs.",
+));
 
 #[cfg(feature = "tree")]
 pub use magi_core_tree as magi_core;

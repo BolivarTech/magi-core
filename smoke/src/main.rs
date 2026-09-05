@@ -808,8 +808,8 @@ fn evaluate_preflight_only(
 /// since `Completion` does not exist in the pinned `3.2` — and carried the generic
 /// refusal marker. That marker was satisfied by ANY compile error, so the row would
 /// have stayed green after someone deleted the assertion that replaced it. It now
-/// carries the assertion's own text. A failure whose output contains neither failed
-/// for some OTHER
+/// carries the assertion's own text. A failure whose output contains NONE of the
+/// three expected texts failed for some OTHER
 /// reason — an unreachable registry is the realistic one, since two of the three
 /// have to resolve the published dependency — and that teaches nothing about the
 /// guard. Reading it as `DidNotBuild` would let the scenario report `Pass` while

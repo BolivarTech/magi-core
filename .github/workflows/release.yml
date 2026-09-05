@@ -172,6 +172,12 @@ jobs:
       # out here as well, and the two copies drifted: the checks this crate relies on were
       # present before merge and ABSENT before publish. One list means the publishing path
       # can no longer run fewer checks than the path that gates the merge.
+      # Three guards in `ci/` are Python, and the runner image promises `python3`
+      # but not `python`. Installing it explicitly is what keeps those three from
+      # being the steps that fail for the wrong reason.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: bash ci/run_all_checks.sh
       # RELEASE-ONLY: published docs must carry no section a later milestone still owes.
       # Not in `run_all_checks.sh` — that runs every round, and a marker left for a later
@@ -197,8 +203,8 @@ jobs:
       # tags the check fails CLOSED rather than approving by starvation, so removing
       # that setting would stop the release loudly instead of letting it through --
       # but the checkout must keep the tags for this to say anything useful.
-      - run: python ci/check_header_sync.py --self-test
-      - run: python ci/check_header_sync.py
+      - run: python3 ci/check_header_sync.py --self-test
+      - run: python3 ci/check_header_sync.py
       # LAST of the release-path guards, because its input is the CHANGELOG section
       # for this version -- the one the release ritual writes, and writes last since
       # it carries the cost line the earlier steps can produce. Wired anywhere earlier
@@ -207,8 +213,8 @@ jobs:
       # Fifteen conditions, ONE PER ROW: a bag of tokens lets one row hide behind
       # another's, and the sixteenth row of the contract is not here on purpose --
       # R-1's derivation caveat is verified by reading.
-      - run: python ci/check_changelog_disclosures.py --self-test
-      - run: python ci/check_changelog_disclosures.py
+      - run: python3 ci/check_changelog_disclosures.py --self-test
+      - run: python3 ci/check_changelog_disclosures.py
       # `Cargo.lock` is NOT committed — this is a library, so the lock file is
       # deliberately gitignored and every consumer resolves its own. That is why there is
       # no `--locked` assertion here (it would fail by construction) and why the lock is

@@ -36,22 +36,25 @@ categories = ["algorithms", "asynchronous"]
 # consumer does not run any of the three, and cargo packages by "what git
 # tracks" unless told otherwise, so without this line all three shipped anyway.
 #
-# Measured before and after this line was added: `cargo package --list` went
-# EXPECTED WARNINGS, recorded so a future reader does not read them as a defect:
-# excluding `tests/` makes `cargo package` emit one "ignoring test X as tests\X.rs
-# is not included in the published package" line per integration test. That is the
-# exclusion working, not a problem -- the package ships no tests to run.
-# from 176 files to 43, a drop of 133 (99 under `ci/`, 32 under `tests/`, 2
-# under `.github/`). The count is recorded here so a future growth of the
-# package is something the next reader can see, rather than something that
-# just happens.
+# Measured before and after this line was added: `cargo package --list` went from
+# 176 files to 43, a drop of 133 (99 under `ci/`, 32 under `tests/`, 2 under
+# `.github/`). The count is recorded here so a future growth of the package is
+# something the next reader can see, rather than something that just happens.
 #
-# One exception, decided rather than overlooked: `src/bin/stub_cli.rs` (added
-# by a later milestone) DOES ship. `required-features` on its `[[bin]]` entry
-# stops it from being BUILT by default; it does not stop it from being
-# PACKAGED, and it is not excluded here — carving it out of the package would
-# reopen the scope of an already-approved milestone. Built and packaged are two
-# different questions, and only the first one is what `required-features`
+# EXPECTED WARNINGS, recorded so a future reader does not read them as a defect:
+# excluding `tests/` makes `cargo package` emit one "ignoring test X as
+# tests/X.rs is not included in the published package" line per integration
+# test. That is the exclusion working, not a problem -- the package ships no
+# tests to run.
+#
+# One exception, decided rather than overlooked: a test-only binary at
+# `src/bin/stub_cli.rs` WILL ship when a later milestone adds it. Neither that
+# file nor any `[[bin]]` section exists in this tree yet, so this paragraph is
+# about a decision, not about current contents. `required-features` on that
+# entry will stop it from being BUILT by default; it does not stop it from
+# being PACKAGED, and it is deliberately not excluded here -- carving it out
+# would reopen the scope of an already-approved milestone. Built and packaged
+# are two different questions, and only the first is what `required-features`
 # answers.
 exclude = [
     "docs/test/",

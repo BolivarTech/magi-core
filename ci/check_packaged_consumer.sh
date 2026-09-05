@@ -37,8 +37,11 @@
 #     reason written there, that an item behind a feature gate is the one a
 #     default-features consumer never sees compiled. Not added here because this is
 #     already the most expensive step in the gate; named so the gap is a decision.
-#   * The packaged `tests/`. They are never compiled, so a fixture that failed to
-#     reach the tarball passes this check.
+#   * `tests/`, which as of 4.1.0 is NOT packaged at all (R-32). The gap this line
+#     used to name -- packaged tests never being compiled -- is gone with them, and
+#     a different one takes its place: a fixture a test needs now has to live under
+#     `src/` to reach the tarball, and nothing here checks that it did. The
+#     packaged crate simply carries no tests to run.
 #   * BEHAVIOUR. The examples are COMPILED against the tarball and never run, so
 #     what this proves is that the packaged source presents a usable API to an
 #     outside crate -- which is the `E0639` class it exists for. The assertions

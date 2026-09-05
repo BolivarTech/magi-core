@@ -38,6 +38,12 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
+      # Three guards in `ci/` are Python, and the runner image promises `python3`
+      # but not `python`. Installing it explicitly is what keeps those three from
+      # being the steps that fail for the wrong reason.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - run: bash ci/run_all_checks.sh
 
   # The smoke harness is its OWN cargo package with an empty `[workspace]`, so nothing the Gate

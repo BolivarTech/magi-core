@@ -169,15 +169,38 @@ bash ci/check_redaction.sh --self-test
 step "redaction rule"
 bash ci/check_redaction.sh
 
+# The Python interpreter, RESOLVED rather than assumed. Which name works is not the
+# same on both ends: a GitHub `ubuntu-latest` image always has `python3` and does not
+# promise `python`, while on a Windows dev box `python3` is often the Microsoft Store
+# stub -- a shim that exits without running anything -- and `python` is the real one.
+# Hard-coding either name breaks one side, and the stub breaks it SILENTLY, which is
+# the worse half. So each candidate is asked to execute something before it is
+# believed, and if none can, the gate stops here saying so rather than skipping the
+# three Python guards.
+PY=""
+for _cand in "${PYTHON:-}" python3 python; do
+  [ -n "$_cand" ] || continue
+  if "$_cand" -c "import sys; sys.exit(0)" >/dev/null 2>&1; then
+    PY="$_cand"
+    break
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "run_all_checks: FAIL -- no working Python interpreter (tried \$PYTHON, python3, python)." >&2
+  echo "Three guards in ci/ are Python; skipping them would report a green gate that" >&2
+  echo "never ran them. Set PYTHON to an interpreter and re-run." >&2
+  exit 1
+fi
+
 step "fixture redaction (self-test)"
-python ci/check_fixture_redaction.py --self-test
+"$PY" ci/check_fixture_redaction.py --self-test
 
 # The ROUND-level backstop, not the trigger. The per-commit window belongs to
 # MS2's capture spike, which runs this over the working tree BEFORE `git add` --
 # the only moment an identifying field can still be removed without a trace. This
 # run catches whatever escaped, in time to rewrite the branch rather than history.
 step "fixture redaction"
-python ci/check_fixture_redaction.py
+"$PY" ci/check_fixture_redaction.py
 
 step "calibration seal"
 bash ci/check_calibration.sh
