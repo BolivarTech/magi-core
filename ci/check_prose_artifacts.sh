@@ -49,7 +49,12 @@ cd "$ROOT"
 # version of this file injected all three probes into a single file, and a review
 # proved by mutation that replacing this list with `ci` alone passed both modes
 # while a real artifact sat in `src/lib.rs`.
-SCAN_DIRS='src ci docs examples'
+# `tests/fixtures` is here because R-32 keeps it in the package: it holds
+# `tests/fixtures/ec/README.md`, prose that a human wrote and that SHIPS. The third
+# review pass found it sitting outside the scan while a comment below claimed the
+# only unscanned packaged files were cargo-generated -- so the hole is closed rather
+# than described. The rest of `tests/` is excluded from the package and stays out.
+SCAN_DIRS='src ci docs examples tests/fixtures'
 SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 
 # The scan set is declared TWICE, and the duplication IS the check. Above is what
@@ -59,7 +64,13 @@ SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 # once. An expectation computed from the thing it checks asserts nothing.
 # Dropping a root is still allowed; it now costs an edit in two places, which is
 # exactly the deliberation such a change deserves.
-REQUIRED_ROOTS='src ci docs examples README.md CHANGELOG.md Cargo.toml'
+# `tests/fixtures` was added to BOTH halves in the same edit. It went into the
+# scan set alone first, and the review pass that followed measured what that
+# costs: deleting it from SCAN_DIRS left the self-test GREEN, so the coverage
+# just gained could have been dropped in a one-line edit with the whole gate
+# passing -- the exact narrowing this duplication exists to refuse, reopened by
+# the round that closed it.
+REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo.toml'
 
 # And the same treatment for the extensions, because pinning only the roots left
 # the identical hole one level down: the self-test used to discover its probes
@@ -138,15 +149,18 @@ PROBE_SHAPES="# built ' + EM + ' here
 # content, which is the shape list a third time.
 REQUIRED_SHAPE_COUNT=6
 
-# THE SCAN SET, and what it is NOT. As of 4.1.0 `cargo package --list` emits 43
+# THE SCAN SET, and what it is NOT. As of this commit `cargo package --list` emits 59
 # files; this scans four directories and three root files, which is where prose
 # that a human wrote lives. The arithmetic that used to live here -- 175 packaged,
 # 41 unscanned, of which `tests/` and `.github/` were 34 -- is DEAD: R-32 excluded
 # `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
-# remains unscanned of the 43 are the cargo-generated and legal files at the root
+# remains unscanned of the 59 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
-# the three licence files), none of which carries prose a human wrote. The number
-# is given because naming only the directories reads as a complete enumeration, and
+# the three licence files) plus the fifteen NON-prose fixtures under
+# `tests/fixtures/` -- JSON and checksum data, which carry no prose by construction.
+# The sixteenth, `ec/README.md`, IS scanned; it was not until the third review pass,
+# and the comment here asserted the opposite. The number is given because naming
+# only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
 # names and compiles examples, and never compares file lists. Said plainly
@@ -162,8 +176,12 @@ REQUIRED_SHAPE_COUNT=6
 # would multiply a check that already runs for a minute by fifty.
 #
 # It runs WIDER than the tarball in TWO places, and the second is not slight:
-# `docs/test/` is scanned and excluded from the package, and since 4.1.0 all 102
-# files under `ci/` are scanned and excluded too. So most of what this reads does
+# `docs/test/` is scanned and excluded from the package, and since 4.1.0 the `ci/`
+# files are scanned and excluded too -- 99 of the 102 tracked there, because the
+# extension filter below matches `.rs`, `.sh`, `.md` and `.toml` and this round's
+# three guards are `.py`. That gap is named rather than closed: a Python guard
+# carrying an unsubstituted placeholder would go unseen, and `ci/` no longer ships,
+# so the cost is bounded. So most of what this reads does
 # not ship. Left that way on purpose -- being noisy about a file that does not
 # ship is the harmless direction, and carving an exception into the scan is how
 # the interesting direction gets carved next. *(This paragraph said "slightly
@@ -261,8 +279,32 @@ if [ "${1:-}" = "--self-test" ]; then
   # a pattern test cannot see a discovery defect.
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
-  cp -r $SCAN_DIRS "$TMP/" 2>/dev/null || true
-  cp $SCAN_FILES "$TMP/" 2>/dev/null || true
+  # NESTED ROOTS KEEP THEIR PARENT PATH, and this is not defensive coding -- it
+  # is a measured defect. `cp -r tests/fixtures "$TMP/"` lands the tree at
+  # `$TMP/fixtures`, so the probe for `tests/fixtures/ec/README.md` looked in a
+  # directory that does not exist and the self-test went red the moment that root
+  # was pinned. It had been in SCAN_DIRS for a round already without anyone
+  # noticing, because an unpinned root is never probed -- which is precisely the
+  # argument for pinning it.
+  #
+  # AND THE COPY FAILS LOUDLY. `2>/dev/null || true` meant a root that could not
+  # be copied produced a sandbox missing it, silently: the self-test would then
+  # scan less than it claims and still be able to pass. Same class as an empty
+  # scan set reporting OK -- a setup step that swallows its own failure is a gate
+  # that reports on work it did not do.
+  for _d in $SCAN_DIRS; do
+    mkdir -p "$TMP/$(dirname "$_d")"
+    cp -r "$_d" "$TMP/$(dirname "$_d")/" || {
+      echo "SELF-TEST: could not stage scan root into the sandbox: $_d" >&2
+      exit 1
+    }
+  done
+  for _f in $SCAN_FILES; do
+    cp "$_f" "$TMP/" || {
+      echo "SELF-TEST: could not stage scan file into the sandbox: $_f" >&2
+      exit 1
+    }
+  done
 
   # One probe per REQUIRED root, and the probe file itself is discovered rather
   # than named. The previous version named six paths and derived the seventh from
@@ -398,7 +440,8 @@ EOF
   if [ "$_rc" = 0 ] || ! printf %s "$_out" | grep -q "scan roots missing"; then
     echo "check_prose_artifacts: SELF-TEST FAILED -- the plain mode did not refuse an" >&2
     echo "empty scan set with the roots-missing message. Got rc=$_rc, output:" >&2
-    printf %s\n "$_out" >&2
+    printf '%s
+' "$_out" >&2
     rm -rf "$_bare"
     exit 1
   fi

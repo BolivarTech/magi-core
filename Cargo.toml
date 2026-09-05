@@ -64,7 +64,7 @@ exclude = [
     ".graphifyignore",
     ".gitignore",
     # NOT `tests/` wholesale, and the reason was found by executing rather than by
-    # reading: TEN `include_str!` calls in FIVE shipped `src/` modules reach into
+    # reading: TEN `include_str!` calls in FOUR shipped `src/` modules reach into
     # `tests/fixtures/` from inside `#[cfg(test)]` -- `prompts/mod.rs`, `reporting.rs`,
     # `providers/ollama_wire.rs`, `providers/openai_compat.rs`. Excluding the whole
     # directory left those five files in the tarball pointing at fixtures that are not,

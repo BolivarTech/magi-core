@@ -6,11 +6,12 @@
 # Every source file this release touched must carry the release's version in its
 # three-line header.
 #
-# The rule is stated in the plan and enforced by nobody, and it has ALREADY
-# drifted: `src/consensus.rs` says `1.0.0` and `src/verdict_markers.rs` says
-# `1.0.0`, yet both were modified on 2026-07-30, in `3.0.2`. Those are false
-# statements about the file that contains them -- the same class this release
-# corrects in rustdoc, one level up in the header.
+# The rule was stated in the plan and enforced by nobody, and it HAD drifted:
+# `src/consensus.rs` and `src/verdict_markers.rs` both said `1.0.0` while both were
+# modified on 2026-07-30, in `3.0.2`. Those were false statements about the file
+# that contained them -- the same class this release corrects in rustdoc, one level
+# up in the header. Both read `4.1.0` since the repair in this milestone; the past
+# tense is deliberate, because a present-tense claim here would be the same defect.
 #
 # RELEASE PATH, never the round gate. During a cycle the headers are legitimately
 # out of date: the rule syncs them WHEN A MILESTONE CLOSES, so in the round gate
@@ -38,11 +39,17 @@ from pathlib import Path
 # crate moved. Syncing them to the crate would assert something false about them.
 ROOTS = ("src", "tests", "examples", "benches", "smoke/src")
 
-# Files whose header is known to be stale from BEFORE the last tag, so they do not
-# appear in "modified since the last tag" and the check would be blind to exactly
-# the drift it exists to repair. The pin is CONDITIONAL and switches itself off:
-# it applies only while the header is BELOW the last tag's version, so once the
-# repair ships and is tagged, these two re-enter through the general rule alone.
+# Files whose header was stale from BEFORE the last tag. Without the pin they would
+# not appear in "modified since the last tag" at all, and the check would have been
+# blind to exactly the drift it exists to repair.
+#
+# The pin is CONDITIONAL and it has ALREADY switched itself off -- earlier than the
+# rationale first written here predicted. That text said the two would re-enter
+# "once the repair ships and is tagged"; in fact the moment their headers were
+# bumped, `(4,1,0) < (4,0,0)` became false and the pin stopped applying, with no tag
+# involved. They are now reached by the general rule, because the repair commit
+# modified them since the last tag. The mechanism was right; the story about when it
+# would stop was not.
 PINNED = ("src/consensus.rs", "src/verdict_markers.rs")
 
 HEADER_VERSION = re.compile(r"^//\s*Version:\s*(\S+)\s*$", re.M)

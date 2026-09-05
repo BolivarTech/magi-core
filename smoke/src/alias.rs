@@ -32,9 +32,10 @@ pub use magi_core_tree as magi_core;
 // nineteen type errors learns nothing the errors did not already say.
 //
 // MEASURED (2026-09-05): with `magi_core` still aliased to `magi_core_pub`,
-// `cargo check --no-default-features --features published` produced 20 errors --
-// this assertion plus 19 from the 3.2 API. `compile_error!` does not abort before
-// type checking, so the alias below points at the TREE crate: the rest of the
+// `cargo check --no-default-features --features published` left rustc reporting 19
+// errors -- this assertion plus EIGHTEEN from the 3.2 API. (A `grep -c '^error'`
+// says 20; the twentieth is cargo's summary line.) `compile_error!` does not abort
+// before type checking, so the alias below points at the TREE crate: the rest of the
 // harness type-checks and this message stands alone. Nothing reads that alias --
 // the build stops here.
 #[cfg(feature = "published")]

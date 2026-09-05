@@ -94,6 +94,18 @@ DEPRECATED_HEADING = "### Deprecated"
 # It SKIPS loudly rather than passing quietly: a silent OK on another version would
 # read as "checked and clean", which is the opposite of what happened. When the next
 # release needs a floor, it gets its own list and its own APPLIES_TO.
+# A DROPPED MILESTONE PRUNES ROWS, and this guard has no mechanism for it -- said
+# here because the alternative is a release engineer meeting a red on a CORRECT
+# CHANGELOG with nothing in the file to explain it, whose cheapest escape is emptying
+# the list. That is the same "guard retired with no decision" the scoping below was
+# written to prevent, reached by another door.
+#
+# Contract §1.1(e): if a milestone does not land, the rows its REQ produce have no
+# entry to be named in, so they come OUT of this list in the same reported decision
+# that drops the milestone. The correspondence row -> milestone is direct: R-1/R-2 are
+# MS1, R-3/R-26 MS2, R-4/R-5/R-6 MS3, R-8/R-9/R-22/R-23 MS4, R-7's deprecations MS5,
+# R-21's deprecation MS6, R-32 MS0. Pruning is mechanical; what is inadmissible is
+# pruning a row whose REQ DID land.
 APPLIES_TO = "4.1.0"
 
 

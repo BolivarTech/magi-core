@@ -176,7 +176,7 @@ bash ci/check_redaction.sh
 # Hard-coding either name breaks one side, and the stub breaks it SILENTLY, which is
 # the worse half. So each candidate is asked to execute something before it is
 # believed, and if none can, the gate stops here saying so rather than skipping the
-# three Python guards.
+# one Python guard this gate runs (the other two are release-only).
 PY=""
 for _cand in "${PYTHON:-}" python3 python; do
   [ -n "$_cand" ] || continue
@@ -187,8 +187,8 @@ for _cand in "${PYTHON:-}" python3 python; do
 done
 if [ -z "$PY" ]; then
   echo "run_all_checks: FAIL -- no working Python interpreter (tried \$PYTHON, python3, python)." >&2
-  echo "Three guards in ci/ are Python; skipping them would report a green gate that" >&2
-  echo "never ran them. Set PYTHON to an interpreter and re-run." >&2
+  echo "One guard in this gate is Python (the other two are release-only); skipping" >&2
+  echo "it would report a green gate that never ran it. Set PYTHON and re-run." >&2
   exit 1
 fi
 

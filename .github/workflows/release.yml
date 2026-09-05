@@ -204,11 +204,17 @@ jobs:
       # that setting would stop the release loudly instead of letting it through --
       # but the checkout must keep the tags for this to say anything useful.
       # `python3` is correct HERE because `setup-python` above provides it. Running
-      # these two locally is a different matter -- the plan puts R-34 discovery on a
-      # developer machine, and on Windows `python3` is often the Store stub, which
-      # exits without running anything. Locally use `sh ci/run_all_checks.sh`, whose
-      # resolver asks a candidate to execute something before believing it, or set
-      # PYTHON to a real interpreter.
+      # these locally is a different matter -- the plan puts R-34 discovery on a
+      # developer machine, and on Windows `python3` is often the Store stub.
+      #
+      # CORRECTED after review: an earlier version of this note said to use
+      # `sh ci/run_all_checks.sh` locally, which is INOPERATIVE for these two --
+      # that script runs `check_fixture_redaction.py` and nothing else, so a
+      # developer following it would see green having never run the header check.
+      # That is the same green-that-never-ran failure its own resolver warns about.
+      # Locally, invoke them DIRECTLY with an interpreter you have verified, e.g.
+      # `python ci/check_header_sync.py`. The Store stub exits 49, so a wrong one
+      # fails loudly rather than silently -- measured, not assumed.
       - run: python3 ci/check_header_sync.py --self-test
       - run: python3 ci/check_header_sync.py
       # LAST of the release-path guards, because its input is the CHANGELOG section
