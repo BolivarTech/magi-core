@@ -175,7 +175,12 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
             if gone:
                 missing.append("%s -- missing: %s" % (row, ", ".join(gone)))
         else:
-            if not any(all(t in body for t in tokens) for body in subs.values()):
+            # The SAME subtraction the `all` rows get. Searching `subs.values()`
+            # included the Deprecated body, so a compound row could be satisfied
+            # from inside the block that exists to list deprecations -- the exact
+            # leak the `all` rows already close, left open one branch over.
+            searchable = [b for h, b in subs.items() if h != DEPRECATED_HEADING]
+            if not any(all(t in body for t in tokens) for body in searchable):
                 missing.append("%s -- no single subsection carries both: %s"
                                % (row, " AND ".join(tokens)))
 

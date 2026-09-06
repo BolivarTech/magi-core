@@ -190,6 +190,25 @@ echo "=== compiling the packaged examples as outside consumers ==="
 CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
   cargo build --manifest-path "$PKG_DIR/Cargo.toml" --examples --all-features
 
+# AND THE PACKAGED CRATE'S OWN TESTS, which is a different property from the one
+# above and the one this release nearly shipped broken. R-32 excluded the `tests/`
+# SUITE from the package and deliberately kept `tests/fixtures/`, because TEN
+# `include_str!` calls in FOUR shipped `src/` modules reach into it from inside
+# `#[cfg(test)]`. Excluding the directory wholesale left those pointing at files
+# that are not in the tarball, so `cargo test` on the published source failed to
+# COMPILE -- found by review, fixed by hand, and then guarded by nothing.
+#
+# `--profile test --lib` is what reaches it: `cfg(test)` is not set for a
+# dependency, so the examples above cannot see this class at all, and an ordinary
+# `--lib` build does not either. Ordinary consumers never hit it; distribution
+# packagers build tests from the tarball, and crates.io is immutable.
+#
+# COMPILED, not run: this step must stay offline and fast, and a fixture that is
+# missing fails at `include_str!`, which is compile time.
+echo "=== compiling the packaged crate's own tests ==="
+CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
+  cargo check --manifest-path "$PKG_DIR/Cargo.toml" --profile test --lib --all-features
+
 # Reports what happened rather than asserting the property: a count is checkable,
 # a claim is not. It counts DECLARATIONS and says so — `cargo build --examples`
 # silently skips a target whose `required-features` are unmet, so the day an
@@ -202,4 +221,4 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # different set from the one that was checked. `|| true` because grep exits 1 on an
 # empty list, which `set -e` would turn into a silent death with no message at all.
 DECLARED="$(printf '%s\n' "$PKG_EXAMPLES" | grep -c . || true)"
-echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; cargo build --examples reported success)"
+echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; examples built and the packaged crate's own tests type-check)"

@@ -40,6 +40,14 @@ from pathlib import Path
 # milestone falsifies it, having bumped four of them to 4.1.0 alongside the crate.
 # The consequence is worth knowing rather than hiding: those four are outside every
 # mechanical check here, so their headers are kept by review alone.
+# `smoke/src` IS here, and against the ROOT manifest rather than the harness's
+# own, which looks wrong until you check: `smoke/Cargo.toml` says `0.1.0` while
+# `smoke/src/main.rs` says `4.1.0`. The PACKAGE versions apart; its source
+# HEADERS follow the crate, like every other file with this header. Excluding it
+# was tried and its reason -- "it versions separately" -- was true of the package
+# and false of the headers, which is the distinction that matters here. Said in
+# the code because a reader who checks only the two manifests concludes the
+# opposite and "fixes" it.
 ROOTS = ("src", "tests", "examples", "benches", "smoke/src")
 
 # Files whose header was stale from BEFORE the last tag. Without the pin they would

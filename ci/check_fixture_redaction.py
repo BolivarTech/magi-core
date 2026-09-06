@@ -26,6 +26,8 @@
 #      disk does not => someone deleted it, FAIL.
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -67,6 +69,7 @@ RULE_IDENTIFYING = "KNOWN_IDENTIFYING"
 # NOT "CONSUMED": that is the string the PASS branch returns, so a failure printed
 # `FAIL (CONSUMED)` and a self-test asserting `want_rule="CONSUMED"` was satisfied by
 # any finding at all. A rule name that a PASS can also produce is not a rule name.
+RULE_GIT_FAILED = "GIT_UNAVAILABLE"
 RULE_UNCONSUMED = "KEY_NOT_CONSUMED"
 RULE_UNREADABLE = "UNREADABLE_FIXTURE"
 RULE_ROOT_GONE = "ROOT_TRACKED_BUT_ABSENT"
@@ -128,13 +131,44 @@ def scan_file(path):
 
 
 def git_knows(root):
-    """True when ``root`` is registered in HEAD."""
+    """Whether ``root`` is registered in HEAD: True, False, or None if git failed.
+
+    NONE IS NOT FALSE, and collapsing them is how this guard would approve by
+    starvation. Reading only stdout, a git that errored -- no commits yet, a
+    corrupt index, git absent -- returns empty output, which is indistinguishable
+    from "the tree does not know this path"; the caller then reports SKIP and the
+    round gate stays green having scanned nothing. The caller treats None as a
+    hard failure.
+
+    Its sibling `check_header_sync.py` had the identical defect in `changed_since`
+    and it was fixed there one round earlier without auditing this file -- the
+    dimension was named and its sibling was not.
+    """
     try:
+        # NO COMMITS is not a broken git, and `ls-tree HEAD` fails identically in
+        # both, so the two are separated before anything is decided. Conflating
+        # them costs one direction or the other: treat both as broken and the only
+        # legitimate SKIP becomes unreachable -- a tree with no captures yet, which
+        # is this guard's expected state until MS2 lands; treat both as "no
+        # commits" and a broken git reports nothing to find.
+        #
+        # MEASURED rather than reasoned, because the obvious probe does not work:
+        # `rev-parse --verify HEAD` fails in BOTH (rc 1 fresh, rc 128 broken), so
+        # it cannot tell them apart. `rev-list --all --count` can -- rc 0 with "0"
+        # on a fresh repo, non-zero when git cannot read its own object store.
+        commits = subprocess.run(["git", "rev-list", "--all", "--count"],
+                                 capture_output=True, text=True, check=False)
+        if commits.returncode != 0:
+            return None
+        if commits.stdout.strip() == "0":
+            return False
         out = subprocess.run(
             ["git", "ls-tree", "-d", "--name-only", "HEAD", root.as_posix()],
             capture_output=True, text=True, check=False)
     except OSError:
-        return False
+        return None
+    if out.returncode != 0:
+        return None
     return bool(out.stdout.strip())
 
 
@@ -144,8 +178,15 @@ def check(root=FIXTURE_ROOT):
     ``exit_code`` is 0 for PASS and for the declared SKIP, 1 for FAIL.
     """
     if not root.is_dir():
-        # Only here does git decide, and the two answers mean opposite things.
-        if git_knows(root):
+        # Only here does git decide, and the THREE answers mean different things.
+        # None is git having failed, and it fails CLOSED: a guard that could not
+        # ask cannot report that there is nothing to find.
+        tracked = git_knows(root)
+        if tracked is None:
+            return (1, RULE_GIT_FAILED,
+                    ["git could not say whether %s is tracked -- refusing to "
+                     "report on a scan that never happened" % root.as_posix()])
+        if tracked:
             return (1, RULE_ROOT_GONE,
                     ["%s is registered in git but absent from disk" % root.as_posix()])
         return (0, RULE_ROOT_NEVER,
@@ -242,6 +283,34 @@ def self_test():
         if not ok:
             failures.append("3: code=%s rule=%s out=%r" % (code, rule, blob))
 
+    # 3b. Git present but BROKEN, root absent -> FAIL, where 3 SKIPs. The two look
+    #     identical from stdout alone (both empty), which is why 3 alone could not
+    #     pin this: reading only stdout, a git that errored reported "never knew
+    #     it" and the gate went green having scanned nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = os.getcwd()
+        try:
+            os.chdir(tmp)
+            subprocess.run(["git", "init", "-q"], check=False, capture_output=True)
+            Path("f.txt").write_text("x", encoding="utf-8")
+            subprocess.run(["git", "add", "-A"], check=False, capture_output=True)
+            subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                            "commit", "-qm", "c"], check=False, capture_output=True)
+            # HEAD resolves, then the object graph is emptied so `ls-tree` fails.
+            def _force(func, path, _exc):
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            shutil.rmtree(Path(".git") / "objects", onerror=_force)
+            code, rule, lines = check(Path("src/providers/fixtures/envelopes"))
+            blob = "\n".join(lines)
+            ok = code == 1 and rule == RULE_GIT_FAILED
+        finally:
+            os.chdir(cwd)
+        print("  [%s] %-40s rule=%s" % ("ok" if ok else "FAIL",
+                                        "3b broken git FAILS, not SKIP", rule))
+        if not ok:
+            failures.append("3b: code=%s rule=%s out=%r" % (code, rule, blob))
+
     # 4. Root registered in git and deleted from disk -> FAIL. This is the half
     # that keeps an empty scan set from reading green (the R-29 lesson).
     with tempfile.TemporaryDirectory() as tmp:
@@ -271,7 +340,7 @@ def self_test():
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 10 cases")
+    print("\nSELF-TEST OK -- 11 cases")
     return 0
 
 
