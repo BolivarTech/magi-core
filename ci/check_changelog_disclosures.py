@@ -108,6 +108,12 @@ DEPRECATED_HEADING = "### Deprecated"
 # pruning a row whose REQ DID land.
 APPLIES_TO = "4.1.0"
 
+# Versions EXAMINED and found to carry no silent change, with the reason. This is
+# the deliberate escape from the failure above: a docs-only patch does not need a
+# disclosure list, but it does need someone to have said so. An empty mapping is
+# the correct state until a release earns an entry.
+NO_DISCLOSURES = {}
+
 
 def version_section(changelog_text, version):
     """The `## [version]` section, up to the next `## [`. ``None`` when absent."""
@@ -168,10 +174,26 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
         return 1, ["FAIL: no parseable `version` in %s" % manifest.as_posix()]
     version = m.group(1)
 
-    if version != APPLIES_TO:
-        return 0, ["SKIP: this disclosure list describes %s and the tree is at %s -- "
-                   "not checked. A release needs its own list; see APPLIES_TO."
-                   % (APPLIES_TO, version)]
+    if version != APPLIES_TO and version not in NO_DISCLOSURES:
+        # FAIL, not SKIP. Returning 0 here made this floor DISARM ITSELF on the
+        # next version bump: 4.2.0 would run it, be told the list describes 4.1.0,
+        # and pass having checked nothing -- a guard reporting success while the
+        # thing it guards is unexamined, which is the class this milestone exists
+        # to remove. It ran on the release path, so the silence landed at the one
+        # moment it could not be recovered from.
+        #
+        # The escape is DELIBERATE rather than silent: a release with no silent
+        # changes says so by name in NO_DISCLOSURES. Writing that line is a
+        # decision someone makes and a reviewer can see; skipping by default was
+        # neither.
+        return 1, ["FAIL: this disclosure list describes %s and the tree is at %s. "
+                   "A release needs its own list: either add one for %s and point "
+                   "APPLIES_TO at it, or record %s in NO_DISCLOSURES to state that "
+                   "it carries no silent change."
+                   % (APPLIES_TO, version, version, version)]
+    if version in NO_DISCLOSURES:
+        return 0, ["OK: %s is recorded as carrying no silent change -- %s"
+                   % (version, NO_DISCLOSURES[version])]
 
     text = changelog.read_text(encoding="utf-8") if changelog.is_file() else ""
     section = version_section(text, version)
@@ -222,7 +244,12 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
                        "deprecations have nowhere to be named" % (DEPRECATED_HEADING, version))
     else:
         for name, token in DEPRECATIONS:
-            if token not in deprecated_body:
+            # `present`, like the rows above. This site kept `in` when they were
+            # converted -- the dimension was named and its sibling was not, which
+            # is the second time in this round the same fix landed on one of two
+            # places. A deprecation token is an identifier, so the same larger-
+            # token false negative applies here.
+            if not present(token, deprecated_body):
                 missing.append("deprecation `%s` -- missing `%s` from `%s`"
                                % (name, token, DEPRECATED_HEADING))
 
@@ -333,11 +360,17 @@ def self_test():
     case("8b deprecation alone does not satisfy the row", 1, no_row,
          "R-8  the summary carries the emitted side")
 
-    # 10. ANOTHER VERSION -> SKIP, loudly. This is the case that pins the scoping:
-    #     without APPLIES_TO the list is demanded of every future release, and the
-    #     4.2.0 engineer meets a red naming defects that are not theirs.
+    # 10. ANOTHER VERSION -> FAIL, and this case was inverted once the consequence
+    #     was measured. It used to assert SKIP with exit 0, on the reasoning that the
+    #     4.2.0 engineer should not meet a red naming defects that are not theirs.
+    #     True about the defects, and it made the floor DISARM ITSELF on the bump:
+    #     4.2.0 ran this, was told the list describes 4.1.0, and passed having checked
+    #     nothing -- on the release path, at the one moment the silence could not be
+    #     recovered from. Two mages found it independently.
+    #
+    #     The red names no defect. It asks for a decision, and offers both answers.
     other = "## [4.2.0] - 2026-12-01" + "\n\n" + "### Added" + "\n\n" + "- An ordinary feature." + "\n"
-    case("10 another version SKIPs, loudly", 0, other, "SKIP",
+    case("10 another version FAILS, not skips", 1, other, "A release needs its own list",
          manifest='version = "4.2.0"\n')
 
     # 11. The searched body is BUILT, not subtracted, and this asserts the property
@@ -380,12 +413,38 @@ def self_test():
     if not ok:
         failures.append("12: boundary matching wrong")
 
+    # 13. ...and the deliberate escape works. A release with no silent change says so
+    #     by name, which is a decision someone makes and a reviewer can see -- unlike
+    #     the default skip it replaced, which nobody had to make and nobody could see.
+    saved = dict(NO_DISCLOSURES)
+    NO_DISCLOSURES["4.2.0"] = "docs only"
+    try:
+        case("13 a declared no-disclosure release passes", 0, other,
+             "no silent change", manifest='version = "4.2.0"\n')
+    finally:
+        NO_DISCLOSURES.clear()
+        NO_DISCLOSURES.update(saved)
+
+    # 14. A DEPRECATION token cannot hide inside a larger one either. The rows above
+    #     were converted to `present` and this site kept `in`, and reverting it left
+    #     the whole self-test green -- the fix was unpinned, which is the shape this
+    #     round keeps producing: the dimension is named and its sibling is not.
+    #
+    #     `majority_summary` mentioned only as `majority_summary_v2` is the case: a
+    #     release could deprecate something else with a similar name and satisfy the
+    #     row that exists to announce THIS one.
+    hidden = _full_section().replace(
+        "- `majority_summary` is deprecated and goes away in the next major.",
+        "- `majority_summary_v2` is deprecated and goes away in the next major.")
+    case("14 a deprecation cannot hide inside a larger token", 1, hidden,
+         "missing `majority_summary`")
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 16 cases")
+    print("\nSELF-TEST OK -- 18 cases")
     return 0
 
 

@@ -874,12 +874,19 @@ fn build_outcome(
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains(expected) {
         if expected == OUT_OF_SERVICE_MARKER {
-            // `could not compile` is cargo's own summary and is always present on a
-            // failed build, so it is excluded rather than counted.
+            // SUMMARIES are excluded, not counted. `could not compile` is cargo's
+            // and is always present on a failed build. `aborting due to` is
+            // rustc's, and cargo suppresses it TODAY -- measured, one non-summary
+            // diagnostic when the mode is retired -- but that is a property of
+            // cargo's output formatting rather than of this crate, and the day it
+            // stops suppressing, a correct tree would count two and this guard
+            // would refuse it. Excluding both costs nothing and removes a false
+            // red that depends on a toolchain detail nobody here controls.
             let diagnostics = stderr
                 .lines()
                 .filter(|l| l.starts_with("error"))
                 .filter(|l| !l.contains(COMPILE_REFUSAL_MARKER))
+                .filter(|l| !l.contains(RUSTC_ABORT_MARKER))
                 .count();
             if diagnostics != 1 {
                 eprintln!(
@@ -992,6 +999,11 @@ fn run_feature_matrix() -> Vec<(String, runner::BuildOutcome)> {
 /// line for every crate the compiler rejects, which is why it can stand in for
 /// the per-combination markers on the other half of the matrix.
 const COMPILE_REFUSAL_MARKER: &str = "could not compile";
+
+/// rustc's own tally line, which cargo suppresses today and may not tomorrow.
+/// Excluded from the diagnostic count for the same reason as cargo's summary:
+/// neither is a diagnostic, and counting one would make a correct tree refuse.
+const RUSTC_ABORT_MARKER: &str = "aborting due to";
 
 /// The `published` mode asserts its own retirement. Matching this text, and not the
 /// generic refusal, is what makes the matrix check WHICH red it got -- the same
