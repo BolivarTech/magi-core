@@ -112,6 +112,19 @@ APPLIES_TO = "4.1.0"
 # the deliberate escape from the failure above: a docs-only patch does not need a
 # disclosure list, but it does need someone to have said so. An empty mapping is
 # the correct state until a release earns an entry.
+#
+# THE REASON IS REQUIRED, and enforced below rather than requested here. An escape
+# that costs one word is the cheapest way to make a red go away, and the cheapest
+# escape is the one a hurried person takes at release time -- which is exactly how
+# a guard stops guarding. Writing why leaves a record a reviewer can disagree with;
+# adding a version to a list leaves nothing.
+#
+# WHAT THE ENTRY IS CLAIMING, spelled out because the claim is easy to make and hard
+# to remember: that this release changes NOTHING a consumer's code would compile
+# through unchanged and behave differently under. Not "no API break" -- the compiler
+# announces those. A field whose contents change meaning, a count that starts
+# excluding duplicates, an error that stops being retryable: those compile fine and
+# arrive silently, and this floor exists for them alone.
 NO_DISCLOSURES = {}
 
 
@@ -192,8 +205,14 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
                    "it carries no silent change."
                    % (APPLIES_TO, version, version, version)]
     if version in NO_DISCLOSURES:
+        why = (NO_DISCLOSURES[version] or "").strip()
+        if not why:
+            return 1, ["FAIL: %s is in NO_DISCLOSURES with no reason. The entry has to "
+                       "say WHY the release carries no silent change -- a version added "
+                       "to a list is the cheapest way to make this red go away, and an "
+                       "escape that costs one word is not a decision." % version]
         return 0, ["OK: %s is recorded as carrying no silent change -- %s"
-                   % (version, NO_DISCLOSURES[version])]
+                   % (version, why)]
 
     text = changelog.read_text(encoding="utf-8") if changelog.is_file() else ""
     section = version_section(text, version)
@@ -421,6 +440,12 @@ def self_test():
     try:
         case("13 a declared no-disclosure release passes", 0, other,
              "no silent change", manifest='version = "4.2.0"\n')
+        # ...and an entry with NO REASON is refused. An escape that costs one word
+        # is the cheapest way to make a red go away, and the cheapest escape is the
+        # one a hurried person takes at release time.
+        NO_DISCLOSURES["4.2.0"] = "   "
+        case("13b a no-disclosure entry needs a reason", 1, other,
+             "with no reason", manifest='version = "4.2.0"\n')
     finally:
         NO_DISCLOSURES.clear()
         NO_DISCLOSURES.update(saved)
@@ -444,7 +469,7 @@ def self_test():
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 18 cases")
+    print("\nSELF-TEST OK -- 19 cases")
     return 0
 
 
