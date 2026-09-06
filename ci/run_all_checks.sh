@@ -195,6 +195,24 @@ fi
 step "fixture redaction (self-test)"
 "$PY" ci/check_fixture_redaction.py --self-test
 
+# THE OTHER THREE RELEASE GUARDS' SELF-TESTS BELONG HERE TOO, by the same
+# argument the pending guard's does: each builds its fixtures inside a temporary
+# directory -- their own throwaway git repos included -- so none of them can fire
+# on repository state, and the reason their GUARDS are release-only does not
+# extend to their self-tests. Armed only on the release path, a change that broke
+# one went undetected until release night, and `release.yml`'s `ci` job is skipped
+# on every pull request and on every push that does not bump the version, so
+# "undetected" meant months. This milestone closed that asymmetry for one guard
+# and opened it for three.
+step "README version rule (self-test)"
+sh ci/check_readme_version.sh --self-test
+
+step "header sync rule (self-test)"
+"$PY" ci/check_header_sync.py --self-test
+
+step "changelog disclosure floor (self-test)"
+"$PY" ci/check_changelog_disclosures.py --self-test
+
 # The ROUND-level backstop, not the trigger. The per-commit window belongs to
 # MS2's capture spike, which runs this over the working tree BEFORE `git add` --
 # the only moment an identifying field can still be removed without a trace. This

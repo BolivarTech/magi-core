@@ -35,8 +35,11 @@ import tempfile
 from pathlib import Path
 
 # The roots that hold versioned sources. `ci/*.sh` is deliberately NOT here: those
-# headers version the GUARD, which changes for its own reasons and not because the
-# crate moved. Syncing them to the crate would assert something false about them.
+# headers are exempted NORMATIVELY by the contract, not because they float free of
+# the crate -- an earlier version of this comment claimed the latter and this very
+# milestone falsifies it, having bumped four of them to 4.1.0 alongside the crate.
+# The consequence is worth knowing rather than hiding: those four are outside every
+# mechanical check here, so their headers are kept by review alone.
 ROOTS = ("src", "tests", "examples", "benches", "smoke/src")
 
 # Files whose header was stale from BEFORE the last tag. Without the pin they would
@@ -107,9 +110,18 @@ def changed_since(tag, cwd=None):
     matters. Below `-M`'s similarity threshold git reports delete + add instead,
     and the added side survives the same filter -- both branches land on the file
     that exists, so the set does not depend on that heuristic.
+
+    Returns None when git FAILS, and the caller treats that as a hard failure.
+    Reading only stdout meant a `git diff` that errored -- a tag ref whose
+    object is missing, a corrupt index -- produced no candidates, no findings,
+    and `OK: every checked header matches`, over a header that was stale. That
+    is the guard approving by starvation, which this module says it refuses; it
+    refused it for `last_tag` and not here.
     """
     out = git(["diff", "--name-only", "--diff-filter=d", "-M",
                "%s..HEAD" % tag], cwd=cwd)
+    if out.returncode != 0:
+        return None
     return [line.strip() for line in out.stdout.splitlines() if line.strip()]
 
 
@@ -145,8 +157,14 @@ def check(root_dir=Path("."), manifest=None):
         if not (root_dir / r).is_dir():
             lines.append("SKIP: root %s does not exist" % r)
 
-    candidates = [p for p in changed_since(tag_name, root_dir)
-                  if in_scope(p, root_dir)]
+    changed = changed_since(tag_name, root_dir)
+    if changed is None:
+        # FAIL CLOSED, same reason as the missing tag above: a git call that
+        # errored tells us nothing about the headers, and "no findings" would
+        # be a guard reporting on work it could not do.
+        return 1, ["FAIL: `git diff %s..HEAD` failed -- cannot tell which "
+                   "files changed since the last release." % tag_name]
+    candidates = [p for p in changed if in_scope(p, root_dir)]
 
     for pinned in PINNED:
         if pinned in candidates or not (root_dir / pinned).is_file():

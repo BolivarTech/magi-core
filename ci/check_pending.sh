@@ -59,7 +59,7 @@ resolve_self() {
         */*)
             # Relative, with a directory component: resolve against the directory this
             # process was started in, before anything below has a chance to cd away from it.
-            resolve_dir="$(cd "$(dirname "$1")" 2>/dev/null && pwd)" || return 1
+            resolve_dir="$(CDPATH= cd "$(dirname "$1")" 2>/dev/null && pwd)" || return 1
             printf '%s/%s\n' "$resolve_dir" "$(basename "$1")"
             ;;
         *)
@@ -189,11 +189,28 @@ self_test() {
         echo "self-test: a clean tree was rejected" >&2; rc=1
     fi
 
+    # THE LITERAL IS ASSERTED, because every case below used to write its fixture from
+    # $MARKER -- so marker and expectation moved together and no change to the constant
+    # could redden this. Measured: replacing it with a string that appears nowhere left
+    # the self-test saying OK and the guard reporting the published docs finished, with a
+    # live `PENDING: MS` in one of them. This is the one guard between a pending marker
+    # and an immutable crates.io, and its only evidence of life is this self-test, since
+    # docs/ carries no marker in the ordinary case.
+    #
+    # Same correction 3.1.0 made to a test that asserted `starts_with(MAGE_LOCAL_PREFIX)`
+    # and passed with the constant emptied: a check written from the thing it checks
+    # agrees with whatever that thing says.
+    if [ "$MARKER" != 'PENDING: MS' ]; then
+        echo "self-test: MARKER is '$MARKER', expected the literal 'PENDING: MS'" >&2
+        rc=1
+    fi
+
     # Each published surface must be REACHED. A scan that skips one certifies what it never read,
     # which is defect 3 above -- and the only way to prove it is closed is one file at a time.
+    # The fixture is a hard-coded literal, NOT "$MARKER", for the reason just above.
     for f in docs/guide.md README.md CHANGELOG.md src/lib.rs; do
-        printf '%s here
-' "$MARKER" > "$tmp/$f"
+        printf 'PENDING: MS9 here
+' > "$tmp/$f"
         if (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
             echo "self-test: a marker in $f was NOT detected" >&2; rc=1
         fi

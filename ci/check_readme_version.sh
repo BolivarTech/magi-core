@@ -43,8 +43,26 @@ MANIFEST="${2:-Cargo.toml}"
 #   magi-core = { version = "4.0", features = [...] }
 # Commented-out lines count: a `#`-prefixed example is still what someone copies.
 readme_requirements() {
-    grep -oE 'magi-core[[:space:]]*=[[:space:]]*(\{[[:space:]]*version[[:space:]]*=[[:space:]]*)?"[0-9]+\.[0-9]+' "$1" |
+    # Two shapes are EXTRACTED: the bare requirement, and an inline table with
+    # `version` anywhere among its keys. The old pattern required `version` to be
+    # the FIRST key, so `magi-core = { features = [...], version = "3.9" }` was
+    # not extracted -- and since the check only compares what it extracts, a stale
+    # requirement in that ordinary spelling passed as long as one other agreed.
+    # Measured, twice, before this was changed.
+    grep -oE 'magi-core[[:space:]]*=[[:space:]]*(\{[^}]*version[[:space:]]*=[[:space:]]*)?"[0-9]+\.[0-9]+' "$1" |
         grep -oE '[0-9]+\.[0-9]+$'
+}
+
+# ...and everything else is REFUSED rather than skipped. Widening the pattern
+# closes the spelling that was measured; it cannot close the one nobody thought
+# of, and this project's history with enumerated patterns is that the next
+# unlisted case is the one that gets through. So the mentions are counted
+# independently of the extractions and a shortfall FAILS: a requirement this
+# script cannot parse is one it must not silently pass over. `[dependencies.
+# magi-core]` with its `version` on a later line counts as a mention here and
+# yields no extraction, which is exactly the intended refusal.
+readme_mentions() {
+    grep -cE 'magi-core[[:space:]]*=|\[[^]]*dependencies\.magi-core\]' "$1" || true
 }
 
 manifest_version() {
@@ -67,6 +85,14 @@ check() {
     if [ -z "$_found" ]; then
         echo "check_readme_version: FAIL -- no 'magi-core = \"X.Y\"' requirement found in $_readme" >&2
         echo "check_readme_version: zero matches is a failure, not a pass: the pattern found nothing to compare." >&2
+        return 1
+    fi
+
+    _mentions="$(readme_mentions "$_readme")"
+    _n_found="$(printf '%s\n' "$_found" | grep -c . || true)"
+    if [ "$_n_found" -lt "$_mentions" ]; then
+        echo "check_readme_version: FAIL -- $_mentions magi-core requirement(s) in $_readme, only $_n_found parsed" >&2
+        echo "check_readme_version: a requirement this script cannot read is not one it may pass over." >&2
         return 1
     fi
 
@@ -130,13 +156,19 @@ self_test() {
     printf 'magi-core = "4.1"\n# magi-core = { version = "4.1", features = ["ollama"] }\n' > "$_tmp/README.md"
     _case "two matches, both agreeing           " 0
 
+    printf 'magi-core = "4.1"\nmagi-core = { features = ["ollama"], version = "3.9" }\n' > "$_tmp/README.md"
+    _case "inline table, version NOT first     " 1
+
+    printf 'magi-core = "4.1"\n[dependencies.magi-core]\nversion = "3.9"\n' > "$_tmp/README.md"
+    _case "a shape it cannot parse is REFUSED  " 1
+
     printf 'magi-core = "4.1"\n' > "$_tmp/README.md"
     printf 'name = "x"\n' > "$_tmp/Cargo.toml"
     _case "no version in the manifest is a FAIL " 1
 
     rm -rf "$_tmp"
     if [ "$_fail" = 0 ]; then
-        echo "check_readme_version: self-test OK -- 7 cases"
+        echo "check_readme_version: self-test OK -- 9 cases"
         return 0
     fi
     echo "check_readme_version: SELF-TEST FAILED" >&2
