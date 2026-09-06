@@ -278,16 +278,22 @@ fn body_cap(max_tokens: u32) -> usize {
     MAX_RESPONSE_BODY_BYTES.max(clamped * BYTES_PER_TOKEN_CEILING)
 }
 
-/// Appends the truncation marker, trimming the text first so the total stays within the cap.
+/// Marks `text` as truncated, unconditionally.
 ///
-/// Cutting on a character boundary, never a byte index: this crate has already shipped a release
-/// to fix an offset landing inside a codepoint, and a server's error body is the likeliest place
-/// for unexpected multi-byte text.
+/// This call site announces a **partial read** from the error-body reader, not a cut made by this
+/// function — so, unlike its siblings below, it has no `if len <= cap` guard of its own. A partial
+/// body can be shorter than the cap and still be incomplete, and an early return here would erase
+/// that signal in exactly the case that most resembles a complete body. See
+/// [`crate::error::mark_within_cap`] for the truncation contract itself, including why it cuts on
+/// a character boundary rather than a byte index.
 fn mark_truncated(text: &str) -> String {
     crate::error::mark_within_cap(text, MAX_ERROR_BODY_PREFIX_BYTES)
 }
 
-/// Truncates diagnostic text at a character boundary, announcing the cut.
+/// Truncates diagnostic text at a character boundary, announcing the cut only when one happened.
+///
+/// Unlike [`mark_truncated`], this call site keeps its own guard: text already within the cap is
+/// returned untouched, with no marker.
 fn truncate_diagnostic(raw: &str) -> String {
     if raw.len() <= MAX_ERROR_BODY_PREFIX_BYTES {
         return raw.to_string();
