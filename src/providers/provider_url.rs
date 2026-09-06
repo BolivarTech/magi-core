@@ -720,6 +720,33 @@ mod tests {
         assert!(marked.ends_with(crate::error::TRUNCATION_MARKER));
     }
 
+    // -- Task 1 (R-11): the call-site tests only observable HERE --
+
+    #[test]
+    fn mark_truncated_of_empty_text_returns_just_the_marker() {
+        // `mark_truncated` has NO guard -- unlike its three siblings, it marks even an
+        // already-empty input, because it announces a PARTIAL read, not a cut by length.
+        // An empty partial body is still partial.
+        assert_eq!(mark_truncated(""), crate::error::TRUNCATION_MARKER);
+    }
+
+    #[test]
+    fn truncate_diagnostic_of_empty_text_is_kept_empty() {
+        // Unlike its unguarded sibling `mark_truncated`, this call site keeps its own
+        // `if raw.len() <= cap` guard, so an empty diagnostic is returned untouched.
+        assert_eq!(truncate_diagnostic(""), "");
+    }
+
+    #[test]
+    fn truncate_diagnostic_at_exactly_the_cap_is_kept_whole() {
+        // The boundary the call site's own guard turns on: a body landing exactly at
+        // MAX_ERROR_BODY_PREFIX_BYTES must survive untouched.
+        let raw = "x".repeat(MAX_ERROR_BODY_PREFIX_BYTES);
+        let out = truncate_diagnostic(&raw);
+        assert_eq!(out, raw);
+        assert!(!out.contains("truncated"));
+    }
+
     #[test]
     fn parse_canonicalizes_the_trailing_slash() {
         // Equality has to mean "the same daemon". Before this, two providers pointed at one

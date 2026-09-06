@@ -1849,6 +1849,41 @@ mod message_composition_tests {
         assert!(msg.len() <= MAX_TRANSPORT_MESSAGE_BYTES);
     }
 
+    // -- Task 1 (R-11): the call-site tests only observable at THIS call site --
+
+    #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    fn compose_with_empty_parts_stays_within_cap_untouched() {
+        // The closest this call site can get to "empty text": `full` always carries the
+        // literal " for " connective, so it can never be truly empty -- but with every
+        // part empty it is as short as this composer ever produces, and the guard must
+        // still hold: no marker for a message nowhere near the cap.
+        let msg = compose_transport_message("", "", "");
+        assert_eq!(msg, " for ");
+        assert!(!msg.contains("truncated"));
+    }
+
+    #[test]
+    #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+    fn compose_at_exactly_the_cap_is_kept_whole() {
+        // The boundary the call site's own guard turns on: a `full` message landing
+        // exactly at MAX_TRANSPORT_MESSAGE_BYTES must survive untouched, and one byte
+        // over must not.
+        let op = "op";
+        let url = "http://h";
+        let prefix = format!("{op} for {url}: ");
+        let cause_len = MAX_TRANSPORT_MESSAGE_BYTES - prefix.len();
+        let cause = "x".repeat(cause_len);
+        let msg = compose_transport_message(op, url, &cause);
+        assert_eq!(msg.len(), MAX_TRANSPORT_MESSAGE_BYTES);
+        assert!(!msg.contains("truncated"));
+
+        let cause_over = "x".repeat(cause_len + 1);
+        let msg_over = compose_transport_message(op, url, &cause_over);
+        assert_eq!(msg_over.len(), MAX_TRANSPORT_MESSAGE_BYTES);
+        assert!(msg_over.contains("truncated"));
+    }
+
     #[test]
     #[cfg(any(feature = "claude-api", feature = "openai-compat"))]
     fn cause_chain_skips_the_top_level_error() {

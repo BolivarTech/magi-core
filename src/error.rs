@@ -1463,4 +1463,164 @@ mod tests {
         assert_eq!(detail.chars().count(), MAX_CONTRACT_DETAIL_CHARS);
         assert!(detail.chars().all(|c| c == 'é'));
     }
+
+    // ---------------------------------------------------------------------
+    // Task 1 (R-11) — a single implementation of marker truncation.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn mark_within_cap_cuts_on_a_char_boundary_and_reserves_the_marker() {
+        // Multi-byte on purpose: the historical defect was slicing mid-codepoint.
+        let text = "áéíóú".repeat(50);
+        let out = mark_within_cap(&text, 20);
+        assert!(
+            out.len() <= 20,
+            "output must fit the cap, got {}",
+            out.len()
+        );
+        assert!(out.ends_with(TRUNCATION_MARKER));
+        assert!(text.starts_with(out.trim_end_matches(TRUNCATION_MARKER)));
+    }
+
+    #[test]
+    fn mark_within_cap_marks_even_when_the_text_fits() {
+        // THE HELPER HAS NO EARLY-RETURN, and this test is where that decision is pinned.
+        // An earlier version asserted `== text` -- meaning it returned the input
+        // intact when it fit-- and that CONTRADICTED the corrected contract: `mark_truncated`
+        // needs the marker whether it fits or not, because it marks a PARTIAL read, not a cut
+        // by cap. With the early-return inside the helper, that site lost the signal.
+        //
+        // The three call sites that DO want the intact input keep their own `if`
+        // before calling; the helper has ONE single semantics.
+        let text = "short";
+        let out = mark_within_cap(text, 4096);
+        assert_eq!(out, format!("{text}{TRUNCATION_MARKER}"));
+        assert!(out.len() <= 4096);
+    }
+
+    #[test]
+    fn mark_within_cap_survives_a_cap_smaller_than_the_marker() {
+        // The helper is NEW and generic: its four call sites today have constants
+        // that make this impossible, but the next caller brings its own cap. Subtracting
+        // the marker length from a smaller cap would underflow.
+        let text = "some long text that will not fit";
+        // THE EXPECTED VALUES OF THIS TEST ARE DERIVED FROM THESE EXACT BYTES. Pinned
+        // so that changing the marker fails HERE, with an instruction, instead of
+        // failing three asserts below with a mystery. NOT loosening them: a bound
+        // is what made the old contract vacuous.
+        assert_eq!(
+            TRUNCATION_MARKER, " … (truncated)",
+            "if the marker changes, RECOMPUTE the expected values below -- do not relax them"
+        );
+        // THAT IS U+2026 HORIZONTAL ELLIPSIS, ONE codepoint of THREE bytes -- not three
+        // ASCII dots (error.rs:470, read). The whole arithmetic below depends on it:
+        // with "..." the three dots would be three 1-byte chars and a cut at 2 would
+        // yield " ." instead of " ". This is also WHY `floor_char_boundary` is
+        // load-bearing here rather than decorative.
+        let out = mark_within_cap(text, 2);
+        // EXACT VALUE, not a bound. `out.len() <= 2` plus `starts_with` satisfies them
+        // BOTH " " AND "" -- meaning the test passed with the correct implementation
+        // and with the wrong one, and could not catch the arithmetic error that a version
+        // earlier of this contract had written.
+        //
+        // MEASURED on the real marker " … (truncated)" (error.rs:470): byte 0 is a
+        // space and bytes 1..4 are the SINGLE codepoint U+2026, so `floor_char_boundary(2)`
+        // cannot cut inside it, gives 1, and the result is
+        // ONE SPACE. Empty only with cap == 0.
+        assert_eq!(
+            out, " ",
+            "cap=2 cuts the `...` in half: only the space survives"
+        );
+        // The marker trimming also goes through `floor_char_boundary`: a
+        // raw `&TRUNCATION_MARKER[..cap]` PANICS, which is the same class of byte-index cut
+        // that already cost a release to this project.
+    }
+
+    #[test]
+    fn mark_within_cap_at_exactly_the_marker_length() {
+        // THE boundary: one byte less falls into the case above, one more leaves room for
+        // content. Here the budget for text is exactly zero.
+        let out = mark_within_cap("some text", TRUNCATION_MARKER.len());
+        assert_eq!(out, TRUNCATION_MARKER);
+    }
+
+    #[test]
+    fn mark_within_cap_returns_empty_for_a_zero_cap() {
+        assert_eq!(mark_within_cap("anything", 0), "");
+    }
+
+    #[test]
+    fn mark_within_cap_marks_an_empty_input_too() {
+        // THERE IS NO EMPTY-INPUT CARVE-OUT, and this is the correction of a defect that
+        // a previous round of this plan introduced. It said that "" should come out "" without
+        // marker -- "nothing to truncate" -- and that CHANGES THE OUTPUT of `mark_truncated`:
+        // today, with budget 8176 and a cut of 0, it returns the marker. VERIFIED against
+        // the tree, not reasoned.
+        //
+        // And Task 1 is a REFACTOR whose verification is "the suite stays green", which CANNOT
+        // see that change unless there is a test for empty partial body. A
+        // output change invisible to its own verification bucket is the worst
+        // form of this defect.
+        //
+        // The other THREE sites are not affected: each has its own
+        // `if len <= cap { return intacto }` --error.rs:604, provider.rs:1474,
+        // truncate_diagnostic:295-- so the empty input never reaches the helper.
+        assert_eq!(mark_within_cap("", 4096), TRUNCATION_MARKER);
+    }
+
+    // -- Step 4: the three boundary cases the helper's own tests above do not pivot on --
+
+    #[test]
+    fn mark_within_cap_at_budget_minus_one_stays_uncut() {
+        // Pivot is `budget = cap - TRUNCATION_MARKER.len()`, NOT `cap`: with no early-return,
+        // a text of length `budget - 1` is one byte SHORT OF THE BUDGET the marker reserves,
+        // not "one byte from the cap" -- so it survives whole and the output lands at
+        // `cap - 1`, not `cap`.
+        let cap = 50;
+        let budget = cap - TRUNCATION_MARKER.len();
+        let text = "x".repeat(budget - 1);
+        let out = mark_within_cap(&text, cap);
+        assert_eq!(out, format!("{text}{TRUNCATION_MARKER}"), "must not be cut");
+        assert_eq!(out.len(), cap - 1);
+    }
+
+    #[test]
+    fn mark_within_cap_at_the_budget_stays_uncut() {
+        // Exactly at the budget: still no cut, and the output now lands at `cap` exactly.
+        let cap = 50;
+        let budget = cap - TRUNCATION_MARKER.len();
+        let text = "x".repeat(budget);
+        let out = mark_within_cap(&text, cap);
+        assert_eq!(out, format!("{text}{TRUNCATION_MARKER}"), "must not be cut");
+        assert_eq!(out.len(), cap);
+    }
+
+    #[test]
+    fn mark_within_cap_one_over_the_budget_cuts_by_one_byte() {
+        // One byte past the budget is where the cut finally starts, one byte at a time --
+        // not at `cap`, which the two tests above already occupy without triggering it.
+        let cap = 50;
+        let budget = cap - TRUNCATION_MARKER.len();
+        let text = "x".repeat(budget + 1);
+        let out = mark_within_cap(&text, cap);
+        assert_eq!(
+            out,
+            format!("{}{TRUNCATION_MARKER}", &text[..budget]),
+            "must be cut by exactly one byte"
+        );
+        assert_eq!(out.len(), cap);
+    }
+
+    // -- Step 4: the call-site test observable only from error.rs's own guard --
+
+    #[test]
+    fn an_empty_external_message_is_kept_empty() {
+        // The call site's OWN guard decides this, not the helper: `external` keeps its
+        // `if raw.len() <= MAX_EXTERNAL_MESSAGE_BYTES` before ever calling `mark_within_cap`,
+        // so an empty message never reaches the helper and comes back untouched -- unlike
+        // `mark_truncated`, which has no such guard and would mark even this.
+        let err = ProviderError::external("", ExternalErrorKind::Other);
+        assert_eq!(external_message(&err), "");
+        assert!(!err.to_string().contains("truncated"));
+    }
 }
