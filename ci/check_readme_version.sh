@@ -66,8 +66,22 @@ readme_requirements() {
 # inflated the extraction count past the mention count and masked an unparseable
 # one elsewhere -- constructible, and over the exact shape the self-test pins as
 # refused. A comparison between two different units is not a comparison.
+#
+# The alternation carries `magi-core.version` as its own branch, because TOML's
+# dotted key --
+# `magi-core.version = "3.9"` -- put a `.` where the `=` was expected and so
+# escaped the extractor AND this net at once: neither parsed nor counted, no
+# shortfall, guard OK over a stale requirement. That is an ordinary Cargo
+# declaration form, not an exotic one, and this net exists exactly for the forms
+# the extractor cannot read.
+#
+# NAMED, not `[.=]`. Widening the separator to any period matched `magi-core.`
+# in ordinary prose -- a sentence ending on the crate name -- and put the real
+# README at 5 mentions against 3 extractions: a FALSE RED on a correct tree,
+# which is a guard blocking work rather than guarding it. The branch names the
+# key it exists for.
 readme_mentions() {
-    grep -oE 'magi-core[[:space:]]*=|\[[^]]*dependencies\.magi-core\]' "$1" |
+    grep -oE 'magi-core[[:space:]]*=|magi-core\.version|\[[^]]*dependencies\.magi-core\]' "$1" |
         grep -c . || true
 }
 
@@ -174,13 +188,16 @@ self_test() {
     printf 'see `magi-core = "4.1"` or `magi-core = "4.1"` inline.\n[dependencies.magi-core]\nversion = "3.9"\n' > "$_tmp/README.md"
     _case "two on one line cannot mask a third " 1
 
+    printf 'magi-core = "4.1"\n[dependencies]\nmagi-core.version = "3.9"\n' > "$_tmp/README.md"
+    _case "a TOML dotted key is REFUSED       " 1
+
     printf 'magi-core = "4.1"\n' > "$_tmp/README.md"
     printf 'name = "x"\n' > "$_tmp/Cargo.toml"
     _case "no version in the manifest is a FAIL " 1
 
     rm -rf "$_tmp"
     if [ "$_fail" = 0 ]; then
-        echo "check_readme_version: self-test OK -- 10 cases"
+        echo "check_readme_version: self-test OK -- 11 cases"
         return 0
     fi
     echo "check_readme_version: SELF-TEST FAILED" >&2

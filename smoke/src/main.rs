@@ -1942,8 +1942,35 @@ mod tests {
         // produced sixteen diagnostics, the assertion buried under fifteen. The
         // reversion the earlier review used was caught, by the other assertion; the
         // deletion was not, and `alias.rs` invites it by claiming nothing reads it.
-        let lines: Vec<&str> = ALIAS_SRC.lines().map(str::trim).collect();
-        let published_arms = lines
+        // LIVE CODE ONLY, and that half was missing: the first version of this pin
+        // compared trimmed lines, and `/* */` around the arm leaves both lines
+        // trimming to exactly these strings. Measured: the test said ok while
+        // `cargo check` on that feature emitted seventeen diagnostics. A block
+        // comment and a deletion produce the same token stream, so a pin that cannot
+        // see comments cannot see the deletion it was written for.
+        //
+        // The assertion it replaced used `source_emits`, which IS comment-aware but
+        // returns on its first match and so was satisfied by the `tree` arm. Trading
+        // one half of the property for the other is how this pin was wrong twice;
+        // `block_comment_depth_after` is public precisely so both halves are cheap.
+        let code: Vec<&str> = {
+            let mut depth = 0usize;
+            let mut out = Vec::new();
+            for line in ALIAS_SRC.lines() {
+                let visible = if depth == 0 {
+                    match line.find("//") {
+                        Some(i) => &line[..i],
+                        None => line,
+                    }
+                } else {
+                    ""
+                };
+                out.push(visible.trim());
+                depth = testkit::block_comment_depth_after(line, depth);
+            }
+            out
+        };
+        let published_arms = code
             .windows(2)
             .filter(|w| {
                 w[0] == "#[cfg(feature = \"published\")]"

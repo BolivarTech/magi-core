@@ -176,7 +176,7 @@ bash ci/check_redaction.sh
 # Hard-coding either name breaks one side, and the stub breaks it SILENTLY, which is
 # the worse half. So each candidate is asked to execute something before it is
 # believed, and if none can, the gate stops here saying so rather than skipping the
-# one Python guard this gate runs (the other two are release-only).
+# four Python invocations this gate makes (one guard plus three self-tests).
 PY=""
 for _cand in "${PYTHON:-}" python3 python; do
   [ -n "$_cand" ] || continue
