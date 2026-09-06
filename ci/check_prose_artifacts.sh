@@ -320,6 +320,14 @@ REQUIRED_SHAPE_COUNT=6
 # answer -- it names the file in the source, where a reviewer reads it, instead
 # of widening a category argument -- but it is not a guarded one.
 #
+# SO THE PROCEDURE IS WRITTEN HERE, where whoever meets the first false red will
+# be reading. An exemption added for a captured fixture carries, inline beside
+# it: the FILE it exempts, the PATTERN that fired, and why that content is
+# legitimate. A reviewer then checks it by hand, because the self-test cannot --
+# a one-file exclusion is the one narrowing it does not see. What is NOT an
+# acceptable response is widening the category back out: that is the argument
+# shape this file's own history refuted four times running.
+#
 # What that leaves for the `.py` files is a note rather than a justification,
 # since they no longer need one: only `gen` assembles prose at all -- f-strings
 # and `join`, never the `' + X + '` shape this guard hunts -- while `extract`

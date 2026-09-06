@@ -52,6 +52,16 @@ FIXTURE_ROOT = Path("src/providers/fixtures/envelopes")
 # `usage`, and the case that matters -- an unconsumed key under a PERMITTED parent,
 # like `usage.prompt_tokens` -- would be undecided. `usage` is whitelisted as a NODE,
 # not as a wildcard over its subtree.
+# Qualified paths, and ARRAY POSITION IS PART OF THE PATH: the walker renders an
+# array element as `[]`, so a consumed field nested inside one -- `iterations[]
+# .usage` rather than `usage` -- is NOT in this set and the guard refuses it.
+#
+# Deliberate, and the fail-closed direction, with a cost worth stating: a future
+# capture whose shape nests a consumed field inside an array gets a RED on
+# legitimate content, and the fix is to add the qualified form here ON PURPOSE.
+# A whitelist that quietly accepted any nesting would accept an identifying field
+# in one too, which is the whole reason the paths are qualified -- case 8 pins
+# exactly that, catching `permission_denials[].session_id`.
 CONSUMED = frozenset({
     "stop_reason", "usage", "usage.output_tokens",
     "api_error_status", "is_error", "result",

@@ -209,7 +209,14 @@ LEAKED=""
 # One prefix per exclusion R-32 made. `tests/fixtures/` is deliberately NOT here:
 # it SHIPS, because ten `include_str!` calls in four shipped modules reach into it.
 for _excluded in 'tests/common/' 'tests/support/' '.github/' 'ci/'; do
-  if printf '%s\n' "$PKG_LIST" | grep -q "^$_excluded"; then
+  # `case`, not `grep`: these are LITERAL prefixes and `grep` would read the dot
+  # in `.github/` as a wildcard, so `Xgithub/` would satisfy it. Harmless against
+  # today's listing and wrong in the direction that reports a leak where there is
+  # none -- a guard that can cry wolf on a correct package is one that gets
+  # argued past the first time it does.
+  if printf '%s\n' "$PKG_LIST" | while IFS= read -r _p; do
+       case "$_p" in "$_excluded"*) echo hit; break ;; esac
+     done | grep -q hit; then
     LEAKED="$LEAKED $_excluded"
   fi
 done
