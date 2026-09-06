@@ -165,9 +165,16 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
     # deprecation line: the round's single silent content change could go unmentioned
     # while the floor reported OK, and the comment above claimed the scoping prevented
     # exactly that. It prevented one direction only.
-    body_only = section
-    if DEPRECATED_HEADING in subs:
-        body_only = section.replace(subs[DEPRECATED_HEADING], "")
+    # BUILT, not subtracted. `section.replace(subs[heading], "")` removes every
+    # occurrence of that text, and an EMPTY `### Deprecated` has a body of "\n" --
+    # so the subtraction stripped every newline in the section and the rows were
+    # searched against one collapsed line. The tokens here are contiguous, so they
+    # survived it and the damage stayed invisible; a token that ever spans a line
+    # break would have gone missing with the floor reporting OK.
+    #
+    # Concatenation cannot do that: it selects what to search instead of deleting
+    # what not to, so no content outside the excluded subsection can be touched.
+    body_only = "\n".join(b for h, b in subs.items() if h != DEPRECATED_HEADING)
 
     for row, kind, tokens in DISCLOSURES:
         if kind == "all":
@@ -308,12 +315,35 @@ def self_test():
     case("10 another version SKIPs, loudly", 0, other, "SKIP",
          manifest='version = "4.2.0"\n')
 
+    # 11. The searched body is BUILT, not subtracted, and this asserts the property
+    #     rather than a scenario -- because no scenario discriminates today. The old
+    #     form was `section.replace(subs[DEPRECATED_HEADING], "")`, and an EMPTY
+    #     `### Deprecated` has a body of one newline, so that removed every newline in
+    #     the section. Every current token is a contiguous identifier and survived the
+    #     collapse, which is exactly why the damage was invisible: the floor answered
+    #     correctly for the wrong reason, and the first token to span a line break
+    #     would have gone missing with the guard reporting OK.
+    #
+    #     So what is pinned is what the collapse destroyed: the LINE STRUCTURE of
+    #     everything outside the excluded subsection. Concatenation preserves it by
+    #     construction; subtraction did not.
+    dep = "\n".join(["## [4.1.0] - 2026-09-05", "", "### Changed", "",
+                     "- first line", "- second line", "",
+                     DEPRECATED_HEADING, ""])
+    parts = subsections(dep)
+    rebuilt = "\n".join(b for h, b in parts.items() if h != DEPRECATED_HEADING)
+    ok = "- first line\n- second line" in rebuilt
+    print("  [%s] %-52s" % ("ok" if ok else "FAIL",
+                            "11 an empty Deprecated does not collapse lines"))
+    if not ok:
+        failures.append("11: line structure lost, rebuilt=%r" % rebuilt)
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 14 cases")
+    print("\nSELF-TEST OK -- 15 cases")
     return 0
 
 

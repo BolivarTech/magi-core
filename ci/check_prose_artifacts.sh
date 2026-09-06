@@ -60,6 +60,20 @@ cd "$ROOT"
 # review pass found it sitting outside the scan while a comment below claimed the
 # only unscanned packaged files were cargo-generated -- so the hole is closed rather
 # than described. The rest of `tests/` is excluded from the package and stays out.
+# ACCEPTED COST, declared rather than left for the next reader to weigh: this file
+# is roughly three quarters comment, and a review round measured what that buys and
+# what it costs. It bought the four floors and the escapes below, each found by
+# attacking a claim written here. It costs review time proportional to the prose
+# rather than to the guard -- eight scoped passes over this file produced 78 lines
+# of code and 240 of comment, while three passes aimed at the other guards found
+# five that reported success while guarding nothing.
+#
+# NOT refactored in the round that measured it, on this project's own rule that
+# adding scope in the pass before a merge is what goes wrong. The symptom that
+# reopens it: a reviewer spending more time verifying sentences here than
+# attacking the mechanism, or a rule change deferred because the prose around it
+# is too expensive to re-read. Splitting the narrative into a document and leaving
+# the invariants inline is the shape; it is a milestone, not a patch.
 SCAN_DIRS='src ci docs examples tests/fixtures'
 SCAN_FILES='README.md CHANGELOG.md Cargo.toml'
 
