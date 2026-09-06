@@ -187,7 +187,7 @@ for _cand in "${PYTHON:-}" python3 python; do
 done
 if [ -z "$PY" ]; then
   echo "run_all_checks: FAIL -- no working Python interpreter (tried \$PYTHON, python3, python)." >&2
-  echo "One guard in this gate is Python (the other two are release-only); skipping" >&2
+  echo "Four invocations in this gate are Python (one guard plus three self-tests); skipping" >&2
   echo "it would report a green gate that never ran it. Set PYTHON and re-run." >&2
   exit 1
 fi

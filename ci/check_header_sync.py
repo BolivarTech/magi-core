@@ -359,12 +359,28 @@ def self_test():
         return root
     case("10 absent root is SAID, not silent", 0, absent_root, "SKIP: root benches")
 
+    # 13. A FAILED `git diff` must fail closed. Reading only stdout gave an empty
+    #     candidate list, no findings, and `OK: every checked header matches` over a
+    #     header that was stale -- approval by starvation, which this module refuses
+    #     for the missing tag and did not refuse here. The repo below has a tag whose
+    #     ref points at a BLOB, so `git tag --list` succeeds and `git diff` does not:
+    #     the one arrangement that separates the two calls.
+    def broken_diff(tmp):
+        root = _repo(tmp)
+        (root / "src" / "a.rs").write_text(HEADER % "4.0.0", encoding="utf-8")
+        _commit(root, "base")
+        (root / "blob.txt").write_text("not a commit", encoding="utf-8")
+        blob = git(["hash-object", "-w", "blob.txt"], cwd=root).stdout.strip()
+        git(["update-ref", "refs/tags/v4.0.0", blob], cwd=root)
+        return root
+    case("13 a failed git diff FAILS, not OK", 1, broken_diff, "git diff")
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 12 cases")
+    print("\nSELF-TEST OK -- 13 cases")
     return 0
 
 

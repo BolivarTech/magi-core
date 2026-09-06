@@ -61,8 +61,14 @@ readme_requirements() {
 # script cannot parse is one it must not silently pass over. `[dependencies.
 # magi-core]` with its `version` on a later line counts as a mention here and
 # yields no extraction, which is exactly the intended refusal.
+# COUNTED PER MATCH, not per line, because the two sides are compared to each
+# other and `grep -c` counts LINES. Two parseable requirements on one line then
+# inflated the extraction count past the mention count and masked an unparseable
+# one elsewhere -- constructible, and over the exact shape the self-test pins as
+# refused. A comparison between two different units is not a comparison.
 readme_mentions() {
-    grep -cE 'magi-core[[:space:]]*=|\[[^]]*dependencies\.magi-core\]' "$1" || true
+    grep -oE 'magi-core[[:space:]]*=|\[[^]]*dependencies\.magi-core\]' "$1" |
+        grep -c . || true
 }
 
 manifest_version() {
@@ -162,13 +168,19 @@ self_test() {
     printf 'magi-core = "4.1"\n[dependencies.magi-core]\nversion = "3.9"\n' > "$_tmp/README.md"
     _case "a shape it cannot parse is REFUSED  " 1
 
+    # The same shape with TWO parseable requirements sharing a line. Counting
+    # mentions by line made 2 extractions cover 2 mention-lines and the third
+    # requirement went uncompared -- exit 0 over a stale 3.9.
+    printf 'see `magi-core = "4.1"` or `magi-core = "4.1"` inline.\n[dependencies.magi-core]\nversion = "3.9"\n' > "$_tmp/README.md"
+    _case "two on one line cannot mask a third " 1
+
     printf 'magi-core = "4.1"\n' > "$_tmp/README.md"
     printf 'name = "x"\n' > "$_tmp/Cargo.toml"
     _case "no version in the manifest is a FAIL " 1
 
     rm -rf "$_tmp"
     if [ "$_fail" = 0 ]; then
-        echo "check_readme_version: self-test OK -- 9 cases"
+        echo "check_readme_version: self-test OK -- 10 cases"
         return 0
     fi
     echo "check_readme_version: SELF-TEST FAILED" >&2

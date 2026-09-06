@@ -1934,10 +1934,26 @@ mod tests {
         // pinned -- because the alternative is a cargo build, and a property whose
         // only check costs minutes is one that gets skipped. Reverting this alias
         // is precisely the mutation that reopened the hole.
-        assert!(
-            testkit::source_emits(ALIAS_SRC, "pub use magi_core_tree as magi_core"),
-            "alias.rs no longer aliases the retired mode to the tree crate, so its \
-             body compiles again and the assertion stops being the only diagnostic"
+        // PINNED AS A SEQUENCE, not as a presence. `source_emits` returns on its
+        // FIRST match and this alias line appears twice -- once under `tree`, once
+        // under `published` -- so asserting the text was satisfied by the `tree`
+        // arm, which has nothing to do with the retirement. Measured: DELETING the
+        // published arm left this test green while `cargo check` on that feature
+        // produced sixteen diagnostics, the assertion buried under fifteen. The
+        // reversion the earlier review used was caught, by the other assertion; the
+        // deletion was not, and `alias.rs` invites it by claiming nothing reads it.
+        let lines: Vec<&str> = ALIAS_SRC.lines().map(str::trim).collect();
+        let published_arms = lines
+            .windows(2)
+            .filter(|w| {
+                w[0] == "#[cfg(feature = \"published\")]"
+                    && w[1] == "pub use magi_core_tree as magi_core;"
+            })
+            .count();
+        assert_eq!(
+            published_arms, 1,
+            "the published arm of alias.rs no longer aliases to the tree crate, so \
+             its body compiles again and the assertion stops being the only diagnostic"
         );
         assert!(
             !testkit::source_emits(ALIAS_SRC, "pub use magi_core_pub as magi_core"),

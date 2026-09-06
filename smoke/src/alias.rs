@@ -36,8 +36,12 @@ pub use magi_core_tree as magi_core;
 // errors -- this assertion plus EIGHTEEN from the 3.2 API. (A `grep -c '^error'`
 // says 20; the twentieth is cargo's summary line.) `compile_error!` does not abort
 // before type checking, so the alias below points at the TREE crate: the rest of the
-// harness type-checks and this message stands alone. Nothing reads that alias --
-// the build stops here.
+// harness type-checks and this message stands alone. The alias IS read -- nineteen
+// sites across seven files go through `crate::alias::magi_core` -- so it is not dead
+// code to be tidied away. An earlier version of this line said nothing read it, which
+// invited exactly the deletion that leaves the assertion buried under fifteen
+// unresolved-import errors. `the_retired_mode_aliases_to_the_tree_crate` pins the
+// two-line pair for that reason.
 #[cfg(feature = "published")]
 compile_error!(concat!(
     "the `published` harness mode is out of service since 4.1.0: its pin resolves to ",
