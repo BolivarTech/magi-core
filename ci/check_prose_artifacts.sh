@@ -177,11 +177,13 @@ REQUIRED_ROOT_COUNT=8
 # `tests/fixtures` is the only scanned root that holds a `.json`, so if it ever
 # left the scan this entry would go vacuous in silence. `toml` has the same
 # shape and its paragraph says so; this one had not. `sha256` is in the same
-# position and was missing from that sentence when it was written.
+# position and was missing from that sentence when it was written, and so is
+# `sh`, which lives only under `ci/` -- the original extension nobody had
+# audited, and the one whose root this file argues at length no longer ships.
 REQUIRED_EXTS='rs sh md toml py sha256 json'
 
 # AND THIS LIST HAS A FLOOR, which took until the ninth review pass because the
-# audit kept being aimed at the list that had just failed. THREE lists were
+# audit kept being aimed at the list that had just failed. FOUR lists were
 # pinned and TWO had counts; nobody had counted the counts. Measured, not
 # argued: dropping `py` from this list AND `*.py` from the filter -- one more
 # word in the same diff as the half-mutation the paragraph above boasts about
@@ -311,8 +313,8 @@ REQUIRED_SHAPE_COUNT=6
 # blob reader. The reason first written for them, that they build prose by
 # concatenation, was false for all three.
 #
-# That site and the `.sha256`'s at `prompts/mod.rs` both sit inside
-# `#[cfg(test)]`, so a
+# The `reporting.rs` site named above and the `.sha256`'s at `prompts/mod.rs`
+# both sit inside `#[cfg(test)]`, so a
 # consumer building this as a dependency never compiles them; a distribution
 # packager building the tarball's tests does, which is the case `Cargo.toml`
 # spends ten lines on and the reason the files are in the package at all. A
@@ -363,7 +365,7 @@ REQUIRED_SHAPE_COUNT=6
 # does not exist falls back to its raw string -- the safe direction, since it then
 # counts as distinct and the coverage check names it a few lines later.
 # CDPATH is cleared at every `cd` that takes a RELATIVE path -- here and at the
-# `ROOT=` line near the top; the two `cd`s that take absolute paths are immune,
+# `ROOT=` line near the top; the three `cd`s that take absolute paths are immune,
 # since CDPATH is not consulted for one. The claim used to say "every `cd`"
 # without qualification and was one grep from being checkable, in the file whose
 # whole subject is prose that contradicts adjacent code. It is not hygiene: when
@@ -544,14 +546,30 @@ if [ "${1:-}" = "--self-test" ]; then
   # whitespace, so that is checked rather than assumed -- fail closed, since a
   # split path would silently compare the wrong strings.
   #
-  # Checked as a RELATION rather than by listing the characters: words and lines
-  # must agree. Enumerating them caught space and tab and missed NEWLINE, which
-  # is the one that inflates the count and so helps hold the floor -- and the
-  # obvious repair is a trap, since `*"$(printf '\n')"*` collapses to `**` and
-  # false-reds on everything. Counting catches all three at once.
+  # TWO arms, because one relation does not cover the three characters. Words
+  # against lines catches SPACE and TAB. It is blind to NEWLINE by construction
+  # -- IFS contains it, so a newline-bearing path splits into exactly as many
+  # words as lines and the two always agree -- which the previous version of
+  # this comment claimed to have fixed and had not. Newline is the dangerous
+  # one, since it INFLATES the line count and so helps hold the floor. The arm
+  # that sees it compares the canonical lines against the number of entries
+  # DECLARED, which no splitting of a path can change. Enumerating the
+  # characters instead is a trap: `*"$(printf '\n')"*` collapses to `**` and
+  # false-reds on everything.
+  #
+  # Globbing is off for both counts: an unquoted expansion of a path holding a
+  # `*` would otherwise be counted after pathname expansion.
+  set -f
   _n_words="$(printf '%s\n' $_canon_roots | grep -c . || true)"
+  _n_declared=0
+  for _r in $REQUIRED_ROOTS; do _n_declared=$((_n_declared + 1)); done
+  set +f
   if [ "$_n_words" -ne "$n_roots" ]; then
-    echo "SELF-TEST: a canonical required root contains whitespace" >&2
+    echo "SELF-TEST: a canonical required root contains a space or a tab" >&2
+    fails=$((fails + 1))
+  fi
+  if [ "$n_roots" -ne "$_n_declared" ]; then
+    echo "SELF-TEST: $n_roots canonical roots from $_n_declared declared" >&2
     fails=$((fails + 1))
   fi
   for _a in $_canon_roots; do
@@ -616,6 +634,12 @@ if [ "${1:-}" = "--self-test" ]; then
   # shape. Four lists, four floors -- the audit is over the SET now, because
   # aiming it at whichever list last failed is how two of them went four review
   # passes without one.
+  #
+  # "Four lists, four floors" is where this stops, and that is a DECISION, not
+  # a closure: the four counts are themselves a set nobody counts, so deleting
+  # one with its `if` reopens its list in one more hunk. Declared instead of
+  # floored, because a count of counts has the same property one rung up and
+  # the regress has to end somewhere a reader can see.
   n_exts="$(printf '%s\n' $REQUIRED_EXTS | grep -c . || true)"
   if [ "$n_exts" -lt "$REQUIRED_EXT_COUNT" ]; then
     echo "SELF-TEST: $n_exts required extensions, $REQUIRED_EXT_COUNT expected" >&2
