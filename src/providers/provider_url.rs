@@ -284,10 +284,7 @@ fn body_cap(max_tokens: u32) -> usize {
 /// to fix an offset landing inside a codepoint, and a server's error body is the likeliest place
 /// for unexpected multi-byte text.
 fn mark_truncated(text: &str) -> String {
-    let budget = MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
-    // `floor_char_boundary` already clamps past the end, so the `.min` was noise.
-    let cut = text.floor_char_boundary(budget);
-    format!("{}{}", &text[..cut], crate::error::TRUNCATION_MARKER)
+    crate::error::mark_within_cap(text, MAX_ERROR_BODY_PREFIX_BYTES)
 }
 
 /// Truncates diagnostic text at a character boundary, announcing the cut.
@@ -295,11 +292,7 @@ fn truncate_diagnostic(raw: &str) -> String {
     if raw.len() <= MAX_ERROR_BODY_PREFIX_BYTES {
         return raw.to_string();
     }
-    // Reserve the marker inside the budget, and cut on a character boundary: a byte-index cut is
-    // the bug class that already cost this project a release.
-    let budget = MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
-    let cut = raw.floor_char_boundary(budget);
-    format!("{}{}", &raw[..cut], crate::error::TRUNCATION_MARKER)
+    crate::error::mark_within_cap(raw, MAX_ERROR_BODY_PREFIX_BYTES)
 }
 
 /// A request that cannot be printed.

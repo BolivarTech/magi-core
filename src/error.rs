@@ -469,6 +469,50 @@ impl fmt::Display for ResponseContractCause {
 /// need this constant. It sat in `provider.rs` briefly and made `error.rs` depend upwards.
 pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
 
+/// Truncates `text` to fit within `cap` bytes and appends [`TRUNCATION_MARKER`], unconditionally.
+///
+/// This function has **no early return**: even a `text` that already fits inside `cap` comes back
+/// with the marker appended, because it does not decide whether truncation happened — the caller
+/// does. Three of this crate's four truncation call sites want the input returned intact when it
+/// fits, and each keeps its own `if len <= cap` guard before calling this helper; the fourth marks
+/// a body a *reader* cut short, which can be shorter than `cap` and still be incomplete — an
+/// early return here would erase that signal in exactly the case that most resembles a complete
+/// body.
+///
+/// # Contract
+///
+/// - The marker is reserved **inside** `cap`, never appended on top of it: the result is always
+///   `<= cap` bytes.
+/// - The cut lands on a character boundary, never a byte index — a raw slice there can panic on
+///   multi-byte text.
+/// - When `cap` is smaller than the marker itself, the marker is trimmed to `cap` (on a character
+///   boundary) and returned alone; `text` contributes nothing.
+///
+/// # Measured edge values (against the real marker, `" … (truncated)"`, 16 bytes)
+///
+/// | `cap` | output |
+/// |---|---|
+/// | 0 | `""` |
+/// | 1, 2, 3 | `" "` (one space; the ellipsis cannot be cut in half) |
+/// | 4 | `" …"` |
+/// | 16 (`== TRUNCATION_MARKER.len()`) | the whole marker |
+///
+/// An empty `text` returns the marker, not the empty string, for the same reason as the
+/// short-body case above: absence of content is not the same as absence of truncation.
+///
+/// # Panics
+///
+/// Never — every cut lands on a `char` boundary via [`str::floor_char_boundary`].
+pub(crate) fn mark_within_cap(text: &str, cap: usize) -> String {
+    if cap < TRUNCATION_MARKER.len() {
+        let cut = TRUNCATION_MARKER.floor_char_boundary(cap);
+        return TRUNCATION_MARKER[..cut].to_string();
+    }
+    let budget = cap.saturating_sub(TRUNCATION_MARKER.len());
+    let cut = text.floor_char_boundary(budget);
+    format!("{}{TRUNCATION_MARKER}", &text[..cut])
+}
+
 /// Upper bound, in bytes, for the text an external provider may attach to a failure.
 pub const MAX_EXTERNAL_MESSAGE_BYTES: usize = 400;
 
@@ -604,14 +648,7 @@ impl ProviderError {
         let message = if raw.len() <= MAX_EXTERNAL_MESSAGE_BYTES {
             raw
         } else {
-            // The marker is paid for INSIDE the budget. A cap that its own suffix can push past
-            // is a cap that lies about its name — and this one is quoted in the rustdoc as a
-            // bound, so it has to hold literally.
-            let budget = MAX_EXTERNAL_MESSAGE_BYTES.saturating_sub(TRUNCATION_MARKER.len());
-            // `floor_char_boundary`, never a raw slice: the budget lands mid-character for any
-            // multi-byte text, and slicing there panics.
-            let cut = raw.floor_char_boundary(budget);
-            format!("{}{TRUNCATION_MARKER}", &raw[..cut])
+            mark_within_cap(&raw, MAX_EXTERNAL_MESSAGE_BYTES)
         };
         Self::External { message, kind }
     }

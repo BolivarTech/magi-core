@@ -1474,10 +1474,7 @@ pub(crate) fn compose_transport_message(op: &str, redacted_url: &str, cause_chai
     if full.len() <= MAX_TRANSPORT_MESSAGE_BYTES {
         return full;
     }
-    // Reserve the marker inside the budget: a cap its own suffix can exceed lies about its name.
-    let budget = MAX_TRANSPORT_MESSAGE_BYTES.saturating_sub(crate::error::TRUNCATION_MARKER.len());
-    let cut = full.floor_char_boundary(budget);
-    format!("{}{}", &full[..cut], crate::error::TRUNCATION_MARKER)
+    crate::error::mark_within_cap(&full, MAX_TRANSPORT_MESSAGE_BYTES)
 }
 
 /// Joins an error's `source()` chain, **starting at the first source**.
