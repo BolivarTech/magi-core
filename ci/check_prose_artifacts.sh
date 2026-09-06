@@ -110,16 +110,29 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # about a vendor map of model names: a list of the cases you thought of ages, and
 # the next one nobody listed is the one that gets through.
 #
+# Canonicalising was necessary and not sufficient, and the eighth pass found the
+# gap in the REASON this paragraph gave for stopping rather than in its claim.
+# `src/prompts` is a genuinely different root by the letter of it, so swapping
+# `tests/fixtures` for it held the count at eight -- and cost NOTHING, because it
+# is a subdirectory of a root already listed: no new directory, no new file, and
+# it reads as plausible in a diff. Probe count 15 to 12, live artifact shipping,
+# both modes green. The old sentence implied that escape was expensive.
+#
+# It is closed by a RELATION over the canonical roots, which is why the reason
+# for stopping was wrong: asking whether one root sits under another asserts
+# nothing about what the roots ought to be, so it is not REQUIRED_ROOTS a third
+# time. Nesting is refused below, beside the count.
+#
 # LIMIT, declared rather than left to be found, in the same terms as the shape
-# count above -- and stated narrowly this time, because the previous two versions
-# of this paragraph each claimed a smaller residual than the mechanism had. What
-# survives canonicalisation is a root SWAPPED for a genuinely different real one,
-# and a CASE variant on a case-insensitive filesystem: `pwd -P` returns `DOCS` as
+# count above -- and this is the fourth version of this paragraph, each of the
+# previous three having claimed a smaller residual than the mechanism had. What
+# survives is a root swapped for one that is neither nested nor nesting, and a
+# CASE variant on a case-insensitive filesystem: `pwd -P` returns `DOCS` as
 # typed, so Windows counts it twice while Linux has two different directories and
-# is right to. Folding case would be wrong on the platform CI runs. Both keep the
-# distinct count at eight and lose the coverage. The regress stops here on
-# purpose -- pinning that would mean asserting each root's identity, which is
-# REQUIRED_ROOTS a third time.
+# is right to. Folding case would be wrong on the platform CI runs. The regress
+# stops here, and THIS reason holds where the last one did not: naming which
+# eight directories are the right ones is a judgement, not a relation, and
+# encoding it would be REQUIRED_ROOTS a second time in the same file.
 REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
@@ -138,10 +151,17 @@ REQUIRED_ROOT_COUNT=8
 # that day the self-test demands it -- its discovery is a `find` of its own, so it
 # sees the file whatever the scanner's filter says.
 #
-# `py` is the FIFTH and arrived a round later, so the paragraph above analyses
-# four mutations and there are now five. It was measured the same way rather
-# than assumed: removing `*.py` from the filter while leaving `py` here goes
-# RED, twelve failures across both roots that have one. The ratchet extends.
+# The paragraph above analyses FOUR mutations and there are now SEVEN
+# extensions: `py` arrived one round later, then `sha256`, then `json`. The
+# ratchet was measured on `py` rather than assumed -- removing `*.py` from the
+# filter while leaving it here goes RED, twelve failures across both roots that
+# have one -- and the mechanism is the same for the other two.
+#
+# `json` rests on ONE root, which is worth saying because `_found_any` is per
+# ROOT and nothing asserts that a given extension is exercised anywhere:
+# `tests/fixtures` is the only scanned root that holds a `.json`, so if it ever
+# left the scan this entry would go vacuous in silence. `toml` has the same
+# shape and its paragraph says so; this one had not.
 REQUIRED_EXTS='rs sh md toml py sha256 json'
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
@@ -231,7 +251,12 @@ REQUIRED_SHAPE_COUNT=6
 # nothing to read and carry no pattern today; if a captured payload ever trips
 # one it will be a LOUD false red with a file and a line, which is diagnosable,
 # and the answer then is an anchored exemption for that file -- not a category
-# argument, which is the shape that failed four times.
+# argument, which is the shape that failed four times. Note what that remedy
+# costs, said here rather than left in the paragraph further down that says it:
+# a one-file exclusion is the ONE narrowing this self-test provably cannot see,
+# so recommending it means recommending an unpinned move. It is still the right
+# answer -- it names the file in the source, where a reviewer reads it, instead
+# of widening a category argument -- but it is not a guarded one.
 #
 # What that leaves for the `.py` files is a note rather than a justification,
 # since they no longer need one: only `gen` assembles prose at all -- f-strings
@@ -240,18 +265,13 @@ REQUIRED_SHAPE_COUNT=6
 # blob reader. The reason first written for them, that they build prose by
 # concatenation, was false for all three.
 #
-# The `.sha256` waited until the SIXTH, and it is the sharpest of the five: the
-# sentence above used to call all twelve remaining fixtures JSON and checksum
-# data carrying "no prose by construction", while that file opens with seven
-# lines of generated English -- an f-string header and a joined divergence
-# block, em dash included -- and is `include_str!`'d at `prompts/mod.rs`. Both
-# of those `include_str!` sites sit inside `#[cfg(test)]`, so a consumer
-# building this as a dependency never compiles them; a distribution packager
-# building the tarball's tests does, which is the case `Cargo.toml` spends ten
-# lines on and the reason the files are in the package at all. A
+# The two `include_str!` sites named above sit inside `#[cfg(test)]`, so a
+# consumer building this as a dependency never compiles them; a distribution
+# packager building the tarball's tests does, which is the case `Cargo.toml`
+# spends ten lines on and the reason the files are in the package at all. A
 # generator writing prose into a shipped file that gets compiled is this guard's
-# founding scenario, and the coverage map said no such file existed. The
-# enumeration is given because naming
+# founding scenario, and for two of those four passes the coverage map said no
+# such file existed. The enumeration is given because naming
 # only the directories reads as a complete enumeration, and
 # an earlier version of this comment claimed the packaged-consumer step proved
 # the set matched the tarball, which was false: that step parses `[[example]]`
@@ -295,13 +315,19 @@ REQUIRED_SHAPE_COUNT=6
 # one step, which is why this replaced a growing list of `sed` strips. A path that
 # does not exist falls back to its raw string -- the safe direction, since it then
 # counts as distinct and the coverage check names it a few lines later.
+# CDPATH is cleared at every `cd`, and that is not hygiene: when `cd` resolves
+# through a CDPATH component it PRINTS the directory it landed in, so the
+# subshell emits two lines instead of one and the count moves. Measured on this
+# machine with a CDPATH holding a sibling `docs`, `n_roots` went from 8 to 9 --
+# and worse, the root resolved OUTSIDE the repository. Inherited environment is
+# not an input a guard gets to assume away.
 canonical_root() {
   if [ -d "$1" ]; then
-    ( cd "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
+    ( CDPATH= cd "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
   elif [ -f "$1" ]; then
     _cr_d="$(dirname "$1")"
     _cr_b="$(basename "$1")"
-    ( cd "$_cr_d" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_cr_b" ) ||
+    ( CDPATH= cd "$_cr_d" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_cr_b" ) ||
       printf '%s\n' "$1"
   else
     printf '%s\n' "$1"
@@ -448,12 +474,40 @@ if [ "${1:-}" = "--self-test" ]; then
   # The floor, before anything is discovered: shrinking REQUIRED_ROOTS is
   # refused rather than absorbed. Without it the loop below happily iterates a
   # shorter list and reports success on the coverage that is left.
-  n_roots="$(for _r in $REQUIRED_ROOTS; do canonical_root "$_r"; done |
-    LC_ALL=C sort -u | grep -c . || true)"
+  _canon_roots="$(for _r in $REQUIRED_ROOTS; do canonical_root "$_r"; done |
+    LC_ALL=C sort -u)"
+  n_roots="$(printf '%s\n' "$_canon_roots" | grep -c . || true)"
   if [ "$n_roots" -lt "$REQUIRED_ROOT_COUNT" ]; then
     echo "SELF-TEST: $n_roots required roots, $REQUIRED_ROOT_COUNT expected" >&2
     fails=$((fails + 1))
   fi
+
+  # The count alone was not enough: a root NESTED under another is distinct, so
+  # it holds the number while the root it displaced leaves the scan -- and it is
+  # the cheapest escape available, since it needs no new directory. Refused as a
+  # relation over the canonical paths, which asserts nothing about which roots
+  # are the right ones and so is not a second copy of REQUIRED_ROOTS.
+  #
+  # The word-split below is safe only while no canonical path carries
+  # whitespace, so that is checked rather than assumed -- fail closed, since a
+  # split path would silently compare the wrong strings.
+  case "$_canon_roots" in
+    *" "* | *"$(printf '\t')"*)
+      echo "SELF-TEST: a canonical required root contains whitespace" >&2
+      fails=$((fails + 1))
+      ;;
+  esac
+  for _a in $_canon_roots; do
+    for _b in $_canon_roots; do
+      [ "$_a" = "$_b" ] && continue
+      case "$_a" in
+        "$_b"/*)
+          echo "SELF-TEST: required root $_a is nested under $_b" >&2
+          fails=$((fails + 1))
+          ;;
+      esac
+    done
+  done
 
   PROBE_FILES=""
   for _root in $REQUIRED_ROOTS; do
