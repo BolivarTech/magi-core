@@ -97,6 +97,13 @@ def last_tag(cwd=None):
 
     A tag that was deleted and re-created changes date order but not version
     order, and the question this answers is "which release is the tree at".
+
+    A FAILED git call needs no branch here, and that is deliberate rather than an
+    oversight the way its two siblings were: an empty listing leaves ``best`` as
+    None, the caller treats None as "no reachable tag" and FAILS, so the failure
+    path already lands where a check would put it. Said out loud because
+    `changed_since` and the fixture guard's `git_knows` both had to grow one, and a
+    reader comparing the three would otherwise read this as the one that was missed.
     """
     out = git(["tag", "--list", "v*"], cwd=cwd)
     best = None

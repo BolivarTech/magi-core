@@ -891,8 +891,9 @@ fn build_outcome(
             if diagnostics != 1 {
                 eprintln!(
                     "magi-smoke: the retirement assertion is not the only diagnostic \
-                     ({diagnostics} found, expected 1) -- the mode's body is compiling \
-                     again:\n{stderr}"
+                     ({diagnostics} found, expected 1). The usual cause is the mode's \
+                     body compiling again, but this counts diagnostics and does not \
+                     diagnose them -- read the output before believing that:\n{stderr}"
                 );
                 return runner::BuildOutcome::CouldNotRun;
             }

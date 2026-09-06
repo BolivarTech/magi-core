@@ -206,9 +206,33 @@ if [ -z "$PKG_LIST" ]; then
   exit 1
 fi
 LEAKED=""
-# One prefix per exclusion R-32 made. `tests/fixtures/` is deliberately NOT here:
-# it SHIPS, because ten `include_str!` calls in four shipped modules reach into it.
-for _excluded in 'tests/common/' 'tests/support/' '.github/' 'ci/'; do
+# `tests/` is asserted POSITIVELY -- what may be there, not what may not. The list
+# form enumerated `tests/common/` and `tests/support/`, and `exclude`'s own
+# `tests/*.rs` glob does not reach a subdirectory, so a NEW one (`tests/integration/`)
+# would ship and neither the manifest nor this check would say a word. Enumerating
+# members is the shape that was wrong four times in this milestone already: the next
+# member nobody listed is the one that gets through.
+#
+# So the rule is that `tests/fixtures/` is the ONLY thing under `tests/` the package
+# carries -- it ships because ten `include_str!` calls in four shipped modules reach
+# into it -- and anything else there is a leak whatever it is called.
+printf '%s\n' "$PKG_LIST" | while IFS= read -r _p; do
+  case "$_p" in
+    tests/fixtures/*) ;;
+    tests/*) echo "$_p" ;;
+  esac
+done > "$TARGET/tests-leak.txt" 2>/dev/null || true
+if [ -s "$TARGET/tests-leak.txt" ]; then
+  echo "check_packaged_consumer: FAIL -- only tests/fixtures/ may ship from tests/:" >&2
+  sed 's/^/  /' "$TARGET/tests-leak.txt" >&2
+  rm -f "$TARGET/tests-leak.txt"
+  exit 1
+fi
+rm -f "$TARGET/tests-leak.txt"
+
+# The remaining exclusions have no such "one subtree survives" shape, so they stay
+# as prefixes.
+for _excluded in '.github/' 'ci/'; do
   # `case`, not `grep`: these are LITERAL prefixes and `grep` would read the dot
   # in `.github/` as a wildcard, so `Xgithub/` would satisfy it. Harmless against
   # today's listing and wrong in the direction that reports a leak where there is
