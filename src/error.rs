@@ -1599,9 +1599,11 @@ mod tests {
         // output change invisible to its own verification bucket is the worst
         // form of this defect.
         //
-        // The other THREE sites are not affected: each has its own
-        // `if len <= cap { return intacto }` --error.rs:604, provider.rs:1474,
-        // truncate_diagnostic:295-- so the empty input never reaches the helper.
+        // The other THREE sites are not affected: each keeps its own
+        // `if len <= cap { return the input untouched }` -- `ProviderError::external`,
+        // `compose_transport_message` and `truncate_diagnostic` -- so an empty input never
+        // reaches the helper. Named rather than located: a function name survives an edit,
+        // a line offset does not.
         assert_eq!(mark_within_cap("", 4096), TRUNCATION_MARKER);
     }
 

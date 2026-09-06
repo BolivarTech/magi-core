@@ -36,14 +36,19 @@ const ALL_MODES: [Mode; 3] = [Mode::CodeReview, Mode::Design, Mode::Analysis];
 ///
 /// 3 agents x 3 modes = NINE rows, all present.
 ///
-/// THE SCHEME IS `{agent}_{mode}.md`, READ FROM [`AgentFactory::from_directory`] --
-/// NOT `{agent}.md`. That function's rustdoc declares it ("Expected filenames:
-/// `{agent}_{mode}.md`, e.g. `melchior_code_review.md`") and its body builds it
-/// with `format!("{agent_str}_{mode_str}.md")`.
+/// THE SCHEME IS `{agent}_{mode}.md`, NOT `{agent}.md` -- and the rows below spell it out
+/// rather than build it, so there is no format string left that could disagree with them.
+/// [`AgentFactory::from_directory`] documents the same scheme for its callers.
 ///
 /// The nine filenames are distinct: if three modes of one agent fell into the
 /// same file, per-mode loading would stop being honored -- a silent behavior
 /// change in a public API path.
+///
+/// **What this table does and does not close.** There is one list of filenames, so no two
+/// of THOSE can drift apart. `from_directory` still enumerates agents and modes on its own
+/// side, so a new [`AgentName`] variant is still silently unloaded until someone adds it
+/// there too; what changed is that a `(agent, mode)` pair with no row now returns a typed
+/// `Err` instead of reaching an `unreachable!()`.
 const AGENT_FILES: &[(AgentName, Mode, &str)] = &[
     (
         AgentName::Melchior,
@@ -307,7 +312,11 @@ impl AgentFactory {
     /// Returns [`MagiError::Io`] if the directory itself does not exist.
     ///
     /// # Errors
-    /// Returns `MagiError::Io` if the directory does not exist or cannot be read.
+    /// Returns `MagiError::Io` if the directory does not exist or cannot be read, and
+    /// `MagiError::InvalidInput` if some `(agent, mode)` pair has no row in the filename
+    /// table. The second is unreachable while the two enumerations here cover the same pairs
+    /// the table does; it is the net for the day they stop doing so, which is what replaced
+    /// the `unreachable!()` that used to sit there.
     pub fn from_directory(mut self, dir: &Path) -> Result<Self, MagiError> {
         // Verify the directory exists
         std::fs::read_dir(dir)?;

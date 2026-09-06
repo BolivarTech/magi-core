@@ -17,8 +17,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   receives the original error where it previously received `RetryAbandoned`, and the failure
   condemns one seat instead of the run. Every other class keeps the typed abandonment, where
   the reason is the diagnosis. This is not new behaviour so much as a symmetry — the loop's
-  most common exit, retries exhausted, already returned the original error five lines above
-  the budget exit.
+  retries-exhausted exit already returned the original error.
   - **A text channel widens with it.** `External.message` is written by an outside provider
     implementation and now reaches the report, where before it was discarded with the wrapper.
     It is capped at construction and nothing unwraps it past that cap; `ResponseContract.detail`

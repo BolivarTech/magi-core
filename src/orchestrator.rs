@@ -2677,7 +2677,10 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // that: "a mage-local class does not enter `run_failed`" IS "its outcome is
                 // not `Transport`" only while this stays true. A second caller silently
                 // turns that derivation into a claim about nothing. Re-count before adding
-                // one -- the count is the guard, and it is not enforced mechanically:
+                // one -- the count is the guard, it is not enforced mechanically, and it is
+                // CRATE-WIDE, not file-scoped: `register_transport_failure` is `pub` on a
+                // `pub(crate)` registry, so a second caller can legitimately land in
+                // `rotation.rs`, which is where that registry lives.
                 //   grep -nE '\.register_transport_failure\(' src/orchestrator.rs   # 1 above the test module
                 //   grep -nE '\bis_connection\(' src/orchestrator.rs                # 2 above it: one definition, one use
                 registry
@@ -3655,10 +3658,13 @@ mod tests {
             .iter()
             .find(|l| l.starts_with("WARN") && l.contains("operation budget exhausted"))
             .unwrap_or_else(|| panic!("the abandon warning must be emitted: {lines:?}"));
-        for field in ["elapsed", "budget", "attempts"] {
+        // The trailing `=` is load-bearing: the message itself reads "operation budget
+        // exhausted", so a bare `contains("budget")` stays green after someone deletes the
+        // FIELD. Matching `budget=` asserts the field and not the prose around it.
+        for field in ["elapsed=", "budget=", "attempts="] {
             assert!(
                 warn.contains(field),
-                "the warning must still name `{field}`, which the returned error no longer                  carries for a mage-local class: {warn}"
+                "the warning must still name `{field}`, which the returned error no longer carries for a mage-local class: {warn}"
             );
         }
 
@@ -3666,7 +3672,7 @@ mod tests {
             !lines
                 .iter()
                 .any(|l| l.contains("abandoning with no original error")),
-            "the `None` branch of `abandon` is unreachable by construction; if a fourth exit              ever calls it without the original error, this is where it surfaces: {lines:?}"
+            "the `None` branch of `abandon` is unreachable by construction; if a fourth exit ever calls it without the original error, this is where it surfaces: {lines:?}"
         );
     }
 
@@ -7525,11 +7531,16 @@ mod characterization_tests {
     /// `register_transport_failure` is `Transport`, and the `MageLocal` arm says in writing
     /// what it does NOT call.
     ///
-    /// This IS a hand-written replica, and that is the declared limit of the two arms it
-    /// governs: if a later milestone moved a `ModelOutcome`'s consequence, this table would go
-    /// stale and the test would stay green. The three derivations below — criteria (a) and (d)
-    /// and the `AbortsRun` row — assert against production directly and do not share that
-    /// weakness.
+    /// This IS a hand-written replica, and that is the declared limit of the arms it governs:
+    /// if a later milestone moved a `ModelOutcome`'s consequence, this table would go stale and
+    /// the test would stay green.
+    ///
+    /// **Criteria (a) and (d) do not share that weakness** — they assert against
+    /// `provider_err_outcome` and `is_connection` directly, with no replica in between.
+    /// **The `AbortsRun` row DOES share it**, and saying otherwise would be the defect this
+    /// release exists to remove: what that row still asserts for real is that a class which
+    /// aborts the run is not retryable, which a change to either predicate would redden. That
+    /// the run aborts at all is the replica's claim, not production's.
     fn outcome_condemnation(o: &ModelOutcome) -> Condemnation {
         match o {
             ModelOutcome::Transport { .. } => Condemnation::RunWide,
@@ -7542,6 +7553,13 @@ mod characterization_tests {
             // Read, not guessed: the join loop releases the seat and returns the error without
             // registering a transport failure and without rotating — the run continues with the
             // other two seats, which is mage-local by definition.
+            //
+            // THREE ROWS ABOVE ARE UNREACHABLE FROM THE TABLE and are pure assertion:
+            // `provider_err_outcome` never produces `Schema`, `Success` or `Unexpected`, so
+            // nothing here exercises them. `Success` is at least guarded by
+            // `unreachable_in_this_table`; the other two are hand-written claims about
+            // production that no row checks. Said plainly so the next reader knows where the
+            // replica stops being verified.
             ModelOutcome::Unexpected(_) => Condemnation::MageLocal,
             // NO `_`: a new variant breaks compilation.
         }
@@ -7555,9 +7573,9 @@ mod characterization_tests {
     /// The mechanism that ties `is_mage_local` to `provider_err_outcome`.
     ///
     /// The predicate and the outcome mapper encode one rule in two places. Rather than
-    /// refactoring the mapper to call the predicate — which would mean collapsing its twelve
-    /// arms into an `if` and reintroducing the catch-all `4.0.0` removed from that very
-    /// function — the two are tied by this test. It is the stronger of the two options: the
+    /// refactoring the mapper to call the predicate — which would mean collapsing its arms
+    /// into an `if` and reintroducing the catch-all `4.0.0` removed from that very function —
+    /// the two are tied by this test. It is the stronger of the two options: the
     /// arms survive, so a new variant still breaks compilation until someone decides its
     /// consequence, AND the test fails the day the two writings disagree.
     #[test]
@@ -7598,11 +7616,12 @@ mod characterization_tests {
                 // `crate_defect_of` returns `Some` for exactly the `CrateDefect` outcome and no
                 // other. NOT claimed: that it is the only producer of a `CrateDefectRecord` —
                 // the join loop builds one too, and this derivation does not need it not to.
+                // The live half is the retryability one. A `crate_defect_of(...).is_some()`
+                // check stood here and was REMOVED: that function IS
+                // `matches!(provider_err_outcome(err), CrateDefect { .. })`, and this arm is
+                // only entered because the same outcome classified as `AbortsRun` -- it
+                // recomputed the condition it was standing inside and could not fail.
                 Condemnation::AbortsRun => {
-                    assert!(
-                        crate_defect_of(err.clone(), AgentName::Melchior, "m").is_some(),
-                        "the table says the run aborts and production disagrees: {err:?}"
-                    );
                     assert!(
                         !is_retryable(&err),
                         "a class that aborts the run cannot be retryable: {err:?}"
