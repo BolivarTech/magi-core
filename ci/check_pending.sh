@@ -200,6 +200,12 @@ self_test() {
     # Same correction 3.1.0 made to a test that asserted `starts_with(MAGE_LOCAL_PREFIX)`
     # and passed with the constant emptied: a check written from the thing it checks
     # agrees with whatever that thing says.
+    # And the change is SCHEDULED, not hypothetical: MS1 recorded that a
+    # `TODO(MS3)` marker in tracked source interacts with this guard, and that the
+    # convention should be decided before the marker is written. The two strings
+    # differ today so nothing is blocked -- but unifying them edits this constant,
+    # and until now that edit would have passed in silence. It costs two places
+    # now, which is the deliberation such a change deserves.
     if [ "$MARKER" != 'PENDING: MS' ]; then
         echo "self-test: MARKER is '$MARKER', expected the literal 'PENDING: MS'" >&2
         rc=1

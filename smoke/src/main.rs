@@ -842,6 +842,24 @@ fn evaluate_preflight_only(
 /// * `expected` — the text this combination's refusal must contain, or `None`
 ///   for a combination expected to build, which uses
 ///   [`COMPILE_REFUSAL_MARKER`].
+///
+/// # The retired mode is held to a stricter bar, and containment is not it
+///
+/// R-30 requires that the retirement assertion be the **only** diagnostic, so
+/// that its message reaches the reader instead of being buried. A `contains`
+/// cannot tell "the assertion, alone" from "the assertion under eighteen type
+/// errors" — which is the state the retirement replaced, and reverting one line
+/// of `alias.rs` restores it with every check unchanged. Nothing judged that:
+/// the matrix row for `published` is excluded from the assertion set.
+///
+/// So for [`OUT_OF_SERVICE_MARKER`] the diagnostics are COUNTED. Exactly one
+/// non-summary `error` line is the retirement working; more means the body is
+/// compiling again and the message is competing with its output.
+///
+/// The count is scoped to that marker on purpose. The default
+/// [`COMPILE_REFUSAL_MARKER`] is cargo's summary, used by combinations that are
+/// expected to refuse for whatever reason and may legitimately emit many errors;
+/// counting there would reject correct results.
 fn build_outcome(
     out: std::io::Result<std::process::Output>,
     expected: Option<&str>,
@@ -855,6 +873,23 @@ fn build_outcome(
     let expected = expected.unwrap_or(COMPILE_REFUSAL_MARKER);
     let stderr = String::from_utf8_lossy(&out.stderr);
     if stderr.contains(expected) {
+        if expected == OUT_OF_SERVICE_MARKER {
+            // `could not compile` is cargo's own summary and is always present on a
+            // failed build, so it is excluded rather than counted.
+            let diagnostics = stderr
+                .lines()
+                .filter(|l| l.starts_with("error"))
+                .filter(|l| !l.contains(COMPILE_REFUSAL_MARKER))
+                .count();
+            if diagnostics != 1 {
+                eprintln!(
+                    "magi-smoke: the retirement assertion is not the only diagnostic \
+                     ({diagnostics} found, expected 1) -- the mode's body is compiling \
+                     again:\n{stderr}"
+                );
+                return runner::BuildOutcome::CouldNotRun;
+            }
+        }
         runner::BuildOutcome::DidNotBuild
     } else {
         // Printed, not swallowed: an operator whose matrix went unreadable needs
@@ -1842,6 +1877,71 @@ mod tests {
             ),
             runner::BuildOutcome::DidNotBuild,
             "the compiler rejecting the code IS the data this combination is built for"
+        );
+    }
+
+    #[test]
+    fn the_retirement_assertion_must_be_the_only_diagnostic() {
+        // Same shape as the sibling test's helper: a REAL ExitStatus from a real
+        // failure, with the stderr replaced. Local because that one is a closure
+        // inside its own test, and a shared helper is not worth the coupling.
+        let real_failure = |stderr: &str| {
+            let mut out = std::process::Command::new("cargo")
+                .args(["--magi-smoke-no-such-flag"])
+                .output()
+                .expect("cargo must be present: this harness is built by it");
+            out.stderr = stderr.as_bytes().to_vec();
+            Ok(out)
+        };
+        // R-30 asks that the assertion be the ONLY diagnostic, so its message
+        // reaches the reader instead of being buried. A `contains` cannot tell
+        // that apart, and until this test the property was verified by nothing:
+        // reverting one line of `alias.rs` restores the eighteen type errors the
+        // retirement replaced, and every check kept its colour. Measured against
+        // the real build: one non-summary diagnostic when the mode is retired,
+        // NINETEEN when its body compiles again.
+        assert_eq!(
+            build_outcome(
+                real_failure(&format!(
+                    "error: {OUT_OF_SERVICE_MARKER}\n\
+                     error: could not compile `magi-smoke`\n"
+                )),
+                Some(OUT_OF_SERVICE_MARKER)
+            ),
+            runner::BuildOutcome::DidNotBuild,
+            "the assertion alone is the retirement working"
+        );
+        assert_eq!(
+            build_outcome(
+                real_failure(&format!(
+                    "error: {OUT_OF_SERVICE_MARKER}\n\
+                     error[E0432]: unresolved import\n\
+                     error: could not compile `magi-smoke`\n"
+                )),
+                Some(OUT_OF_SERVICE_MARKER)
+            ),
+            runner::BuildOutcome::CouldNotRun,
+            "the assertion competing with other diagnostics is the state the retirement replaced"
+        );
+    }
+
+    #[test]
+    fn the_retired_mode_aliases_to_the_tree_crate() {
+        const ALIAS_SRC: &str = include_str!("alias.rs");
+        // The counting rule above only holds while the mode's body is out of the
+        // compilation. That is done by aliasing the published feature to the tree
+        // crate, and this pins it AT THE SOURCE -- the same way the marker text is
+        // pinned -- because the alternative is a cargo build, and a property whose
+        // only check costs minutes is one that gets skipped. Reverting this alias
+        // is precisely the mutation that reopened the hole.
+        assert!(
+            testkit::source_emits(ALIAS_SRC, "pub use magi_core_tree as magi_core"),
+            "alias.rs no longer aliases the retired mode to the tree crate, so its \
+             body compiles again and the assertion stops being the only diagnostic"
+        );
+        assert!(
+            !testkit::source_emits(ALIAS_SRC, "pub use magi_core_pub as magi_core"),
+            "alias.rs still names the 3.2 pin, whose API 4.0.0 broke"
         );
     }
 
