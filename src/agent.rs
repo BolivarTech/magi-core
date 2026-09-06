@@ -189,16 +189,7 @@ impl Agent {
         user_prompt: &str,
         config: &CompletionConfig,
     ) -> Result<Completion, ProviderError> {
-        // Set CURRENT_AGENT_IDENTITY for the duration of the provider call
-        // so test-only providers (RoutingMockProvider) can route responses
-        // per-agent. Production providers ignore the task-local.
-        CURRENT_AGENT_IDENTITY
-            .scope(
-                self.name,
-                self.provider
-                    .complete(&self.system_prompt, user_prompt, config),
-            )
-            .await
+        self.execute_with(&self.provider, user_prompt, config).await
     }
 
     /// Executes against an EXPLICIT provider (a rotation fallback) using
