@@ -1395,7 +1395,7 @@ impl RetryProvider {
 /// - `Process`: CLI subprocess failure.
 /// - `NestedSession`: Structural environment issue.
 /// - `Http` with any other status code (e.g., 400, 403, 404).
-fn is_retryable(error: &ProviderError) -> bool {
+pub(crate) fn is_retryable(error: &ProviderError) -> bool {
     match error {
         ProviderError::Timeout { .. } | ProviderError::Network { .. } => true,
         ProviderError::Http { status, .. } => TRANSIENT_STATUSES.contains(status),
@@ -1545,6 +1545,96 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
     }
 }
 
+/// Whether a failure condemns only the seat that saw it, or the lineage run-wide.
+///
+/// It lives here, beside [`is_retryable`], and not with the type: this crate's three
+/// classifiers over `&ProviderError` all live with their consumer, while `impl ProviderError`
+/// holds only constructors. It answers a question about CONSEQUENCE, and consequences are the
+/// core's to decide.
+///
+/// Its two consumers want different halves of the same rule. The retry wrapper asks whether
+/// wrapping this error would cost the core information it needs; the orchestrator's outcome
+/// mapper decides what the failure actually condemns. One writer of the rule, and the
+/// consistency test over the characterization rows is what keeps the two from drifting.
+///
+/// # Why an exhaustive `match` and never `matches!`
+///
+/// A `matches!` carries an implicit catch-all, so adding a variant to `ProviderError` would
+/// leave this returning `false` **without breaking compilation** — the exact defect `4.0.0`
+/// removed from the outcome mapper, reintroduced for ergonomics. Written out, a thirteenth
+/// variant does not compile until someone decides its consequence, and that is the whole
+/// mechanism.
+///
+/// # Declared limit
+///
+/// The `External` and `ResponseContract` arms are deliberately wide on their inner cause, so a
+/// seventh `ExternalErrorKind` or a fourth `ResponseContractCause` compiles silently and
+/// inherits the mage-local answer. For `External` that inheritance is correct — the reason
+/// holds for every kind — but it is an inherited decision, not one the compiler forces. What
+/// makes it visible is the characterization table, whose row ceiling forces a conscious edit.
+pub(crate) fn is_mage_local(err: &ProviderError) -> bool {
+    match err {
+        ProviderError::External { .. } => true,
+        ProviderError::ResponseContract { .. } => true,
+        ProviderError::ResponseTooLarge { .. } => true,
+        ProviderError::EmptyCompletion { .. } => true,
+        ProviderError::Http { .. } => false,
+        ProviderError::Network { .. } => false,
+        ProviderError::Timeout { .. } => false,
+        ProviderError::Auth { .. } => false,
+        ProviderError::Process { .. } => false,
+        ProviderError::NestedSession => false,
+        ProviderError::RetryAbandoned { .. } => false,
+        ProviderError::NoGeneration { .. } => false,
+        // The TWELVE variants, enumerated. No `_`.
+    }
+}
+
+/// The ONLY site in this crate that constructs [`ProviderError::RetryAbandoned`].
+///
+/// A mage-local class comes back **unwrapped**, so the core classifies it by its own row and
+/// condemns one seat instead of the lineage. Every other class keeps the typed abandonment,
+/// where the reason IS the diagnosis.
+///
+/// This is not new behaviour so much as a symmetry: the loop's most common exit — retries
+/// exhausted — already returns the original error, five lines above the budget exit. What this
+/// closes is the asymmetry between exits of the same loop.
+///
+/// `orig` is an `Option` because the budget exit runs at the TOP of the iteration, before the
+/// attempt, where the live error is `last_error`.
+///
+/// # The `None` case
+///
+/// Unreachable by construction — `attempt > 0` implies a previous attempt, and every failure
+/// assigns `last_error` — but it is **not taken silently**. Were it taken, a class this
+/// function promises is mage-local would exit wrapped and condemn the lineage run-wide, which
+/// is the defect it exists to prevent: the fallback points in the dangerous direction. It is
+/// signalled in the same form the post-loop already uses for the same impossibility — a
+/// `debug_assert!` so it is loud in development and an honest degradation in release, since a
+/// library does not bring down its consumer's process over its own bug — plus a `warn!`,
+/// because unlike the post-loop this fallback CHANGES the consequence for a lineage.
+fn abandon(orig: Option<ProviderError>, reason: AbandonReason, attempts: u32) -> ProviderError {
+    // Captured BEFORE the `match`, which consumes `orig`: a `debug_assert!` over a variable is
+    // an expression, while one over `false` is a constant, and that is what clippy rejects.
+    let orig_was_some = orig.is_some();
+    match orig {
+        Some(e) if is_mage_local(&e) => e,
+        Some(_) => ProviderError::RetryAbandoned { reason, attempts },
+        None => {
+            debug_assert!(
+                orig_was_some,
+                "abandon() without original error: can make a mage-local class run-wide"
+            );
+            tracing::warn!(
+                target: "magi_core::retry",
+                attempts,
+                "abandoning with no original error: run-wide by fallback, not by classification"
+            );
+            ProviderError::RetryAbandoned { reason, attempts }
+        }
+    }
+}
+
 /// HTTP statuses considered transient (worth retrying).
 const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504, 529];
 
@@ -1627,13 +1717,14 @@ impl LlmProvider for RetryProvider {
                         attempts = attempt,
                         "operation budget exhausted; abandoning retries"
                     );
-                    return Err(ProviderError::RetryAbandoned {
-                        reason: AbandonReason::OperationBudgetExhausted {
+                    return Err(abandon(
+                        last_error.take(),
+                        AbandonReason::OperationBudgetExhausted {
                             elapsed,
                             budget: self.config.operation_budget,
                         },
-                        attempts: attempt,
-                    });
+                        attempt,
+                    ));
                 }
             }
 
@@ -1677,13 +1768,14 @@ impl LlmProvider for RetryProvider {
                             cap = ?self.config.retry_after_cap,
                             "server asked to wait longer than retry_after_cap; abandoning"
                         );
-                        return Err(ProviderError::RetryAbandoned {
-                            reason: AbandonReason::RetryAfterTooLong {
+                        return Err(abandon(
+                            Some(err),
+                            AbandonReason::RetryAfterTooLong {
                                 requested,
                                 cap: self.config.retry_after_cap,
                             },
-                            attempts: attempt + 1,
-                        });
+                            attempt + 1,
+                        ));
                     }
                     crate::backoff::RetryAfter::Unintelligible { raw } => {
                         tracing::warn!(
@@ -1691,10 +1783,11 @@ impl LlmProvider for RetryProvider {
                             raw = %raw,
                             "Retry-After present but uninterpretable; abandoning"
                         );
-                        return Err(ProviderError::RetryAbandoned {
-                            reason: AbandonReason::RetryAfterUnintelligible { raw },
-                            attempts: attempt + 1,
-                        });
+                        return Err(abandon(
+                            Some(err),
+                            AbandonReason::RetryAfterUnintelligible { raw },
+                            attempt + 1,
+                        ));
                     }
                 },
                 _ => None,
@@ -4291,6 +4384,301 @@ mod tests {
                 }
             ),
             "the abandonment names the cause rather than deferring to the attempt cap: {too_long}"
+        );
+    }
+
+    // ---- Task 3: R-1 -- a retry abandoned does not condemn run-wide ----
+
+    /// A provider that fails with the same error on every call, counting the calls.
+    ///
+    /// Written standalone rather than on top of `MockProvider::with_responses`, which takes a
+    /// FINITE list: these tests need the failure to repeat for as long as the loop asks, and a
+    /// list that runs out would end the run for a reason none of them is about.
+    struct AlwaysFails {
+        err: ProviderError,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl AlwaysFails {
+        fn new(err: ProviderError) -> Self {
+            Self {
+                err,
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn attempts(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for AlwaysFails {
+        async fn complete(
+            &self,
+            _system_prompt: &str,
+            _user_prompt: &str,
+            _config: &CompletionConfig,
+        ) -> Result<Completion, ProviderError> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(self.err.clone())
+        }
+
+        fn name(&self) -> &str {
+            "always-fails"
+        }
+
+        fn model(&self) -> &str {
+            "always-fails"
+        }
+    }
+
+    /// The reason the budget exit carries. Values are irrelevant to what these tests assert:
+    /// what they check is whether the abandonment survives, not its numbers.
+    fn budget_exhausted() -> AbandonReason {
+        AbandonReason::OperationBudgetExhausted {
+            elapsed: Duration::from_secs(2),
+            budget: Duration::from_secs(1),
+        }
+    }
+
+    /// Task 3's retry config: `operation_budget` pinned LOW so its tests EXHAUST it.
+    ///
+    /// The mirror of Task 2's `fast_retry_cfg`, and deliberately not sharing its name: this
+    /// one must abandon on the budget exit, that one must reach a successful second attempt.
+    /// `max_retries` is pinned so the attempt count discriminates between the budget exit and
+    /// the attempt ceiling instead of depending on the default.
+    fn exhausting_cfg() -> RetryConfig {
+        RetryConfig {
+            base_delay: Duration::from_millis(1),
+            operation_budget: Duration::ZERO,
+            limited_retry_classes: Vec::new(),
+            max_retries: 5,
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn an_external_network_failure_stays_mage_local() {
+        // E-1c. THE LEAST FAVORABLE CASE, and it is chosen on purpose: of the mage-local
+        // classes, `Network` is the one that most resembles a transport failure, so it is the
+        // one a narrowing of the predicate would move first.
+        let err = ProviderError::external("connection reset", ExternalErrorKind::Network);
+        let out = abandon(Some(err), budget_exhausted(), 3);
+        assert!(matches!(out, ProviderError::External { .. }));
+        assert!(
+            is_mage_local(&out),
+            "Network sounds like a connection but is mage-local"
+        );
+    }
+
+    #[test]
+    fn abandon_returns_the_original_error_for_a_mage_local_class() {
+        // E-1. The R-1 property, isolated from the three exits and from any config.
+        let err = ProviderError::external("upstream timed out", ExternalErrorKind::Timeout);
+        let out = abandon(Some(err), budget_exhausted(), 3);
+        assert!(
+            matches!(out, ProviderError::External { .. }),
+            "a mage-local class exits WITHOUT wrapping"
+        );
+        assert!(is_mage_local(&out));
+    }
+
+    #[test]
+    fn abandon_returns_the_original_error_for_an_unreadable_response_contract() {
+        // E-1i. The SECOND of the two classes R-1 names. E-1 covers only the first, and a
+        // guarantee verified on one of its two members is verified on half of itself.
+        // Struct literal rather than the `response_contract` constructor: that one is gated on
+        // the HTTP provider features, so under the default feature set it does not exist and
+        // this test would not compile. Inside the crate the literal is equivalent -- the
+        // constructor's job is capping a detail this test does not exercise.
+        let err = ProviderError::ResponseContract {
+            reason: ResponseContractCause::Unreadable,
+            detail: "cut body".to_string(),
+        };
+        let out = abandon(Some(err), budget_exhausted(), 3);
+        assert!(
+            matches!(out, ProviderError::ResponseContract { .. }),
+            "the second mage-local class also exits WITHOUT wrapping"
+        );
+        assert!(is_mage_local(&out));
+    }
+
+    #[test]
+    fn abandon_keeps_the_typed_abandonment_for_run_wide_classes() {
+        // E-1b. The guard that stops "no wrapping" from widening until it swallows the typed
+        // abandonment where that reason IS the diagnosis.
+        let err = ProviderError::Http {
+            status: 503,
+            body: String::new(),
+            retry_after_raw: vec![],
+            received_at: None,
+        };
+        let out = abandon(Some(err), budget_exhausted(), 3);
+        assert!(matches!(
+            out,
+            ProviderError::RetryAbandoned {
+                reason: AbandonReason::OperationBudgetExhausted { .. },
+                attempts: 3
+            }
+        ));
+        assert!(!is_mage_local(&out));
+    }
+
+    // E-1g. The `None` branch, which no other test touches. It is unreachable by
+    // construction, and that is exactly why it is pinned: the fallback points in the
+    // dangerous direction -- a class R-1 promises is mage-local would exit wrapped.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "abandon() without original error")]
+    fn abandon_without_an_original_error_is_loud_in_debug() {
+        let _ = abandon(None, budget_exhausted(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_mage_local_class_survives_the_attempt_cap_exit_too() {
+        // E-1f. Forces exit 6 -- the per-class ceiling -- which is the only one no other test
+        // reaches. The budget is GENEROUS on purpose so it cannot win instead.
+        let cfg_retry = RetryConfig {
+            base_delay: Duration::from_millis(1),
+            operation_budget: Duration::from_secs(60),
+            limited_retry_classes: vec![crate::backoff::RetryClass::External],
+            limited_max_retries: 1,
+            max_retries: 5,
+            ..Default::default()
+        };
+        let inner = Arc::new(AlwaysFails::new(ProviderError::external(
+            "upstream timed out",
+            ExternalErrorKind::Timeout,
+        )));
+        let provider =
+            RetryProvider::with_config(Arc::clone(&inner) as Arc<dyn LlmProvider>, cfg_retry);
+        let err = provider
+            .complete(SYS, USER, &cfg())
+            .await
+            .expect_err("it always fails");
+        assert_eq!(
+            inner.attempts(),
+            2,
+            "exit 6 must win, the per-class ceiling"
+        );
+        assert!(
+            matches!(err, ProviderError::External { .. }),
+            "the post-loop returns the original: the mage-local class exits unwrapped"
+        );
+        assert!(is_mage_local(&err));
+    }
+
+    #[tokio::test]
+    async fn a_mage_local_class_survives_the_retry_loop_unwrapped() {
+        // E-1d. THROUGH THE LOOP, not on `abandon()` directly: what is checked here is what a
+        // consumer of `RetryProvider` actually receives.
+        assert!(
+            is_retryable(&ProviderError::external("x", ExternalErrorKind::Timeout)),
+            "E-1d requires a retryable class: without that the count does not discriminate"
+        );
+        let inner = Arc::new(AlwaysFails::new(ProviderError::external(
+            "upstream timed out",
+            ExternalErrorKind::Timeout,
+        )));
+        let provider = RetryProvider::with_config(
+            Arc::clone(&inner) as Arc<dyn LlmProvider>,
+            exhausting_cfg(),
+        );
+        let err = provider
+            .complete(SYS, USER, &cfg())
+            .await
+            .expect_err("budget exhausted: there can be no success");
+        assert_eq!(
+            inner.attempts(),
+            1,
+            "the BUDGET exit (1) wins, not the attempt ceiling (6)"
+        );
+        assert!(
+            matches!(err, ProviderError::External { .. }),
+            "a mage-local class cannot exit the loop wrapped: {err:?}"
+        );
+        assert!(!matches!(err, ProviderError::RetryAbandoned { .. }));
+        assert!(is_mage_local(&err));
+    }
+
+    #[tokio::test]
+    async fn a_run_wide_class_still_comes_out_wrapped() {
+        // E-1e. The MIRROR of E-1d, and the reason "no wrapping" cannot widen quietly.
+        assert!(
+            is_retryable(&ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None
+            }),
+            "E-1e requires that 503 be retryable: without that the count does not discriminate"
+        );
+        let inner = Arc::new(AlwaysFails::new(ProviderError::Http {
+            status: 503,
+            body: String::new(),
+            retry_after_raw: vec![],
+            received_at: None,
+        }));
+        let provider = RetryProvider::with_config(
+            Arc::clone(&inner) as Arc<dyn LlmProvider>,
+            exhausting_cfg(),
+        );
+        let err = provider
+            .complete(SYS, USER, &cfg())
+            .await
+            .expect_err("budget exhausted: there can be no success");
+        assert_eq!(
+            inner.attempts(),
+            1,
+            "the BUDGET exit must win, not the attempt ceiling"
+        );
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::OperationBudgetExhausted { .. },
+                    attempts: 1
+                }
+            ),
+            "a run-wide class must keep the typed abandon AND its count: {err:?}"
+        );
+        assert!(!is_mage_local(&err));
+    }
+
+    #[tokio::test]
+    async fn a_retry_after_that_is_too_long_abandons_with_the_incremented_count() {
+        // E-1h. The ONLY coverage of exits 4 and 5, which share one `abandon` call shape and
+        // one `attempt + 1` count. Without it, touching either is unobserved.
+        let cfg_retry = RetryConfig {
+            base_delay: Duration::from_millis(1),
+            operation_budget: Duration::from_secs(60),
+            retry_after_cap: Duration::from_secs(1),
+            max_retries: 5,
+            ..Default::default()
+        };
+        let inner = Arc::new(AlwaysFails::new(ProviderError::Http {
+            status: 503,
+            body: String::new(),
+            retry_after_raw: vec!["3600".to_string()],
+            received_at: None,
+        }));
+        let provider =
+            RetryProvider::with_config(Arc::clone(&inner) as Arc<dyn LlmProvider>, cfg_retry);
+        let err = provider
+            .complete(SYS, USER, &cfg())
+            .await
+            .expect_err("it always fails");
+        assert_eq!(inner.attempts(), 1, "the Retry-After TooLong exit must win");
+        assert!(
+            matches!(
+                err,
+                ProviderError::RetryAbandoned {
+                    reason: AbandonReason::RetryAfterTooLong { .. },
+                    attempts: 1
+                }
+            ),
+            "the Retry-After exit keeps its typed reason and its +1 count: {err:?}"
         );
     }
 }

@@ -7233,7 +7233,7 @@ mod tests {",
 mod characterization_tests {
     use super::*;
     use crate::error::{AbandonReason, ExternalErrorKind, ResponseContractCause};
-    use crate::provider::{CompletionTelemetry, FinishReason};
+    use crate::provider::{CompletionTelemetry, FinishReason, is_mage_local, is_retryable};
     use std::time::Duration;
 
     /// ROWS of the characterization. Lives attached to `enumerated` ON PURPOSE: it is a
@@ -7434,5 +7434,135 @@ mod characterization_tests {
                 "variant {err:?}"
             );
         }
+    }
+
+    /// What a `ModelOutcome` condemns.
+    ///
+    /// THREE categories, not two, and the third is what makes the table satisfiable. A boolean
+    /// `is_mage_local(err) == !condemns_run_wide(outcome)` is false by construction for
+    /// `NoGeneration`: it maps to `CrateDefect` and the run ABORTS — it condemns the lineage
+    /// neither for one seat nor for all. Under the boolean, `CrateDefect` would fall into "does
+    /// not condemn run-wide" while the assertion demanded it be mage-local.
+    #[derive(Debug)]
+    enum Condemnation {
+        MageLocal,
+        RunWide,
+        AbortsRun,
+        NotAFailure,
+    }
+
+    /// Read from production, never guessed: the only arm that calls
+    /// `register_transport_failure` is `Transport`, and the `MageLocal` arm says in writing
+    /// what it does NOT call.
+    ///
+    /// This IS a hand-written replica, and that is the declared limit of the two arms it
+    /// governs: if a later milestone moved a `ModelOutcome`'s consequence, this table would go
+    /// stale and the test would stay green. The three derivations below — criteria (a) and (d)
+    /// and the `AbortsRun` row — assert against production directly and do not share that
+    /// weakness.
+    fn outcome_condemnation(o: &ModelOutcome) -> Condemnation {
+        match o {
+            ModelOutcome::Transport { .. } => Condemnation::RunWide,
+            ModelOutcome::MageLocal { .. } => Condemnation::MageLocal,
+            ModelOutcome::Schema(_) => Condemnation::MageLocal,
+            ModelOutcome::ExternalFailure { .. } => Condemnation::MageLocal,
+            ModelOutcome::OversizedResponse { .. } => Condemnation::MageLocal,
+            ModelOutcome::CrateDefect { .. } => Condemnation::AbortsRun,
+            ModelOutcome::Success(_) => Condemnation::NotAFailure,
+            // Read, not guessed: the join loop releases the seat and returns the error without
+            // registering a transport failure and without rotating — the run continues with the
+            // other two seats, which is mage-local by definition.
+            ModelOutcome::Unexpected(_) => Condemnation::MageLocal,
+            // NO `_`: a new variant breaks compilation.
+        }
+    }
+
+    /// Fails with the offending error in view rather than panicking blind.
+    fn unreachable_in_this_table(err: &ProviderError) -> ! {
+        panic!("the characterization table has no failure-free rows, and this one is: {err:?}");
+    }
+
+    /// The mechanism that ties `is_mage_local` to `provider_err_outcome`.
+    ///
+    /// The predicate and the outcome mapper encode one rule in two places. Rather than
+    /// refactoring the mapper to call the predicate — which would mean collapsing its twelve
+    /// arms into an `if` and reintroducing the catch-all `4.0.0` removed from that very
+    /// function — the two are tied by this test. It is the stronger of the two options: the
+    /// arms survive, so a new variant still breaks compilation until someone decides its
+    /// consequence, AND the test fails the day the two writings disagree.
+    #[test]
+    fn mage_local_classes_never_reach_the_run_wide_arm() {
+        // THE SAME rows as the characterization, through the same helper. Two parallel lists
+        // could let this pass over a subset.
+        let mut reached = 0usize;
+        for (err, _expected) in all_cases() {
+            let outcome = provider_err_outcome(err.clone());
+
+            if is_mage_local(&err) {
+                // CRITERION (a), DERIVED: `run_failed` has one writer, inside
+                // `register_transport_failure`, and that has one production caller — the
+                // `Transport` arm. So "does not enter run_failed" IS "the outcome is not
+                // Transport", through the only path that exists.
+                assert!(
+                    !matches!(outcome, ModelOutcome::Transport { .. }),
+                    "a mage-local class cannot exit through the arm that condemns run-wide: {err:?}"
+                );
+                // CRITERION (d), DERIVED: the latch feeds from `is_connection`, which answers
+                // true only for `Network`. Asserted against the REAL function, not a copy.
+                assert!(
+                    !is_connection(&err),
+                    "a mage-local class cannot feed the endpoint-down latch: {err:?}"
+                );
+            }
+
+            match outcome_condemnation(&outcome) {
+                Condemnation::MageLocal => assert!(
+                    is_mage_local(&err),
+                    "the classifier leaves it mage-local and the predicate does not: {err:?}"
+                ),
+                Condemnation::RunWide => assert!(
+                    !is_mage_local(&err),
+                    "the classifier condemns it run-wide and the predicate thinks it local: {err:?}"
+                ),
+                // The third, DERIVED from production like (a) and (d) rather than left empty:
+                // `crate_defect_of` returns `Some` for exactly the `CrateDefect` outcome and no
+                // other. NOT claimed: that it is the only producer of a `CrateDefectRecord` —
+                // the join loop builds one too, and this derivation does not need it not to.
+                Condemnation::AbortsRun => {
+                    assert!(
+                        crate_defect_of(err.clone(), AgentName::Melchior, "m").is_some(),
+                        "the table says the run aborts and production disagrees: {err:?}"
+                    );
+                    assert!(
+                        !is_retryable(&err),
+                        "a class that aborts the run cannot be retryable: {err:?}"
+                    );
+                }
+                Condemnation::NotAFailure => unreachable_in_this_table(&err),
+            }
+
+            // THE COUPLING `is_mage_local` <-> `is_retryable`, load-bearing and until now
+            // implicit. R-1's guarantee only BITES on a class that is both: only a retryable
+            // one reaches an abandon exit, and only a mage-local one comes back unwrapped. If
+            // either predicate moved, the guarantee would keep holding VACUOUSLY over a smaller
+            // set and nothing would say so.
+            if is_mage_local(&err) && is_retryable(&err) {
+                reached += 1;
+            }
+        }
+
+        // FIVE, and the number is DERIVED rather than counted by hand: `is_mage_local` is true
+        // for every `External` and every `ResponseContract`; `is_retryable` is true for four of
+        // the six `ExternalErrorKind` — not `Auth`, not `Other` — and for one of the three
+        // `ResponseContractCause`, `Unreadable`. 4 + 1.
+        //
+        // WHAT THIS PINS, exactly: a COUNT, not the identity of the five. It catches the set
+        // growing or shrinking, which is the direction that matters. It does NOT catch a swap
+        // that keeps the size. Declared rather than dressed up.
+        assert_eq!(
+            reached, 5,
+            "the set R-1 actually reaches moved: it is External{{Network,Timeout,RateLimit,\
+             ServerError}} plus ResponseContract{{Unreadable}} -- RECOUNT before touching this 5"
+        );
     }
 }
