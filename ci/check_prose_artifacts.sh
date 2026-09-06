@@ -93,20 +93,33 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # probe count silently down from 13 to 12. A floor over a multiset is not a
 # floor.
 #
-# `sort -u` alone was not enough, and the sixth review pass proved it with one
-# character: `sort` compares BYTES, so writing `docs/` beside `docs` is two
-# distinct strings and the count stayed at eight while `tests/fixtures` left the
-# scan. Same symptom again -- 13 probes down to 12, live artifact shipping, both
-# modes green. Hence the `sed`: a leading `./` and any trailing `/` are stripped
-# before the comparison, so the cheap re-spellings collapse onto one entry.
+# `sort -u` over the raw strings was not enough either, and THREE consecutive
+# review passes each broke it with a cheaper spelling than the last: `docs` twice,
+# then `docs/`, then `docs/.`. Two of those were met by stripping the shape that
+# had just been used -- a leading `./`, a trailing `/` -- and the next pass
+# arrived with `tests//fixtures` and `tests/./fixtures`, which those strips do not
+# touch. Every time, the same symptom: probe count silently down, a live artifact
+# in a file that SHIPS, both modes green.
+#
+# So the enumeration was abandoned, and that is the point of this block rather
+# than a detail of it. Guessing which spellings someone might write is the shape
+# that failed three times; asking the FILESYSTEM what a path IS cannot be
+# out-spelled, because `..`, `//`, `/.` and a symlink all resolve before the
+# comparison ever happens. `canonical_root` below does that with `pwd -P`. It is
+# the same lesson this crate learned about enumerating invisible code points and
+# about a vendor map of model names: a list of the cases you thought of ages, and
+# the next one nobody listed is the one that gets through.
 #
 # LIMIT, declared rather than left to be found, in the same terms as the shape
-# count above. Two escapes remain and both are named rather than implied: a root
-# SWAPPED for a genuinely different real one, and a CASE variant (`DOCS`), which
-# is a second spelling on Windows and a different directory on Linux -- folding
-# case would be wrong on the platform CI runs. Either keeps the distinct count at
-# eight and loses the coverage. The regress stops here on purpose -- pinning that
-# would mean asserting each root's identity, which is REQUIRED_ROOTS a third time.
+# count above -- and stated narrowly this time, because the previous two versions
+# of this paragraph each claimed a smaller residual than the mechanism had. What
+# survives canonicalisation is a root SWAPPED for a genuinely different real one,
+# and a CASE variant on a case-insensitive filesystem: `pwd -P` returns `DOCS` as
+# typed, so Windows counts it twice while Linux has two different directories and
+# is right to. Folding case would be wrong on the platform CI runs. Both keep the
+# distinct count at eight and lose the coverage. The regress stops here on
+# purpose -- pinning that would mean asserting each root's identity, which is
+# REQUIRED_ROOTS a third time.
 REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
@@ -129,7 +142,7 @@ REQUIRED_ROOT_COUNT=8
 # four mutations and there are now five. It was measured the same way rather
 # than assumed: removing `*.py` from the filter while leaving `py` here goes
 # RED, twelve failures across both roots that have one. The ratchet extends.
-REQUIRED_EXTS='rs sh md toml py sha256'
+REQUIRED_EXTS='rs sh md toml py sha256 json'
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
@@ -198,30 +211,45 @@ REQUIRED_SHAPE_COUNT=6
 # `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
 # remains unscanned of the 59 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
-# the three licence files) plus the ELEVEN `.json` fixtures under
-# `tests/fixtures/ec/`, which are backend responses CAPTURED from a live provider
-# rather than text anyone here composed -- there is no generator to leave a
-# placeholder in them. The other five ARE scanned: `ec/README.md`, the three
-# `.py` files, and `magi_ref_prompts.sha256`.
+# the three licence files). EVERY tracked file under `tests/fixtures/` is now
+# scanned -- all sixteen -- and getting there took four review passes, each of
+# which refuted the exclusion argument the previous one had accepted.
 #
-# EACH of those five was added after a review pass said the comment was wrong,
-# which is why the list is spelled out rather than summarised. The README was
-# unscanned until the third pass. The `.py` files until the fourth, and the
-# reason first written for them was false: that text said they build prose by
-# string concatenation, and only `gen` assembles prose at all -- with f-strings
-# and `join`, never the `' + X + '` shape this guard hunts. `extract` copies
-# bytes out of `git show`; `_magi_ref` holds the constants and the blob reader
-# that shells out for them. The reason that does hold is stronger:
-# `extract_magi_ref_prompts.py` writes the three `.md` files under
-# `src/prompts_md/` that are `include_str!`'d into the shipped crate, and the
-# script itself ships too, unlike `ci/`.
+# The sequence is the finding, not the individual files. Pass three: `ec/README.md`
+# was outside the scan while this comment said the only unscanned packaged files
+# were cargo-generated. Pass four: the three `.py` files, excused because `ci/`
+# does not ship -- true of `ci/`, false here. Pass six: `magi_ref_prompts.sha256`,
+# excused as "checksum data carrying no prose by construction" while it opens
+# with seven lines of generated English. Pass seven: `magi_report_v0_3_1.json`,
+# excused as a backend response captured from a live provider -- it is neither
+# captured nor under `ec/`, it is hand-composed English, and it is
+# `include_str!`'d at `reporting.rs`.
+#
+# FOUR ARGUMENTS FOR EXCLUDING A CATEGORY, EACH FALSE FOR AT LEAST ONE MEMBER.
+# At that point the argument itself is the defect, so the `.json` are scanned
+# too and the reasoning stops. The ten captured responses under `ec/` cost
+# nothing to read and carry no pattern today; if a captured payload ever trips
+# one it will be a LOUD false red with a file and a line, which is diagnosable,
+# and the answer then is an anchored exemption for that file -- not a category
+# argument, which is the shape that failed four times.
+#
+# What that leaves for the `.py` files is a note rather than a justification,
+# since they no longer need one: only `gen` assembles prose at all -- f-strings
+# and `join`, never the `' + X + '` shape this guard hunts -- while `extract`
+# copies bytes out of `git show` and `_magi_ref` holds the constants and the
+# blob reader. The reason first written for them, that they build prose by
+# concatenation, was false for all three.
 #
 # The `.sha256` waited until the SIXTH, and it is the sharpest of the five: the
 # sentence above used to call all twelve remaining fixtures JSON and checksum
 # data carrying "no prose by construction", while that file opens with seven
 # lines of generated English -- an f-string header and a joined divergence
-# block, em dash included -- and is `include_str!`'d at `prompts/mod.rs`. A
-# generator writing prose into a compiled-in shipped file is this guard's
+# block, em dash included -- and is `include_str!`'d at `prompts/mod.rs`. Both
+# of those `include_str!` sites sit inside `#[cfg(test)]`, so a consumer
+# building this as a dependency never compiles them; a distribution packager
+# building the tarball's tests does, which is the case `Cargo.toml` spends ten
+# lines on and the reason the files are in the package at all. A
+# generator writing prose into a shipped file that gets compiled is this guard's
 # founding scenario, and the coverage map said no such file existed. The
 # enumeration is given because naming
 # only the directories reads as a complete enumeration, and
@@ -262,10 +290,28 @@ REQUIRED_SHAPE_COUNT=6
 # file's own prose is unguarded, which is acceptable only because it is the file
 # whose subject IS those shapes.
 
+# Resolve a root to what the FILESYSTEM calls it, so no re-spelling counts twice.
+# `pwd -P` does the work: it resolves `.`, `..`, repeated slashes and symlinks in
+# one step, which is why this replaced a growing list of `sed` strips. A path that
+# does not exist falls back to its raw string -- the safe direction, since it then
+# counts as distinct and the coverage check names it a few lines later.
+canonical_root() {
+  if [ -d "$1" ]; then
+    ( cd "$1" 2>/dev/null && pwd -P ) || printf '%s\n' "$1"
+  elif [ -f "$1" ]; then
+    _cr_d="$(dirname "$1")"
+    _cr_b="$(basename "$1")"
+    ( cd "$_cr_d" 2>/dev/null && printf '%s/%s\n' "$(pwd -P)" "$_cr_b" ) ||
+      printf '%s\n' "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
 scan_targets() {
   find $SCAN_DIRS -type f \
     \( -name '*.rs' -o -name '*.sh' -o -name '*.md' -o -name '*.toml' \
-       -o -name '*.py' -o -name '*.sha256' \) 2>/dev/null |
+       -o -name '*.py' -o -name '*.sha256' -o -name '*.json' \) 2>/dev/null |
     sed 's#^\./##' |
     grep -v '^ci/check_prose_artifacts\.sh$'
   ls $SCAN_FILES 2>/dev/null
@@ -402,8 +448,7 @@ if [ "${1:-}" = "--self-test" ]; then
   # The floor, before anything is discovered: shrinking REQUIRED_ROOTS is
   # refused rather than absorbed. Without it the loop below happily iterates a
   # shorter list and reports success on the coverage that is left.
-  n_roots="$(printf '%s\n' $REQUIRED_ROOTS |
-    sed -e 's#^\./##' -e 's#/*$##' |
+  n_roots="$(for _r in $REQUIRED_ROOTS; do canonical_root "$_r"; done |
     LC_ALL=C sort -u | grep -c . || true)"
   if [ "$n_roots" -lt "$REQUIRED_ROOT_COUNT" ]; then
     echo "SELF-TEST: $n_roots required roots, $REQUIRED_ROOT_COUNT expected" >&2
