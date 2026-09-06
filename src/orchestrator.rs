@@ -7228,3 +7228,211 @@ mod tests {",
         }
     }
 }
+
+#[cfg(test)]
+mod characterization_tests {
+    use super::*;
+    use crate::error::{AbandonReason, ExternalErrorKind, ResponseContractCause};
+    use crate::provider::{CompletionTelemetry, FinishReason};
+    use std::time::Duration;
+
+    /// ROWS of the characterization. Lives attached to `enumerated` ON PURPOSE: it is a
+    /// conscious-edit ceiling, not a compiler guarantee. If you add an arm there, add its
+    /// entry to `all_errors` and raise this number -- in that order, and never the number
+    /// alone.
+    ///
+    /// 19 = 12 variants - 2 with an inner cause + 6 (`ExternalErrorKind`)
+    ///                                          + 3 (`ResponseContractCause`)
+    const CHARACTERIZED_ROWS: usize = 19;
+
+    /// Forces the compiler to demand a decision per variant AND per inner cause.
+    ///
+    /// It returns nothing and nothing compares its output: the expected column comes from
+    /// the dump. Its whole value is that a new variant -- or a new `ExternalErrorKind`, or a
+    /// new `ResponseContractCause` -- does not compile until someone opens this function.
+    /// Collapsing the inner matches to `External { .. }` would save six lines and lose the
+    /// only guarantee the mechanism gives.
+    fn enumerated(err: &ProviderError) {
+        match err {
+            // THE TWO AXES. A match on the variant alone gives twelve arms while the table
+            // has nineteen rows: the cross product of variant x cause.
+            ProviderError::External { kind, .. } => match kind {
+                ExternalErrorKind::Network => (),
+                ExternalErrorKind::Timeout => (),
+                ExternalErrorKind::Auth => (),
+                ExternalErrorKind::RateLimit => (),
+                ExternalErrorKind::ServerError => (),
+                ExternalErrorKind::Other => (),
+                // no `_`: a new kind breaks compilation
+            },
+            // THREE causes. That all three yield the same shape does not make them one:
+            // what this axis enumerates are CAUSES, not distinct shapes.
+            ProviderError::ResponseContract { reason, .. } => match reason {
+                ResponseContractCause::Unreadable => (),
+                ResponseContractCause::NoMessage => (),
+                ResponseContractCause::RedirectRefused => (),
+            },
+            ProviderError::ResponseTooLarge { .. } => (),
+            ProviderError::Timeout { .. } => (),
+            ProviderError::Http { .. } => (),
+            ProviderError::Network { .. } => (),
+            ProviderError::Auth { .. } => (),
+            ProviderError::Process { .. } => (),
+            ProviderError::RetryAbandoned { .. } => (),
+            ProviderError::NestedSession => (),
+            ProviderError::EmptyCompletion { .. } => (),
+            ProviderError::NoGeneration { .. } => (),
+            // NONE `_`: a new variant breaks compilation here first.
+        }
+    }
+
+    /// The nineteen entries, in the table's order. ONE list of errors, written against the
+    /// intact tree -- the shapes are not here on purpose, see `all_cases`.
+    fn all_errors() -> Vec<ProviderError> {
+        vec![
+            ProviderError::ResponseTooLarge { limit: 1 << 20 },
+            ProviderError::external("backend", ExternalErrorKind::Network),
+            ProviderError::external("backend", ExternalErrorKind::Timeout),
+            ProviderError::external("backend", ExternalErrorKind::Auth),
+            ProviderError::external("backend", ExternalErrorKind::RateLimit),
+            ProviderError::external("backend", ExternalErrorKind::ServerError),
+            ProviderError::external("backend", ExternalErrorKind::Other),
+            ProviderError::Timeout {
+                message: "t".to_string(),
+            },
+            ProviderError::Http {
+                status: 500,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None,
+            },
+            ProviderError::Network {
+                message: "n".to_string(),
+            },
+            ProviderError::Auth {
+                message: "a".to_string(),
+            },
+            ProviderError::Process {
+                exit_code: Some(1),
+                stderr: "p".to_string(),
+            },
+            ProviderError::RetryAbandoned {
+                reason: AbandonReason::OperationBudgetExhausted {
+                    elapsed: Duration::from_secs(1),
+                    budget: Duration::from_secs(1),
+                },
+                attempts: 2,
+            },
+            ProviderError::NestedSession,
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::Unreadable,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::NoMessage,
+                detail: String::new(),
+            },
+            ProviderError::ResponseContract {
+                reason: ResponseContractCause::RedirectRefused,
+                detail: String::new(),
+            },
+            ProviderError::EmptyCompletion {
+                telemetry: CompletionTelemetry::unmeasured().with_finish(FinishReason::Length),
+                cap: 4096,
+            },
+            ProviderError::NoGeneration {
+                done_reason: Some(FinishReason::Length),
+            },
+        ]
+    }
+
+    /// The comparable shape of an outcome: variant, kind, and -- for transports -- the
+    /// `connection` flag.
+    ///
+    /// `ModelOutcome` derives only `Debug`, never `PartialEq`, so equality is not available
+    /// and adding the derive would be production surface added to accommodate a test. The
+    /// `connection` flag is INCLUDED and that is mandatory: it is the exact field a
+    /// narrowing of the connection classifier would move, and a shape blind to it leaves
+    /// the net blind precisely where the risk lives.
+    fn shape(o: &ModelOutcome) -> String {
+        match o {
+            ModelOutcome::Success(_) => "Success".to_string(),
+            ModelOutcome::Schema(_) => "Schema".to_string(),
+            ModelOutcome::Transport {
+                connection, kind, ..
+            } => format!("Transport/{kind:?}/conn={connection}"),
+            ModelOutcome::MageLocal { kind, .. } => format!("MageLocal/{kind:?}"),
+            ModelOutcome::CrateDefect { .. } => "CrateDefect".to_string(),
+            ModelOutcome::OversizedResponse { .. } => "OversizedResponse".to_string(),
+            ModelOutcome::ExternalFailure { kind, .. } => format!("ExternalFailure/{kind:?}"),
+            ModelOutcome::Unexpected(_) => "Unexpected".to_string(),
+        }
+    }
+
+    /// The expected column, PASTED from the dump of the intact tree, in `all_errors`' order.
+    ///
+    /// It is not transcribed from a reading of `provider_err_outcome`: it is what that
+    /// function actually returned, which is the whole point of generating it. Its length is
+    /// checked BY THE COMPILER against `CHARACTERIZED_ROWS` -- one shape too many or too few
+    /// does not compile, which is what makes the positional `zip` below safe.
+    const SHAPES: [&str; CHARACTERIZED_ROWS] = [
+        "OversizedResponse",
+        "ExternalFailure/Network",
+        "ExternalFailure/Timeout",
+        "ExternalFailure/Auth",
+        "ExternalFailure/RateLimit",
+        "ExternalFailure/ServerError",
+        "ExternalFailure/Other",
+        "Transport/Timeout/conn=false",
+        "Transport/Transport/conn=false",
+        // The ONLY row with `conn=true`, and it is the premise criterion (d) rests on:
+        // `is_connection` answers true for `Network` and for nothing else.
+        "Transport/Transport/conn=true",
+        "Transport/Transport/conn=false",
+        "Transport/Transport/conn=false",
+        "Transport/Transport/conn=false",
+        "Transport/Transport/conn=false",
+        "MageLocal/ResponseContract",
+        "MageLocal/ResponseContract",
+        "MageLocal/ResponseContract",
+        "MageLocal/EmptyCompletion",
+        "CrateDefect",
+    ];
+
+    /// DERIVED, never a second hand-written list.
+    ///
+    /// The entries cannot drift from `all_errors` because there is only one list of errors,
+    /// and the pairing is positional by construction rather than by a transcription somebody
+    /// has to keep aligned.
+    fn all_cases() -> Vec<(ProviderError, &'static str)> {
+        all_errors().into_iter().zip(SHAPES).collect()
+    }
+
+    /// One row per `ProviderError` variant and inner cause, with TODAY's outcome.
+    ///
+    /// This is a photograph, not a TDD test: it is written and run against the untouched
+    /// tree, so it is born green. Its lasting value is downstream -- if a later milestone
+    /// touched `provider_err_outcome`, this names the change row by row instead of letting it
+    /// arrive mixed with an intended one.
+    #[test]
+    fn provider_err_outcome_is_unchanged_for_every_variant() {
+        assert_eq!(
+            all_errors().len(),
+            CHARACTERIZED_ROWS,
+            "entries and ceiling diverge: a variant was added without its row, or the number \
+             was raised without one. THE FIX IS TO ADD THE ROW, never to edit the constant"
+        );
+
+        for (err, expected) in all_cases() {
+            // Its effect is of COMPILATION, not of execution: nothing compares its output.
+            enumerated(&err);
+            // `provider_err_outcome` takes the error BY VALUE and computes the connection
+            // flag itself, so the clone is what lets the assertion message name the input.
+            assert_eq!(
+                shape(&provider_err_outcome(err.clone())),
+                expected,
+                "variant {err:?}"
+            );
+        }
+    }
+}
