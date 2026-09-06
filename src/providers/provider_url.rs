@@ -730,6 +730,24 @@ mod tests {
     }
 
     #[test]
+    fn mark_truncated_at_exactly_the_cap_still_cuts_and_marks() {
+        // THE cell that proves the divergence, and the reason it is not redundant with the
+        // empty-input case above: at exactly the cap the three guarded call sites return the
+        // input untouched, while this one -- which has no guard -- still reserves the marker,
+        // cuts, and marks. On an empty input alone, "no guard" and "a guard that happens to do
+        // nothing" look identical, so that case cannot tell the two apart.
+        let raw = "x".repeat(MAX_ERROR_BODY_PREFIX_BYTES);
+        let out = mark_truncated(&raw);
+        assert_ne!(out, raw, "the unguarded site marks even a body that fits");
+        assert!(out.ends_with(crate::error::TRUNCATION_MARKER));
+        assert_eq!(
+            out.len(),
+            MAX_ERROR_BODY_PREFIX_BYTES,
+            "the marker is paid for inside the cap, never appended on top of it"
+        );
+    }
+
+    #[test]
     fn truncate_diagnostic_of_empty_text_is_kept_empty() {
         // Unlike its unguarded sibling `mark_truncated`, this call site keeps its own
         // `if raw.len() <= cap` guard, so an empty diagnostic is returned untouched.
