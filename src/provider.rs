@@ -2293,12 +2293,13 @@ mod tests {
     // `is_retryable` IS `TRANSIENT_STATUSES.contains(status)`, so a test built that way
     // would be a tautology, passing with the table empty or with `400` inside. Its
     // purpose -- enumerating the transient statuses -- is fully covered by
-    // `test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable` below.
+    // `test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable` below,
+    // whose exact-content assertion is the only form that can actually fail, plus its
+    // complement half, which is what really exercises `is_retryable`.
+    //
     // Its two non-`Http` assertions, `Timeout` and `Network`, are not lost either: both are
     // exercised end-to-end elsewhere in this module, which is why the deletion costs no
     // coverage rather than merely costing little. Checked, not assumed.
-    // whose exact-content assertion is the only form that can actually fail, plus its
-    // complement half, which is what really exercises `is_retryable`.
 
     #[test]
     fn overloaded_error_529_is_transient() {

@@ -2681,8 +2681,13 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // CRATE-WIDE, not file-scoped: `register_transport_failure` is `pub` on a
                 // `pub(crate)` registry, so a second caller can legitimately land in
                 // `rotation.rs`, which is where that registry lives.
-                //   grep -nE '\.register_transport_failure\(' src/orchestrator.rs   # 1 above the test module
-                //   grep -nE '\bis_connection\(' src/orchestrator.rs                # 2 above it: one definition, one use
+                //   grep -rnE '\.register_transport_failure\(' src/
+                //     10 hits today, and exactly ONE is production: this arm. The other nine
+                //     sit below `#[cfg(test)]` in orchestrator.rs and rotation.rs.
+                //   grep -nE '\bis_connection\(' src/orchestrator.rs
+                //     2 above this file's test module: one definition, one use. THIS one stays
+                //     file-scoped on purpose -- `is_connection` is a private `fn` here, so no
+                //     other file can call it, and widening it would only add test noise.
                 registry
                     .register_transport_failure(current_lineage.clone(), connection)
                     .await;
@@ -3661,6 +3666,12 @@ mod tests {
         // The trailing `=` is load-bearing: the message itself reads "operation budget
         // exhausted", so a bare `contains("budget")` stays green after someone deletes the
         // FIELD. Matching `budget=` asserts the field and not the prose around it.
+        //
+        // What separates the line selected above from its sibling warning is one underscore
+        // -- the sibling says "operation_budget exhausted". Nothing pins that character, and
+        // it fails CLOSED: if the two ever collided, `find` would return the sibling, which
+        // carries `elapsed=` and `budget=` but not `attempts=`, so this reddens rather than
+        // passing quietly.
         for field in ["elapsed=", "budget=", "attempts="] {
             assert!(
                 warn.contains(field),
@@ -7554,7 +7565,8 @@ mod characterization_tests {
             // registering a transport failure and without rotating — the run continues with the
             // other two seats, which is mage-local by definition.
             //
-            // THREE ROWS ABOVE ARE UNREACHABLE FROM THE TABLE and are pure assertion:
+            // THREE ROWS ARE UNREACHABLE FROM THE TABLE and are pure assertion (named by
+            // identifier, not by position -- one of them is the row below this comment):
             // `provider_err_outcome` never produces `Schema`, `Success` or `Unexpected`, so
             // nothing here exercises them. `Success` is at least guarded by
             // `unreachable_in_this_table`; the other two are hand-written claims about

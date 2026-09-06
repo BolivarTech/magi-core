@@ -465,8 +465,9 @@ impl fmt::Display for ResponseContractCause {
 /// Marker appended when text is cut, so a truncated message never reads as a complete one.
 ///
 /// Lives here rather than beside the retry machinery because this is the foundation layer: the
-/// error type must not import from the layers above it, and both of the crate's truncation sites
-/// need this constant. It sat in `provider.rs` briefly and made `error.rs` depend upwards.
+/// error type must not import from the layers above it, and the crate's single truncation
+/// helper — [`mark_within_cap`], just below — needs this constant. It sat in `provider.rs`
+/// briefly and made `error.rs` depend upwards.
 pub(crate) const TRUNCATION_MARKER: &str = " … (truncated)";
 
 /// Truncates `text` to fit within `cap` bytes and appends [`TRUNCATION_MARKER`], unconditionally.

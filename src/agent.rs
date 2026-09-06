@@ -75,13 +75,14 @@ const AGENT_FILES: &[(AgentName, Mode, &str)] = &[
 
 /// Resolves the filename for an (agent, mode) pair against the given table.
 ///
-/// `AGENT_FILES` is the only production caller (via
-/// [`AgentFactory::from_directory`]); tests pass their own table so the mapping
-/// can be exercised without touching the real one.
+/// [`AgentFactory::from_directory`] is the only production caller, and it always passes
+/// `AGENT_FILES`; tests pass their own table so the mapping can be exercised without
+/// touching the real one.
 ///
-/// This replaces two parallel arrays plus two `unreachable!()` match arms that
-/// were reachable the moment those arrays stopped matching each other: with a
-/// single source there is no second list to desynchronize from.
+/// This replaces two parallel arrays plus two `unreachable!()` match arms that were reachable
+/// the moment those arrays stopped matching each other. What the single table closes is
+/// precisely that: no two lists of FILENAMES can drift apart. See `AGENT_FILES` for what it
+/// deliberately does not close — the caller still enumerates agents and modes on its own side.
 ///
 /// # Errors
 /// Returns [`MagiError::InvalidInput`] if `table` has no row for `(agent, mode)`.
@@ -312,9 +313,9 @@ impl AgentFactory {
     /// Returns [`MagiError::Io`] if the directory itself does not exist.
     ///
     /// # Errors
-    /// Returns `MagiError::Io` if the directory does not exist or cannot be read, and
+    /// Besides the `Io` case above, returns
     /// `MagiError::InvalidInput` if some `(agent, mode)` pair has no row in the filename
-    /// table. The second is unreachable while the two enumerations here cover the same pairs
+    /// table. That one is unreachable while the two enumerations here cover the same pairs
     /// the table does; it is the net for the day they stop doing so, which is what replaced
     /// the `unreachable!()` that used to sit there.
     pub fn from_directory(mut self, dir: &Path) -> Result<Self, MagiError> {
