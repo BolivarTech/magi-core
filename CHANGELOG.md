@@ -8,6 +8,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A retry that gives up no longer condemns a lineage **run-wide** when the failure was
+  mage-local. `RetryProvider` used to wrap every abandonment in `RetryAbandoned`, which the
+  core routes to a transport outcome — so a seat that exhausted its budget against, say, a
+  third-party backend's timeout took that lineage away from the other two mages over what one
+  mage had seen. The two classes that were laundered this way, `External` and a
+  `ResponseContract` the reader could not read, now come back **as themselves**: the consumer
+  receives the original error where it previously received `RetryAbandoned`, and the failure
+  condemns one seat instead of the run. Every other class keeps the typed abandonment, where
+  the reason is the diagnosis. This is not new behaviour so much as a symmetry — the loop's
+  most common exit, retries exhausted, already returned the original error five lines above
+  the budget exit.
+  - **A text channel widens with it.** `External.message` is written by an outside provider
+    implementation and now reaches the report, where before it was discarded with the wrapper.
+    It is capped at construction and nothing unwraps it past that cap; `ResponseContract.detail`
+    is not a second such channel, since this crate authors it, redacts it and caps it.
+  - **And one release-only hole is stated rather than left to be found.** Abandoning with no
+    original error is unreachable by construction — every failure records one — but if it were
+    ever reached, debug builds assert loudly while release builds fall back to the run-wide
+    wrapper with only a `tracing` warning as the signal. The fallback points in the dangerous
+    direction on purpose: it is the conservative outcome, not the correct one.
+  - The two derivations this guarantee rests on are named where they break rather than only
+    here: `register_transport_failure` having a single production caller, and the endpoint-down
+    latch feeding from one connection classifier. Neither is enforced mechanically in this
+    release.
+
 - `529` (Anthropic's `overloaded_error`) is now classified transient and retried with
   backoff, instead of failing fast and condemning the Claude lineage run-wide for all
   three seats over what can be a load spike of seconds. With the shipped defaults, a

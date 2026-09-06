@@ -3600,6 +3600,68 @@ mod tests {
         ))
     }
 
+    /// After R-1 the retry `warn!` is the ONLY carrier of the attempt count for a mage-local
+    /// class: the error such a class returns is the original, which has no `AbandonReason` and
+    /// no `attempts`. Nothing asserted that the line was emitted or that it named its three
+    /// fields, so a refactor that tidied it -- or moved it behind a level check -- would leave
+    /// both channels dead in a release whose stated purpose is to diagnose better.
+    ///
+    /// The same capture carries a second assertion that turns a declared hole into a mechanism:
+    /// `abandon`'s `None` branch is unreachable by construction, and its reopening symptom is a
+    /// log line. Asserting the line is ABSENT means a fourth exit that forgot its original error
+    /// turns the suite red instead of waiting for an operator to notice. That is the cheap half
+    /// of the hole, not its closure: a path no test walks is still unseen.
+    #[tokio::test]
+    async fn the_budget_abandon_warning_carries_the_attempt_count() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        // One failing response is enough: with a zero budget the loop makes its attempt and
+        // abandons on the next check, which is the exit under test.
+        // `mixed` CYCLES its responses, so a single failing entry is a provider that always
+        // fails -- which is what a zero budget needs in order to reach its abandon exit.
+        let inner: Arc<dyn LlmProvider> = Arc::new(MockProvider::mixed(
+            "budget",
+            "budget",
+            vec![Err(ProviderError::Http {
+                status: 503,
+                body: String::new(),
+                retry_after_raw: vec![],
+                received_at: None,
+            })],
+        ));
+        let cfg = crate::provider::RetryConfig {
+            base_delay: std::time::Duration::from_millis(1),
+            operation_budget: std::time::Duration::ZERO,
+            max_retries: 5,
+            ..Default::default()
+        };
+        let provider = crate::provider::RetryProvider::with_config(inner, cfg);
+        let _ = provider
+            .complete("sys", "user", &CompletionConfig::default())
+            .await
+            .expect_err("a zero budget cannot succeed");
+
+        let lines = log.lines();
+        let warn = lines
+            .iter()
+            .find(|l| l.starts_with("WARN") && l.contains("operation budget exhausted"))
+            .unwrap_or_else(|| panic!("the abandon warning must be emitted: {lines:?}"));
+        for field in ["elapsed", "budget", "attempts"] {
+            assert!(
+                warn.contains(field),
+                "the warning must still name `{field}`, which the returned error no longer                  carries for a mage-local class: {warn}"
+            );
+        }
+
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.contains("abandoning with no original error")),
+            "the `None` branch of `abandon` is unreachable by construction; if a fourth exit              ever calls it without the original error, this is where it surfaces: {lines:?}"
+        );
+    }
+
     /// R10 is warn-ONLY: the event fires **and** the analysis still produces a report.
     /// Asserting only the flag would leave "someone turned it into a rejection" undetected.
     #[tokio::test]

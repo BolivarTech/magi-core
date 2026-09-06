@@ -1603,6 +1603,16 @@ pub(crate) fn is_mage_local(err: &ProviderError) -> bool {
 /// `orig` is an `Option` because the budget exit runs at the TOP of the iteration, before the
 /// attempt, where the live error is `last_error`.
 ///
+/// # The text channel this widens
+///
+/// A mage-local class comes back carrying its own text, and for `External` that text was
+/// written by somebody else's provider implementation. Before this, it left through
+/// `RetryAbandoned`, which carries none. The channel is **bounded at construction** — the
+/// `external` constructor caps it — and nothing here re-expands it; a test pins that.
+///
+/// `ResponseContract.detail` is not a second such channel: this crate authors it, it arrives
+/// already redacted, and it is capped by character count.
+///
 /// # The `None` case
 ///
 /// Unreachable by construction — `attempt > 0` implies a previous attempt, and every failure
@@ -4644,6 +4654,38 @@ mod tests {
             "a run-wide class must keep the typed abandon AND its count: {err:?}"
         );
         assert!(!is_mage_local(&err));
+    }
+
+    #[test]
+    fn an_unwrapped_external_message_is_still_capped() {
+        // Task 3-cierre, Step 1. R-1 widens ONE channel of text this crate did not author:
+        // `External.message`, written by somebody else's provider implementation. Before R-1
+        // that text left through `RetryAbandoned`, which does not carry it; now it comes back
+        // unwrapped and reaches the report.
+        //
+        // The channel is BOUNDED at construction -- `ProviderError::external` caps it -- and
+        // this pins that `abandon` does not re-expand it. Pinned with an assertion rather than
+        // a reading, because a reading does not survive the next refactor.
+        //
+        // `ResponseContract.detail` is NOT a second such channel, and that was measured rather
+        // than assumed: this crate authors it, it arrives already redacted by the ADR 009
+        // boundary, and it is capped by character count. One channel, not two.
+        let cap = crate::error::MAX_EXTERNAL_MESSAGE_BYTES;
+        let over = "x".repeat(cap * 3);
+        let err = ProviderError::external(over, ExternalErrorKind::Network);
+        let out = abandon(Some(err), budget_exhausted(), 3);
+        let ProviderError::External { message, .. } = &out else {
+            panic!("a mage-local class must come back unwrapped: {out:?}");
+        };
+        assert!(
+            message.len() <= cap,
+            "third-party text stays within its cap after R-1 unwraps it: {} bytes",
+            message.len()
+        );
+        assert!(
+            message.ends_with(crate::error::TRUNCATION_MARKER),
+            "and it still says it was cut"
+        );
     }
 
     #[tokio::test]
