@@ -40,7 +40,13 @@
 # Usage: sh ci/check_prose_artifacts.sh [--self-test]
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# `CDPATH=` here too, and this is the site that made the claim below false for
+# one round. `$(dirname "$0")/..` is RELATIVE with no leading `./` when the
+# script is invoked as `sh ci/check_prose_artifacts.sh`, which is exactly how
+# `run_all_checks.sh` invokes it -- so CDPATH applies, `cd` prints the directory
+# it landed in, and even a benign `CDPATH=.` breaks the gate. It fails CLOSED,
+# which is why nobody noticed.
+ROOT="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # The roots that are scanned. Named as a variable because the SELF-TEST injects a
@@ -116,7 +122,12 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # `tests/fixtures` for it held the count at eight -- and cost NOTHING, because it
 # is a subdirectory of a root already listed: no new directory, no new file, and
 # it reads as plausible in a diff. Probe count 15 to 12, live artifact shipping,
-# both modes green. The old sentence implied that escape was expensive.
+# both modes green. The old sentence implied that escape was expensive. It is
+# not even the quietest one: swapping in `smoke` costs the same and takes the
+# probe count UP, from 15 to 16, where nesting took it down -- so a reviewer
+# watching that number for a drop would miss it. Said here because the sentence
+# this replaced called nesting the cheapest available, which is a superlative
+# nobody measured.
 #
 # It is closed by a RELATION over the canonical roots, which is why the reason
 # for stopping was wrong: asking whether one root sits under another asserts
@@ -130,9 +141,13 @@ REQUIRED_ROOTS='src ci docs examples tests/fixtures README.md CHANGELOG.md Cargo
 # CASE variant on a case-insensitive filesystem: `pwd -P` returns `DOCS` as
 # typed, so Windows counts it twice while Linux has two different directories and
 # is right to. Folding case would be wrong on the platform CI runs. The regress
-# stops here, and THIS reason holds where the last one did not: naming which
-# eight directories are the right ones is a judgement, not a relation, and
-# encoding it would be REQUIRED_ROOTS a second time in the same file.
+# stops here, and the reason is COST rather than impossibility -- which is the
+# fifth version of this sentence and the first that does not outrun its
+# mechanism. A relation does exist: the roots ought to cover every packaged
+# directory holding a scannable file, and `cargo package --list` can be read for
+# it, as the paragraph further down already does by hand. It is not encoded
+# because that check would run the packaging step on every self-test, and the
+# earlier claim that it was "not a relation" was simply false.
 REQUIRED_ROOT_COUNT=8
 
 # And the same treatment for the extensions, because pinning only the roots left
@@ -161,8 +176,23 @@ REQUIRED_ROOT_COUNT=8
 # ROOT and nothing asserts that a given extension is exercised anywhere:
 # `tests/fixtures` is the only scanned root that holds a `.json`, so if it ever
 # left the scan this entry would go vacuous in silence. `toml` has the same
-# shape and its paragraph says so; this one had not.
+# shape and its paragraph says so; this one had not. `sha256` is in the same
+# position and was missing from that sentence when it was written.
 REQUIRED_EXTS='rs sh md toml py sha256 json'
+
+# AND THIS LIST HAS A FLOOR, which took until the ninth review pass because the
+# audit kept being aimed at the list that had just failed. THREE lists were
+# pinned and TWO had counts; nobody had counted the counts. Measured, not
+# argued: dropping `py` from this list AND `*.py` from the filter -- one more
+# word in the same diff as the half-mutation the paragraph above boasts about
+# catching -- took the probes from 15 to 13 and left a live `{EM}` sitting in
+# `tests/fixtures/_magi_ref.py`, a PACKAGED file, with both modes exiting 0.
+# Same signature as all four root escapes, through the rung nobody had floored.
+#
+# LIMIT, in the same terms as the other two: this catches an extension DELETED,
+# not one SWAPPED for another. The regress stops for the reason the roots block
+# gives, and no stronger.
+REQUIRED_EXT_COUNT=7
 
 # THE PATTERNS, one per line. Each is LITERAL on purpose; see below for why the
 # brace shapes are not generalised.
@@ -182,6 +212,18 @@ PATTERNS='["'"'"'] \+ [A-Za-z_][A-Za-z0-9_]* \+ ["'"'"']
 \{EM\}
 \{NL\}
 chr\([0-9][0-9]*\)'
+
+# THE FOURTH PINNED LIST, and it had no floor either -- found by asking the
+# generalised question the ninth pass raised rather than by another report. The
+# relation below (every pattern exercised by a shape) survives a DELETION
+# intact: fewer patterns, all still exercised. Measured: removing the `chr()`
+# pattern with its two shapes and lowering the shape floor to match left both
+# modes at 0 with a live `chr(8212)` in a shipped file.
+#
+# LIMIT: catches a pattern DELETED, not one narrowed in place -- which is what
+# the alternation paragraph below is about, and why the shapes vary what their
+# character classes range over.
+REQUIRED_PATTERN_COUNT=4
 
 # EVERY PATTERN IS EXERCISED BY AT LEAST ONE SHAPE, and the self-test asserts
 # that relation rather than an equality of counts. Counting was the previous
@@ -228,7 +270,11 @@ REQUIRED_SHAPE_COUNT=6
 # files; this scans four directories and three root files, which is where prose
 # that a human wrote lives. The arithmetic that used to live here -- 175 packaged,
 # 41 unscanned, of which `tests/` and `.github/` were 34 -- is DEAD: R-32 excluded
-# `tests/`, `.github/` and `ci/`, so those are not packaged at all any more. What
+# `.github/`, `ci/` and the SUITE half of `tests/` -- `tests/*.rs`,
+# `tests/common/` and `tests/support/`. `tests/fixtures/` is deliberately NOT
+# excluded and still ships, which is the whole reason the paragraphs below care
+# what is in it; a reader who took this sentence to mean all of `tests/` was
+# gone would conclude that losing that root from the scan costs nothing. What
 # remains unscanned of the 59 are the cargo-generated and legal files at the root
 # (`.cargo_vcs_info.json`, `.gitattributes`, `Cargo.lock`, `Cargo.toml.orig` and
 # the three licence files). EVERY tracked file under `tests/fixtures/` is now
@@ -265,7 +311,8 @@ REQUIRED_SHAPE_COUNT=6
 # blob reader. The reason first written for them, that they build prose by
 # concatenation, was false for all three.
 #
-# The two `include_str!` sites named above sit inside `#[cfg(test)]`, so a
+# That site and the `.sha256`'s at `prompts/mod.rs` both sit inside
+# `#[cfg(test)]`, so a
 # consumer building this as a dependency never compiles them; a distribution
 # packager building the tarball's tests does, which is the case `Cargo.toml`
 # spends ten lines on and the reason the files are in the package at all. A
@@ -315,7 +362,12 @@ REQUIRED_SHAPE_COUNT=6
 # one step, which is why this replaced a growing list of `sed` strips. A path that
 # does not exist falls back to its raw string -- the safe direction, since it then
 # counts as distinct and the coverage check names it a few lines later.
-# CDPATH is cleared at every `cd`, and that is not hygiene: when `cd` resolves
+# CDPATH is cleared at every `cd` that takes a RELATIVE path -- here and at the
+# `ROOT=` line near the top; the two `cd`s that take absolute paths are immune,
+# since CDPATH is not consulted for one. The claim used to say "every `cd`"
+# without qualification and was one grep from being checkable, in the file whose
+# whole subject is prose that contradicts adjacent code. It is not hygiene: when
+# `cd` resolves
 # through a CDPATH component it PRINTS the directory it landed in, so the
 # subshell emits two lines instead of one and the count moves. Measured on this
 # machine with a CDPATH holding a sibling `docs`, `n_roots` went from 8 to 9 --
@@ -491,12 +543,17 @@ if [ "${1:-}" = "--self-test" ]; then
   # The word-split below is safe only while no canonical path carries
   # whitespace, so that is checked rather than assumed -- fail closed, since a
   # split path would silently compare the wrong strings.
-  case "$_canon_roots" in
-    *" "* | *"$(printf '\t')"*)
-      echo "SELF-TEST: a canonical required root contains whitespace" >&2
-      fails=$((fails + 1))
-      ;;
-  esac
+  #
+  # Checked as a RELATION rather than by listing the characters: words and lines
+  # must agree. Enumerating them caught space and tab and missed NEWLINE, which
+  # is the one that inflates the count and so helps hold the floor -- and the
+  # obvious repair is a trap, since `*"$(printf '\n')"*` collapses to `**` and
+  # false-reds on everything. Counting catches all three at once.
+  _n_words="$(printf '%s\n' $_canon_roots | grep -c . || true)"
+  if [ "$_n_words" -ne "$n_roots" ]; then
+    echo "SELF-TEST: a canonical required root contains whitespace" >&2
+    fails=$((fails + 1))
+  fi
   for _a in $_canon_roots; do
     for _b in $_canon_roots; do
       [ "$_a" = "$_b" ] && continue
@@ -552,6 +609,22 @@ if [ "${1:-}" = "--self-test" ]; then
   n_shapes="$(printf '%s\n' "$PROBE_SHAPES" | grep -c . || true)"
   if [ "$n_shapes" -lt "$REQUIRED_SHAPE_COUNT" ]; then
     echo "SELF-TEST: $n_shapes probe shapes, $REQUIRED_SHAPE_COUNT required" >&2
+    fails=$((fails + 1))
+  fi
+
+  # The other two pinned lists, floored here for the same reason and in the same
+  # shape. Four lists, four floors -- the audit is over the SET now, because
+  # aiming it at whichever list last failed is how two of them went four review
+  # passes without one.
+  n_exts="$(printf '%s\n' $REQUIRED_EXTS | grep -c . || true)"
+  if [ "$n_exts" -lt "$REQUIRED_EXT_COUNT" ]; then
+    echo "SELF-TEST: $n_exts required extensions, $REQUIRED_EXT_COUNT expected" >&2
+    fails=$((fails + 1))
+  fi
+
+  n_patterns="$(printf '%s\n' "$PATTERNS" | grep -c . || true)"
+  if [ "$n_patterns" -lt "$REQUIRED_PATTERN_COUNT" ]; then
+    echo "SELF-TEST: $n_patterns patterns, $REQUIRED_PATTERN_COUNT expected" >&2
     fails=$((fails + 1))
   fi
 
