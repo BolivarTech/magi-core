@@ -4,6 +4,25 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - Unreleased
+
+### Changed
+
+- `529` (Anthropic's `overloaded_error`) is now classified transient and retried with
+  backoff, instead of failing fast and condemning the Claude lineage run-wide for all
+  three seats over what can be a load spike of seconds. With the shipped defaults, a
+  sustained `529` can now cost a seat up to `max_retries + 1` total attempts (4 with the
+  shipped `max_retries = 3`) against the same endpoint before giving up: `RetryClass::Http`
+  is not one of the classes in `limited_retry_classes`, so the per-class cap does not
+  shorten this chain; what bounds it is `max_retries` and, above that, `operation_budget`.
+  Full jitter staggers the three seats' retries so they do not all hit the endpoint at
+  once, but it does not reduce the total number of calls made against an
+  already-overloaded backend. This does not remove the run-wide condemnation: a `529`
+  that persists past the retry budget still reaches the same `Transport` outcome it
+  always did; this change moves *when* that happens, not whether it happens.
+  `TRANSIENT_STATUSES` is now the single source for this classification: its content is
+  pinned exactly by test, and the rustdoc references it instead of repeating it.
+
 ## [4.0.0] - 2026-08-24
 
 ### One story, not two: the completion budget and the time budget

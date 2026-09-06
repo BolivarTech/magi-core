@@ -1384,8 +1384,9 @@ impl RetryProvider {
 /// Retryable errors:
 /// - `Timeout`: Provider did not respond in time.
 /// - `Network`: DNS, connection refused, etc.
-/// - `Http` with a transient status (408, 429, 500, 502, 503, 504). The three
-///   new 5xx cover local server cold-start; 408 is a server-side request timeout.
+/// - `Http` with a status in [`TRANSIENT_STATUSES`]. The three 5xx entries cover local
+///   server cold-start; 408 is a server-side request timeout; 529 is Anthropic's
+///   documented `overloaded_error`, retryable with backoff.
 ///
 /// Non-retryable errors:
 /// - `Auth`: Invalid credentials won't become valid on retry.
@@ -1543,7 +1544,7 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
 }
 
 /// HTTP statuses considered transient (worth retrying).
-const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504];
+const TRANSIENT_STATUSES: &[u16] = &[408, 429, 500, 502, 503, 504, 529];
 
 /// Maps a [`ProviderError`] to its [`RetryClass`].
 ///
@@ -2176,28 +2177,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_is_retryable_covers_the_eight_transient_cases() {
-        for status in [408u16, 429, 500, 502, 503, 504] {
-            assert!(
-                is_retryable(&ProviderError::Http {
-                    status,
-                    body: String::new(),
-                    retry_after_raw: vec![],
-                    received_at: None
-                }),
-                "status {status} must be transient"
-            );
-        }
-        assert!(is_retryable(&ProviderError::Timeout {
-            message: String::new()
-        }));
-        assert!(is_retryable(&ProviderError::Network {
-            message: String::new()
-        }));
-    }
-
     // ---- Task 2: R-2 (529 is transient) + R-19 (single-sourced table) ----
+    //
+    // `test_is_retryable_covers_the_eight_transient_cases`, which used to live here, is
+    // DELETED rather than extended to loop over `TRANSIENT_STATUSES`: for `Http`,
+    // `is_retryable` IS `TRANSIENT_STATUSES.contains(status)`, so a test built that way
+    // would be a tautology, passing with the table empty or with `400` inside. Its
+    // purpose -- enumerating the transient statuses -- is fully covered by
+    // `test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable` below,
+    // whose exact-content assertion is the only form that can actually fail, plus its
+    // complement half, which is what really exercises `is_retryable`.
 
     #[test]
     fn overloaded_error_529_is_transient() {
