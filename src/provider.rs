@@ -1547,15 +1547,16 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
 
 /// Whether a failure condemns only the seat that saw it, or the lineage run-wide.
 ///
-/// It lives here, beside [`is_retryable`], and not with the type: this crate's three
-/// classifiers over `&ProviderError` all live with their consumer, while `impl ProviderError`
-/// holds only constructors. It answers a question about CONSEQUENCE, and consequences are the
-/// core's to decide.
+/// It lives here, beside [`is_retryable`], and not with the type: this crate's classifiers
+/// over `&ProviderError` all live with their consumer, while `impl ProviderError` holds only
+/// constructors. It answers a question about CONSEQUENCE, and consequences are the core's to
+/// decide.
 ///
-/// Its two consumers want different halves of the same rule. The retry wrapper asks whether
-/// wrapping this error would cost the core information it needs; the orchestrator's outcome
-/// mapper decides what the failure actually condemns. One writer of the rule, and the
-/// consistency test over the characterization rows is what keeps the two from drifting.
+/// Its one production caller is `abandon`, which asks whether wrapping this error would cost
+/// the core information it needs. The orchestrator's outcome mapper does NOT call it: it
+/// encodes the same rule in its own exhaustive match, deliberately, so a new variant still
+/// breaks compilation there. Two writings of one rule, held together by the consistency test
+/// over the characterization rows rather than by a shared call.
 ///
 /// # Why an exhaustive `match` and never `matches!`
 ///
@@ -1571,7 +1572,9 @@ pub(crate) fn to_provider_error(op: &str, redacted_url: &str, e: &reqwest::Error
 /// seventh `ExternalErrorKind` or a fourth `ResponseContractCause` compiles silently and
 /// inherits the mage-local answer. For `External` that inheritance is correct — the reason
 /// holds for every kind — but it is an inherited decision, not one the compiler forces. What
-/// makes it visible is the characterization table, whose row ceiling forces a conscious edit.
+/// does force the edit is the characterization apparatus's `enumerated`, whose inner matches
+/// are exhaustive over both causes: a seventh kind does not compile until someone opens it.
+/// The row ceiling beside it is weaker than that and says so in its own comment.
 pub(crate) fn is_mage_local(err: &ProviderError) -> bool {
     match err {
         ProviderError::External { .. } => true,
@@ -1596,9 +1599,10 @@ pub(crate) fn is_mage_local(err: &ProviderError) -> bool {
 /// condemns one seat instead of the lineage. Every other class keeps the typed abandonment,
 /// where the reason IS the diagnosis.
 ///
-/// This is not new behaviour so much as a symmetry: the loop's most common exit — retries
-/// exhausted — already returns the original error, five lines above the budget exit. What this
-/// closes is the asymmetry between exits of the same loop.
+/// This is not new behaviour so much as a symmetry: the loop's retries-exhausted exit already
+/// returns the original error. What this closes is the asymmetry between exits of the same
+/// loop. (No offset is quoted on purpose — an offset is a checkable claim that goes stale on
+/// the next edit, and this one already had.)
 ///
 /// `orig` is an `Option` because the budget exit runs at the TOP of the iteration, before the
 /// attempt, where the live error is `last_error`.
@@ -2289,7 +2293,10 @@ mod tests {
     // `is_retryable` IS `TRANSIENT_STATUSES.contains(status)`, so a test built that way
     // would be a tautology, passing with the table empty or with `400` inside. Its
     // purpose -- enumerating the transient statuses -- is fully covered by
-    // `test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable` below,
+    // `test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable` below.
+    // Its two non-`Http` assertions, `Timeout` and `Network`, are not lost either: both are
+    // exercised end-to-end elsewhere in this module, which is why the deletion costs no
+    // coverage rather than merely costing little. Checked, not assumed.
     // whose exact-content assertion is the only form that can actually fail, plus its
     // complement half, which is what really exercises `is_retryable`.
 
