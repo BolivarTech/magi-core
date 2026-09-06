@@ -186,6 +186,44 @@ fi
 # Its OWN target dir. Two builds sharing one relink the same binaries and produce
 # link errors that read as code defects — a trap this project has already paid for
 # twice.
+# THE EXCLUSIONS ARE ASSERTED, which was the one gap in this milestone's guard set.
+# The step below catches an exclusion that grows too far -- widening it to all of
+# `tests/` takes the packaged tests from compiling to eleven errors -- but nothing
+# caught it SHRINKING. Drop `ci/` from the list and every guard script ships to
+# crates.io again, with no consumer for them and no check saying so; R-32 exists to
+# remove exactly that, and it was enforced by a decision written once in a manifest.
+#
+# Asserted against the LIST rather than a count. A count answers "did something
+# change" and then has to be re-derived by hand every time a file is legitimately
+# added; the prefixes answer "is the decision still in force", which is the thing
+# R-32 actually decided and the thing that must not silently revert.
+echo "=== asserting the packaged file list honours the exclusions ==="
+PKG_LIST="$(cd "$ROOT" && cargo package --list --allow-dirty 2>/dev/null)"
+if [ -z "$PKG_LIST" ]; then
+  echo "check_packaged_consumer: FAIL -- \`cargo package --list\` produced nothing." >&2
+  echo "An empty listing cannot be checked, and reporting OK over it is the shape" >&2
+  echo "this whole file exists to refuse." >&2
+  exit 1
+fi
+LEAKED=""
+# One prefix per exclusion R-32 made. `tests/fixtures/` is deliberately NOT here:
+# it SHIPS, because ten `include_str!` calls in four shipped modules reach into it.
+for _excluded in 'tests/common/' 'tests/support/' '.github/' 'ci/'; do
+  if printf '%s\n' "$PKG_LIST" | grep -q "^$_excluded"; then
+    LEAKED="$LEAKED $_excluded"
+  fi
+done
+# The suite's own test files, which are `tests/*.rs` and never `tests/fixtures/*`.
+if printf '%s\n' "$PKG_LIST" | grep -qE '^tests/[^/]+\.rs$'; then
+  LEAKED="$LEAKED tests/*.rs"
+fi
+if [ -n "$LEAKED" ]; then
+  echo "check_packaged_consumer: FAIL -- these are in the package again:$LEAKED" >&2
+  echo "R-32 excluded them because no consumer runs them. crates.io is immutable," >&2
+  echo "so a release that ships them is withdrawn by publishing another one." >&2
+  exit 1
+fi
+
 echo "=== compiling the packaged examples as outside consumers ==="
 CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
   cargo build --manifest-path "$PKG_DIR/Cargo.toml" --examples --all-features
@@ -221,4 +259,4 @@ CARGO_TARGET_DIR="$TARGET/packaged-consumer" \
 # different set from the one that was checked. `|| true` because grep exits 1 on an
 # empty list, which `set -e` would turn into a silent death with no message at all.
 DECLARED="$(printf '%s\n' "$PKG_EXAMPLES" | grep -c . || true)"
-echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; examples built and the packaged crate's own tests type-check)"
+echo "check_packaged_consumer: OK ($VERSION, $DECLARED packaged example(s) declared; exclusions hold, examples built, and the packaged crate's own tests type-check)"
