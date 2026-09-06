@@ -71,8 +71,7 @@ resolve_self() {
             # script argument, so that reading is the deterministic one; $PATH is the
             # fallback, for a copy installed as a command.
             if [ -r "./$1" ]; then
-                printf '%s/%s
-' "$(pwd)" "$1"
+                printf '%s/%s\n' "$(pwd)" "$1"
             else
                 command -v "$1"
             fi
@@ -175,14 +174,10 @@ self_test() {
 
     tmp="$(mktemp -d)"
     mkdir -p "$tmp/docs" "$tmp/src"
-    printf 'clean
-' > "$tmp/docs/guide.md"
-    printf 'clean
-' > "$tmp/README.md"
-    printf 'clean
-' > "$tmp/CHANGELOG.md"
-    printf 'clean
-' > "$tmp/src/lib.rs"
+    printf 'clean\n' > "$tmp/docs/guide.md"
+    printf 'clean\n' > "$tmp/README.md"
+    printf 'clean\n' > "$tmp/CHANGELOG.md"
+    printf 'clean\n' > "$tmp/src/lib.rs"
 
     # A clean tree must PASS -- otherwise the rule is a wall, not a guard.
     if ! (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
@@ -215,13 +210,11 @@ self_test() {
     # which is defect 3 above -- and the only way to prove it is closed is one file at a time.
     # The fixture is a hard-coded literal, NOT "$MARKER", for the reason just above.
     for f in docs/guide.md README.md CHANGELOG.md src/lib.rs; do
-        printf 'PENDING: MS9 here
-' > "$tmp/$f"
+        printf 'PENDING: MS9 here\n' > "$tmp/$f"
         if (cd "$tmp" && sh "$SELF" >/dev/null 2>&1); then
             echo "self-test: a marker in $f was NOT detected" >&2; rc=1
         fi
-        printf 'clean
-' > "$tmp/$f"
+        printf 'clean\n' > "$tmp/$f"
     done
 
     # A MISSING target must fail rather than pass, which is defect 1.

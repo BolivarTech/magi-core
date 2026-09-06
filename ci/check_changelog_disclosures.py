@@ -204,6 +204,17 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
                    "APPLIES_TO at it, or record %s in NO_DISCLOSURES to state that "
                    "it carries no silent change."
                    % (APPLIES_TO, version, version, version)]
+    # THE TWO CANNOT BOTH BE TRUE, and checking it is not pedantry: with the
+    # release's own version in NO_DISCLOSURES, the escape fired FIRST and returned
+    # 0 while every disclosure row and deprecation went unchecked -- sixteen
+    # findings on the same input without the entry. The escape was hardened to
+    # cost a reason and stayed open on the flank nobody looked at: a version that
+    # HAS a list cannot simultaneously claim it carries nothing to disclose.
+    if APPLIES_TO in NO_DISCLOSURES:
+        return 1, ["FAIL: %s is both APPLIES_TO and in NO_DISCLOSURES. A version "
+                   "with a disclosure list cannot also declare it has no silent "
+                   "change -- one of the two is wrong, and taking the second on "
+                   "trust skips every row in the first." % APPLIES_TO]
     if version in NO_DISCLOSURES:
         why = (NO_DISCLOSURES[version] or "").strip()
         if not why:
@@ -464,12 +475,26 @@ def self_test():
     case("14 a deprecation cannot hide inside a larger token", 1, hidden,
          "missing `majority_summary`")
 
+    # 15. The escape cannot be pointed at the version it is escaping FROM. With the
+    #     release's own version in NO_DISCLOSURES the escape fired first and returned
+    #     0 while every row and deprecation went unchecked -- sixteen findings on the
+    #     same input without the entry. The escape was hardened once to cost a reason
+    #     and stayed open on the flank nobody looked at.
+    saved = dict(NO_DISCLOSURES)
+    NO_DISCLOSURES[APPLIES_TO] = "nothing to see here"
+    try:
+        case("15 APPLIES_TO cannot also claim no disclosures", 1, _full_section(),
+             "cannot also declare")
+    finally:
+        NO_DISCLOSURES.clear()
+        NO_DISCLOSURES.update(saved)
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 19 cases")
+    print("\nSELF-TEST OK -- 20 cases")
     return 0
 
 
