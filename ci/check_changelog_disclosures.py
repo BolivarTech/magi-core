@@ -119,6 +119,30 @@ def version_section(changelog_text, version):
     return rest[:nxt.start()] if nxt else rest
 
 
+def present(token, text):
+    """Whether ``token`` appears in ``text`` as a whole token, not a substring.
+
+    `in` was the first form and it is a FALSE NEGATIVE waiting to happen: the row
+    whose token is `529` is satisfied by any `5291` anywhere in the section, so a
+    release could disclose nothing about the retry change and the floor would still
+    report OK. The tokens are identifiers and numbers, which is exactly the shape
+    substring matching gets wrong.
+
+    The boundary is applied per END, not blanket, because several tokens are not
+    bare identifiers: `exclude = [` finishes on a bracket and `Process.stderr`
+    carries a dot. Demanding a word boundary beside a non-word character would
+    never match. So each side gets one only when the token's own character there is
+    a word character -- which is what `\\b` means, spelled out because `re.escape`
+    plus a blanket `\\b` does not survive these tokens.
+    """
+    pat = re.escape(token)
+    if token[:1].isalnum() or token[:1] == "_":
+        pat = r"(?<![0-9A-Za-z_])" + pat
+    if token[-1:].isalnum() or token[-1:] == "_":
+        pat = pat + r"(?![0-9A-Za-z_])"
+    return re.search(pat, text) is not None
+
+
 def subsections(section_text):
     """Split a version section into ``{heading: body}`` by its `###` headings.
 
@@ -178,7 +202,7 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
 
     for row, kind, tokens in DISCLOSURES:
         if kind == "all":
-            gone = [t for t in tokens if t not in body_only]
+            gone = [t for t in tokens if not present(t, body_only)]
             if gone:
                 missing.append("%s -- missing: %s" % (row, ", ".join(gone)))
         else:
@@ -187,7 +211,8 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
             # from inside the block that exists to list deprecations -- the exact
             # leak the `all` rows already close, left open one branch over.
             searchable = [b for h, b in subs.items() if h != DEPRECATED_HEADING]
-            if not any(all(t in body for t in tokens) for body in searchable):
+            if not any(all(present(t, body) for t in tokens)
+                       for body in searchable):
                 missing.append("%s -- no single subsection carries both: %s"
                                % (row, " AND ".join(tokens)))
 
@@ -338,12 +363,29 @@ def self_test():
     if not ok:
         failures.append("11: line structure lost, rebuilt=%r" % rebuilt)
 
+    # 12. A token must not be satisfied by a LARGER one containing it. `in` was the
+    #     first form, and the row whose token is `529` was then satisfied by any
+    #     `5291` anywhere in the section -- a release could disclose nothing about
+    #     that change and the floor would still report OK. The tokens are identifiers
+    #     and numbers, which is the shape substring matching gets wrong.
+    #
+    #     Both directions, because a boundary applied blanket would break the tokens
+    #     that end on punctuation: `529` inside `5291` must NOT count, and
+    #     `exclude = [`, which finishes on a bracket, must still count.
+    ok = (not present("529", "the suite grew to 5291 tests")
+          and present("529", "HTTP 529 is now transient")
+          and present("exclude = [", "the `exclude = [` list gained three entries"))
+    print("  [%s] %-52s" % ("ok" if ok else "FAIL",
+                            "12 a token cannot hide inside a larger one"))
+    if not ok:
+        failures.append("12: boundary matching wrong")
+
     if failures:
         print("\nSELF-TEST FAILED:")
         for line in failures:
             print("  " + line)
         return 1
-    print("\nSELF-TEST OK -- 15 cases")
+    print("\nSELF-TEST OK -- 16 cases")
     return 0
 
 

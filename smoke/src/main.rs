@@ -1016,6 +1016,15 @@ pub(crate) const FEATURE_MATRIX: [(&str, Option<&str>); 4] = [
     // satisfied by any compile error, including the type errors the assertion replaced
     // -- so the row would still have passed after someone deleted the assertion.
     ("published", Some(OUT_OF_SERVICE_MARKER)),
+    // MEASURED after the retirement aliased `published` to the tree crate, because
+    // a reviewer asked whether this row had gone stale. It has not:
+    // `cargo check --no-default-features --features tree,published` emits
+    // `error[E0252]` for the duplicate `magi_core`, then BOTH assertions -- the
+    // mutual-exclusion one this row expects and the retirement one -- and cargo's
+    // summary. Three errors, and the marker this row names is among them.
+    //
+    // The diagnostic COUNT does not apply here and must not: it is scoped to the
+    // retirement marker, and this combination legitimately emits more than one.
     ("tree,published", Some(BOTH_MODES_MARKER)),
     ("", Some(NEITHER_MODE_MARKER)),
 ];
