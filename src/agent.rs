@@ -32,6 +32,68 @@ tokio::task_local! {
 /// All analysis modes in iteration order.
 const ALL_MODES: [Mode; 3] = [Mode::CodeReview, Mode::Design, Mode::Analysis];
 
+/// The (agent, mode) -> filename mapping, in ONE single place.
+///
+/// 3 agents x 3 modes = NINE rows, all present.
+///
+/// THE SCHEME IS `{agent}_{mode}.md`, READ FROM [`AgentFactory::from_directory`] --
+/// NOT `{agent}.md`. That function's rustdoc declares it ("Expected filenames:
+/// `{agent}_{mode}.md`, e.g. `melchior_code_review.md`") and its body builds it
+/// with `format!("{agent_str}_{mode_str}.md")`.
+///
+/// The nine filenames are distinct: if three modes of one agent fell into the
+/// same file, per-mode loading would stop being honored -- a silent behavior
+/// change in a public API path.
+const AGENT_FILES: &[(AgentName, Mode, &str)] = &[
+    (
+        AgentName::Melchior,
+        Mode::CodeReview,
+        "melchior_code_review.md",
+    ),
+    (AgentName::Melchior, Mode::Design, "melchior_design.md"),
+    (AgentName::Melchior, Mode::Analysis, "melchior_analysis.md"),
+    (
+        AgentName::Balthasar,
+        Mode::CodeReview,
+        "balthasar_code_review.md",
+    ),
+    (AgentName::Balthasar, Mode::Design, "balthasar_design.md"),
+    (
+        AgentName::Balthasar,
+        Mode::Analysis,
+        "balthasar_analysis.md",
+    ),
+    (AgentName::Caspar, Mode::CodeReview, "caspar_code_review.md"),
+    (AgentName::Caspar, Mode::Design, "caspar_design.md"),
+    (AgentName::Caspar, Mode::Analysis, "caspar_analysis.md"),
+];
+
+/// Resolves the filename for an (agent, mode) pair against the given table.
+///
+/// `AGENT_FILES` is the only production caller (via
+/// [`AgentFactory::from_directory`]); tests pass their own table so the mapping
+/// can be exercised without touching the real one.
+///
+/// This replaces two parallel arrays plus two `unreachable!()` match arms that
+/// were reachable the moment those arrays stopped matching each other: with a
+/// single source there is no second list to desynchronize from.
+///
+/// # Errors
+/// Returns [`MagiError::InvalidInput`] if `table` has no row for `(agent, mode)`.
+fn lookup<'t>(
+    table: &'t [(AgentName, Mode, &'t str)],
+    agent: AgentName,
+    mode: Mode,
+) -> Result<&'t str, MagiError> {
+    table
+        .iter()
+        .find(|(a, m, _)| *a == agent && *m == mode)
+        .map(|(_, _, file)| *file)
+        .ok_or_else(|| MagiError::InvalidInput {
+            reason: format!("no file mapping for ({agent:?}, {mode:?})"),
+        })
+}
+
 /// An autonomous MAGI agent with its own identity, system prompt, and LLM provider.
 ///
 /// Each agent combines an [`AgentName`] identity, a mode-agnostic system prompt
@@ -259,27 +321,15 @@ impl AgentFactory {
         // Verify the directory exists
         std::fs::read_dir(dir)?;
 
-        let agents = ["melchior", "balthasar", "caspar"];
-        let modes = ["code_review", "design", "analysis"];
+        let agents = [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar];
+        let modes = ALL_MODES;
 
-        for agent_str in &agents {
-            for mode_str in &modes {
-                let filename = format!("{agent_str}_{mode_str}.md");
-                let path = dir.join(&filename);
+        for agent_name in agents {
+            for mode in modes {
+                let filename = lookup(AGENT_FILES, agent_name, mode)?;
+                let path = dir.join(filename);
                 if path.exists() {
                     let content = std::fs::read_to_string(&path)?;
-                    let agent_name = match *agent_str {
-                        "melchior" => AgentName::Melchior,
-                        "balthasar" => AgentName::Balthasar,
-                        "caspar" => AgentName::Caspar,
-                        _ => unreachable!(),
-                    };
-                    let mode = match *mode_str {
-                        "code_review" => Mode::CodeReview,
-                        "design" => Mode::Design,
-                        "analysis" => Mode::Analysis,
-                        _ => unreachable!(),
-                    };
                     self.custom_prompts.insert((agent_name, mode), content);
                 }
             }
@@ -696,5 +746,51 @@ mod tests {
     fn test_agent_new_no_longer_requires_mode_parameter() {
         let provider: Arc<dyn LlmProvider> = Arc::new(MockProvider::default());
         let _agent = Agent::new(AgentName::Melchior, provider);
+    }
+
+    // -- R-17: single-source (agent, mode) -> filename lookup --
+
+    /// `lookup` resolves a covered pair and rejects an uncovered one, against a
+    /// synthetic table the test owns (never `AGENT_FILES`).
+    #[test]
+    fn lookup_resolves_covered_pairs_and_rejects_uncovered_ones() {
+        let table: &[(AgentName, Mode, &str)] = &[
+            (
+                AgentName::Melchior,
+                Mode::CodeReview,
+                "melchior_code_review.md",
+            ),
+            (AgentName::Balthasar, Mode::Design, "balthasar_design.md"),
+        ];
+
+        assert_eq!(
+            lookup(table, AgentName::Melchior, Mode::CodeReview).unwrap(),
+            "melchior_code_review.md"
+        );
+        assert_eq!(
+            lookup(table, AgentName::Balthasar, Mode::Design).unwrap(),
+            "balthasar_design.md"
+        );
+
+        // Not in the table: must return a typed error, never panic.
+        let err = lookup(table, AgentName::Caspar, Mode::Analysis).unwrap_err();
+        assert!(matches!(err, MagiError::InvalidInput { .. }));
+    }
+
+    /// The REAL table, not a synthetic one. Without this test `AGENT_FILES` is
+    /// looked at by nothing, and the mutation step has nowhere to produce a red.
+    #[test]
+    fn agent_files_covers_every_agent_and_mode_with_distinct_names() {
+        let mut seen = std::collections::HashSet::new();
+        for agent in [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar] {
+            for mode in [Mode::CodeReview, Mode::Design, Mode::Analysis] {
+                let file = lookup(AGENT_FILES, agent, mode).expect("all NINE combinations resolve");
+                assert!(
+                    seen.insert(file),
+                    "two combinations point at the same file: {file}"
+                );
+            }
+        }
+        assert_eq!(seen.len(), 9, "nine pairs, nine distinct names");
     }
 }
