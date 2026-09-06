@@ -2672,6 +2672,14 @@ pub(crate) async fn dispatch_one_agent_rotating(
             } => {
                 // Transport failure condemns the lineage run-wide (and may trip the
                 // endpoint-down latch, which the collector detects).
+                //
+                // THIS IS THE SINGLE PRODUCTION CALLER, and a consistency test derives from
+                // that: "a mage-local class does not enter `run_failed`" IS "its outcome is
+                // not `Transport`" only while this stays true. A second caller silently
+                // turns that derivation into a claim about nothing. Re-count before adding
+                // one -- the count is the guard, and it is not enforced mechanically:
+                //   grep -nE '\.register_transport_failure\(' src/orchestrator.rs   # 1 above the test module
+                //   grep -nE '\bis_connection\(' src/orchestrator.rs                # 2 above it: one definition, one use
                 registry
                     .register_transport_failure(current_lineage.clone(), connection)
                     .await;
