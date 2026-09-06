@@ -1384,9 +1384,11 @@ impl RetryProvider {
 /// Retryable errors:
 /// - `Timeout`: Provider did not respond in time.
 /// - `Network`: DNS, connection refused, etc.
-/// - `Http` with a status in [`TRANSIENT_STATUSES`]. The three 5xx entries cover local
-///   server cold-start; 408 is a server-side request timeout; 529 is Anthropic's
-///   documented `overloaded_error`, retryable with backoff.
+/// - `Http` with a status in [`TRANSIENT_STATUSES`]: the 5xx family covers local server
+///   cold-start, `408` is a server-side request timeout, and `529` is Anthropic's
+///   documented `overloaded_error`, retryable with backoff. The prose deliberately
+///   carries no count of the entries — a count is a transcription of the table, and
+///   single-sourcing it is the point.
 ///
 /// Non-retryable errors:
 /// - `Auth`: Invalid credentials won't become valid on retry.
