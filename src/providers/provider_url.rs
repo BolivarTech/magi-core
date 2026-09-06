@@ -281,7 +281,9 @@ fn body_cap(max_tokens: u32) -> usize {
 /// Marks `text` as truncated, unconditionally.
 ///
 /// This call site announces a **partial read** from the error-body reader, not a cut made by this
-/// function — so, unlike its siblings below, it has no `if len <= cap` guard of its own. A partial
+/// function — so, unlike its three siblings ([`ProviderError::external`],
+/// `compose_transport_message` and [`truncate_diagnostic`]), it has no `if len <= cap` guard of
+/// its own. Named rather than located: only one of the three lives in this file. A partial
 /// body can be shorter than the cap and still be incomplete, and an early return here would erase
 /// that signal in exactly the case that most resembles a complete body. See
 /// [`crate::error::mark_within_cap`] for the truncation contract itself, including why it cuts on

@@ -1389,6 +1389,10 @@ impl RetryProvider {
 ///   documented `overloaded_error`, retryable with backoff. The prose deliberately
 ///   carries no count of the entries — a count is a transcription of the table, and
 ///   single-sourcing it is the point.
+/// - `External` whose `kind` its own arm admits, and `ResponseContract` whose cause its own arm
+///   admits. These two are listed because they are the classes [`is_mage_local`] also answers
+///   true for, and R-1's guarantee bites only where both predicates do — the kinds and causes
+///   are deliberately not transcribed here, for the same reason the status list is not.
 ///
 /// Non-retryable errors:
 /// - `Auth`: Invalid credentials won't become valid on retry.

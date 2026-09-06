@@ -310,7 +310,8 @@ impl AgentFactory {
     ///
     /// Expected filenames: `{agent}_{mode}.md` (e.g., `melchior_code_review.md`).
     /// Only loads files that exist; missing files use the default compiled-in prompts.
-    /// Returns [`MagiError::Io`] if the directory itself does not exist.
+    /// Returns [`MagiError::Io`] if the directory cannot be read — it does not exist, is not a
+    /// directory, or is not permitted — or if a prompt file that does exist cannot be read.
     ///
     /// # Errors
     /// Besides the `Io` case above, returns
