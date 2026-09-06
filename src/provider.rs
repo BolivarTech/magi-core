@@ -2197,6 +2197,158 @@ mod tests {
         }));
     }
 
+    // ---- Task 2: R-2 (529 is transient) + R-19 (single-sourced table) ----
+
+    #[test]
+    fn overloaded_error_529_is_transient() {
+        // Anthropic documents 529 `overloaded_error` as retryable with backoff. It is
+        // the first-party provider of this crate, so classifying it permanent condemns
+        // its lineage for all three seats over a load spike of seconds.
+        assert!(is_retryable(&http(529)));
+    }
+
+    /// Builds a test `Http`. DO NOT use `..Default::default()`: enum variants
+    /// do not support functional-update syntax, so it doesn't compile.
+    fn http(status: u16) -> ProviderError {
+        ProviderError::Http {
+            status,
+            body: String::new(),
+            retry_after_raw: vec![],
+            received_at: None,
+        }
+    }
+
+    #[test]
+    fn test_transient_statuses_table_is_exact_and_its_complement_is_not_retryable() {
+        // HALF 1 -- the EXACT content. It's the only half that can fail: for `Http`,
+        // `is_retryable` IS `TRANSIENT_STATUSES.contains(status)`, so iterating the
+        // constant and asking "is it retryable" would be a TAUTOLOGY -- it would pass with the table
+        // empty and with `400` inside. `TRANSIENT_STATUSES` is `&[u16]`, a slice, hence
+        // the `&` in the literal.
+        assert_eq!(TRANSIENT_STATUSES, &[408u16, 429, 500, 502, 503, 504, 529]);
+
+        // HALF 2 -- the COMPLEMENT, which is the only thing that really exercises is_retryable.
+        // Without this the function could return `true` for everything and half 1 would still be green.
+        for status in [400u16, 401, 404, 501] {
+            assert!(
+                !is_retryable(&http(status)),
+                "status {status} must not be transient"
+            );
+        }
+    }
+
+    /// Wraps a status sequence into `MockProvider`'s existing scripted-responses shape
+    /// (`Vec<Result<Completion, ProviderError>>`, FIFO via `call_count()`), rather than
+    /// writing a second `LlmProvider` mock that would duplicate its atomics and locking.
+    /// A code of `200` scripts a success; any other code scripts an `Http` failure.
+    struct ScriptedHttp {
+        inner: MockProvider,
+    }
+
+    impl ScriptedHttp {
+        fn new(statuses: Vec<u16>) -> Self {
+            let responses = statuses
+                .into_iter()
+                .map(|status| {
+                    if status == 200 {
+                        Ok(Completion::new("scripted".to_string()))
+                    } else {
+                        Err(http(status))
+                    }
+                })
+                .collect();
+            Self {
+                inner: MockProvider::with_responses("scripted-http", "scripted-http", responses),
+            }
+        }
+
+        fn attempts(&self) -> usize {
+            self.inner.call_count() as usize
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for ScriptedHttp {
+        async fn complete(
+            &self,
+            system_prompt: &str,
+            user_prompt: &str,
+            config: &CompletionConfig,
+        ) -> Result<Completion, ProviderError> {
+            self.inner
+                .complete(system_prompt, user_prompt, config)
+                .await
+        }
+
+        fn name(&self) -> &str {
+            self.inner.name()
+        }
+
+        fn model(&self) -> &str {
+            self.inner.model()
+        }
+    }
+
+    /// The system prompt used by Task 2's end-to-end retry test. Any non-empty text.
+    const SYS: &str = "system prompt";
+    /// The user prompt used by Task 2's end-to-end retry test. Any non-empty text.
+    const USER: &str = "user prompt";
+
+    /// `CompletionConfig` is `#[non_exhaustive]`, so `default()` is the only stable
+    /// construction from outside the type's own module.
+    fn cfg() -> CompletionConfig {
+        CompletionConfig::default()
+    }
+
+    /// The ONLY retry-config helper of Task 2 -- not to be confused with Task 3's
+    /// `exhausting_cfg()`, which pins `operation_budget` LOW so its test exhausts it.
+    /// This one pins it HIGH: this test must REACH its successful second attempt, so a
+    /// short budget would abandon first and the attempt count would read 1 for the
+    /// wrong reason.
+    fn fast_retry_cfg() -> RetryConfig {
+        // Struct-literal update over `default()`, not sequential field assignment: the
+        // plan's own doctest idiom (`let mut cfg = RetryConfig::default(); cfg.x = ...;`)
+        // trips `clippy::field_reassign_with_default` under `-D warnings` once it appears
+        // in a `#[cfg(test)]` module -- clippy does not lint doctests, which is why the
+        // doctest itself gets away with it. Same values, same reasoning, syntax clippy
+        // accepts; `..Default::default()` still survives a new field the same way.
+        RetryConfig {
+            base_delay: Duration::from_millis(1),      // no real backoff
+            operation_budget: Duration::from_secs(60), // GENEROUS: must COMPLETE
+            limited_retry_classes: Vec::new(),
+            max_retries: 5, // PINNED -- attempts()==2 must not depend on the default
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn a_529_is_retried_and_the_second_attempt_succeeds() {
+        // E-2, end-to-end through the loop -- not the table.
+        // The counter lives in the INTERNAL provider, which is the one receiving the calls;
+        // `RetryProvider` does not expose it. Keep your own `Arc` BEFORE wrapping it
+        // -- calling `attempts()` on the wrapper doesn't compile, and that was the defect of a
+        // previous version of this test.
+        let inner = Arc::new(ScriptedHttp::new(vec![529, 200]));
+        // `with_config`, NOT `new`: `new(inner)` takes ONE argument and uses
+        // `RetryConfig::default()`. The two-argument constructor is `with_config`.
+        let provider = RetryProvider::with_config(
+            Arc::clone(&inner) as Arc<dyn LlmProvider>,
+            fast_retry_cfg(),
+        );
+        let completion = provider
+            .complete(SYS, USER, &cfg())
+            .await
+            .expect("the second attempt must succeed");
+
+        assert_eq!(
+            inner.attempts(),
+            2,
+            "exactly two attempts, not one and not three"
+        );
+        // `text` is a public FIELD of `Completion`, not a method.
+        assert!(!completion.text.is_empty());
+    }
+
     #[test]
     fn test_is_retryable_rejects_non_transient() {
         for status in [400u16, 403, 404] {
