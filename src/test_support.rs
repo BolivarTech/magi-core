@@ -26,6 +26,70 @@ use crate::schema::AgentName;
 use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
 // ---------------------------------------------------------------------------
+// CLAUDECODE, saved and restored around a closure.
+//
+// Moved here from `claude_cli.rs`'s private test module rather than copied: the
+// integration tests live in another crate and could not see it there, and two
+// copies of a helper with `unsafe` inside is the duplication this release removes
+// in several other places -- the one that drifts is always the one nobody reads.
+// ---------------------------------------------------------------------------
+
+/// Saves `CLAUDECODE`, clears it, runs `f`, then restores the original value.
+///
+/// A development machine that is itself a Claude Code session sets this variable,
+/// and `ClaudeCliProvider`'s constructors refuse to build under it. Every test that
+/// constructs the provider therefore wraps the CONSTRUCTION in this.
+///
+/// # This mutates process-global state and is NOT thread-safe
+///
+/// `CLAUDECODE` belongs to the process, not to a thread, so two threads calling
+/// this at once **corrupt the environment of the entire process** -- not just the
+/// tests. The caller MUST serialise these calls. In this crate's own suite that is
+/// `#[serial]` on each call site; a consumer enabling `test-utils` inherits the
+/// obligation but not the attribute, which is why it is stated here.
+///
+/// The attribute deliberately does NOT travel with the helper: it marks the TEST,
+/// not the function that mutates the environment, and `serial_test` is a
+/// dev-dependency that would not exist for an external crate compiling this module
+/// under `test-utils`.
+pub fn without_claudecode<F: FnOnce()>(f: F) {
+    let original = std::env::var("CLAUDECODE").ok();
+    unsafe {
+        std::env::remove_var("CLAUDECODE");
+    }
+    f();
+    if let Some(val) = original {
+        unsafe {
+            std::env::set_var("CLAUDECODE", val);
+        }
+    }
+}
+
+/// Sets `CLAUDECODE`, runs `f`, then restores the original value.
+///
+/// # This mutates process-global state and is NOT thread-safe
+///
+/// Same contract as [`without_claudecode`], and the same damage if it is broken:
+/// two threads calling either of these at once corrupt the environment of the
+/// whole process. Serialise them.
+pub fn with_claudecode<F: FnOnce()>(f: F) {
+    let original = std::env::var("CLAUDECODE").ok();
+    unsafe {
+        std::env::set_var("CLAUDECODE", "1");
+    }
+    f();
+    if let Some(val) = original {
+        unsafe {
+            std::env::set_var("CLAUDECODE", val);
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("CLAUDECODE");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Captured CLI envelopes, and the mutations the CLI provider's tests need.
 //
 // The fixtures are CAPTURED from the real `claude --print --output-format json`

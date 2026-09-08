@@ -446,6 +446,7 @@ mod tests {
         CAPTURED_404, FAILURE_KEEP_LIST, SUCCESS_KEEP_LIST, captured_envelope_with_stop_reason,
         captured_failure_with_unusable_api_error_status, captured_failure_without_api_error_status,
     };
+    use crate::test_support::{with_claudecode, without_claudecode};
     use serial_test::serial;
 
     #[test]
@@ -585,40 +586,6 @@ mod tests {
     // NOTE: These tests manipulate the CLAUDECODE environment variable, which is
     // process-global state. The #[serial] attribute ensures they never run in
     // parallel, making them safe under both `cargo nextest` and `cargo test`.
-
-    /// Saves the current CLAUDECODE env var, clears it, runs the closure,
-    /// then restores the original value. All env mutations are in unsafe blocks
-    /// (required by Rust 2024 edition).
-    fn without_claudecode<F: FnOnce()>(f: F) {
-        let original = std::env::var("CLAUDECODE").ok();
-        unsafe {
-            std::env::remove_var("CLAUDECODE");
-        }
-        f();
-        if let Some(val) = original {
-            unsafe {
-                std::env::set_var("CLAUDECODE", val);
-            }
-        }
-    }
-
-    /// Sets CLAUDECODE env var, runs the closure, then restores original value.
-    fn with_claudecode<F: FnOnce()>(f: F) {
-        let original = std::env::var("CLAUDECODE").ok();
-        unsafe {
-            std::env::set_var("CLAUDECODE", "1");
-        }
-        f();
-        if let Some(val) = original {
-            unsafe {
-                std::env::set_var("CLAUDECODE", val);
-            }
-        } else {
-            unsafe {
-                std::env::remove_var("CLAUDECODE");
-            }
-        }
-    }
 
     // -- BDD Scenario 23: detects nested session --
 
