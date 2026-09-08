@@ -179,8 +179,24 @@ pub enum ProviderError {
     #[non_exhaustive]
     Process {
         /// Exit code of the child process, if available.
+        ///
+        /// `None` says the PROCESS did not fail: it is what a failure of the crate's
+        /// own side carries -- a prompt that could not be written, a child that could
+        /// not be reaped, an envelope whose status is unusable.
         exit_code: Option<i32>,
-        /// Standard error output from the child process.
+        /// The child's standard error, OR a labelled diagnosis when there is
+        /// something more useful to carry.
+        ///
+        /// The CLI provider writes a label when the content is not stderr, so the
+        /// field never lies about what it holds. Three labels exist, each naming the
+        /// thing that actually failed: the envelope's own `result` when the process
+        /// and the envelope contradict each other, a prompt write that did not
+        /// complete, and a child that could not be reaped. Reusing one label for
+        /// another's failure would assert something that did not happen -- and a
+        /// field carrying an unannounced substitute is the defect class this release
+        /// corrects in several other places.
+        ///
+        /// Unlabelled content is the child's real stderr.
         stderr: String,
     },
 

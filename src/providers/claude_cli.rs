@@ -169,13 +169,86 @@ fn parse_envelope(raw: &str) -> Result<CliOutput, ProviderError> {
     })?;
 
     if output.is_error {
-        return Err(ProviderError::Process {
-            exit_code: None,
-            stderr: output.result,
-        });
+        return Err(classify_envelope_error(output));
     }
 
     Ok(output)
+}
+
+/// The lowest status this provider will hand to [`ProviderError::Http`].
+const MIN_HTTP_STATUS: i64 = 100;
+
+/// The highest status this provider will hand to [`ProviderError::Http`].
+const MAX_HTTP_STATUS: i64 = 599;
+
+/// Turns a failing envelope into the error its `api_error_status` describes.
+///
+/// # Why the status decides, and why it is gated by range
+///
+/// The CLI passes the upstream API's HTTP status through, so a rate limit reported
+/// this way is the same condition the HTTP provider reports as `429` -- and it goes
+/// through the same table. Before this, every in-band failure became `Process`, which
+/// is hard-coded non-retryable, so the identical condition was retried on one path
+/// and abandoned on the other with nothing declaring the asymmetry.
+///
+/// The range gate is not decoration. `Http.status` is `u16` and governs LINEAGE
+/// CONDEMNATION, so admitting a negative or a `99999` would not be "an odd status" --
+/// it would fabricate one no server returned and let it decide which lineage is
+/// condemned. `u16::try_from` and never `as u16`: the cast truncates in silence, and
+/// a `99999` would become `34463`, a perfectly valid `u16` and a status nobody sent.
+///
+/// A real status outside the range, if one ever existed, falls to `Process`. That is
+/// the safe direction: `Process` is mage-local and condemns no lineage, so the error
+/// is paid in diagnosis rather than in reach.
+///
+/// # Complexity
+/// O(n) in the length of `result`, from the cap's single copy.
+fn classify_envelope_error(output: CliOutput) -> ProviderError {
+    let status = match output.api_error_status {
+        ApiErrorStatus::Value(n) if (MIN_HTTP_STATUS..=MAX_HTTP_STATUS).contains(&n) => {
+            u16::try_from(n).ok()
+        }
+        ApiErrorStatus::Value(_) => None,
+        ApiErrorStatus::Unreadable => {
+            // PER EVENT, and deliberately not latched: the other warnings in this
+            // crate name a state the builder fixes, so a second telling would describe
+            // something that provably did not change. This one names an ENVELOPE, and
+            // every completion brings a different one -- latching it would hide the
+            // second occurrence, which is the datum that says the backend changed its
+            // wire format mid-run.
+            tracing::warn!(
+                "the CLI envelope carried an api_error_status that is not an integer;                  classifying as a local process failure"
+            );
+            None
+        }
+        // The field never came, so this failure never reached the API.
+        ApiErrorStatus::Absent => None,
+    };
+
+    match status {
+        Some(status) => ProviderError::Http {
+            status,
+            body: cap_envelope_body(output.result),
+            retry_after_raw: Vec::new(),
+            received_at: None,
+        },
+        None => ProviderError::Process {
+            exit_code: None,
+            stderr: output.result,
+        },
+    }
+}
+
+/// Bounds the envelope's `result` the way the HTTP path bounds a response body.
+///
+/// Only caps when the text EXCEEDS the bound: a `result` that fits travels whole and
+/// RAW. `Http.body` is not labelled -- the field is called `body` and what it carries
+/// IS the body, so a prefix would only spend diagnosis budget.
+fn cap_envelope_body(result: String) -> String {
+    if result.len() <= crate::error::MAX_ERROR_BODY_PREFIX_BYTES {
+        return result;
+    }
+    crate::error::mark_within_cap(&result, crate::error::MAX_ERROR_BODY_PREFIX_BYTES)
 }
 
 /// Strips code fences from text.
@@ -258,13 +331,6 @@ struct CliOutput {
     /// so an unconditional expectation is UNFULFILLED there and `-D warnings` turns
     /// that into an error of its own. The expectation belongs to the target where the
     /// field is genuinely dead, which is the library without its test module.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "deserialized here (R-26); the production reader arrives with R-3"
-        )
-    )]
     #[serde(default, deserialize_with = "de_api_error_status")]
     api_error_status: ApiErrorStatus,
     /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
@@ -332,29 +398,11 @@ pub(crate) enum WriteFailure {
 ///
 /// `Http.body` is NOT labelled. There the field is called `body` and what it carries
 /// IS the body, so a prefix would only spend diagnosis budget.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here; the production call site arrives with R-3's implementation"
-    )
-)]
 pub(crate) const ENVELOPE_DIAGNOSIS_PREFIX: &str = "cli envelope: ";
 
 /// Labels the envelope's `result` for the `Process.stderr` path.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here; the production call site arrives with R-3's implementation"
-    )
-)]
 pub(crate) fn label_envelope_diagnosis(result: &str) -> String {
-    // STUB: the behaviour lands in this task's implementation step. It touches the
-    // constant so the constant is not dead under `cfg(test)` either -- the pin
-    // asserts the LITERAL, deliberately, so nothing else references it.
-    let _ = (ENVELOPE_DIAGNOSIS_PREFIX, result);
-    String::new()
+    label_with(ENVELOPE_DIAGNOSIS_PREFIX, &result)
 }
 
 /// Label put on the write error when the prompt did not reach the child.
@@ -600,10 +648,36 @@ impl LlmProvider for ClaudeCliProvider {
                     "the prompt write did not complete, but the child's own exit is the diagnosis"
                 );
             }
-            return Err(ProviderError::Process {
-                exit_code: output.status.code(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            });
+            // STDOUT FIRST. The discriminator arrives there precisely in the case
+            // where this crate used to stop reading stdout, so an envelope that parses
+            // classifies the failure; stderr is the FALLBACK, never the other way
+            // round. An empty stdout counts as a parse failure -- it is the normal
+            // case when the binary did not start, and the real reason is on stderr.
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            match serde_json::from_str::<CliOutput>(&stdout) {
+                // The envelope declares the failure, so it classifies it.
+                Ok(envelope) if envelope.is_error => {
+                    return Err(classify_envelope_error(envelope));
+                }
+                // The two sources CONTRADICT each other: the envelope describes the
+                // conversation, the exit code describes the process, and a process
+                // that died did not complete whatever its last message says. The
+                // process wins, and the envelope's `result` travels as the diagnosis
+                // -- LABELLED, because a field named `stderr` has to say when what it
+                // carries is not stderr.
+                Ok(envelope) => {
+                    return Err(ProviderError::Process {
+                        exit_code: output.status.code(),
+                        stderr: label_envelope_diagnosis(&envelope.result),
+                    });
+                }
+                Err(_) => {
+                    return Err(ProviderError::Process {
+                        exit_code: output.status.code(),
+                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                    });
+                }
+            }
         }
 
         // Exit 0, so the write outcome is consulted BEFORE the parsing path. The
@@ -823,6 +897,30 @@ mod tests {
             original.starts_with(kept),
             "what precedes the marker is a prefix of the original result"
         );
+    }
+
+    #[test]
+    fn the_three_parse_failure_shapes_all_become_process() {
+        // The plan asserts that ALL THREE parse-failure shapes fall to `Process`, and
+        // demonstrated it for one. Each captured shape needs a consumer: a capture
+        // without one is wasted work and, worse, reads as coverage.
+        //
+        // The same branch through THREE different inputs, which is the point -- a
+        // parser can treat them differently without anyone noticing.
+        let shapes: [(&str, &str); 3] = [
+            ("plain text", "just some plain text, not JSON at all"),
+            (
+                "JSON without the result field",
+                include_str!("fixtures/envelopes/empty_object.json"),
+            ),
+            ("empty stdout", ""),
+        ];
+        for (name, raw) in shapes {
+            assert!(
+                matches!(parse_envelope(raw), Err(ProviderError::Process { .. })),
+                "{name} must fall to Process"
+            );
+        }
     }
 
     #[test]
@@ -1286,12 +1384,20 @@ mod tests {
 
     // -- BDD Scenario 20: detects error in CLI response --
 
-    /// is_error=true returns ProviderError::Process.
+    /// A failing envelope with no usable status is a `Process` failure.
+    ///
+    /// The hand-written fixture this used to carry paired `is_error: true` with
+    /// `subtype: "error"`, a combination the real CLI does NOT produce -- measured
+    /// against captured envelopes, where a genuine failure carries
+    /// `subtype: "success"`. An invented fixture confirms the view the crate already
+    /// has instead of contrasting it, which is how the whole class of defect this
+    /// milestone corrects survived.
+    ///
+    /// It now starts from the captured failure with its `api_error_status` removed,
+    /// which is the same condition by a shape that was measured.
     #[test]
     fn test_parse_cli_output_error_flag_returns_process_error() {
-        let outer =
-            r#"{"type":"result","subtype":"error","is_error":true,"result":"Rate limit exceeded"}"#;
-        let result = parse_envelope(outer);
+        let result = parse_envelope(&captured_failure_without_api_error_status());
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(

@@ -29,7 +29,8 @@ use common::{
 use magi_core::error::ProviderError;
 use magi_core::test_support::{
     CAPTURED_404, USER_PROMPT, big_prompt, cannot_test, captured_envelope_with_stop_reason,
-    captured_failure_with_api_error_status, envelope_with_is_error_false, result_of,
+    captured_failure_with_api_error_status, captured_failure_without_api_error_status,
+    envelope_with_is_error_false, result_of,
 };
 use serial_test::serial;
 
@@ -350,4 +351,65 @@ async fn the_in_band_error_path_reaches_the_consumer_as_http() {
     .await
     .expect_err("an in-band error is still an error");
     assert!(matches!(err, ProviderError::Http { status: 429, .. }));
+}
+
+/// The third and fourth crossings of the exit-code matrix, which nothing exercised.
+///
+/// One test is exit != 0 WITH a status; another is exit != 0 with `is_error: false`.
+/// Missing were both halves of `is_error: true` WITHOUT a status -- a CLI failure
+/// that never reached the API. It must be `Process` on both exit paths, and exit 0
+/// does not turn it into `Ok`: the envelope declared that it failed.
+///
+/// Both halves are asserted here because the first version of this closed ONE of the
+/// two cells and called the matrix complete -- the sibling-site class this campaign
+/// has paid for repeatedly.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_local_cli_failure_stays_process_on_both_exit_paths() {
+    let envelope = captured_failure_without_api_error_status();
+
+    for exit_code in [1, 0] {
+        let err = complete_against_stub(
+            StubCli::new().exit_code(exit_code).stdout(&envelope),
+            USER_PROMPT,
+        )
+        .await
+        .expect_err("the envelope declared a failure, whatever the exit code");
+        assert!(
+            matches!(err, ProviderError::Process { .. }),
+            "a failure that never reached the API stays Process (exit {exit_code}), got {err:?}"
+        );
+    }
+}
+
+/// The HAPPY PATH, end to end, which no scenario covered.
+///
+/// It lives at the END of the chain on purpose: written earlier, the task that
+/// rewrote `complete()` would have rewritten it too. Everything else asserts a
+/// failure; this asserts that when nothing goes wrong the consumer gets a
+/// `Completion` with the telemetry the envelope reported.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_successful_envelope_reaches_the_consumer_as_a_completion() {
+    let completion = complete_against_stub(
+        StubCli::new()
+            .exit_code(0)
+            .stdout(captured_envelope_with_stop_reason("end_turn").as_str()),
+        USER_PROMPT,
+    )
+    .await
+    .expect("exit 0 with a valid envelope completes");
+
+    assert!(
+        !completion.text.is_empty(),
+        "the result travels as the text"
+    );
+    assert!(
+        completion.telemetry.finish.is_some(),
+        "the backend said why it stopped, and it survives the whole path"
+    );
+    assert!(
+        completion.telemetry.completion_tokens.is_some(),
+        "and how much it wrote"
+    );
 }
