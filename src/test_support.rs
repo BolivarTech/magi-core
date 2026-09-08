@@ -25,6 +25,59 @@ use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
 use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
+/// A short literal prompt, for the cases that do not measure size.
+pub const USER_PROMPT: &str = "analyze this";
+
+/// A prompt of exactly `bytes` bytes.
+///
+/// It TAKES its size rather than choosing one, and that is a correction: with the
+/// size baked in, a scenario had TWO sources for the same number -- its own
+/// constant and whatever this produced -- so the precondition probe could be
+/// certifying a block against a payload the test never sends.
+pub fn big_prompt(bytes: usize) -> String {
+    "p".repeat(bytes)
+}
+
+/// Aborts the current test as NOT RUN, with the reason and the host.
+///
+/// # It panics rather than exiting zero, and that is the whole design
+///
+/// Under nextest each test is its own process, so `std::process::exit(0)` would be
+/// reported as PASSED -- green by omission, with the marker invisible, because only
+/// failing tests have their captured output shown. Panicking leaves it red with the
+/// reason in view, satisfies the `-> !` on its own, and needs no `grep`
+/// infrastructure around it. Fail-closed, which is the rule: nothing run is not
+/// success.
+///
+/// The message carries the host, so the output nextest captures already contains
+/// what a closing report has to record.
+///
+/// # The prefix is suppressed on a runner, and it SAYS SO when it is
+///
+/// Adjudicating a platform-dependent skip is a local, human step; on a runner there
+/// must be nothing to adjudicate. `MAGI_CI` -- set and non-empty -- suppresses the
+/// `CANNOT_TEST:` prefix, and the message then says `[prefix suppressed: MAGI_CI is
+/// set]`, because a suppression nobody can see is worse than no suppression: a local
+/// machine with the variable set for any reason would close the adjudication path
+/// and show an ordinary red instead.
+///
+/// Non-empty is checked, not just presence: `MAGI_CI=` exported blank would
+/// otherwise count as set. The project's own variable rather than a bare `CI`,
+/// which half the industry exports -- a developer machine with it set for another
+/// tool would change this guard's behaviour without anyone deciding so.
+pub fn cannot_test(reason: &str) -> ! {
+    let suppressed = std::env::var("MAGI_CI").is_ok_and(|v| !v.is_empty());
+    let host = format!(
+        "[host: {} {}]",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    if suppressed {
+        panic!("{reason} {host} [prefix suppressed: MAGI_CI is set]");
+    }
+    panic!("CANNOT_TEST: {reason} {host}");
+}
+
 // ---------------------------------------------------------------------------
 // CLAUDECODE, saved and restored around a closure.
 //

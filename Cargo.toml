@@ -127,5 +127,18 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 serial_test = "3"
 reqwest = { version = "0.13", features = ["json"] }
 
+# A stand-in for the `claude` CLI, so the integration tests can drive a REAL child
+# process. The defect under test is a deadlock between two processes, and a mock
+# has only one -- it cannot have that shape.
+#
+# `required-features` keeps it out of an ordinary build. It does NOT keep it out of
+# the PACKAGE: built and packaged are different questions, and only the first is
+# what this field answers. Shipping it is a decision already recorded beside the
+# `exclude` list above, not an oversight.
+[[bin]]
+name = "stub_cli"
+path = "src/bin/stub_cli.rs"
+required-features = ["test-utils"]
+
 [[example]]
 name = "basic_analysis"
