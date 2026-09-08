@@ -302,18 +302,31 @@ struct CliUsage {
     output_tokens: Option<u32>,
 }
 
+/// The two ways writing the prompt can fail, kept apart because collapsing them
+/// produced a false statement.
+///
+/// * `Truncated` -- `write_all` failed, so the child may have seen a partial prompt.
+/// * `Flush` -- `write_all` COMPLETED and the teardown failed, so the bytes were
+///   delivered and only the pipe's shutdown did not.
+///
+/// With a bare `io::Error`, a shutdown failure was reported as "prompt write did not
+/// complete", which invents a truncation that did not happen -- the same class of lie
+/// the labels exist to prevent.
+///
+/// It deliberately does NOT implement `Display`: the `label_*` helpers take
+/// `&dyn Display`, so the call site has to match first and hand over the `io::Error`
+/// inside. Passing the enum whole would not compile, which is the point.
+#[derive(Debug)]
+pub(crate) enum WriteFailure {
+    Truncated(std::io::Error),
+    Flush(std::io::Error),
+}
+
 /// Label put on the write error when the prompt did not reach the child.
 ///
 /// Its content is fixed here rather than at the moment the code is written, because
 /// TWO things match it: the unit test that pins it and the mutation operator that
 /// empties it. Choosing it later leaves both agreeing with whatever the code says.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
-    )
-)]
 pub(crate) const PROMPT_WRITE_DIAGNOSIS_PREFIX: &str = "prompt write did not complete: ";
 
 /// Label put on the error when reaping the child failed.
@@ -322,13 +335,6 @@ pub(crate) const PROMPT_WRITE_DIAGNOSIS_PREFIX: &str = "prompt write did not com
 /// failure that did not happen: reaping a child is not writing a prompt, and a
 /// `stderr` reading "prompt write did not complete" over an operating-system
 /// failure is the same lie the labels exist to prevent.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
-    )
-)]
 pub(crate) const REAP_DIAGNOSIS_PREFIX: &str = "child reap failed: ";
 
 /// The one place that caps and labels; every `label_*` delegates here.
@@ -341,41 +347,28 @@ pub(crate) const REAP_DIAGNOSIS_PREFIX: &str = "child reap failed: ";
 ///
 /// It caps only when the text EXCEEDS the budget. Otherwise every unit test that
 /// pins a literal would be asserting against a marked string and could never pass.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
-    )
-)]
 fn label_with(prefix: &str, text: &dyn std::fmt::Display) -> String {
-    // STUB: the behaviour lands in this task's implementation step. It returns
-    // something that is not the contract so its tests fail on the assertion rather
-    // than on a missing symbol.
-    let _ = (prefix, text);
-    String::new()
+    let rendered = text.to_string();
+    let budget = crate::error::MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(prefix.len());
+    if rendered.len() <= budget {
+        // Only caps when the text EXCEEDS. Otherwise every sibling test asserting a
+        // literal would be asserting against a marked string and could never pass.
+        return format!("{prefix}{rendered}");
+    }
+    // `saturating_sub` above because a prefix longer than the cap would underflow;
+    // `mark_within_cap` already returns the truncated marker in that case.
+    format!(
+        "{prefix}{}",
+        crate::error::mark_within_cap(&rendered, budget)
+    )
 }
 
 /// Labels the error from a failed prompt write.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
-    )
-)]
 pub(crate) fn label_prompt_write_diagnosis(err: &dyn std::fmt::Display) -> String {
     label_with(PROMPT_WRITE_DIAGNOSIS_PREFIX, err)
 }
 
 /// Labels the error from a failed child reap.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
-    )
-)]
 pub(crate) fn label_reap_diagnosis(err: &dyn std::fmt::Display) -> String {
     label_with(REAP_DIAGNOSIS_PREFIX, err)
 }
@@ -478,29 +471,130 @@ impl LlmProvider for ClaudeCliProvider {
                 stderr: format!("failed to spawn claude process: {e}"),
             })?;
 
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(user_prompt.as_bytes())
-                .await
-                .map_err(|e| ProviderError::Process {
-                    exit_code: None,
-                    stderr: format!("failed to write to stdin: {e}"),
-                })?;
-        }
+        // THE FIX. The write and the reap run CONCURRENTLY. `wait_with_output`
+        // already drains stdout and stderr -- the defect was never that it did not
+        // drain, it was that it ran AFTER the write had completed. With a large
+        // prompt and a child that fills its stderr pipe before reading stdin, both
+        // sides block and neither can move.
+        //
+        // Taken BEFORE the join: `wait_with_output()` consumes the child, so the
+        // write half cannot be holding a borrow of it.
+        let stdin = child.stdin.take();
+        let write = async move {
+            let Some(mut stdin) = stdin else {
+                return Ok(());
+            };
+            if let Err(e) = stdin.write_all(user_prompt.as_bytes()).await {
+                return Err(WriteFailure::Truncated(e));
+            }
+            let flush = stdin.shutdown().await;
+            // EXPLICIT drop, never implicit at the end of the block. The child's EOF
+            // comes from this drop, and the whole deadlock hangs off it -- an
+            // implicit one is what a refactor moves without noticing.
+            drop(stdin);
+            flush.map_err(WriteFailure::Flush)
+        };
 
-        let output = child
-            .wait_with_output()
-            .await
-            .map_err(|e| ProviderError::Process {
-                exit_code: None,
-                stderr: format!("failed to wait for claude process: {e}"),
-            })?;
+        // POLLED BY HAND, and NOT with `tokio::join!`. That macro lives behind
+        // tokio's `macros` feature, which this crate enables only as a
+        // dev-dependency -- measured: `cargo tree -e normal` shows no `tokio-macros`
+        // in the runtime graph. Turning it on would hand every consumer a new
+        // proc-macro crate, and this release adds no dependencies.
+        //
+        // The semantics are the ones the fix needs and the ones `try_join!` would
+        // NOT give: both futures are polled to completion and NEITHER is cancelled
+        // when the other resolves. When the child dies mid-write there is a broken
+        // pipe AND an exit code waiting, and the precedence below needs both --
+        // cancelling on the first error would deliver the pipe error and lose the
+        // exit code, which is the datum that wins.
+        //
+        // No `spawn` either, so there is no detached task to leak and no guard to
+        // add: both halves live in this task and are dropped together.
+        let mut write = std::pin::pin!(write);
+        let mut wait = std::pin::pin!(child.wait_with_output());
+        let mut write_done = None;
+        let mut wait_done = None;
+        let (write_outcome, reaped) = std::future::poll_fn(|cx| {
+            use std::future::Future;
+            if write_done.is_none()
+                && let std::task::Poll::Ready(v) = write.as_mut().poll(cx)
+            {
+                write_done = Some(v);
+            }
+            if wait_done.is_none()
+                && let std::task::Poll::Ready(v) = wait.as_mut().poll(cx)
+            {
+                wait_done = Some(v);
+            }
+            // Destructured rather than unwrapped: `unwrap` is forbidden outside
+            // `cfg(test)`, and putting the halves back is what keeps this a plain
+            // re-poll instead of a panic waiting for a scheduling order nobody
+            // planned.
+            match (write_done.take(), wait_done.take()) {
+                (Some(w), Some(r)) => std::task::Poll::Ready((w, r)),
+                (w, r) => {
+                    write_done = w;
+                    wait_done = r;
+                    std::task::Poll::Pending
+                }
+            }
+        })
+        .await;
+
+        // The reap can fail, and that branch exists. `wait_with_output()` returns
+        // `io::Result<Output>`: an OS failure, not a model one, so the exit code is
+        // unknown and the diagnostic gets its OWN label -- reusing the write one
+        // would assert a write failure that did not happen.
+        let output = match reaped {
+            Ok(output) => output,
+            Err(e) => {
+                return Err(ProviderError::Process {
+                    exit_code: None,
+                    stderr: label_reap_diagnosis(&e),
+                });
+            }
+        };
 
         if !output.status.success() {
+            // Row (3): the child died for its own reason, and THAT code is the
+            // diagnosis. A broken pipe the parent noticed is secondary and goes to
+            // tracing, never into the error type.
+            if let Err(WriteFailure::Truncated(e)) = &write_outcome {
+                tracing::warn!(
+                    error = %e,
+                    "the prompt write did not complete, but the child's own exit is the diagnosis"
+                );
+            }
             return Err(ProviderError::Process {
                 exit_code: output.status.code(),
                 stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             });
+        }
+
+        // Exit 0, so the write outcome is consulted BEFORE the parsing path. The
+        // match is exhaustive and carries no `_`: a new variant must break the build
+        // until somebody decides its consequence.
+        match write_outcome {
+            Ok(()) => {}
+            // Rows (2) and (2b): the write did not complete, so the result is NEVER
+            // `Ok`, whatever the exit code. The child may have read part of the
+            // prompt and produced something from it, and returning that would be a
+            // verdict on mutilated input.
+            //
+            // `exit_code: None` and not `Some(0)`: the process succeeded and the
+            // WRITE failed, so a `Some(0)` would be a failure variant declaring
+            // success.
+            Err(WriteFailure::Truncated(e)) => {
+                return Err(ProviderError::Process {
+                    exit_code: None,
+                    stderr: label_prompt_write_diagnosis(&e),
+                });
+            }
+            // The bytes were delivered; only the teardown failed. Reporting that as a
+            // truncation invents one.
+            Err(WriteFailure::Flush(e)) => {
+                tracing::warn!(error = %e, "the prompt was delivered; closing its pipe failed");
+            }
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);

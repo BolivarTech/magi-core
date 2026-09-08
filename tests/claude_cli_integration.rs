@@ -163,3 +163,78 @@ async fn a_child_that_dies_mid_write_reports_the_process_not_the_broken_pipe() {
         other => panic!("expected Process with the child's exit code, got {other:?}"),
     }
 }
+
+/// Row (2b): the write did not complete, so the result is NEVER `Ok` -- not even on
+/// exit 0.
+///
+/// It is the only branch that could return a verdict the model formed over a
+/// TRUNCATED prompt, which is exactly what the sentinel work exists to prevent. The
+/// table declared it and no test asserted it, so the milestone's worst consequence
+/// was the one thing left unpinned.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_failed_prompt_write_is_never_ok_even_on_exit_zero() {
+    // The child reads a little, closes stdin, writes a VALID envelope and exits 0.
+    // Everything about the process says success; only the write says otherwise.
+    let stub = StubCli::new()
+        .read_limit(4 * 1024)
+        .stdout(captured_envelope_with_stop_reason("end_turn").as_str())
+        .exit_code(0);
+
+    let result = complete_against_stub(stub, &big_prompt(PROMPT_BYTES)).await;
+
+    match result {
+        Ok(_) => panic!("a truncated prompt must never produce Ok, whatever the exit code"),
+        Err(ProviderError::Process {
+            exit_code, stderr, ..
+        }) => {
+            // `None` and not `Some(0)`: the PROCESS succeeded and the WRITE failed, so
+            // a `Some(0)` would be a failure variant declaring success.
+            assert_eq!(
+                exit_code, None,
+                "the process did not fail; the write did, so there is no exit code to report"
+            );
+            assert!(
+                stderr.starts_with("prompt write did not complete: "),
+                "the field must say what actually failed: {stderr}"
+            );
+        }
+        Err(other) => panic!("expected Process, got {other:?}"),
+    }
+}
+
+/// The `Flush` half of the write failure: the bytes WERE delivered and only the
+/// pipe's teardown failed, so reporting a truncation would invent one.
+///
+/// With a bare `io::Error` this branch was reported as "prompt write did not
+/// complete" while `write_all` had handed over the whole prompt -- the same lie row
+/// (2b) exists to prevent, committed inside the mechanism that prevents it.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_teardown_failure_is_not_reported_as_a_truncated_prompt() {
+    // The read limit is ABOVE the prompt, so the child takes the whole thing and
+    // then closes: the write completes and only the shutdown can fail. Below the
+    // prompt it would seed the other branch -- one knob, two branches, by argument.
+    let stub = StubCli::new()
+        .read_limit(PROMPT_BYTES * 2)
+        .stdout(captured_envelope_with_stop_reason("end_turn").as_str())
+        .exit_code(0);
+
+    let result = complete_against_stub(stub, &big_prompt(PROMPT_BYTES)).await;
+
+    // The property asserted is the NEGATIVE one, and deliberately so: whether the
+    // teardown fails at all is the operating system's call, so demanding that it
+    // does would make this test depend on something the product does not control.
+    // What the product controls is that a delivered prompt is never reported as a
+    // truncated one.
+    if let Err(ProviderError::Process { stderr, .. }) = &result {
+        assert!(
+            !stderr.starts_with("prompt write did not complete: "),
+            "the prompt WAS delivered; a teardown failure must not claim otherwise: {stderr}"
+        );
+    }
+    assert!(
+        result.is_ok(),
+        "a delivered prompt and a clean exit must complete: {result:?}"
+    );
+}

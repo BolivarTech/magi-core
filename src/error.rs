@@ -481,18 +481,6 @@ impl fmt::Display for ResponseContractCause {
     feature = "openai-compat",
     feature = "claude-cli"
 ))]
-// Under `claude-cli` ALONE its only consumer is `label_with`, whose production call
-// site arrives with R-10's implementation step; until then the chain is read by tests
-// only. The condition is narrow on purpose: with either HTTP feature on, the constant
-// IS used in production and an unconditional expectation would be unfulfilled -- which
-// `-D warnings` turns into an error of its own.
-#[cfg_attr(
-    all(not(test), not(feature = "claude-api"), not(feature = "openai-compat")),
-    expect(
-        dead_code,
-        reason = "the CLI label helper's production call site arrives with R-10's implementation"
-    )
-)]
 pub(crate) const MAX_ERROR_BODY_PREFIX_BYTES: usize = 8 * 1024;
 
 /// Marker appended when text is cut, so a truncated message never reads as a complete one.

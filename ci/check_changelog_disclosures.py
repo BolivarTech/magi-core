@@ -69,6 +69,12 @@ DISCLOSURES = [
     # prose, so a line-scoped guard reddens a correct CHANGELOG.
     ("R-3  the CONTENT of Process.stderr changes",
      "cooccur", ["Process.stderr", "diagnosis"]),
+    # Added by MS2, in the same commit that introduces the constant. A guard row and
+    # the thing it guards arrive together: adding the row at closing time leaves a
+    # window in which the disclosure exists and nothing watches it, and in that
+    # window the floor passes green over a row nobody is checking.
+    ("R-10 a failed prompt write is labelled, never a bare io error",
+     "all", ["label_prompt_write_diagnosis"]),
 ]
 
 # Not silent -- the compiler announces them -- but they BREAK a strict build, so
