@@ -144,6 +144,16 @@ impl ClaudeCliProvider {
     ///
     /// Returns a `Vec<String>` containing:
     /// `["--print", "--output-format", "json", "--model", model_id, "--system-prompt", system_prompt]`
+    ///
+    /// **`system_prompt` travels on argv here**, so it is subject to the
+    /// operating system's command-line length limit — about 32,767
+    /// characters for the whole command line on Windows, versus roughly
+    /// 131,072 bytes per argument on Linux. Whoever edits this function
+    /// should keep that in mind: a caller that grows the system prompt
+    /// enough (for instance, a large custom prompt loaded through
+    /// `from_directory`) can exhaust that budget, and the failure would
+    /// surface as an opaque process-spawn error rather than a message about
+    /// prompt length.
     fn build_args(&self, system_prompt: &str) -> Vec<String> {
         vec![
             "--print".to_string(),
@@ -518,9 +528,27 @@ fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion
 impl LlmProvider for ClaudeCliProvider {
     /// Sends a completion request by launching a `claude` subprocess.
     ///
-    /// The user prompt is sent via stdin to avoid shell injection and
-    /// command-line length limits. The subprocess is launched directly
-    /// without invoking a shell.
+    /// The subprocess is launched directly, without a shell, so there is no
+    /// shell injection risk on either channel.
+    ///
+    /// **The two prompts travel differently, and only one of them escapes the
+    /// command-line length limit.** The user prompt goes through stdin, so it
+    /// is not subject to it. The system prompt is passed on argv
+    /// (`--system-prompt`, see [`build_args`]), and argv *is* — the exact
+    /// limit the user prompt avoids. The three embedded prompts
+    /// measure 8344 / 8435 / 9342 bytes (LF line endings); the largest is
+    /// about 28.5% of the 32,767-character budget `CreateProcess` allows on
+    /// Windows, and well under the roughly 131,072-byte-per-argument limit
+    /// Linux enforces via `MAX_ARG_STRLEN`.
+    ///
+    /// The crate does not impose its own cap on the system prompt, on
+    /// purpose: there is no single correct number, since the two platform
+    /// limits differ by a factor of about four — a cap sized for Linux would
+    /// not protect Windows, and one sized for Windows would reject
+    /// legitimate input on Linux. The case this matters for is a custom
+    /// prompt loaded through `from_directory`: if it is large enough to
+    /// exhaust the remaining argv budget, the failure surfaces as an opaque
+    /// process-spawn error, not as a message naming the prompt as too long.
     ///
     /// The timeout is NOT applied here — the orchestrator wraps the
     /// entire agent task in `tokio::time::timeout`.

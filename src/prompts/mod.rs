@@ -480,6 +480,44 @@ mod tests {
             );
         }
     }
+
+    /// The system prompt travels on argv (see `build_args` in
+    /// `providers/claude_cli.rs`), and the crate deliberately does not cap
+    /// it — there is no single correct limit, since Windows and Linux
+    /// disagree by a factor of about four. This test is the only thing that
+    /// notices if an embedded prompt grows enough to eat into that margin.
+    #[test]
+    fn the_embedded_prompts_stay_well_under_the_argv_limit() {
+        // The command-line length limit `CreateProcess` enforces on Windows,
+        // in characters, for the entire command line.
+        const WINDOWS_COMMAND_LINE_LIMIT: usize = 32_767;
+
+        let prompts = [
+            ("melchior.md", super::melchior_prompt()),
+            ("balthasar.md", super::balthasar_prompt()),
+            ("caspar.md", super::caspar_prompt()),
+        ];
+
+        let mut largest = 0usize;
+        for (name, p) in prompts {
+            let len = p.len();
+            assert!(
+                len < 16_384,
+                "{name} is {len} bytes, past the 16,384-byte guard rail — \
+                 update the byte counts and the argv-limit discussion in the \
+                 `complete()` rustdoc in src/providers/claude_cli.rs"
+            );
+            largest = largest.max(len);
+        }
+
+        assert!(
+            largest * 100 < WINDOWS_COMMAND_LINE_LIMIT * 40,
+            "the largest embedded prompt is {largest} bytes, at or above 40% \
+             of the {WINDOWS_COMMAND_LINE_LIMIT}-character Windows command-line \
+             limit — update the byte counts and the argv-limit discussion in \
+             the `complete()` rustdoc in src/providers/claude_cli.rs"
+        );
+    }
 }
 
 #[cfg(test)]
