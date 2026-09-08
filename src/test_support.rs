@@ -241,6 +241,72 @@ pub fn captured_failure_without_api_error_status() -> String {
     )
 }
 
+/// The captured FAILURE envelope with `is_error` flipped to `false`, KEEPING its
+/// `api_error_status`.
+///
+/// The (a) edge: a status present on an envelope that does not claim failure.
+/// `is_error` governs and the status is not read, so this must parse as a success.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn envelope_with_is_error_false_and_status() -> String {
+    replace_once(CAPTURED_404, "\"is_error\": true", "\"is_error\": false")
+}
+
+/// The captured FAILURE envelope with `is_error` flipped to `false` AND its
+/// `api_error_status` REMOVED.
+///
+/// TWO fields, which is what separates it from its sibling above: without removing
+/// the status the two functions would be the same and the (a) edge would lose its
+/// own input. This one is what a process/envelope disagreement needs -- the envelope
+/// says success while the process exits non-zero.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn envelope_with_is_error_false() -> String {
+    let without_status = replace_once(CAPTURED_404, "  \"api_error_status\": 404,\n", "");
+    replace_once(&without_status, "\"is_error\": true", "\"is_error\": false")
+}
+
+/// The captured FAILURE envelope with its `result` replaced by `bytes` of filler.
+///
+/// The cap assertion is VACUOUS against the real fixture: its `result` is two lines,
+/// so `len() <= 8 KiB` holds with the truncation deleted. Only a `result` that
+/// EXCEEDS the cap can tell a working cap from an absent one.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn captured_failure_with_oversized_result(bytes: usize) -> String {
+    let value: serde_json::Value =
+        serde_json::from_str(CAPTURED_404).expect("the captured fixture parses");
+    let mut object = match value {
+        serde_json::Value::Object(map) => map,
+        other => panic!("the captured fixture is an object, got {other}"),
+    };
+    object.insert(
+        "result".to_string(),
+        serde_json::Value::String("R".repeat(bytes)),
+    );
+    serde_json::Value::Object(object).to_string()
+}
+
+/// The `result` field of an envelope, as the crate would read it.
+///
+/// Tests assert against what the envelope SAYS rather than against a literal copied
+/// beside them: a copy drifts from the fixture and the assertion then pins the copy.
+///
+/// # Panics
+/// If `raw` is not an object with a string `result`.
+pub fn result_of(raw: &str) -> String {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).expect("the envelope under test parses");
+    value
+        .get("result")
+        .and_then(|r| r.as_str())
+        .expect("the envelope under test carries a string `result`")
+        .to_string()
+}
+
 /// Substitutes `needle` once, and panics if it is not there.
 ///
 /// The panic is the point: a substitution that silently does nothing hands the

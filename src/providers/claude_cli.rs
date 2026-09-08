@@ -322,6 +322,39 @@ pub(crate) enum WriteFailure {
     Flush(std::io::Error),
 }
 
+/// Label put on the envelope's `result` when it travels as a process diagnosis.
+///
+/// A field named `stderr` carrying something that is not stderr is the defect class
+/// this release corrects elsewhere, so it says what it carries. Its content is fixed
+/// here rather than at the moment the code is written: two things match it -- the
+/// unit test that pins it and the mutation operator that empties it -- and choosing
+/// it later leaves both agreeing with whatever the code says.
+///
+/// `Http.body` is NOT labelled. There the field is called `body` and what it carries
+/// IS the body, so a prefix would only spend diagnosis budget.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here; the production call site arrives with R-3's implementation"
+    )
+)]
+pub(crate) const ENVELOPE_DIAGNOSIS_PREFIX: &str = "cli envelope: ";
+
+/// Labels the envelope's `result` for the `Process.stderr` path.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here; the production call site arrives with R-3's implementation"
+    )
+)]
+pub(crate) fn label_envelope_diagnosis(result: &str) -> String {
+    // STUB: the behaviour lands in this task's implementation step.
+    let _ = result;
+    String::new()
+}
+
 /// Label put on the write error when the prompt did not reach the child.
 ///
 /// Its content is fixed here rather than at the moment the code is written, because
@@ -613,13 +646,226 @@ impl LlmProvider for ClaudeCliProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
     use crate::provider::FinishReason;
+    use crate::provider::is_retryable;
     use crate::test_support::{
         CAPTURED_404, FAILURE_KEEP_LIST, SUCCESS_KEEP_LIST, captured_envelope_with_stop_reason,
+        captured_failure_with_api_error_status, captured_failure_with_oversized_result,
         captured_failure_with_unusable_api_error_status, captured_failure_without_api_error_status,
+        envelope_with_is_error_false_and_status, result_of,
     };
     use crate::test_support::{with_claudecode, without_claudecode};
     use serial_test::serial;
+
+    #[test]
+    fn the_cli_status_is_classified_like_the_http_path() {
+        // E-3. Synthetic is ONLY the field the scenario varies; the shape stays
+        // measured.
+        let out = captured_failure_with_api_error_status(429);
+        match parse_envelope(&out) {
+            // ALL FOUR FIELDS, not just the status: the conversion decides every one
+            // of them, and with `..` three quarters would go unpinned. `body` matters
+            // most -- it is the only diagnosis the CLI gives.
+            Err(ProviderError::Http {
+                status,
+                body,
+                retry_after_raw,
+                received_at,
+            }) => {
+                assert_eq!(status, 429);
+                // Without this, an `assert_eq!` between two empty strings would pass,
+                // and losing the `result` is precisely the regression.
+                assert!(!body.is_empty(), "the body cannot arrive empty");
+                // SHORT case: a `result` under the cap travels whole and RAW.
+                // `Http.body` is NOT labelled -- the label lives on the
+                // `Process.stderr` path, where a field named `stderr` has to say that
+                // what it carries is not stderr. Here the field is called `body` and
+                // what it carries IS the body.
+                assert_eq!(
+                    body,
+                    result_of(&out),
+                    "a `result` under the cap travels intact and raw"
+                );
+                assert!(body.len() <= MAX_ERROR_BODY_PREFIX_BYTES);
+                assert!(
+                    retry_after_raw.is_empty(),
+                    "the envelope carries no equivalent header"
+                );
+                assert!(received_at.is_none(), "with no header there is no instant");
+                assert!(is_retryable(&ProviderError::Http {
+                    status,
+                    body: String::new(),
+                    retry_after_raw: vec![],
+                    received_at: None,
+                }));
+            }
+            other => panic!("expected Http {{ status: 429 }}, got {other:?}"),
+        }
+        // 404 travels the same path and is NOT retryable -- one table, both providers.
+        let out_404 = captured_failure_with_api_error_status(404);
+        assert!(!is_retryable(&parse_envelope(&out_404).unwrap_err()));
+        // Edge (a): a status on an envelope that does not claim failure is not a
+        // failure -- `is_error` governs and the status is not read.
+        assert!(parse_envelope(&envelope_with_is_error_false_and_status()).is_ok());
+        // A LOCAL CLI failure never reached the API, so Process is the right answer.
+        assert!(matches!(
+            parse_envelope(&captured_failure_without_api_error_status()),
+            Err(ProviderError::Process { .. })
+        ));
+        // PRESENT BUT UNUSABLE is a THIRD case and not the same as absent. BOTH
+        // shapes, because `null` is valid JSON for the field and a string is not, so a
+        // parser can treat them differently without anyone noticing.
+        for unusable in ["\"429\"", "null"] {
+            assert!(
+                matches!(
+                    parse_envelope(&captured_failure_with_unusable_api_error_status(unusable)),
+                    Err(ProviderError::Process { .. })
+                ),
+                "an unreadable status must not become an Http: {unusable}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_envelope_without_is_error_is_a_failure_not_a_success() {
+        // Pins an invariant that is an ABSENCE: `is_error` must NOT carry
+        // `#[serde(default)]`. With the attribute, an envelope that never said whether
+        // it failed would deserialize as a SUCCESS -- the safe direction is the other
+        // one, because a missing field is a wire this crate does not understand.
+        //
+        // Mutation: adding `#[serde(default)]` to `is_error` must turn this red.
+        let without = r#"{"result":"something happened"}"#;
+        assert!(
+            serde_json::from_str::<CliOutput>(without).is_err(),
+            "an envelope that does not say whether it failed must not parse as success"
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_api_error_status_is_not_an_http_error() {
+        // THE BOUNDARIES, not a far-away value. A `99999` passes with `100..=599`,
+        // with `99..=600` and with `0..=99999`, so it cannot detect an off-by-one --
+        // the same vacuity the oversized-result test corrects next door.
+        //
+        // The range is a decision of this plan rather than of the spec, and it was
+        // escalated and kept: `Http.status` is `u16` and GOVERNS lineage condemnation,
+        // so putting a negative or a `99999` in there is not "an odd status" -- it is
+        // fabricating one no server returned and letting it decide which lineage is
+        // condemned.
+        //
+        // Declared consequence: a real status outside `100..=599`, if one ever
+        // existed, would fall to `Process`. That is the safe direction -- `Process` is
+        // mage-local and condemns no lineage, so the error is paid in diagnosis.
+        //
+        // Mutation: widening to `99..=600` must redden TWO rows and leave the rest
+        // green. If only one falls, the test is not covering both ends.
+        for (value, expect_http) in [
+            (99i64, false),
+            (100, true),
+            (599, true),
+            (600, false),
+            (-1, false),
+            (99999, false),
+        ] {
+            let raw = captured_failure_with_api_error_status(value);
+            let err = parse_envelope(&raw).expect_err("is_error is true, so this fails");
+            if expect_http {
+                match err {
+                    ProviderError::Http { status, .. } => assert_eq!(
+                        i64::from(status),
+                        value,
+                        "an in-range status must arrive unchanged"
+                    ),
+                    other => panic!("{value} is a usable status; got {other:?}"),
+                }
+            } else {
+                assert!(
+                    matches!(err, ProviderError::Process { .. }),
+                    "{value} cannot be an HTTP status, so it must stay Process"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn an_oversized_envelope_result_is_capped_and_says_so() {
+        // The cap assertion is VACUOUS against the real fixture: its `result` is two
+        // lines, so `len() <= 8 KiB` holds with the truncation deleted. Only a
+        // `result` that EXCEEDS the cap tells a working cap from an absent one.
+        //
+        // Mutation: removing the truncation from the CLI path must redden THIS test
+        // and leave the short case green. If the short case falls too, it was not
+        // isolated.
+        let raw = captured_failure_with_oversized_result(16 * 1024);
+        let ProviderError::Http { body, .. } =
+            parse_envelope(&raw).expect_err("is_error is true, so this fails")
+        else {
+            panic!("an envelope with a usable status becomes Http");
+        };
+        assert!(
+            body.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "the body must fit the cap: {} > {}",
+            body.len(),
+            MAX_ERROR_BODY_PREFIX_BYTES
+        );
+        assert!(
+            body.ends_with(crate::error::TRUNCATION_MARKER),
+            "a capped body says so"
+        );
+        let original = result_of(&raw);
+        let kept = body
+            .strip_suffix(crate::error::TRUNCATION_MARKER)
+            .expect("the marker was just asserted");
+        assert!(
+            original.starts_with(kept),
+            "what precedes the marker is a prefix of the original result"
+        );
+    }
+
+    #[test]
+    fn the_diagnosis_prefix_labels_the_envelope_result() {
+        // THE LITERAL, never `starts_with(ENVELOPE_DIAGNOSIS_PREFIX)`: with the
+        // constant on both sides, emptying it moves both and the test stays green over
+        // a label that vanished.
+        assert_eq!(
+            label_envelope_diagnosis("boom"),
+            "cli envelope: boom",
+            "a field named `stderr` must say when what it carries is not stderr"
+        );
+    }
+
+    #[test]
+    fn the_ms1_surface_this_milestone_consumes_is_reachable() {
+        // COMPILATION probe, not a behaviour test: what it verifies is that these two
+        // items EXIST with the visibility this milestone needs, from THIS feature set.
+        // A grep finds the declaration and cannot see the `#[cfg]` that leaves it out
+        // -- which is exactly the trap this milestone hit with the error-body cap, so
+        // repeating it inside the guard written to avoid it would be the whole joke.
+        //
+        // Under the stacked branch topology it is guaranteed by construction, so this
+        // is the last-resort probe for someone branching from elsewhere. The
+        // assertions are deliberately trivial: one that also asserted behaviour would
+        // go red for a second reason and stop being a probe.
+        assert!(!crate::provider::is_retryable(
+            &ProviderError::NestedSession
+        ));
+        assert!(crate::error::mark_within_cap("", 0).is_empty());
+
+        // The same probe over the API SHAPES the tests assume: `FinishReason` compared
+        // with `assert_eq!` needs `PartialEq + Debug`, and the two telemetry fields are
+        // read through `Completion.telemetry`, never `Completion.finish` -- `Completion`
+        // has exactly `text` and `telemetry`. Discovering either by compiling the Red
+        // sends the executor hunting for a typo instead of a missing derive.
+        assert_eq!(FinishReason::from_wire("end_turn"), FinishReason::Stop);
+        let probe = parse_completion(
+            r#"{"is_error":false,"result":"hi"}"#,
+            ReasoningControl::default(),
+        )
+        .expect("a minimal envelope completes");
+        assert!(probe.telemetry.finish.is_none());
+        assert!(probe.telemetry.completion_tokens.is_none());
+    }
 
     #[test]
     fn the_reap_prefix_labels_its_error() {

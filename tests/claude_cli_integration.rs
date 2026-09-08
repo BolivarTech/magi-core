@@ -27,7 +27,10 @@ use common::{
     write_blocks_without_a_drainer,
 };
 use magi_core::error::ProviderError;
-use magi_core::test_support::{big_prompt, cannot_test, captured_envelope_with_stop_reason};
+use magi_core::test_support::{
+    CAPTURED_404, USER_PROMPT, big_prompt, cannot_test, captured_envelope_with_stop_reason,
+    captured_failure_with_api_error_status, envelope_with_is_error_false, result_of,
+};
 use serial_test::serial;
 
 /// The scaffolding's own test.
@@ -237,4 +240,114 @@ async fn a_teardown_failure_is_not_reported_as_a_truncated_prompt() {
         result.is_ok(),
         "a delivered prompt and a clean exit must complete: {result:?}"
     );
+}
+
+/// E-3b: a non-zero exit must NOT discard the envelope.
+///
+/// This is the half that unblocks the other: the discriminator arrives on stdout
+/// precisely in the case where the crate stopped reading stdout.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_nonzero_exit_code_does_not_discard_the_envelope() {
+    let err = complete_against_stub(
+        StubCli::new()
+            .exit_code(1)
+            .stdout(CAPTURED_404)
+            .stderr("noise"),
+        USER_PROMPT,
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, ProviderError::Http { status: 404, .. }));
+}
+
+/// E-3c: when the process and the envelope contradict each other, the process wins.
+///
+/// The only branch where the two sources disagree, so the one a future refactor can
+/// invert without anything complaining.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn when_the_process_and_the_envelope_disagree_the_process_wins() {
+    let envelope = envelope_with_is_error_false();
+    let err = complete_against_stub(
+        StubCli::new().exit_code(1).stdout(&envelope).stderr(""),
+        USER_PROMPT,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        // `..` MANDATORY: this test lives outside the crate and `ProviderError` is
+        // `#[non_exhaustive]`, so an exhaustive destructure does not compile (E0639).
+        // The rule belongs to the SIDE that looks, not to the variant -- which is why
+        // the unit test next door does not need it.
+        ProviderError::Process {
+            exit_code, stderr, ..
+        } => {
+            assert_eq!(exit_code, Some(1));
+            // The stub sets stderr EMPTY on purpose: what must travel as the
+            // diagnosis is the ENVELOPE's `result`, and it goes in LABELLED, never
+            // raw -- a field named `stderr` holding something that is not stderr is
+            // the defect class this release corrects.
+            //
+            // NOT `starts_with(ENVELOPE_DIAGNOSIS_PREFIX)`: that constant is
+            // `pub(crate)` and this test cannot see it. The prefix is pinned by its
+            // own unit test; here we assert what a CONSUMER can observe.
+            let result = result_of(&envelope);
+            assert!(!result.is_empty());
+            assert!(stderr.contains(result.as_str()));
+            assert_ne!(stderr, result, "it travels LABELLED, not raw");
+        }
+        other => panic!("the exit code must win, got {other:?}"),
+    }
+}
+
+/// The path R-3 opens that no test walked: exit != 0 with EMPTY stdout.
+///
+/// The normal case when the binary did not start. "Parsing stdout fails" includes
+/// that emptiness -- otherwise `complete()` would report a parse error over nothing
+/// instead of the real reason, which is on stderr.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn an_empty_stdout_falls_back_to_stderr() {
+    let err = complete_against_stub(
+        StubCli::new()
+            .exit_code(127)
+            .stdout("")
+            .stderr("claude: command not found"),
+        USER_PROMPT,
+    )
+    .await
+    .unwrap_err();
+
+    match err {
+        ProviderError::Process {
+            exit_code, stderr, ..
+        } => {
+            assert_eq!(exit_code, Some(127));
+            assert!(
+                stderr.contains("command not found"),
+                "stderr is the fallback"
+            );
+        }
+        other => panic!("expected Process, got {other:?}"),
+    }
+}
+
+/// E-3d: the IN-BAND path, end to end -- exit 0 with `is_error: true`.
+///
+/// The rate-limit shape, which is the case R-3 exists for. The other two integration
+/// tests are both exit != 0, so without this one the branch travels only through a
+/// unit test.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn the_in_band_error_path_reaches_the_consumer_as_http() {
+    let err = complete_against_stub(
+        StubCli::new()
+            .exit_code(0)
+            .stdout(&captured_failure_with_api_error_status(429)),
+        USER_PROMPT,
+    )
+    .await
+    .expect_err("an in-band error is still an error");
+    assert!(matches!(err, ProviderError::Http { status: 429, .. }));
 }
