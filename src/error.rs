@@ -462,6 +462,23 @@ impl fmt::Display for ResponseContractCause {
     }
 }
 
+/// Cap for the diagnostic prefix of an error body.
+///
+/// It lives HERE and not with the HTTP plumbing that used to own it, for the same
+/// reason `TRUNCATION_MARKER` does: the cap is a property of what a `ProviderError`
+/// may carry, not of any one transport. The CLI provider needs it too, and
+/// `providers/provider_url.rs` is gated on the HTTP features -- so with only
+/// `claude-cli` enabled the constant did not exist at all, and the label helpers
+/// that bound their diagnostics could not be written.
+///
+/// Gated on the features that actually have a consumer, which is what its previous
+/// home gave it for free by being gated itself. The list is a TRIPWIRE rather than
+/// a maintenance burden: a future provider that needs the cap gets a dead-code
+/// error naming this constant, which is a compile failure pointing at the line to
+/// edit -- not a silent one.
+#[cfg(any(feature = "claude-api", feature = "openai-compat"))]
+pub(crate) const MAX_ERROR_BODY_PREFIX_BYTES: usize = 8 * 1024;
+
 /// Marker appended when text is cut, so a truncated message never reads as a complete one.
 ///
 /// Lives here rather than beside the retry machinery because this is the foundation layer: the

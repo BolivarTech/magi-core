@@ -37,6 +37,7 @@
 
 use std::fmt;
 
+use crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
 use crate::error::ProviderError;
 
 /// Replacement for redacted values.
@@ -251,9 +252,6 @@ pub(crate) const BYTES_PER_TOKEN_CEILING: usize = 16;
 /// would yield `usize::MAX` for an absurd `max_tokens` — a limit that disappears exactly when it is
 /// most needed, which is the worst possible failure for a cap.
 pub(crate) const MAX_CAPPABLE_TOKENS: usize = 1_048_576;
-
-/// Cap for the diagnostic prefix of an error body.
-pub(crate) const MAX_ERROR_BODY_PREFIX_BYTES: usize = 8 * 1024;
 
 /// Appends `chunk` to `acc` unless doing so would EXCEED `cap` (strictly greater), in which case it
 /// returns `false` and leaves `acc` untouched.
