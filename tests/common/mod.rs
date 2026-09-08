@@ -339,9 +339,35 @@ mod cli_stub {
     /// The prompt size the deadlock scenario sends.
     ///
     /// It lives at module level because TWO things use it -- the scenario and the
-    /// precondition probe that has to block on the same payload. Split, the probe could
-    /// certify a block against a payload the test never sends.
-    pub const PROMPT_BYTES: usize = 250 * 1024;
+    /// precondition probe that has to block on the same payload. Split, the probe
+    /// could certify a block against a payload the test never sends.
+    ///
+    /// # 4 MiB, and the number is MEASURED rather than reasoned
+    ///
+    /// The deadlock needs the parent's write to block, which needs the prompt to
+    /// exceed the child's stdin pipe. Measured on Windows x86_64 (2026-09-08) by
+    /// doubling:
+    ///
+    /// | prompt | parent's write blocks? |
+    /// |---|---|
+    /// | 250 KiB | no |
+    /// | 1 MiB | no |
+    /// | 4 MiB | **yes** |
+    ///
+    /// At 250 KiB -- the size of a real payload -- the write COMPLETED without the
+    /// child ever reading, so the deadlock was never reproduced: the probe reported
+    /// `Absorbed` and the scenario declined to run rather than passing. That is the
+    /// three-value probe doing its job; a bool would have called it green.
+    ///
+    /// The plan this came from records "Windows blocks the writer at 8 KiB". That is
+    /// false on this machine, and the doubling above is why the number moved. 4 MiB
+    /// also clears Linux's default `pipe-max-size` of 1 MiB by 4x, so it is picked
+    /// against the ceiling on both platforms rather than the typical case on one.
+    ///
+    /// The child's stderr pipe was measured the same way: 64 KiB is absorbed, 1 MiB
+    /// blocks the child. The scenario's 4 MiB burst therefore does keep it from
+    /// reading stdin, which is the other half of the deadlock.
+    pub const PROMPT_BYTES: usize = 4 * 1024 * 1024;
 
     /// The exit code `exits_mid_write` produces, kept in step with the stub's own.
     ///

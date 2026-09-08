@@ -22,7 +22,12 @@
 
 mod common;
 
-use common::StubCli;
+use common::{
+    PROMPT_BYTES, STUB_MID_WRITE_EXIT, StubCli, WriteProbe, complete_against_stub,
+    write_blocks_without_a_drainer,
+};
+use magi_core::error::ProviderError;
+use magi_core::test_support::{big_prompt, cannot_test, captured_envelope_with_stop_reason};
 use serial_test::serial;
 
 /// The scaffolding's own test.
@@ -74,4 +79,87 @@ async fn the_stub_emits_the_burst_it_was_configured_with() {
         "exits_mid_write must use the pinned exit code, which the precedence table \
          splits two of its rows by"
     );
+}
+
+/// E-10: a child that floods stderr before reading stdin must not hang the parent.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE, which is
+// process-global state.
+async fn a_verbose_child_does_not_hang_the_parent() {
+    // The pipe buffer size is the OS's, so this asserts the PROPERTY, not a number
+    // -- but the number is picked against the CEILING rather than against "more
+    // than a reasonable buffer", which is intuition. Linux lets a pipe grow to
+    // /proc/sys/fs/pipe-max-size, default 1 MiB: exactly that would leave ZERO
+    // margin on a maximally expanded pipe. 4 MiB is 4x the ceiling. MEASURED:
+    // Windows blocks the writer at 8 KiB, so it carries 512x -- it is where the
+    // deadlock reproduces most easily, which makes it the PRIMARY verification
+    // platform here, not the secondary one.
+    const STDERR_BYTES: usize = 4 * 1024 * 1024;
+
+    // PRECONDITION SEEDED BY ANOTHER PATH, and CHECKED rather than believed. If the
+    // write does NOT block without a concurrent drainer, this platform absorbs the
+    // whole margin, the deadlock was never exercised, and a green here would be
+    // green by omission. THREE branches, not two: with a bool, a write ERROR read as
+    // "absorbed" and the test excused itself with a false reason -- a harness
+    // failure dressed as a platform limit. `Failed` panics WITHOUT the
+    // `CANNOT_TEST:` prefix, so it is not adjudicable and blocks the round.
+    match write_blocks_without_a_drainer(STDERR_BYTES, PROMPT_BYTES).await {
+        WriteProbe::Blocked => {}
+        // No `return`: `cannot_test` returns `!`, so it already diverges.
+        WriteProbe::Absorbed => {
+            cannot_test("this platform absorbed 4 MiB; the deadlock was not reproduced")
+        }
+        WriteProbe::Failed(e) => panic!("harness failure while seeding the deadlock: {e}"),
+    }
+
+    // EXPLICIT TIMEOUT on the call under test: without it, a regression of the
+    // deadlock leaves this test HANGING instead of red, and a gate that hangs is
+    // worse than one that fails -- it says nothing and burns the clock until
+    // somebody kills it. 30 s is two orders of magnitude over what the call takes
+    // when it works, and a fraction of any CI timeout.
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        complete_against_stub(
+            // `.stdout()` is explicit: the stub has to exit 0 with a valid envelope
+            // after the burst, or the `is_ok()` below cannot hold. The burst is the
+            // obstacle; the happy ending is what proves it was cleared.
+            StubCli::new()
+                .writes_stderr_before_reading_stdin(STDERR_BYTES)
+                .stdout(captured_envelope_with_stop_reason("end_turn").as_str()),
+            // ONE source for the size, shared with the probe above.
+            &big_prompt(PROMPT_BYTES),
+        ),
+    )
+    .await
+    // Two DIFFERENT failures, hence two assertions: the timeout says "the deadlock
+    // is back", the `is_ok()` says "the call failed for something else". Collapsing
+    // them would make a deadlock regression read as an ordinary provider error.
+    .expect("the deadlock is back: complete() did not return within 30 s");
+    assert!(
+        outcome.is_ok(),
+        "the call must complete instead of deadlocking"
+    );
+}
+
+/// Case (3) of the precedence table: the child died, so the child's exit is the
+/// diagnosis -- not the broken pipe the parent noticed.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_child_that_dies_mid_write_reports_the_process_not_the_broken_pipe() {
+    let err = complete_against_stub(StubCli::new().exits_mid_write(), &big_prompt(PROMPT_BYTES))
+        .await
+        .unwrap_err();
+    // THE EXIT CODE, not just the variant. `matches!(Process { .. })` passes for row
+    // (2b) too -- which produces `exit_code: None` -- so a bare variant assertion
+    // CANNOT FAIL if the precedence inverts, and inverting it is this task's own
+    // mutation operator. The stub exits with a KNOWN code precisely so this
+    // assertion has a number to check.
+    match err {
+        ProviderError::Process { exit_code, .. } => assert_eq!(
+            exit_code,
+            Some(STUB_MID_WRITE_EXIT),
+            "row (3) must carry the child's own exit code; `None` is row (2b)"
+        ),
+        other => panic!("expected Process with the child's exit code, got {other:?}"),
+    }
 }
