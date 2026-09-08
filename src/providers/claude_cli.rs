@@ -51,7 +51,18 @@ use tokio::process::Command;
 pub struct ClaudeCliProvider {
     /// The resolved model identifier sent to the CLI.
     model_id: String,
+    /// The executable to launch. `"claude"` for every constructor a consumer can
+    /// reach; the test-only constructor points it at a stub instead.
+    ///
+    /// It exists because the defect this provider carries is a deadlock between
+    /// TWO PROCESSES, and a mock cannot reproduce one: the test needs a real child
+    /// that writes to stderr before it reads stdin. Nothing else about the
+    /// provider changes -- the default is the same literal that was hard-coded.
+    binary: String,
 }
+
+/// The executable every consumer-reachable constructor launches.
+const DEFAULT_BINARY: &str = "claude";
 
 impl ClaudeCliProvider {
     /// Creates a new `ClaudeCliProvider` with model alias resolution.
@@ -76,7 +87,47 @@ impl ClaudeCliProvider {
         let model = model.into();
         let model_id = resolve_claude_alias(&model)?;
 
-        Ok(Self { model_id })
+        Ok(Self {
+            model_id,
+            binary: DEFAULT_BINARY.to_string(),
+        })
+    }
+
+    /// Creates a provider that launches `binary` instead of `claude`.
+    ///
+    /// Test-only, and gated so it never reaches a consumer. It exists for one
+    /// reason: the deadlock this provider can hit is between two processes, and
+    /// reproducing it needs a real child whose behaviour the test controls.
+    ///
+    /// **The nested-session guard is KEPT deliberately.** Pointing the provider at
+    /// a stub does not make the caller any less nested, and dropping the check here
+    /// would mean the test path and the production path disagree about when
+    /// construction is legal -- so a test could pass in a shape production refuses.
+    /// The consequence is real and the caller has to handle it: a development
+    /// machine that IS a Claude Code session sets `CLAUDECODE`, so every
+    /// integration test has to clear it around the construction. That is what
+    /// [`crate::test_support::without_claudecode`] is for.
+    ///
+    /// # Errors
+    ///
+    /// - [`ProviderError::NestedSession`] if `CLAUDECODE` is set.
+    /// - [`ProviderError::Auth`] if the model alias is unknown.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn with_binary(
+        binary: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Result<Self, ProviderError> {
+        if std::env::var("CLAUDECODE").is_ok() {
+            return Err(ProviderError::NestedSession);
+        }
+
+        let model = model.into();
+        let model_id = resolve_claude_alias(&model)?;
+
+        Ok(Self {
+            model_id,
+            binary: binary.into(),
+        })
     }
 
     /// Returns the provider name.
@@ -337,7 +388,7 @@ impl LlmProvider for ClaudeCliProvider {
     ) -> Result<Completion, ProviderError> {
         let args = self.build_args(system_prompt);
 
-        let mut child = Command::new("claude")
+        let mut child = Command::new(&self.binary)
             .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
