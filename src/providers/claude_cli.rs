@@ -302,6 +302,84 @@ struct CliUsage {
     output_tokens: Option<u32>,
 }
 
+/// Label put on the write error when the prompt did not reach the child.
+///
+/// Its content is fixed here rather than at the moment the code is written, because
+/// TWO things match it: the unit test that pins it and the mutation operator that
+/// empties it. Choosing it later leaves both agreeing with whatever the code says.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
+    )
+)]
+pub(crate) const PROMPT_WRITE_DIAGNOSIS_PREFIX: &str = "prompt write did not complete: ";
+
+/// Label put on the error when reaping the child failed.
+///
+/// A third label rather than reusing the write one, because reusing it asserted a
+/// failure that did not happen: reaping a child is not writing a prompt, and a
+/// `stderr` reading "prompt write did not complete" over an operating-system
+/// failure is the same lie the labels exist to prevent.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
+    )
+)]
+pub(crate) const REAP_DIAGNOSIS_PREFIX: &str = "child reap failed: ";
+
+/// The one place that caps and labels; every `label_*` delegates here.
+///
+/// The cap bounds the FINAL string, label included -- the consumer receives the
+/// labelled one, so that is what must fit. Hence the budget passed to
+/// `mark_within_cap` is the cap minus the prefix; handing it the whole cap yields
+/// `cap + prefix.len()` bytes, which overruns the very constant that exists to
+/// bound what reaches an error body.
+///
+/// It caps only when the text EXCEEDS the budget. Otherwise every unit test that
+/// pins a literal would be asserting against a marked string and could never pass.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
+    )
+)]
+fn label_with(prefix: &str, text: &dyn std::fmt::Display) -> String {
+    // STUB: the behaviour lands in this task's implementation step. It returns
+    // something that is not the contract so its tests fail on the assertion rather
+    // than on a missing symbol.
+    let _ = (prefix, text);
+    String::new()
+}
+
+/// Labels the error from a failed prompt write.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
+    )
+)]
+pub(crate) fn label_prompt_write_diagnosis(err: &dyn std::fmt::Display) -> String {
+    label_with(PROMPT_WRITE_DIAGNOSIS_PREFIX, err)
+}
+
+/// Labels the error from a failed child reap.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "labelled here (R-10 Step 0c); the production call site arrives with this task's implementation step"
+    )
+)]
+pub(crate) fn label_reap_diagnosis(err: &dyn std::fmt::Display) -> String {
+    label_with(REAP_DIAGNOSIS_PREFIX, err)
+}
+
 /// Parses the CLI output envelope into a [`Completion`], carrying whatever
 /// telemetry the envelope holds.
 ///
@@ -448,6 +526,123 @@ mod tests {
     };
     use crate::test_support::{with_claudecode, without_claudecode};
     use serial_test::serial;
+
+    #[test]
+    fn the_reap_prefix_labels_its_error() {
+        // THE LITERAL, never `starts_with(REAP_DIAGNOSIS_PREFIX)`. With the constant
+        // on both sides, emptying it moves both and the test stays GREEN over a
+        // label that vanished -- the vacuity 3.1.0 already paid for once. The
+        // mutation operator is still "empty the constant"; what changes is that it
+        // can now go red.
+        assert_eq!(
+            label_reap_diagnosis(&"boom"),
+            "child reap failed: boom",
+            "the reap label is its own, because reaping a child is not writing a prompt"
+        );
+    }
+
+    #[test]
+    fn the_prompt_write_prefix_labels_its_error() {
+        // Its OWN test and not its sibling's: a shared assertion goes green on the
+        // other constant and says nothing about this one.
+        assert_eq!(
+            label_prompt_write_diagnosis(&"boom"),
+            "prompt write did not complete: boom",
+            "the write label states what failed, so the field does not lie about what it carries"
+        );
+    }
+
+    #[test]
+    fn label_with_caps_only_when_the_text_exceeds() {
+        use crate::error::{MAX_ERROR_BODY_PREFIX_BYTES, TRUNCATION_MARKER};
+
+        // Half of the contract: a text that fits is NOT marked. Without this, every
+        // sibling test asserting a literal would be asserting against a marked
+        // string and could never pass.
+        assert_eq!(label_with("p: ", &"short"), "p: short");
+
+        // The other half, and the one the mutation targets: the cap bounds the
+        // LABELLED result, so the budget handed to `mark_within_cap` is the cap
+        // MINUS the prefix. Passing the whole cap produces `cap + prefix.len()`
+        // bytes -- an overrun of the constant that exists to bound what reaches an
+        // error body, and invisible unless the length is asserted.
+        let prefix = "p: ";
+        let long = "x".repeat(MAX_ERROR_BODY_PREFIX_BYTES * 2);
+        let labelled = label_with(prefix, &long);
+        assert!(
+            labelled.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "the labelled result must fit the cap, not the cap plus the prefix: {} > {}",
+            labelled.len(),
+            MAX_ERROR_BODY_PREFIX_BYTES
+        );
+        assert!(labelled.starts_with(prefix), "the prefix survives the cap");
+        assert!(
+            labelled.ends_with(TRUNCATION_MARKER),
+            "a capped text says so"
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn the_cannot_test_prefix_is_emitted_only_outside_ci() {
+        use crate::test_support::cannot_test;
+
+        // The self-test of the adjudication path. It asserts the message FORMAT in
+        // both directions, which is what a closing report adjudicates on and what a
+        // rewording would break in silence.
+        //
+        // What it CANNOT prove is that the panic happens at all -- that is decided
+        // by the precondition probe on a real platform. It proves the format.
+        fn message_with(magi_ci: Option<&str>) -> String {
+            let original = std::env::var("MAGI_CI").ok();
+            unsafe {
+                match magi_ci {
+                    Some(v) => std::env::set_var("MAGI_CI", v),
+                    None => std::env::remove_var("MAGI_CI"),
+                }
+            }
+            let caught = std::panic::catch_unwind(|| cannot_test("the reason"));
+            unsafe {
+                match original {
+                    Some(v) => std::env::set_var("MAGI_CI", v),
+                    None => std::env::remove_var("MAGI_CI"),
+                }
+            }
+            let payload = caught.expect_err("cannot_test always panics");
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .unwrap_or_else(|| "<not a string payload>".to_string())
+        }
+
+        let local = message_with(None);
+        assert!(
+            local.starts_with("CANNOT_TEST: "),
+            "off a runner the prefix is what makes the skip adjudicable: {local}"
+        );
+        assert!(
+            !local.contains("prefix suppressed"),
+            "nothing was suppressed here: {local}"
+        );
+
+        let on_ci = message_with(Some("1"));
+        assert!(
+            !on_ci.starts_with("CANNOT_TEST: "),
+            "on a runner there must be nothing to adjudicate: {on_ci}"
+        );
+        assert!(
+            on_ci.contains("[prefix suppressed: MAGI_CI is set]"),
+            "a suppression nobody can see is worse than none: {on_ci}"
+        );
+
+        // An EMPTY variable is not "set". Without this, a machine exporting it blank
+        // would close the adjudication path with nobody deciding so.
+        let blank = message_with(Some(""));
+        assert!(
+            blank.starts_with("CANNOT_TEST: "),
+            "an empty MAGI_CI must not count as set: {blank}"
+        );
+    }
 
     #[test]
     fn the_cli_envelope_reports_what_the_backend_said() {
