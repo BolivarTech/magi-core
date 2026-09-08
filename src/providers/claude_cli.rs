@@ -149,7 +149,7 @@ fn strip_code_fences(text: &str) -> &str {
 /// * `Unreadable` -- it came and is not an integer.
 /// * `Value(n)` -- it came and is an integer; whether it is a usable status is a
 ///   later question, and one this type deliberately does not answer.
-#[derive(Debug, Default, PartialEq, Deserialize)]
+#[derive(Debug, Default, PartialEq)]
 pub(crate) enum ApiErrorStatus {
     #[default]
     Absent,
@@ -157,23 +157,56 @@ pub(crate) enum ApiErrorStatus {
     Value(i64),
 }
 
+/// Reads `api_error_status` FAIL-SOFT, in both dimensions, and never returns `Err`.
+///
+/// The field comes from JSON this crate did not write, so a shape it cannot read must
+/// not kill the envelope: `result` is the only diagnosis the CLI gives, and losing it
+/// to a wire-format surprise is the same damage the whole REQ exists to avoid, entering
+/// through the type instead of through the range.
+///
+/// Anything that is not a JSON integer becomes [`ApiErrorStatus::Unreadable`] -- a
+/// string, `null`, a container, a bool, a float, and the overflow case, which is the
+/// one nobody writes: an integer that is a perfectly good JSON number and does not fit
+/// `i64`. It is `Unreadable` and not `Absent` because "the field did not come" and
+/// "it came and I could not read it" are a local CLI failure and a wire-format
+/// regression, and collapsing them is what an `Option` did.
+///
+/// Whether a `Value(n)` is a USABLE status is a later question, and deliberately not
+/// asked here: this answers "is it an integer", the range gate answers "is it a status".
+fn de_api_error_status<'de, D>(deserializer: D) -> Result<ApiErrorStatus, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(match value.as_i64() {
+        Some(n) => ApiErrorStatus::Value(n),
+        None => ApiErrorStatus::Unreadable,
+    })
+}
+
 /// Outer JSON envelope from the Claude CLI tool.
 #[derive(Debug, Deserialize)]
 struct CliOutput {
     is_error: bool,
     result: String,
+    /// Why the backend stopped, when it said. Absent on envelopes that do not
+    /// carry it, which is a `None` that means "this one did not say" rather than
+    /// "this backend cannot".
+    #[serde(default)]
+    stop_reason: Option<String>,
     /// The upstream HTTP status the CLI passed through, when it did.
     ///
     /// Read only by tests until R-3 classifies it, which is why the lint below is
     /// `expect` and not `allow`: `expect` goes RED the moment the condition it
     /// describes stops holding, so the day a production path reads this field the
     /// attribute forces its own removal. An `allow` would outlive its reason in
-    /// silence, which is what the rule against silencing a linter is about.
-    ///
+    /// silence, which is the thing the project's rule against silencing a linter is
+    /// actually about.
     /// `cfg_attr(not(test), ...)` and not a bare `expect`, and the difference is
     /// measured: under `cfg(test)` the field IS read -- by the tests in this file --
     /// so an unconditional expectation is UNFULFILLED there and `-D warnings` turns
-    /// that into an error of its own.
+    /// that into an error of its own. The expectation belongs to the target where the
+    /// field is genuinely dead, which is the library without its test module.
     #[cfg_attr(
         not(test),
         expect(
@@ -181,7 +214,7 @@ struct CliOutput {
             reason = "deserialized here (R-26); the production reader arrives with R-3"
         )
     )]
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_api_error_status")]
     api_error_status: ApiErrorStatus,
     /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
     /// the envelope does not guarantee this field across CLI versions, and
@@ -192,22 +225,30 @@ struct CliOutput {
 
 /// Token counts from the CLI envelope's `usage` object.
 ///
-/// The CLI envelope carries **no `stop_reason`-equivalent field at all** —
-/// verified against the envelope shape (`CliOutput`'s only fields are
-/// `is_error`/`result`/`usage`) — so there is nothing here to translate into a
-/// [`crate::provider::FinishReason`]. [`parse_completion`] leaves `finish` at
-/// `None`, which says "this backend does not say" rather than inventing
-/// [`crate::provider::FinishReason::Stop`].
-/// # It carries no OUTPUT count either, and that is verified rather than assumed
+/// # The envelope reports both sides, and it always did
 ///
-/// The envelope's `usage` object reports `input_tokens` and nothing equivalent for the
-/// completion side, so [`parse_completion`] leaves `completion_tokens` at `None`. That is the
-/// same statement `finish` makes: this backend does not say. Inventing a zero would report a
-/// measurement that never happened.
+/// Two claims stood here and both were false. They said the envelope carried no
+/// `stop_reason`-equivalent field and no output count, each "verified" — and what
+/// they had been checked against was `CliOutput`, this crate's own view of the wire,
+/// which held those fields only because nobody had added them. The check confirmed
+/// itself.
+///
+/// Verified against CAPTURED envelopes this time, not against `CliOutput`: thirteen
+/// of them, twelve successes and one failure, produced by the same
+/// `claude --print --output-format json` this provider invokes. The envelope carries
+/// a field literally named `stop_reason`, and `usage` carries `output_tokens`
+/// alongside `input_tokens`. Both are read now, and
+/// [`crate::provider::FinishReason::from_wire`] does the translation rather than a
+/// second table.
+///
+/// The captures are tracked, redacted to the fields a requirement consumes, under
+/// `src/providers/fixtures/envelopes/`.
 #[derive(Debug, Default, Deserialize)]
 struct CliUsage {
     #[serde(default)]
     input_tokens: Option<u32>,
+    #[serde(default)]
+    output_tokens: Option<u32>,
 }
 
 /// Parses the CLI output envelope into a [`Completion`], carrying whatever
@@ -225,9 +266,12 @@ struct CliUsage {
 ///   stop.
 ///
 /// # Returns
-/// A [`Completion`] whose text has its code fences stripped, and whose
-/// telemetry carries `prompt_tokens` when the envelope's `usage.input_tokens`
-/// is present. `finish` stays `None` unconditionally (see [`CliUsage`]).
+/// A [`Completion`] whose text has its code fences stripped, and whose telemetry
+/// carries what the envelope reported: `prompt_tokens` from `usage.input_tokens`,
+/// `completion_tokens` from `usage.output_tokens`, and `finish` translated from
+/// `stop_reason` by [`crate::provider::FinishReason::from_wire`]. Each stays `None`
+/// when its field is absent — that says "this envelope did not report it", never a
+/// zero, which would claim a measurement that did not happen.
 ///
 /// # Errors
 /// Shares its error path with [`parse_envelope`], which owns the envelope's convention.
@@ -235,11 +279,20 @@ fn parse_completion(raw: &str, reasoning: ReasoningControl) -> Result<Completion
     let output = parse_envelope(raw)?;
     let text = strip_code_fences(&output.result).to_string();
 
-    let prompt_tokens = output.usage.and_then(|u| u.input_tokens);
+    let usage = output.usage.unwrap_or_default();
 
     let mut telemetry = CompletionTelemetry::unmeasured();
-    if let Some(n) = prompt_tokens {
+    if let Some(n) = usage.input_tokens {
         telemetry = telemetry.with_prompt_tokens(n);
+    }
+    if let Some(n) = usage.output_tokens {
+        telemetry = telemetry.with_completion_tokens(n);
+    }
+    // `from_wire` and NOT a second table: the vocabulary is published once, in
+    // `provider.rs`, and a provider that reimplements it is how two wires come to
+    // disagree about the same word.
+    if let Some(reason) = output.stop_reason.as_deref() {
+        telemetry = telemetry.with_finish(crate::provider::FinishReason::from_wire(reason));
     }
     telemetry = telemetry.with_reasoning(match reasoning {
         ReasoningControl::Disabled => ReasoningState::Unsupported {
@@ -706,20 +759,30 @@ mod tests {
 
     // -- Task 11: telemetry the CLI provider CAN report --
 
-    /// Step 1c/3: the envelope carries `usage.input_tokens` (visible on its own
-    /// in `test_parse_cli_output_extracts_inner_result`'s fixture), but NO
-    /// `stop_reason` field at all — verified against the envelope shape, not
-    /// assumed. `finish` staying `None` says "this backend does not say";
-    /// asserting `Stop` would invent a measurement.
+    /// The envelope in this test carries `usage.input_tokens` and no `stop_reason`,
+    /// so `finish` stays `None` — which says "this envelope did not report it",
+    /// never a `Stop` nobody sent.
+    ///
+    /// This doc block is the THIRD site that claimed the wire has no `stop_reason`
+    /// "verified against the envelope shape", and the third that had been checked
+    /// against `CliOutput` rather than against an envelope. The requirement names
+    /// two; this one is their sibling, found by grepping for the word rather than
+    /// by trusting the list. Fixing the sites a finding names and leaving their
+    /// siblings is the recurring shape this release exists to correct.
     #[test]
-    fn the_cli_provider_reports_usage_and_leaves_finish_none() {
+    fn an_envelope_without_a_stop_reason_leaves_finish_none() {
+        // The assertion is unchanged and still true; its NAME and its message were
+        // not. They said "the CLI envelope has no stop_reason", which is a claim
+        // about the wire, and the wire does carry one -- measured against captured
+        // envelopes. What is true is narrower and is what this test now says: THIS
+        // envelope does not carry the field, so `finish` stays `None`.
         let raw = r#"{"is_error":false,"result":"hi","usage":{"input_tokens":100}}"#;
         let out = super::parse_completion(raw, ReasoningControl::default())
             .expect("valid envelope parses");
         assert_eq!(out.telemetry.prompt_tokens, Some(100));
         assert_eq!(
             out.telemetry.finish, None,
-            "the CLI envelope has no stop_reason"
+            "this envelope carries no stop_reason, so there is nothing to translate"
         );
     }
 
