@@ -350,8 +350,10 @@ pub(crate) const ENVELOPE_DIAGNOSIS_PREFIX: &str = "cli envelope: ";
     )
 )]
 pub(crate) fn label_envelope_diagnosis(result: &str) -> String {
-    // STUB: the behaviour lands in this task's implementation step.
-    let _ = result;
+    // STUB: the behaviour lands in this task's implementation step. It touches the
+    // constant so the constant is not dead under `cfg(test)` either -- the pin
+    // asserts the LITERAL, deliberately, so nothing else references it.
+    let _ = (ENVELOPE_DIAGNOSIS_PREFIX, result);
     String::new()
 }
 
