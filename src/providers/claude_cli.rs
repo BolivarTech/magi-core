@@ -142,11 +142,47 @@ fn strip_code_fences(text: &str) -> &str {
     }
 }
 
+/// The three states of the envelope's `api_error_status`, which an `Option` could
+/// not tell apart without the reader remembering which `None` was which.
+///
+/// * `Absent` -- the field did not come. A local CLI failure never reached the API.
+/// * `Unreadable` -- it came and is not an integer.
+/// * `Value(n)` -- it came and is an integer; whether it is a usable status is a
+///   later question, and one this type deliberately does not answer.
+#[derive(Debug, Default, PartialEq, Deserialize)]
+pub(crate) enum ApiErrorStatus {
+    #[default]
+    Absent,
+    Unreadable,
+    Value(i64),
+}
+
 /// Outer JSON envelope from the Claude CLI tool.
 #[derive(Debug, Deserialize)]
 struct CliOutput {
     is_error: bool,
     result: String,
+    /// The upstream HTTP status the CLI passed through, when it did.
+    ///
+    /// Read only by tests until R-3 classifies it, which is why the lint below is
+    /// `expect` and not `allow`: `expect` goes RED the moment the condition it
+    /// describes stops holding, so the day a production path reads this field the
+    /// attribute forces its own removal. An `allow` would outlive its reason in
+    /// silence, which is what the rule against silencing a linter is about.
+    ///
+    /// `cfg_attr(not(test), ...)` and not a bare `expect`, and the difference is
+    /// measured: under `cfg(test)` the field IS read -- by the tests in this file --
+    /// so an unconditional expectation is UNFULFILLED there and `-D warnings` turns
+    /// that into an error of its own.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "deserialized here (R-26); the production reader arrives with R-3"
+        )
+    )]
+    #[serde(default)]
+    api_error_status: ApiErrorStatus,
     /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
     /// the envelope does not guarantee this field across CLI versions, and
     /// `is_error`/`result` extraction must not depend on it.
@@ -301,7 +337,146 @@ impl LlmProvider for ClaudeCliProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider::FinishReason;
+    use crate::test_support::{
+        CAPTURED_404, FAILURE_KEEP_LIST, SUCCESS_KEEP_LIST, captured_envelope_with_stop_reason,
+        captured_failure_with_unusable_api_error_status, captured_failure_without_api_error_status,
+    };
     use serial_test::serial;
+
+    #[test]
+    fn the_cli_envelope_reports_what_the_backend_said() {
+        // The fixture is CAPTURED and redacted, never hand-written: a hand-written one
+        // reproduces the view the crate already has, which is how this defect survived.
+        // `parse_completion` takes the RAW string and parses it itself -- it does NOT
+        // take a `CliOutput`.
+        let raw = include_str!("fixtures/envelopes/success_end_turn.json");
+
+        let completion = parse_completion(raw, ReasoningControl::default())
+            .expect("a successful envelope completes");
+        // `.telemetry.finish`, NOT `.finish`: `Completion` has exactly two fields --
+        // `text` and `telemetry` -- and `finish` lives on `CompletionTelemetry`.
+        assert!(
+            completion.telemetry.finish.is_some(),
+            "the backend DID say why it stopped"
+        );
+        assert!(
+            completion.telemetry.completion_tokens.is_some(),
+            "and how much it wrote"
+        );
+    }
+
+    #[test]
+    fn the_failure_envelope_deserializes_its_api_status() {
+        // The field is ADDED in this task -- R-3 consumes it in the next one -- so its
+        // deserialization is asserted HERE. Without this, the task ships a struct field
+        // whose only verification lives in another commit.
+        let raw = include_str!("fixtures/envelopes/failure_404.json");
+        let out: CliOutput = serde_json::from_str(raw).expect("the captured envelope parses");
+        assert_eq!(out.api_error_status, ApiErrorStatus::Value(404));
+    }
+
+    #[test]
+    fn an_absent_api_status_is_distinguishable_from_an_unreadable_one() {
+        // THE WHOLE POINT OF THE THREE-STATE TYPE. With `Option<i64>` both cases were
+        // `None`, so the `warn!` R-3 adds promised a distinction the type could not
+        // make: "there was no status" and "there was something I could not read" are a
+        // local CLI failure and a wire-format regression, and they must not share a
+        // value.
+        //
+        // What is asserted is the DISCRIMINATOR, not the log line. What stays uncovered
+        // is someone deleting the `warn!` and leaving the arm -- declared, not
+        // simulated.
+        let absent: CliOutput =
+            serde_json::from_str(&captured_failure_without_api_error_status()).unwrap();
+        assert_eq!(
+            absent.api_error_status,
+            ApiErrorStatus::Absent,
+            "absent must stay absent"
+        );
+        // EVERY JSON shape that is not an integer, not two of them. The fail-soft
+        // deserializer's whole job is to never return `Err`, so its risk is a shape
+        // nobody tried. The last one is the OVERFLOW case, and it is the one nobody
+        // writes: an integer that is a perfectly good JSON number and does not fit
+        // `i64`. It is handled correctly BY CONSTRUCTION -- serde refuses it and the
+        // `deserialize_with` catches the refusal -- but "correct by construction" is
+        // exactly the claim this array exists to stop trusting.
+        for unusable in [
+            "\"429\"",
+            "null",
+            "[]",
+            "{}",
+            "true",
+            "4.29",
+            "99999999999999999999",
+        ] {
+            let out: CliOutput =
+                serde_json::from_str(&captured_failure_with_unusable_api_error_status(unusable))
+                    .expect("a weird field must NOT kill the envelope");
+            assert_eq!(
+                out.api_error_status,
+                ApiErrorStatus::Unreadable,
+                "present but unreadable: {unusable}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_stop_reason_is_not_mapped_to_stop() {
+        // `end_turn` is the only value captured. The rest of the vocabulary is NOT
+        // invented: what is not recognised falls in the variant that says so, never in
+        // Stop by default -- inventing Stop is exactly what 4.0.0 rejected.
+        let raw = captured_envelope_with_stop_reason("some_future_reason");
+        let completion = parse_completion(&raw, ReasoningControl::default()).unwrap();
+        // THE EXACT VARIANT, not `!= Stop`. A negative assertion passes ALSO when
+        // `finish` is None -- which is a DIFFERENT bug: it would mean the backend said
+        // why it stopped and we dropped it. `Other` keeps the raw string, so a value
+        // measured later can be promoted without losing what arrived.
+        assert_eq!(
+            completion.telemetry.finish,
+            Some(FinishReason::Other("some_future_reason".to_string())),
+            "an unrecognised stop_reason keeps its raw value; it is not Stop and not None"
+        );
+    }
+
+    #[test]
+    fn the_captured_envelope_keeps_exactly_the_consumed_fields() {
+        // TWO fixtures, because the consumed set DIFFERS by envelope type: the success
+        // one carries `stop_reason` and `usage.output_tokens`; the failure one carries
+        // `api_error_status` and neither of those.
+        let cases: &[(&str, &[&str])] = &[
+            (
+                include_str!("fixtures/envelopes/success_end_turn.json"),
+                &SUCCESS_KEEP_LIST,
+            ),
+            (CAPTURED_404, &FAILURE_KEEP_LIST),
+        ];
+
+        for (raw, expected) in cases {
+            let v: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let obj = v.as_object().unwrap();
+
+            // FOUR and THREE are different numbers and both are right: the raw failure
+            // capture carries four fields exclusive to a failure and only ONE of them
+            // is consumed by a REQ, so after redaction its expected list has three.
+            //
+            // EXACT count: one key too many is as much a defect as one too few.
+            assert_eq!(obj.len(), expected.len(), "fixture keys: {:?}", obj.keys());
+            for key in *expected {
+                assert!(obj.contains_key(*key), "consumed field {key} missing");
+            }
+
+            // NESTED, not just the root: a forbidden field under `usage` survives a
+            // root-level check -- which is exactly what R-35 is for.
+            if let Some(usage) = obj.get("usage").and_then(|u| u.as_object()) {
+                assert_eq!(usage.len(), 1, "usage keeps only output_tokens");
+                assert!(usage.contains_key("output_tokens"));
+            }
+            for banned in ["session_id", "uuid", "total_cost_usd", "inference_geo"] {
+                assert!(!raw.contains(banned), "{banned} must have been redacted");
+            }
+        }
+    }
 
     // NOTE: These tests manipulate the CLAUDECODE environment variable, which is
     // process-global state. The #[serial] attribute ensures they never run in

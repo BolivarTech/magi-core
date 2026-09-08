@@ -25,6 +25,118 @@ use crate::rotation::{FallbackPool, Lineage, ProviderProbe, RotationKind};
 use crate::schema::AgentName;
 use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
 
+// ---------------------------------------------------------------------------
+// Captured CLI envelopes, and the mutations the CLI provider's tests need.
+//
+// The fixtures are CAPTURED from the real `claude --print --output-format json`
+// and then redacted, never hand-written. A hand-written envelope reproduces the
+// view the crate already has, which is exactly how R-26 survived: two rustdoc
+// blocks said "verified" while what they had been checked against was
+// `CliOutput` -- the crate's own view -- instead of the wire.
+//
+// The paths are relative to THIS file, so they carry the `providers/` segment
+// that the unit tests inside `src/providers/claude_cli.rs` do not.
+// ---------------------------------------------------------------------------
+
+/// The captured failure envelope: `--model no-such-model-xyz`, redacted to the
+/// three fields a REQ consumes.
+pub const CAPTURED_404: &str = include_str!("providers/fixtures/envelopes/failure_404.json");
+
+/// The captured success envelope, redacted to the four fields a REQ consumes.
+pub const CAPTURED_SUCCESS: &str =
+    include_str!("providers/fixtures/envelopes/success_end_turn.json");
+
+/// Every key the redacted SUCCESS fixture is expected to carry, and no other.
+///
+/// Fixed by the capture spike on 2026-09-08 by reading the redacted file, never
+/// from the raw capture: redaction removes fields, so a list written before it
+/// counts keys that are gone and goes red for the fixture instead of the code.
+pub const SUCCESS_KEEP_LIST: [&str; 4] = ["is_error", "result", "stop_reason", "usage"];
+
+/// Every key the redacted FAILURE fixture is expected to carry, and no other.
+///
+/// Three and not four, although the raw capture DOES carry `stop_reason`
+/// (measured value: `"stop_sequence"`): a field consumed by the other envelope
+/// type is removed anyway, because no REQ consumes `stop_reason` on a failure.
+pub const FAILURE_KEEP_LIST: [&str; 3] = ["api_error_status", "is_error", "result"];
+
+/// The captured SUCCESS envelope with its `stop_reason` replaced.
+///
+/// Only that one field is synthetic; the shape stays the measured one.
+///
+/// # Panics
+/// If the fixture no longer carries the anchor this substitution expects. That is
+/// deliberate: a silent no-op would leave the caller asserting on an unmodified
+/// envelope, which passes for the wrong reason.
+pub fn captured_envelope_with_stop_reason(reason: &str) -> String {
+    replace_once(
+        CAPTURED_SUCCESS,
+        "\"stop_reason\": \"end_turn\"",
+        &format!("\"stop_reason\": \"{reason}\""),
+    )
+}
+
+/// The captured FAILURE envelope with its `api_error_status` replaced by another
+/// integer.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn captured_failure_with_api_error_status(status: i64) -> String {
+    replace_once(
+        CAPTURED_404,
+        "\"api_error_status\": 404",
+        &format!("\"api_error_status\": {status}"),
+    )
+}
+
+/// The captured FAILURE envelope with `api_error_status` set to a raw JSON value
+/// that is NOT an integer.
+///
+/// `value` is spliced in verbatim, so the caller controls the exact token --
+/// which is what the overflow case needs: `99999999999999999999` is a perfectly
+/// good JSON number that no integer type holds, and re-serialising it through a
+/// parser would quietly turn it into something else.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn captured_failure_with_unusable_api_error_status(value: &str) -> String {
+    replace_once(
+        CAPTURED_404,
+        "\"api_error_status\": 404",
+        &format!("\"api_error_status\": {value}"),
+    )
+}
+
+/// The captured FAILURE envelope with `api_error_status` removed entirely.
+///
+/// A local CLI failure never reached the API, so the field is absent rather than
+/// unreadable -- and those two are the distinction the three-state type exists to
+/// keep.
+///
+/// # Panics
+/// As [`captured_envelope_with_stop_reason`].
+pub fn captured_failure_without_api_error_status() -> String {
+    replace_once(
+        CAPTURED_404,
+        "  \"api_error_status\": 404,
+",
+        "",
+    )
+}
+
+/// Substitutes `needle` once, and panics if it is not there.
+///
+/// The panic is the point: a substitution that silently does nothing hands the
+/// caller an envelope it did not ask for, and the assertion then passes or fails
+/// for a reason nobody chose.
+fn replace_once(haystack: &str, needle: &str, replacement: &str) -> String {
+    assert!(
+        haystack.contains(needle),
+        "the captured fixture no longer contains `{needle}`; the substitution would be a no-op"
+    );
+    haystack.replacen(needle, replacement, 1)
+}
+
 /// Mock provider that routes `complete()` calls to per-agent response
 /// sequences using the `CURRENT_AGENT_IDENTITY` task-local set by
 /// [`crate::agent::Agent::execute`]. Fails closed if no task-local scope

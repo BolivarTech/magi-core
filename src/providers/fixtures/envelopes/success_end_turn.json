@@ -1,0 +1,8 @@
+{
+  "is_error": false,
+  "result": "All 12 tasks are completed. Zero pending tasks remain.\n\n**Task 012 completed:** Created `examples/basic_analysis.rs` with hand-rolled CLI arg parsing, feature-gated provider selection, `MagiBuilder` u",
+  "stop_reason": "end_turn",
+  "usage": {
+    "output_tokens": 7801
+  }
+}
