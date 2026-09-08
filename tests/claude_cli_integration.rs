@@ -365,21 +365,43 @@ async fn the_in_band_error_path_reaches_the_consumer_as_http() {
 /// has paid for repeatedly.
 #[tokio::test]
 #[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
-async fn a_local_cli_failure_stays_process_on_both_exit_paths() {
-    let envelope = captured_failure_without_api_error_status();
+async fn a_local_cli_failure_stays_process_when_the_child_also_died() {
+    let err = complete_against_stub(
+        StubCli::new()
+            .exit_code(1)
+            .stdout(&captured_failure_without_api_error_status()),
+        USER_PROMPT,
+    )
+    .await
+    .expect_err("the envelope declared a failure");
+    assert!(
+        matches!(err, ProviderError::Process { .. }),
+        "a failure that never reached the API stays Process, got {err:?}"
+    );
+}
 
-    for exit_code in [1, 0] {
-        let err = complete_against_stub(
-            StubCli::new().exit_code(exit_code).stdout(&envelope),
-            USER_PROMPT,
-        )
-        .await
-        .expect_err("the envelope declared a failure, whatever the exit code");
-        assert!(
-            matches!(err, ProviderError::Process { .. }),
-            "a failure that never reached the API stays Process (exit {exit_code}), got {err:?}"
-        );
-    }
+/// Its twin on the OTHER exit path, and separate rather than a loop over both.
+///
+/// A loop aborts on the first failing input, so the second cell would go unasserted
+/// exactly when the first regresses -- which is when it matters most. The same
+/// reasoning splits the two parse-failure shapes in the unit tests.
+///
+/// Exit 0 does NOT turn this into `Ok`: the envelope declared that it failed.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn a_local_cli_failure_stays_process_on_a_clean_exit() {
+    let err = complete_against_stub(
+        StubCli::new()
+            .exit_code(0)
+            .stdout(&captured_failure_without_api_error_status()),
+        USER_PROMPT,
+    )
+    .await
+    .expect_err("the envelope declared a failure, and exit 0 does not undo that");
+    assert!(
+        matches!(err, ProviderError::Process { .. }),
+        "a failure that never reached the API stays Process, got {err:?}"
+    );
 }
 
 /// The HAPPY PATH, end to end, which no scenario covered.

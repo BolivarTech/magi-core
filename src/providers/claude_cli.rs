@@ -928,27 +928,36 @@ mod tests {
     }
 
     #[test]
-    fn the_three_parse_failure_shapes_all_become_process() {
-        // The plan asserts that ALL THREE parse-failure shapes fall to `Process`, and
-        // demonstrated it for one. Each captured shape needs a consumer: a capture
-        // without one is wasted work and, worse, reads as coverage.
+    fn a_non_json_stdout_is_a_process_failure() {
+        // One of the two shapes the capture spike provoked. Each captured shape needs
+        // a consumer: a capture without one is wasted work and, worse, reads as
+        // coverage.
         //
-        // The same branch through THREE different inputs, which is the point -- a
-        // parser can treat them differently without anyone noticing.
-        let shapes: [(&str, &str); 3] = [
-            ("plain text", "just some plain text, not JSON at all"),
-            (
-                "JSON without the result field",
-                include_str!("fixtures/envelopes/empty_object.json"),
+        // SEPARATE from its sibling below rather than a loop over both, and the reason
+        // is the one this milestone learned twice: a loop aborts on the first failing
+        // input, so the second shape would go unasserted exactly when the first
+        // regresses -- which is the moment the second matters most.
+        assert!(
+            matches!(
+                parse_envelope("just some plain text, not JSON at all"),
+                Err(ProviderError::Process { .. })
             ),
-            ("empty stdout", ""),
-        ];
-        for (name, raw) in shapes {
-            assert!(
-                matches!(parse_envelope(raw), Err(ProviderError::Process { .. })),
-                "{name} must fall to Process"
-            );
-        }
+            "output that is not JSON at all must fall to Process"
+        );
+    }
+
+    #[test]
+    fn a_json_object_without_the_result_field_is_a_process_failure() {
+        // The other captured shape, from the same fixture directory as the envelopes
+        // that DO parse. Same branch, different input -- a parser can treat the two
+        // differently without anyone noticing, which is why they are asserted apart.
+        assert!(
+            matches!(
+                parse_envelope(include_str!("fixtures/envelopes/empty_object.json")),
+                Err(ProviderError::Process { .. })
+            ),
+            "valid JSON that is not an envelope must fall to Process"
+        );
     }
 
     #[test]
