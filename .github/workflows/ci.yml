@@ -25,7 +25,32 @@ jobs:
   gate:
     name: Gate
     runs-on: ubuntu-latest
+    # MAGI_CI tells the crate's test helpers that this is a runner, not a developer
+    # machine. One test path reads it: `cannot_test()` drops its `CANNOT_TEST:`
+    # prefix when this is set, so a platform-dependent skip cannot be adjudicated
+    # here -- adjudication is a local, human step, and on a runner there must be
+    # nothing to adjudicate.
+    #
+    # A plain `CI` was rejected: half the industry exports it, so a developer
+    # machine with it set for some other tool would silently change the guard's
+    # behaviour. This one is the project's own signal.
+    #
+    # DO NOT DELETE THIS AS UNUSED. Removing it breaks nothing visible: it only
+    # changes behaviour in the rare case where the defect fails to reproduce, so
+    # every ordinary run looks identical with or without it. The step below exists
+    # because a comment is not a guard.
+    env:
+      MAGI_CI: "1"
     steps:
+      # A comment is not a guard. This fails the instant someone removes the `env`
+      # block above, which is otherwise undetectable by construction.
+      - name: Assert MAGI_CI is exported
+        run: |
+          if [ -z "${MAGI_CI:-}" ]; then
+            echo "MAGI_CI is empty or unset: the gate job's env block was removed." >&2
+            echo "It gates the CANNOT_TEST adjudication path; see the comment there." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v5
         with:
           # Full history: the verdict-search rule uses `git grep` across it.
