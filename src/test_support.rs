@@ -38,6 +38,19 @@ pub fn big_prompt(bytes: usize) -> String {
     "p".repeat(bytes)
 }
 
+/// The byte budget every diagnosis on `ProviderError::Process.stderr` fits within.
+///
+/// Re-exported so a test in another crate asserts against the SAME constant the code
+/// applies, instead of a literal of its own. That is R-19's rule reaching a second
+/// table before it can go wrong: a test carrying its own copy of a bound compares the
+/// copy against itself and stays green when the bound moves.
+pub const ERROR_BODY_CAP: usize = crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
+
+/// What a capped diagnosis ends with. Re-exported for the same reason as
+/// [`ERROR_BODY_CAP`]: a length bound alone is satisfied by a silent truncation, so
+/// the announcement is half of what "capped" means and has to be assertable too.
+pub const CAP_MARKER: &str = crate::error::TRUNCATION_MARKER;
+
 /// Aborts the current test as NOT RUN, with the reason and the host.
 ///
 /// # It panics rather than exiting zero, and that is the whole design

@@ -28,9 +28,9 @@ use common::{
 };
 use magi_core::error::ProviderError;
 use magi_core::test_support::{
-    CAPTURED_404, USER_PROMPT, big_prompt, cannot_test, captured_envelope_with_stop_reason,
-    captured_failure_with_api_error_status, captured_failure_without_api_error_status,
-    envelope_with_is_error_false, result_of,
+    CAP_MARKER, CAPTURED_404, ERROR_BODY_CAP, USER_PROMPT, big_prompt, cannot_test,
+    captured_envelope_with_stop_reason, captured_failure_with_api_error_status,
+    captured_failure_without_api_error_status, envelope_with_is_error_false, result_of,
 };
 use serial_test::serial;
 
@@ -462,5 +462,41 @@ async fn a_successful_envelope_reaches_the_consumer_as_a_completion() {
     assert!(
         completion.telemetry.completion_tokens.is_some(),
         "and how much it wrote"
+    );
+}
+
+/// The third producer of `Process.stderr`, and the only one whose size a CHILD picks.
+///
+/// `wait_with_output` drains stderr to EOF with no bound of its own, so whatever the
+/// child wrote arrives whole unless something caps it. Nothing asserted that cap, which
+/// meant reverting it left the suite green -- the shape this project's own rule calls a
+/// fix that protects nothing.
+///
+/// Reaching this arm needs BOTH halves: a non-zero exit, and stdout that does not parse
+/// as an envelope. Empty stdout supplies the second.
+#[tokio::test]
+#[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
+async fn an_oversized_child_stderr_is_capped_before_it_reaches_the_consumer() {
+    let noise = "E".repeat(ERROR_BODY_CAP * 4);
+    let err = complete_against_stub(
+        StubCli::new().exit_code(1).stderr(&noise),
+        USER_PROMPT,
+    )
+    .await
+    .expect_err("a non-zero exit with unparseable stdout is a Process failure");
+
+    let ProviderError::Process { stderr, .. } = err else {
+        panic!("expected Process carrying the child's stderr, got {err:?}");
+    };
+    assert!(
+        stderr.len() <= ERROR_BODY_CAP,
+        "the child chose this size, so the crate has to bound it: {} > {}",
+        stderr.len(),
+        ERROR_BODY_CAP
+    );
+    assert!(
+        stderr.ends_with(CAP_MARKER),
+        "and it has to say it cut, not just cut: {}",
+        &stderr[stderr.len().saturating_sub(80)..]
     );
 }

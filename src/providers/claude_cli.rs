@@ -181,7 +181,12 @@ impl ClaudeCliProvider {
 fn parse_envelope(raw: &str) -> Result<CliOutput, ProviderError> {
     let output: CliOutput = serde_json::from_str(raw).map_err(|e| ProviderError::Process {
         exit_code: None,
-        stderr: format!("failed to parse CLI output: {e}"),
+        // CAPPED, and this is the producer that made the field's guarantee false:
+        // `serde_json` embeds the offending value VERBATIM, and the offending value is
+        // the child's stdout -- text this crate did not author, with no bound of its
+        // own. Measured before this line: a 100 KB value produced a 100,095-byte
+        // diagnosis on its way to `failed_agents` and the serialized report.
+        stderr: cap_to_error_budget(format!("failed to parse CLI output: {e}")),
     })?;
 
     if output.is_error {
@@ -246,7 +251,7 @@ fn classify_envelope_error(output: CliOutput, exit_code: Option<i32>) -> Provide
     match status {
         Some(status) => ProviderError::Http {
             status,
-            body: cap_envelope_body(output.result),
+            body: cap_to_error_budget(output.result),
             retry_after_raw: Vec::new(),
             received_at: None,
         },
@@ -267,16 +272,20 @@ fn classify_envelope_error(output: CliOutput, exit_code: Option<i32>) -> Provide
     }
 }
 
-/// Bounds the envelope's `result` the way the HTTP path bounds a response body.
+/// Bounds UNLABELLED text to the budget every `ProviderError` body fits within.
 ///
-/// Only caps when the text EXCEEDS the bound: a `result` that fits travels whole and
-/// RAW. `Http.body` is not labelled -- the field is called `body` and what it carries
-/// IS the body, so a prefix would only spend diagnosis budget.
-fn cap_envelope_body(result: String) -> String {
-    if result.len() <= crate::error::MAX_ERROR_BODY_PREFIX_BYTES {
-        return result;
+/// Only caps when the text EXCEEDS the bound: text that fits travels whole and RAW.
+/// The three `label_*` functions are the labelled counterpart; this is what everything
+/// else goes through, and "everything else" is the load-bearing word -- `Process.stderr`
+/// publishes a boundedness guarantee, and a guarantee is only as true as its least
+/// careful producer. It was named `cap_envelope_body` while the envelope's `result` was
+/// its only caller; the name stopped being true when the arbitrary-sized producers
+/// started using it.
+fn cap_to_error_budget(text: String) -> String {
+    if text.len() <= crate::error::MAX_ERROR_BODY_PREFIX_BYTES {
+        return text;
     }
-    crate::error::mark_within_cap(&result, crate::error::MAX_ERROR_BODY_PREFIX_BYTES)
+    crate::error::mark_within_cap(&text, crate::error::MAX_ERROR_BODY_PREFIX_BYTES)
 }
 
 /// Strips code fences from text.
@@ -583,7 +592,13 @@ impl LlmProvider for ClaudeCliProvider {
             .spawn()
             .map_err(|e| ProviderError::Process {
                 exit_code: None,
-                stderr: format!("failed to spawn claude process: {e}"),
+                // Capped too. An OS spawn error is short in practice, so this one is
+                // not the leak -- it is the SIBLING SITE of the one that was, and
+                // fixing the site a finding names while leaving its twin is the
+                // failure this campaign has now repeated seven times. A guarantee
+                // that holds for the producers somebody remembered is not a
+                // guarantee.
+                stderr: cap_to_error_budget(format!("failed to spawn claude process: {e}")),
             })?;
 
         // THE FIX. The write and the reap run CONCURRENTLY. `wait_with_output`
@@ -712,7 +727,7 @@ impl LlmProvider for ClaudeCliProvider {
                     // leaving the unbounded one is the wrong two.
                     return Err(ProviderError::Process {
                         exit_code: output.status.code(),
-                        stderr: cap_envelope_body(
+                        stderr: cap_to_error_budget(
                             String::from_utf8_lossy(&output.stderr).to_string(),
                         ),
                     });
@@ -1626,5 +1641,33 @@ mod tests {
         let input = r#"{"key": "value"}"#;
         let result = strip_code_fences(input);
         assert_eq!(result, input);
+    }
+
+    /// The producer that is fed by text this crate did not author.
+    ///
+    /// `serde_json` embeds the offending value VERBATIM in its message, and the
+    /// value here is the child's stdout -- arbitrary bytes with no bound of their
+    /// own. So this path, and not the spawn one beside it, is what decides whether
+    /// `Process.stderr`'s published guarantee is true. Measured before the fix:
+    /// a 100 KB value produced a 100,095-byte diagnosis.
+    #[test]
+    fn a_parse_failure_does_not_carry_the_whole_offending_value() {
+        let oversized = "A".repeat(MAX_ERROR_BODY_PREFIX_BYTES * 4);
+        let raw = format!(r#"{{"is_error": "{oversized}", "result": "x"}}"#);
+
+        let err = parse_envelope(&raw).expect_err("a string where a bool belongs cannot parse");
+        let ProviderError::Process { stderr, .. } = err else {
+            panic!("a parse failure is a Process error, got {err:?}");
+        };
+        assert!(
+            stderr.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "the parse diagnosis carries the offending value; it must fit the cap: {} > {}",
+            stderr.len(),
+            MAX_ERROR_BODY_PREFIX_BYTES
+        );
+        assert!(
+            stderr.ends_with(crate::error::TRUNCATION_MARKER),
+            "a capped diagnosis has to announce the cut: {stderr}"
+        );
     }
 }

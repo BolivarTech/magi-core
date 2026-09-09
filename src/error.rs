@@ -200,8 +200,16 @@ pub enum ProviderError {
         /// which of the three substitutions happened, not that everything else is
         /// verbatim.
         ///
-        /// The content is bounded. Nothing that reaches this field is unbounded,
-        /// because it travels on to `failed_agents` and into the serialized report.
+        /// # It is bounded, and by construction rather than by habit
+        ///
+        /// Every producer routes through the same byte budget, the labelled ones and
+        /// the unlabelled ones alike. That matters because two of them carry text this
+        /// crate did not author: a parse failure embeds the child's own output in the
+        /// message it reports, and a child's stderr is whatever the child chose to
+        /// write. Whatever lands here travels on to `failed_agents` and into the
+        /// serialized report, so an unbounded producer would be an unbounded report.
+        ///
+        /// A truncated value says so; it never arrives quietly shortened.
         stderr: String,
     },
 
