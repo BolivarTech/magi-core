@@ -454,15 +454,26 @@ pub(crate) const REAP_DIAGNOSIS_PREFIX: &str = "child reap failed: ";
 /// It caps only when the text EXCEEDS the budget. Otherwise every unit test that
 /// pins a literal would be asserting against a marked string and could never pass.
 fn label_with(prefix: &str, text: &dyn std::fmt::Display) -> String {
+    let cap = crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
+
+    // A prefix that does not itself fit leaves NO budget for anything, and the
+    // prefix alone already breaks the contract -- so the prefix is what gets capped.
+    // Unreachable with the three shipped prefixes (15-31 bytes), and handled rather
+    // than commented, because the comment that used to stand here was FALSE about
+    // the line below it: it said `mark_within_cap` returns the truncated marker for
+    // a zero budget, and what it returns is the EMPTY string, after which the whole
+    // prefix was concatenated in front regardless.
+    if prefix.len() >= cap {
+        return crate::error::mark_within_cap(prefix, cap);
+    }
+
     let rendered = text.to_string();
-    let budget = crate::error::MAX_ERROR_BODY_PREFIX_BYTES.saturating_sub(prefix.len());
+    let budget = cap - prefix.len();
     if rendered.len() <= budget {
         // Only caps when the text EXCEEDS. Otherwise every sibling test asserting a
         // literal would be asserting against a marked string and could never pass.
         return format!("{prefix}{rendered}");
     }
-    // `saturating_sub` above because a prefix longer than the cap would underflow;
-    // `mark_within_cap` already returns the truncated marker in that case.
     format!(
         "{prefix}{}",
         crate::error::mark_within_cap(&rendered, budget)
