@@ -156,6 +156,12 @@ jobs:
     # skips everything that needs it, which is precisely the desired behaviour.
     if: needs.gate.outputs.should_release == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # The same signal the CI workflow's gate job exports, and for the same reason: this
+    # job runs the SAME run_all_checks.sh, so without it a platform skip here would emit
+    # the CANNOT_TEST prefix that adjudication is never available for on a runner. A
+    # guard armed on one of two identical call sites is half a guard.
+    env:
+      MAGI_CI: "1"
     steps:
       - uses: actions/checkout@v5
         with:

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-08
 
 use crate::error::ProviderError;
 use crate::provider::{
@@ -95,9 +95,15 @@ impl ClaudeCliProvider {
 
     /// Creates a provider that launches `binary` instead of `claude`.
     ///
-    /// Test-only, and gated so it never reaches a consumer. It exists for one
-    /// reason: the deadlock this provider can hit is between two processes, and
-    /// reproducing it needs a real child whose behaviour the test controls.
+    /// Test-only, and behind `test-utils`, which is NOT in `default` -- so a consumer
+    /// reaches it only by asking for it. It is not invisible, though: `docs.rs` builds
+    /// this crate with every feature on, so it renders there like any other published
+    /// item. What the gate buys is that nobody depends on it by accident, not that it
+    /// cannot be seen.
+    ///
+    /// It exists for one reason: the deadlock this provider can hit is between two
+    /// processes, and reproducing it needs a real child whose behaviour the test
+    /// controls.
     ///
     /// **The nested-session guard is KEPT deliberately.** Pointing the provider at
     /// a stub does not make the caller any less nested, and dropping the check here
@@ -227,7 +233,7 @@ fn classify_envelope_error(output: CliOutput) -> ProviderError {
             // second occurrence, which is the datum that says the backend changed its
             // wire format mid-run.
             tracing::warn!(
-                "the CLI envelope carried an api_error_status that is not an integer;                  classifying as a local process failure"
+                "the CLI envelope carried an api_error_status that is not an integer; classifying as a local process failure"
             );
             None
         }
@@ -242,9 +248,14 @@ fn classify_envelope_error(output: CliOutput) -> ProviderError {
             retry_after_raw: Vec::new(),
             received_at: None,
         },
+        // LABELLED, like the exit != 0 path, and CAPPED, like its sibling arm above.
+        // This is the dominant in-band failure path, and leaving it raw made the
+        // published contract of `ProviderError::Process.stderr` false: that field now
+        // states that this provider labels whatever is not really stderr. The label
+        // caps as a side effect, so the bound comes with it.
         None => ProviderError::Process {
             exit_code: None,
-            stderr: output.result,
+            stderr: label_envelope_diagnosis(&output.result),
         },
     }
 }
@@ -330,17 +341,8 @@ struct CliOutput {
     stop_reason: Option<String>,
     /// The upstream HTTP status the CLI passed through, when it did.
     ///
-    /// Read only by tests until R-3 classifies it, which is why the lint below is
-    /// `expect` and not `allow`: `expect` goes RED the moment the condition it
-    /// describes stops holding, so the day a production path reads this field the
-    /// attribute forces its own removal. An `allow` would outlive its reason in
-    /// silence, which is the thing the project's rule against silencing a linter is
-    /// actually about.
-    /// `cfg_attr(not(test), ...)` and not a bare `expect`, and the difference is
-    /// measured: under `cfg(test)` the field IS read -- by the tests in this file --
-    /// so an unconditional expectation is UNFULFILLED there and `-D warnings` turns
-    /// that into an error of its own. The expectation belongs to the target where the
-    /// field is genuinely dead, which is the library without its test module.
+    /// Read by [`classify_envelope_error`], which decides whether it is a status this
+    /// provider will hand to [`ProviderError::Http`].
     #[serde(default, deserialize_with = "de_api_error_status")]
     api_error_status: ApiErrorStatus,
     /// Token counts, when the CLI envelope reports them. `#[serde(default)]`:
@@ -352,19 +354,14 @@ struct CliOutput {
 
 /// Token counts from the CLI envelope's `usage` object.
 ///
-/// # The envelope reports both sides, and it always did
+/// # The envelope reports both sides
 ///
-/// Two claims stood here and both were false. They said the envelope carried no
-/// `stop_reason`-equivalent field and no output count, each "verified" — and what
-/// they had been checked against was `CliOutput`, this crate's own view of the wire,
-/// which held those fields only because nobody had added them. The check confirmed
-/// itself.
-///
-/// Verified against CAPTURED envelopes this time, not against `CliOutput`: thirteen
-/// of them, twelve successes and one failure, produced by the same
-/// `claude --print --output-format json` this provider invokes. The envelope carries
-/// a field literally named `stop_reason`, and `usage` carries `output_tokens`
-/// alongside `input_tokens`. Both are read now, and
+/// Verified against CAPTURED envelopes rather than against `CliOutput`, which is this
+/// crate's own view of the wire and would only ever confirm itself: thirteen of them,
+/// twelve successes and one failure, produced by the same
+/// `claude --print --output-format json` this provider invokes. The envelope carries a
+/// field literally named `stop_reason`, and `usage` carries `output_tokens` alongside
+/// `input_tokens`. Both are read, and
 /// [`crate::provider::FinishReason::from_wire`] does the translation rather than a
 /// second table.
 ///
@@ -411,8 +408,8 @@ pub(crate) enum WriteFailure {
 pub(crate) const ENVELOPE_DIAGNOSIS_PREFIX: &str = "cli envelope: ";
 
 /// Labels the envelope's `result` for the `Process.stderr` path.
-pub(crate) fn label_envelope_diagnosis(result: &str) -> String {
-    label_with(ENVELOPE_DIAGNOSIS_PREFIX, &result)
+pub(crate) fn label_envelope_diagnosis(result: &dyn std::fmt::Display) -> String {
+    label_with(ENVELOPE_DIAGNOSIS_PREFIX, result)
 }
 
 /// Label put on the write error when the prompt did not reach the child.
@@ -534,7 +531,7 @@ impl LlmProvider for ClaudeCliProvider {
     /// **The two prompts travel differently, and only one of them escapes the
     /// command-line length limit.** The user prompt goes through stdin, so it
     /// is not subject to it. The system prompt is passed on argv
-    /// (`--system-prompt`, see [`build_args`]), and argv *is* — the exact
+    /// (`--system-prompt`, built by this provider's private `build_args`), and argv *is* — the exact
     /// limit the user prompt avoids. The three embedded prompts
     /// measure 8344 / 8435 / 9342 bytes (LF line endings); the largest is
     /// about 28.5% of the 32,767-character budget `CreateProcess` allows on
@@ -961,12 +958,78 @@ mod tests {
     }
 
     #[test]
+    fn the_in_band_diagnosis_is_labelled_and_capped_like_its_sibling() {
+        // The IN-BAND failure path -- an envelope that declares a failure with no
+        // usable status -- is the dominant one: every exit-0 `is_error: true`
+        // envelope without a status reaches it. It used to hand the envelope's
+        // `result` to `Process.stderr` RAW and UNBOUNDED, while the exit != 0 path
+        // labelled the same content and the sibling arm of the same `match` capped
+        // it.
+        //
+        // Both halves matter and each has its own reason:
+        //
+        // * LABELLED, because `ProviderError::Process.stderr` now publishes -- in
+        //   PUBLIC rustdoc, on docs.rs -- that this provider labels whatever is not
+        //   really stderr. Leaving the dominant path unlabelled made that sentence
+        //   false the day it shipped.
+        // * CAPPED, because this error reaches `failed_agents` and the serialized
+        //   report, and the cap was moved into `error.rs` by this very milestone so a
+        //   `ProviderError` could bound what it carries.
+        //
+        // The existing tests on this path assert only the VARIANT, so none of them
+        // would have noticed either.
+        let raw = captured_failure_without_api_error_status();
+        let ProviderError::Process { stderr, .. } =
+            parse_envelope(&raw).expect_err("is_error is true, so this fails")
+        else {
+            panic!("an envelope with no usable status stays a Process failure");
+        };
+        assert!(
+            stderr.starts_with("cli envelope: "),
+            "the dominant in-band path must label too, or the published contract of \
+             `Process.stderr` is false: {stderr}"
+        );
+        assert!(
+            stderr.contains(result_of(&raw).as_str()),
+            "the envelope's own diagnosis has to survive the labelling"
+        );
+
+        // And the cap, asserted with a `result` that EXCEEDS it -- against the real
+        // fixture the length check holds with the cap deleted.
+        //
+        // The status is dropped HERE rather than by a second helper: the oversized
+        // capture keeps its `api_error_status`, so it reaches the `Http` arm and not
+        // this one. Composing the two conditions locally keeps the helper honest for
+        // its own caller and adds no surface.
+        let oversized = {
+            let mut v: serde_json::Value =
+                serde_json::from_str(&captured_failure_with_oversized_result(16 * 1024))
+                    .expect("the oversized fixture parses");
+            v.as_object_mut()
+                .expect("the fixture is an object")
+                .remove("api_error_status");
+            v.to_string()
+        };
+        let ProviderError::Process { stderr, .. } =
+            parse_envelope(&oversized).expect_err("is_error is true, so this fails")
+        else {
+            panic!("an envelope with no usable status stays a Process failure");
+        };
+        assert!(
+            stderr.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+            "the labelled diagnosis must fit the cap: {} > {}",
+            stderr.len(),
+            MAX_ERROR_BODY_PREFIX_BYTES
+        );
+    }
+
+    #[test]
     fn the_diagnosis_prefix_labels_the_envelope_result() {
         // THE LITERAL, never `starts_with(ENVELOPE_DIAGNOSIS_PREFIX)`: with the
         // constant on both sides, emptying it moves both and the test stays green over
         // a label that vanished.
         assert_eq!(
-            label_envelope_diagnosis("boom"),
+            label_envelope_diagnosis(&"boom"),
             "cli envelope: boom",
             "a field named `stderr` must say when what it carries is not stderr"
         );

@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-08
 
 //! Loopback server primitives shared by the integration tests that need one.
 //!
@@ -380,8 +380,13 @@ mod cli_stub {
 
     /// How long the precondition probe waits before calling the write blocked.
     ///
-    /// Generous against a measured threshold of 8 KiB on Windows and 64 KiB on Linux:
-    /// a child that is going to block has done so long before this.
+    /// Generous against what was MEASURED here rather than against the number this
+    /// milestone inherited: on this host the child's stderr pipe absorbs 64 KiB and
+    /// blocks at 1 MiB, and the burst the scenario sends is 4 MiB. A child that is
+    /// going to block has done so long before this timeout.
+    ///
+    /// The figure the plan carried -- "Windows blocks the writer at 8 KiB" -- is
+    /// false here, and `PROMPT_BYTES` above records the doubling that showed it.
     const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
     static INSTANCE: AtomicUsize = AtomicUsize::new(0);

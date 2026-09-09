@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-08
 
 //! Test-only support utilities. Gated `#[cfg(any(test, feature = "test-utils"))]`
 //! at the module declaration in `lib.rs`.
@@ -155,27 +155,42 @@ pub fn with_claudecode<F: FnOnce()>(f: F) {
 // that the unit tests inside `src/providers/claude_cli.rs` do not.
 // ---------------------------------------------------------------------------
 
+// Visibility here is NOT uniform, and the split is deliberate. `docs.rs` builds this
+// crate with `all-features = true`, so anything `pub` behind `test-utils` renders as
+// published API and falls under the stability policy the feature's own comment in
+// `Cargo.toml` declares. What `tests/` -- a separate crate -- actually consumes stays
+// `pub`; what only this crate's own unit tests reach is `pub(crate)`, and what only
+// this module reaches is private. Surface without an outside consumer, under a
+// stability guarantee, is the thing the release's standards forbid.
+//
+// The `pub(crate)` half also carries `#[cfg(test)]`, and that is not belt-and-braces:
+// this module compiles under `test-utils` WITHOUT `cfg(test)`, and there a crate-visible
+// item whose only callers are `#[cfg(test)]` unit tests is dead code that `-D warnings`
+// rejects. Gating them on `cfg(test)` is what makes them exist exactly where they are
+// used.
+
 /// The captured failure envelope: `--model no-such-model-xyz`, redacted to the
 /// three fields a REQ consumes.
 pub const CAPTURED_404: &str = include_str!("providers/fixtures/envelopes/failure_404.json");
 
 /// The captured success envelope, redacted to the four fields a REQ consumes.
-pub const CAPTURED_SUCCESS: &str =
-    include_str!("providers/fixtures/envelopes/success_end_turn.json");
+const CAPTURED_SUCCESS: &str = include_str!("providers/fixtures/envelopes/success_end_turn.json");
 
 /// Every key the redacted SUCCESS fixture is expected to carry, and no other.
 ///
 /// Fixed by the capture spike on 2026-09-08 by reading the redacted file, never
 /// from the raw capture: redaction removes fields, so a list written before it
 /// counts keys that are gone and goes red for the fixture instead of the code.
-pub const SUCCESS_KEEP_LIST: [&str; 4] = ["is_error", "result", "stop_reason", "usage"];
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) const SUCCESS_KEEP_LIST: [&str; 4] = ["is_error", "result", "stop_reason", "usage"];
 
 /// Every key the redacted FAILURE fixture is expected to carry, and no other.
 ///
 /// Three and not four, although the raw capture DOES carry `stop_reason`
 /// (measured value: `"stop_sequence"`): a field consumed by the other envelope
 /// type is removed anyway, because no REQ consumes `stop_reason` on a failure.
-pub const FAILURE_KEEP_LIST: [&str; 3] = ["api_error_status", "is_error", "result"];
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) const FAILURE_KEEP_LIST: [&str; 3] = ["api_error_status", "is_error", "result"];
 
 /// The captured SUCCESS envelope with its `stop_reason` replaced.
 ///
@@ -216,7 +231,8 @@ pub fn captured_failure_with_api_error_status(status: i64) -> String {
 ///
 /// # Panics
 /// As [`captured_envelope_with_stop_reason`].
-pub fn captured_failure_with_unusable_api_error_status(value: &str) -> String {
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) fn captured_failure_with_unusable_api_error_status(value: &str) -> String {
     replace_once(
         CAPTURED_404,
         "\"api_error_status\": 404",
@@ -249,7 +265,8 @@ pub fn captured_failure_without_api_error_status() -> String {
 ///
 /// # Panics
 /// As [`captured_envelope_with_stop_reason`].
-pub fn envelope_with_is_error_false_and_status() -> String {
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) fn envelope_with_is_error_false_and_status() -> String {
     replace_once(CAPTURED_404, "\"is_error\": true", "\"is_error\": false")
 }
 
@@ -276,7 +293,8 @@ pub fn envelope_with_is_error_false() -> String {
 ///
 /// # Panics
 /// As [`captured_envelope_with_stop_reason`].
-pub fn captured_failure_with_oversized_result(bytes: usize) -> String {
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) fn captured_failure_with_oversized_result(bytes: usize) -> String {
     let value: serde_json::Value =
         serde_json::from_str(CAPTURED_404).expect("the captured fixture parses");
     let mut object = match value {

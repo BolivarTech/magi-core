@@ -1,5 +1,5 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
+// Version: 4.1.0
 // Date: 2026-09-08
 
 //! Integration tests for `ClaudeCliProvider`, driven against a real child process.
@@ -94,10 +94,19 @@ async fn a_verbose_child_does_not_hang_the_parent() {
     // -- but the number is picked against the CEILING rather than against "more
     // than a reasonable buffer", which is intuition. Linux lets a pipe grow to
     // /proc/sys/fs/pipe-max-size, default 1 MiB: exactly that would leave ZERO
-    // margin on a maximally expanded pipe. 4 MiB is 4x the ceiling. MEASURED:
-    // Windows blocks the writer at 8 KiB, so it carries 512x -- it is where the
-    // deadlock reproduces most easily, which makes it the PRIMARY verification
-    // platform here, not the secondary one.
+    // margin on a maximally expanded pipe. 4 MiB is 4x that ceiling.
+    //
+    // MEASURED HERE, and it is NOT the figure this milestone inherited. The plan
+    // recorded "Windows blocks the writer at 8 KiB", which would put the margin at
+    // 512x; the doubling in `PROMPT_BYTES` shows the stdin pipe on this host
+    // absorbing 1 MiB and blocking at 4 MiB, so the real margin is under 4x. The
+    // burst that keeps the child from reading is a separate measurement: its stderr
+    // pipe absorbs 64 KiB and blocks at 1 MiB.
+    //
+    // That margin is what decides whether the `CANNOT_TEST` branch below is
+    // reachable, so the smaller number is the one to carry: a host with a larger
+    // stdin pipe can absorb this payload, and then the scenario declines to run
+    // rather than passing -- which is the probe working, not a regression.
     const STDERR_BYTES: usize = 4 * 1024 * 1024;
 
     // PRECONDITION SEEDED BY ANOTHER PATH, and CHECKED rather than believed. If the
@@ -207,15 +216,24 @@ async fn a_failed_prompt_write_is_never_ok_even_on_exit_zero() {
     }
 }
 
-/// The `Flush` half of the write failure: the bytes WERE delivered and only the
-/// pipe's teardown failed, so reporting a truncation would invent one.
+/// A prompt that WAS delivered is never reported as truncated.
 ///
-/// With a bare `io::Error` this branch was reported as "prompt write did not
-/// complete" while `write_all` had handed over the whole prompt -- the same lie row
-/// (2b) exists to prevent, committed inside the mechanism that prevents it.
+/// # This does NOT exercise `WriteFailure::Flush`, and the name used to say it did
+///
+/// The child here drains to EOF, so `write_all` completes, `shutdown()` succeeds and
+/// the call returns `Ok`. Whether a teardown fails at all is the operating system's
+/// call, so a test that demanded one would depend on something the product does not
+/// control -- and, worse, would be adjudicating a condition it cannot seed.
+///
+/// **`WriteFailure::Flush` therefore has NO coverage**, and that is carried as a
+/// declared gap rather than implied by a hopeful name: fold `Flush` into `Truncated`
+/// and delete the variant, and this test stays green. What it does pin is the
+/// property the product does control -- a delivered prompt does not come back
+/// labelled as an incomplete one -- which is the half that a collapsed error type
+/// got wrong.
 #[tokio::test]
 #[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
-async fn a_teardown_failure_is_not_reported_as_a_truncated_prompt() {
+async fn a_delivered_prompt_is_never_reported_as_truncated() {
     // The read limit is ABOVE the prompt, so the child takes the whole thing and
     // then closes: the write completes and only the shutdown can fail. Below the
     // prompt it would seed the other branch -- one knob, two branches, by argument.

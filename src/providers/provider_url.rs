@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
 // Version: 4.1.0
-// Date: 2026-09-06
+// Date: 2026-09-08
 
 //! Authority over a provider's URL.
 //!

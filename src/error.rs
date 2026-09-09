@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
 // Version: 4.1.0
-// Date: 2026-09-06
+// Date: 2026-09-08
 
 use std::fmt;
 use std::time::{Duration, Instant};
@@ -192,9 +192,7 @@ pub enum ProviderError {
         /// thing that actually failed: the envelope's own `result` when the process
         /// and the envelope contradict each other, a prompt write that did not
         /// complete, and a child that could not be reaped. Reusing one label for
-        /// another's failure would assert something that did not happen -- and a
-        /// field carrying an unannounced substitute is the defect class this release
-        /// corrects in several other places.
+        /// another's failure would assert something that did not happen.
         ///
         /// Unlabelled content is the child's real stderr.
         stderr: String,

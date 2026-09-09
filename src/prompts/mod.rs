@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-08
 
 //! Compile-time embedded system prompts for the three agents.
 //!
@@ -482,30 +482,48 @@ mod tests {
     }
 
     /// The system prompt travels on argv (see `build_args` in
-    /// `providers/claude_cli.rs`), and the crate deliberately does not cap
-    /// it — there is no single correct limit, since Windows and Linux
-    /// disagree by a factor of about four. This test is the only thing that
-    /// notices if an embedded prompt grows enough to eat into that margin.
+    /// `providers/claude_cli.rs`), and the crate deliberately does not cap it — there
+    /// is no single correct limit, since Windows and Linux disagree by a factor of
+    /// about four. This test is the only thing that notices if an embedded prompt
+    /// grows enough to eat into that margin.
+    ///
+    /// # It pins the EXACT sizes, and the reason is that they are published
+    ///
+    /// `complete()`'s rustdoc names all three byte counts and the percentage they
+    /// come to. That prose ships to docs.rs and crates.io is immutable, so a number
+    /// that goes stale can only be withdrawn by publishing again — the cost a
+    /// documentation-only release already paid once here. An upper bound would let a
+    /// prompt grow by kilobytes with the suite green and every published figure
+    /// false.
+    ///
+    /// Exact comparison is stable across checkouts because `.gitattributes` pins
+    /// `src/prompts_md/*.md text eol=lf`, which is what the SHA-256 parity test in
+    /// this same module already depends on. The bound below is kept as the second
+    /// half of the contract: it says the margin is intact even if the exact figures
+    /// are updated together with the rustdoc.
     #[test]
-    fn the_embedded_prompts_stay_well_under_the_argv_limit() {
+    fn the_embedded_prompts_match_the_sizes_the_rustdoc_publishes() {
         // The command-line length limit `CreateProcess` enforces on Windows,
         // in characters, for the entire command line.
         const WINDOWS_COMMAND_LINE_LIMIT: usize = 32_767;
 
+        // The EXACT sizes `complete()`'s rustdoc publishes. Changing a prompt changes
+        // these, and the failure message says which published figures went with it.
         let prompts = [
-            ("melchior.md", super::melchior_prompt()),
-            ("balthasar.md", super::balthasar_prompt()),
-            ("caspar.md", super::caspar_prompt()),
+            ("melchior.md", super::melchior_prompt(), 8344usize),
+            ("balthasar.md", super::balthasar_prompt(), 8435),
+            ("caspar.md", super::caspar_prompt(), 9342),
         ];
 
         let mut largest = 0usize;
-        for (name, p) in prompts {
+        for (name, p, published) in prompts {
             let len = p.len();
-            assert!(
-                len < 16_384,
-                "{name} is {len} bytes, past the 16,384-byte guard rail — \
-                 update the byte counts and the argv-limit discussion in the \
-                 `complete()` rustdoc in src/providers/claude_cli.rs"
+            assert_eq!(
+                len, published,
+                "{name} is {len} bytes and the `complete()` rustdoc in \
+                 src/providers/claude_cli.rs publishes {published}. That prose ships to \
+                 docs.rs, so update BOTH -- the three counts and the percentage -- in \
+                 the same change"
             );
             largest = largest.max(len);
         }

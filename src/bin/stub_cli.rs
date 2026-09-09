@@ -1,5 +1,5 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
+// Version: 4.1.0
 // Date: 2026-09-08
 
 //! A stand-in for the `claude` CLI, driven entirely by a `stub.json` that sits
@@ -115,11 +115,16 @@ fn main() -> ExitCode {
         let _ = std::io::stderr().flush();
     }
 
+    // `try_from` and not `as u8`, for the same reason the provider's own status gate
+    // gives: the cast truncates in silence, so a typo in `exit_code` would exit with a
+    // number nobody configured and the test would be adjudicated against it. Out of
+    // range falls back to the default rather than inventing a code.
     let code = config
         .get("exit_code")
         .and_then(|v| v.as_u64())
+        .and_then(|n| u8::try_from(n).ok())
         .unwrap_or(0);
-    ExitCode::from(code as u8)
+    ExitCode::from(code)
 }
 
 /// Reads `stub.json` from beside this executable.

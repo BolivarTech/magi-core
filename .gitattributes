@@ -2,5 +2,14 @@
 # CRLF in these files would break the SHA-256 byte-for-byte parity test
 # against the upstream MAGI Python reference.
 src/prompts_md/*.md text eol=lf
+
+# Same reason, and the same trap: `include_str!` PRESERVES CR while rustc
+# NORMALIZES a string literal to LF, so a needle written as "...,
+" in the source
+# cannot match fixture text loaded from a CRLF checkout. `core.autocrlf` is true on
+# the primary development platform, so without this line a fresh clone breaks the
+# helpers that mutate these captures -- and the panic names the fixture instead of
+# the line endings.
+src/providers/fixtures/envelopes/*.json text eol=lf
 tests/fixtures/magi_ref_prompts.sha256 text eol=lf
 graphify-out/graph.json merge=graphify
