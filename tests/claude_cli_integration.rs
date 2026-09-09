@@ -478,12 +478,9 @@ async fn a_successful_envelope_reaches_the_consumer_as_a_completion() {
 #[serial] // MANDATORY: `complete_against_stub` mutates CLAUDECODE.
 async fn an_oversized_child_stderr_is_capped_before_it_reaches_the_consumer() {
     let noise = "E".repeat(ERROR_BODY_CAP * 4);
-    let err = complete_against_stub(
-        StubCli::new().exit_code(1).stderr(&noise),
-        USER_PROMPT,
-    )
-    .await
-    .expect_err("a non-zero exit with unparseable stdout is a Process failure");
+    let err = complete_against_stub(StubCli::new().exit_code(1).stderr(&noise), USER_PROMPT)
+        .await
+        .expect_err("a non-zero exit with unparseable stdout is a Process failure");
 
     let ProviderError::Process { stderr, .. } = err else {
         panic!("expected Process carrying the child's stderr, got {err:?}");

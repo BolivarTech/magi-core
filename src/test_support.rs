@@ -44,11 +44,19 @@ pub fn big_prompt(bytes: usize) -> String {
 /// applies, instead of a literal of its own. That is R-19's rule reaching a second
 /// table before it can go wrong: a test carrying its own copy of a bound compares the
 /// copy against itself and stays green when the bound moves.
+///
+/// Gated on `claude-cli` and NOT on a copy of the source constant's own three-feature
+/// list, which would be a second list to keep in step -- the defect one file over. The
+/// only consumer is the CLI integration suite, so this is the honest condition, and it
+/// inherits the tripwire rather than duplicating it: the day `claude-cli` leaves that
+/// list, this line stops compiling and names itself.
+#[cfg(feature = "claude-cli")]
 pub const ERROR_BODY_CAP: usize = crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
 
 /// What a capped diagnosis ends with. Re-exported for the same reason as
 /// [`ERROR_BODY_CAP`]: a length bound alone is satisfied by a silent truncation, so
 /// the announcement is half of what "capped" means and has to be assertable too.
+#[cfg(feature = "claude-cli")]
 pub const CAP_MARKER: &str = crate::error::TRUNCATION_MARKER;
 
 /// Aborts the current test as NOT RUN, with the reason and the host.
