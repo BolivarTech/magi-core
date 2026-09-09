@@ -689,6 +689,20 @@ impl LlmProvider for ClaudeCliProvider {
         let output = match reaped {
             Ok(output) => output,
             Err(e) => {
+                // THE SIBLING SITE of the trace below, and it used to be missing.
+                // The reap failure is the dominant error and stays the one returned
+                // -- the child's state is unknown, so nothing else can be asserted
+                // -- but a concurrent write failure was being dropped in silence
+                // HERE while the `!status.success()` arm traced its own. One of two
+                // places treating the same fact differently is this project's
+                // most-repeated defect; the error type does not change, only what
+                // reaches the operator.
+                if let Err(WriteFailure::Truncated(w)) = &write_outcome {
+                    tracing::warn!(
+                        error = %w,
+                        "the prompt write did not complete, but reaping the child failed and that is the diagnosis"
+                    );
+                }
                 return Err(ProviderError::Process {
                     exit_code: None,
                     stderr: label_reap_diagnosis(&e),
