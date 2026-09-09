@@ -272,6 +272,64 @@ fn classify_envelope_error(output: CliOutput, exit_code: Option<i32>) -> Provide
     }
 }
 
+/// Classifies a child that exited non-zero, which is row (3) of the precedence table.
+///
+/// Extracted from `complete()` rather than left inline, and the reason is the one
+/// the reviewer gave: the method had grown past 180 lines of nested matches over
+/// write outcomes, exit codes and envelope shapes, and a precedence rule inverted
+/// in there is exactly the defect this milestone exists to fix. The behaviour is
+/// unchanged -- every arm returns the same error it returned inline.
+///
+/// The caller has already established `!output.status.success()`; this function
+/// does not re-check it.
+fn classify_child_failure(
+    output: &std::process::Output,
+    write_outcome: &Result<(), WriteFailure>,
+) -> ProviderError {
+    // Row (3): the child died for its own reason, and THAT code is the diagnosis.
+    // A broken pipe the parent noticed is secondary and goes to tracing, never into
+    // the error type.
+    if let Err(WriteFailure::Truncated(e)) = write_outcome {
+        tracing::warn!(
+            error = %e,
+            "the prompt write did not complete, but the child's own exit is the diagnosis"
+        );
+    }
+    // STDOUT FIRST. The discriminator arrives there precisely in the case where this
+    // crate used to stop reading stdout, so an envelope that parses classifies the
+    // failure; stderr is the FALLBACK, never the other way round. An empty stdout
+    // counts as a parse failure -- it is the normal case when the binary did not
+    // start, and the real reason is on stderr.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    match serde_json::from_str::<CliOutput>(&stdout) {
+        // The envelope declares the failure, so it classifies it.
+        Ok(envelope) if envelope.is_error => {
+            classify_envelope_error(envelope, output.status.code())
+        }
+        // The two sources CONTRADICT each other: the envelope describes the
+        // conversation, the exit code describes the process, and a process that died
+        // did not complete whatever its last message says. The process wins, and the
+        // envelope's `result` travels as the diagnosis -- LABELLED, because a field
+        // named `stderr` has to say when what it carries is not stderr.
+        Ok(envelope) => ProviderError::Process {
+            exit_code: output.status.code(),
+            stderr: label_envelope_diagnosis(&envelope.result),
+        },
+        Err(_) => {
+            // CAPPED like everything else that reaches this field. The child's stderr
+            // is arbitrary and `wait_with_output` reads it to EOF with no bound of its
+            // own -- this milestone's own scenario writes 4 MiB there -- while the
+            // model-authored `result`, which is inherently modest, was already
+            // bounded. Capping two of three producers and leaving the unbounded one is
+            // the wrong two.
+            ProviderError::Process {
+                exit_code: output.status.code(),
+                stderr: cap_to_error_budget(String::from_utf8_lossy(&output.stderr).to_string()),
+            }
+        }
+    }
+}
+
 /// Bounds UNLABELLED text to the budget every `ProviderError` body fits within.
 ///
 /// Only caps when the text EXCEEDS the bound: text that fits travels whole and RAW.
@@ -711,53 +769,7 @@ impl LlmProvider for ClaudeCliProvider {
         };
 
         if !output.status.success() {
-            // Row (3): the child died for its own reason, and THAT code is the
-            // diagnosis. A broken pipe the parent noticed is secondary and goes to
-            // tracing, never into the error type.
-            if let Err(WriteFailure::Truncated(e)) = &write_outcome {
-                tracing::warn!(
-                    error = %e,
-                    "the prompt write did not complete, but the child's own exit is the diagnosis"
-                );
-            }
-            // STDOUT FIRST. The discriminator arrives there precisely in the case
-            // where this crate used to stop reading stdout, so an envelope that parses
-            // classifies the failure; stderr is the FALLBACK, never the other way
-            // round. An empty stdout counts as a parse failure -- it is the normal
-            // case when the binary did not start, and the real reason is on stderr.
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            match serde_json::from_str::<CliOutput>(&stdout) {
-                // The envelope declares the failure, so it classifies it.
-                Ok(envelope) if envelope.is_error => {
-                    return Err(classify_envelope_error(envelope, output.status.code()));
-                }
-                // The two sources CONTRADICT each other: the envelope describes the
-                // conversation, the exit code describes the process, and a process
-                // that died did not complete whatever its last message says. The
-                // process wins, and the envelope's `result` travels as the diagnosis
-                // -- LABELLED, because a field named `stderr` has to say when what it
-                // carries is not stderr.
-                Ok(envelope) => {
-                    return Err(ProviderError::Process {
-                        exit_code: output.status.code(),
-                        stderr: label_envelope_diagnosis(&envelope.result),
-                    });
-                }
-                Err(_) => {
-                    // CAPPED like everything else that reaches this field. The child's
-                    // stderr is arbitrary and `wait_with_output` reads it to EOF with
-                    // no bound of its own -- this milestone's own scenario writes 4 MiB
-                    // there -- while the model-authored `result`, which is inherently
-                    // modest, was already bounded. Capping two of three producers and
-                    // leaving the unbounded one is the wrong two.
-                    return Err(ProviderError::Process {
-                        exit_code: output.status.code(),
-                        stderr: cap_to_error_budget(
-                            String::from_utf8_lossy(&output.stderr).to_string(),
-                        ),
-                    });
-                }
-            }
+            return Err(classify_child_failure(&output, &write_outcome));
         }
 
         // Exit 0, so the write outcome is consulted BEFORE the parsing path. The
