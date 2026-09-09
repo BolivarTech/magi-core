@@ -108,6 +108,42 @@ pub fn cannot_test(reason: &str) -> ! {
 // in several other places -- the one that drifts is always the one nobody reads.
 // ---------------------------------------------------------------------------
 
+/// Restores `CLAUDECODE` when it goes out of scope, unwind included.
+///
+/// RAII rather than a statement after the closure, and the difference is the
+/// unwind path: a plain restore is SKIPPED when the closure panics, and the
+/// variable then leaks into every later `#[serial]` test of the same process --
+/// which fails with `NestedSession` and points at the wrong test. The crate
+/// already answers this shape with `Drop` (`AbortGuard` in the orchestrator), so
+/// this is the established pattern, not a new one.
+///
+/// Both helpers below capture BEFORE mutating, so the value the guard restores is
+/// always the one that was there on entry.
+struct ClaudecodeGuard {
+    original: Option<String>,
+}
+
+impl ClaudecodeGuard {
+    fn capture() -> Self {
+        Self {
+            original: std::env::var("CLAUDECODE").ok(),
+        }
+    }
+}
+
+impl Drop for ClaudecodeGuard {
+    fn drop(&mut self) {
+        // Two branches, and the second is not symmetry for its own sake: with no
+        // original value, RESTORING means removing. Setting it to the empty string
+        // would leave the variable defined, and the provider's constructor refuses
+        // on presence, not on content.
+        match self.original.take() {
+            Some(val) => unsafe { std::env::set_var("CLAUDECODE", val) },
+            None => unsafe { std::env::remove_var("CLAUDECODE") },
+        }
+    }
+}
+
 /// Saves `CLAUDECODE`, clears it, runs `f`, then restores the original value.
 ///
 /// A development machine that is itself a Claude Code session sets this variable,
@@ -127,16 +163,11 @@ pub fn cannot_test(reason: &str) -> ! {
 /// dev-dependency that would not exist for an external crate compiling this module
 /// under `test-utils`.
 pub fn without_claudecode<F: FnOnce()>(f: F) {
-    let original = std::env::var("CLAUDECODE").ok();
+    let _guard = ClaudecodeGuard::capture();
     unsafe {
         std::env::remove_var("CLAUDECODE");
     }
     f();
-    if let Some(val) = original {
-        unsafe {
-            std::env::set_var("CLAUDECODE", val);
-        }
-    }
 }
 
 /// Sets `CLAUDECODE`, runs `f`, then restores the original value.
@@ -165,20 +196,11 @@ pub fn without_claudecode<F: FnOnce()>(f: F) {
 /// what the standards forbid.
 #[cfg(all(test, feature = "claude-cli"))]
 pub(crate) fn with_claudecode<F: FnOnce()>(f: F) {
-    let original = std::env::var("CLAUDECODE").ok();
+    let _guard = ClaudecodeGuard::capture();
     unsafe {
         std::env::set_var("CLAUDECODE", "1");
     }
     f();
-    if let Some(val) = original {
-        unsafe {
-            std::env::set_var("CLAUDECODE", val);
-        }
-    } else {
-        unsafe {
-            std::env::remove_var("CLAUDECODE");
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1136,11 +1158,26 @@ mod tests {
             "the guard must restore the original value on the unwind path"
         );
 
-        // The twin, whose restore has an extra branch: with no original value it
-        // REMOVES instead of setting, and that branch has to survive an unwind too.
         unsafe {
             std::env::remove_var("CLAUDECODE");
         }
+    }
+
+    /// The twin's restore has an EXTRA BRANCH, and it needs its own unwind test.
+    ///
+    /// With no original value, restoring means REMOVING rather than setting, so the
+    /// assertion above cannot reach it. Gated exactly like the helper it covers:
+    /// `with_claudecode` is `cfg(all(test, feature = "claude-cli"))`, so a test that
+    /// called it unconditionally would not compile under default features -- which
+    /// is how this test was first written, and what the per-commit gate caught.
+    #[cfg(feature = "claude-cli")]
+    #[test]
+    #[serial]
+    fn a_panicking_closure_restores_an_absent_variable_by_removing_it() {
+        unsafe {
+            std::env::remove_var("CLAUDECODE");
+        }
+
         let panicked = std::panic::catch_unwind(|| {
             with_claudecode(|| panic!("the closure fails"));
         });
