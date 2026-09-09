@@ -1159,6 +1159,37 @@ mod tests {
         );
     }
 
+    /// A prefix LONGER than the cap must not smuggle itself past it.
+    ///
+    /// Unreachable with the three shipped prefixes (15-31 bytes against 8192), and
+    /// pinned anyway because the comment that used to justify the gap was FALSE
+    /// about the code beside it: it said `mark_within_cap` "already returns the
+    /// truncated marker in that case", and with a budget of zero that function
+    /// returns the EMPTY string -- after which the whole prefix is concatenated in
+    /// front regardless. BOTH branches returned the prefix entire, so the function
+    /// broke the contract its own rustdoc states: the cap bounds the FINAL string.
+    #[test]
+    fn a_prefix_longer_than_the_cap_is_itself_capped() {
+        use crate::error::MAX_ERROR_BODY_PREFIX_BYTES;
+
+        let oversized = "p".repeat(MAX_ERROR_BODY_PREFIX_BYTES + 100);
+
+        // BOTH branches of the function, because they reach the overflow by
+        // different routes: an empty text takes the early return, a non-empty one
+        // goes through `mark_within_cap` with a zero budget. The first is the one
+        // the finding named; testing only it would leave the sibling open, which is
+        // this project's most-repeated defect.
+        for text in ["", "some text"] {
+            let labelled = label_with(&oversized, &text);
+            assert!(
+                labelled.len() <= MAX_ERROR_BODY_PREFIX_BYTES,
+                "text {text:?}: the labelled result must fit the cap: {} > {}",
+                labelled.len(),
+                MAX_ERROR_BODY_PREFIX_BYTES
+            );
+        }
+    }
+
     #[test]
     #[serial]
     fn the_cannot_test_prefix_is_emitted_only_outside_ci() {
