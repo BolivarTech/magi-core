@@ -974,6 +974,7 @@ pub fn report_run_failed(report: &MagiReport) -> std::collections::BTreeSet<Line
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[tokio::test]
     async fn test_routing_mock_provider_routes_by_task_local_identity() {
@@ -1101,6 +1102,56 @@ mod tests {
         assert_eq!(
             extract("not json at all").unwrap_err().cause(),
             ExtractionFailureCause::MissingMarkers
+        );
+    }
+
+    /// A panic inside the closure must NOT leak the mutated environment.
+    ///
+    /// The restore used to run as a plain statement AFTER `f()`, so an unwind
+    /// skipped it and left `CLAUDECODE` set for every later `#[serial]` test in the
+    /// same process -- which then failed with `NestedSession`, pointing at the wrong
+    /// test. Under nextest each test is its own process and the leak is invisible;
+    /// under `cargo test` it is not. The guard is RAII now, so the restore runs on
+    /// the unwind path too.
+    #[test]
+    #[serial]
+    fn a_panicking_closure_still_restores_the_environment() {
+        // SEEDED BY ANOTHER PATH than the helper under test: set the variable
+        // directly, so the precondition does not depend on the mechanism being
+        // verified.
+        unsafe {
+            std::env::set_var("CLAUDECODE", "sentinel");
+        }
+
+        let panicked = std::panic::catch_unwind(|| {
+            without_claudecode(|| panic!("the closure fails"));
+        });
+        assert!(
+            panicked.is_err(),
+            "the panic must propagate, not be swallowed"
+        );
+        assert_eq!(
+            std::env::var("CLAUDECODE").ok().as_deref(),
+            Some("sentinel"),
+            "the guard must restore the original value on the unwind path"
+        );
+
+        // The twin, whose restore has an extra branch: with no original value it
+        // REMOVES instead of setting, and that branch has to survive an unwind too.
+        unsafe {
+            std::env::remove_var("CLAUDECODE");
+        }
+        let panicked = std::panic::catch_unwind(|| {
+            with_claudecode(|| panic!("the closure fails"));
+        });
+        assert!(
+            panicked.is_err(),
+            "the panic must propagate, not be swallowed"
+        );
+        assert_eq!(
+            std::env::var("CLAUDECODE").ok(),
+            None,
+            "with no original value the guard must REMOVE it, unwind included"
         );
     }
 }
