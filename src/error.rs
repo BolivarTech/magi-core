@@ -180,9 +180,23 @@ pub enum ProviderError {
     Process {
         /// Exit code of the child process, if available.
         ///
-        /// `None` says the PROCESS did not fail: it is what a failure of the crate's
-        /// own side carries -- a prompt that could not be written, a child that could
-        /// not be reaped, an envelope whose status is unusable.
+        /// `None` is what a failure of the crate's own side carries -- a prompt that
+        /// could not be written, a child that could not be reaped, an envelope whose
+        /// status is unusable.
+        ///
+        /// # It does NOT mean the process succeeded, and one case proves it
+        ///
+        /// On Unix a child killed by a SIGNAL has no exit code at all
+        /// (`ExitStatus::code()` returns `None`), so a signalled child arrives here
+        /// as `None` while having failed for its own reason. This line used to say
+        /// `None` "says the PROCESS did not fail", which was a checkable claim about
+        /// the code below it and false in exactly that case.
+        ///
+        /// Distinguishing the two would need a platform-specific `ExitStatusExt` and
+        /// a field to carry the signal, which no consumer has asked for; the
+        /// diagnosis in `stderr` still names what happened. So the ambiguity is
+        /// STATED rather than resolved: read `None` as "no exit code was available",
+        /// never as "the process was fine".
         exit_code: Option<i32>,
         /// The child's standard error, OR a diagnosis the provider substituted for it.
         ///
