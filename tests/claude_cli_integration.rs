@@ -392,10 +392,21 @@ async fn a_local_cli_failure_stays_process_when_the_child_also_died() {
     )
     .await
     .expect_err("the envelope declared a failure");
-    assert!(
-        matches!(err, ProviderError::Process { .. }),
-        "a failure that never reached the API stays Process, got {err:?}"
-    );
+    // THE EXIT CODE, not just the variant -- the same reason its sibling in this file
+    // spells out: a bare `matches!(Process { .. })` cannot fail if the code is lost,
+    // and losing it is exactly what happens when the envelope classifies a failure
+    // that the CHILD also reported. `None` on this path would say "the process did
+    // not fail", which is what the published rustdoc of `exit_code` defines it as,
+    // and the process did fail: it exited 1.
+    match err {
+        ProviderError::Process { exit_code, .. } => assert_eq!(
+            exit_code,
+            Some(1),
+            "the child died with its own code; the envelope classifying the failure \
+             does not erase it"
+        ),
+        other => panic!("expected Process carrying the child's exit code, got {other:?}"),
+    }
 }
 
 /// Its twin on the OTHER exit path, and separate rather than a loop over both.

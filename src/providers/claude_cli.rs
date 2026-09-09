@@ -185,7 +185,9 @@ fn parse_envelope(raw: &str) -> Result<CliOutput, ProviderError> {
     })?;
 
     if output.is_error {
-        return Err(classify_envelope_error(output));
+        // No process to speak of here: this is the envelope alone, parsed from a
+        // string. Whoever has an exit code passes it.
+        return Err(classify_envelope_error(output, None));
     }
 
     Ok(output)
@@ -219,7 +221,7 @@ const MAX_HTTP_STATUS: i64 = 599;
 ///
 /// # Complexity
 /// O(n) in the length of `result`, from the cap's single copy.
-fn classify_envelope_error(output: CliOutput) -> ProviderError {
+fn classify_envelope_error(output: CliOutput, exit_code: Option<i32>) -> ProviderError {
     let status = match output.api_error_status {
         ApiErrorStatus::Value(n) if (MIN_HTTP_STATUS..=MAX_HTTP_STATUS).contains(&n) => {
             u16::try_from(n).ok()
@@ -253,8 +255,13 @@ fn classify_envelope_error(output: CliOutput) -> ProviderError {
         // published contract of `ProviderError::Process.stderr` false: that field now
         // states that this provider labels whatever is not really stderr. The label
         // caps as a side effect, so the bound comes with it.
+        // The exit code is the CALLER's to supply, and it is not always `None`: an
+        // envelope that classifies a failure does not erase the fact that the child
+        // ALSO died with its own code. `exit_code: None` is defined by this crate's
+        // published rustdoc as "the process did not fail", so hard-coding it here made
+        // that field say the opposite of what happened on the non-zero-exit path.
         None => ProviderError::Process {
-            exit_code: None,
+            exit_code,
             stderr: label_envelope_diagnosis(&output.result),
         },
     }
@@ -682,7 +689,7 @@ impl LlmProvider for ClaudeCliProvider {
             match serde_json::from_str::<CliOutput>(&stdout) {
                 // The envelope declares the failure, so it classifies it.
                 Ok(envelope) if envelope.is_error => {
-                    return Err(classify_envelope_error(envelope));
+                    return Err(classify_envelope_error(envelope, output.status.code()));
                 }
                 // The two sources CONTRADICT each other: the envelope describes the
                 // conversation, the exit code describes the process, and a process
@@ -697,9 +704,17 @@ impl LlmProvider for ClaudeCliProvider {
                     });
                 }
                 Err(_) => {
+                    // CAPPED like everything else that reaches this field. The child's
+                    // stderr is arbitrary and `wait_with_output` reads it to EOF with
+                    // no bound of its own -- this milestone's own scenario writes 4 MiB
+                    // there -- while the model-authored `result`, which is inherently
+                    // modest, was already bounded. Capping two of three producers and
+                    // leaving the unbounded one is the wrong two.
                     return Err(ProviderError::Process {
                         exit_code: output.status.code(),
-                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                        stderr: cap_envelope_body(
+                            String::from_utf8_lossy(&output.stderr).to_string(),
+                        ),
                     });
                 }
             }
@@ -1020,6 +1035,13 @@ mod tests {
             "the labelled diagnosis must fit the cap: {} > {}",
             stderr.len(),
             MAX_ERROR_BODY_PREFIX_BYTES
+        );
+        // AND that it says so. A cap that truncated without marking would satisfy the
+        // length bound above and hand the consumer a silently shortened diagnosis --
+        // which is the sibling assertion this test was missing.
+        assert!(
+            stderr.ends_with(crate::error::TRUNCATION_MARKER),
+            "a capped diagnosis has to announce the cut: {stderr}"
         );
     }
 

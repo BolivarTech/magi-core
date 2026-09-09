@@ -125,7 +125,8 @@ pub fn without_claudecode<F: FnOnce()>(f: F) {
 /// Same contract as [`without_claudecode`], and the same damage if it is broken:
 /// two threads calling either of these at once corrupt the environment of the
 /// whole process. Serialise them.
-pub fn with_claudecode<F: FnOnce()>(f: F) {
+#[cfg(all(test, feature = "claude-cli"))]
+pub(crate) fn with_claudecode<F: FnOnce()>(f: F) {
     let original = std::env::var("CLAUDECODE").ok();
     unsafe {
         std::env::set_var("CLAUDECODE", "1");

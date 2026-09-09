@@ -12,7 +12,7 @@
 #
 # ROW BY ROW, never a bag of tokens: a grep over a flat list lets one row HIDE
 # BEHIND another's token -- `ProviderError::Http` appears for R-3 and would cover
-# R-2. Fifteen independent conditions, each naming the row it failed.
+# R-2. Sixteen independent conditions, each naming the row it failed.
 #
 # SCOPED to the current version's section. Without scoping, the tokens are found
 # in any older entry and the floor passes while THIS version says nothing -- a

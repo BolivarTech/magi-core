@@ -184,17 +184,24 @@ pub enum ProviderError {
         /// own side carries -- a prompt that could not be written, a child that could
         /// not be reaped, an envelope whose status is unusable.
         exit_code: Option<i32>,
-        /// The child's standard error, OR a labelled diagnosis when there is
-        /// something more useful to carry.
+        /// The child's standard error, OR a diagnosis the provider substituted for it.
         ///
-        /// The CLI provider writes a label when the content is not stderr, so the
-        /// field never lies about what it holds. Three labels exist, each naming the
-        /// thing that actually failed: the envelope's own `result` when the process
-        /// and the envelope contradict each other, a prompt write that did not
-        /// complete, and a child that could not be reaped. Reusing one label for
-        /// another's failure would assert something that did not happen.
+        /// # What it can hold
         ///
-        /// Unlabelled content is the child's real stderr.
+        /// The CLI provider carries three LABELLED diagnoses here, each naming the
+        /// thing that actually failed rather than borrowing another's name: the
+        /// envelope's own `result` whenever the envelope is what reported the failure,
+        /// a prompt write that did not complete, and a child that could not be reaped.
+        ///
+        /// It also carries unlabelled text, and that is NOT only the child's stderr:
+        /// a failure to spawn the process, or to parse its output, is described in
+        /// prose written by this crate. So a reader cannot conclude from the absence
+        /// of a label that what follows came from the child — the labels tell you
+        /// which of the three substitutions happened, not that everything else is
+        /// verbatim.
+        ///
+        /// The content is bounded. Nothing that reaches this field is unbounded,
+        /// because it travels on to `failed_agents` and into the serialized report.
         stderr: String,
     },
 

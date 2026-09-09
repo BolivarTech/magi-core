@@ -47,6 +47,53 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `TRANSIENT_STATUSES` is now the single source for this classification: its content is
   pinned exactly by test, and the rustdoc references it instead of repeating it.
 
+- **An in-band CLI failure is now classified by the status the API actually returned.**
+  The `claude` CLI passes the upstream HTTP status through its envelope as
+  `api_error_status`, and the crate never read it: every failure the CLI reported in
+  band became `ProviderError::Process`, which is hard-coded non-retryable. The
+  identical condition over HTTP became `ProviderError::Http` and was retried. A rate
+  limit was therefore retried on one path and abandoned on the other, with nothing
+  saying so. Those failures now become `ProviderError::Http` and go through the same
+  table, so a consumer matching on `ProviderError::Process` for them stops matching —
+  **the compiler cannot warn about this**, and the behaviour changes with it: a CLI
+  `429` can now cost a seat up to four `claude` subprocesses where it previously cost
+  one. A status outside `100..=599`, or one that is not an integer, stays `Process`:
+  `Http.status` governs lineage condemnation, so a value no server could have returned
+  is not admitted into it.
+
+- **`ProviderError::Process.stderr` can carry a labelled diagnosis instead of the
+  child's stderr, and its content changed on two paths.** When the envelope is what
+  reported the failure, its `result` travels here labelled, so the field does not claim
+  to hold stderr when it does not; and a prompt write that did not complete now carries
+  `label_prompt_write_diagnosis` rather than an ad-hoc message. Everything reaching this
+  field is bounded. A consumer matching on the text of either will stop matching, and
+  nothing about that breaks the build.
+
+- **The CLI provider reports what the backend said about stopping and about output
+  size.** Two rustdoc blocks stated the envelope carried no `stop_reason`-equivalent
+  field and no output count, each saying "verified" — and both had been checked against
+  the crate's own view of the wire rather than against a captured envelope, so the check
+  confirmed itself. `FinishReason` and `completion_tokens` now arrive populated where
+  they previously stayed `None`, so a consumer branching on `None` takes the other
+  branch. An unrecognised `stop_reason` keeps its raw value rather than being read as a
+  clean stop.
+
+- **`complete()` no longer deadlocks against its own child.** The whole prompt was
+  written to the child's stdin before the child was reaped, so a `claude` that filled
+  its stderr pipe before reading stdin blocked the pair until the per-agent timeout cut
+  it — and the operator was told "timeout", which sent them to look at the network. Both
+  sides now proceed concurrently. Two consequences a consumer can observe: a prompt that
+  did not reach the child is never reported as success whatever the exit code, because
+  the child may have answered on a truncated prompt; and when the child dies mid-write
+  it is the child's own exit code that is reported, not the broken pipe the parent
+  noticed.
+
+- **The system prompt travels on argv and the documentation now says so.** No cap is
+  imposed: Windows allows 32,767 characters for the whole command line and Linux about
+  131,072 bytes per argument, so a single number would reject legitimate input on one
+  platform or fail to protect the other. The three embedded prompts are well inside both,
+  and a test pins their sizes against the figures the documentation publishes.
+
 ## [4.0.0] - 2026-08-24
 
 ### One story, not two: the completion budget and the time budget

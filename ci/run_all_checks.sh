@@ -113,6 +113,14 @@ CARGO_TARGET_DIR="$ALL_DIR" cargo nextest run --all-features
 step "openai-compat alone (compiles without its siblings)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features openai-compat --all-targets
 
+# And `claude-cli` ALONE, which nothing compiled until now. It is the configuration
+# `MAX_ERROR_BODY_PREFIX_BYTES`'s feature list exists for: that constant lives behind
+# a list its own rustdoc calls a tripwire, and a tripwire whose trip condition is
+# never built cannot fire. The CLI provider is also the only one reachable without
+# `reqwest`, so this is the cheapest way to catch a dependency creeping into it.
+echo "=== claude-cli alone (the constant's tripwire is only reachable here) ==="
+CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features claude-cli --all-targets
+
 step "tests (default features)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo nextest run
 

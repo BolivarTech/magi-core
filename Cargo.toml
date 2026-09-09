@@ -49,15 +49,13 @@ categories = ["algorithms", "asynchronous"]
 # SUITE to run. It does still ship `tests/fixtures/`, which the `#[cfg(test)]`
 # modules under `src/` read; see the note on the exclude entries below.
 #
-# One exception, decided rather than overlooked: a test-only binary at
-# `src/bin/stub_cli.rs` WILL ship when a later milestone adds it. Neither that
-# file nor any `[[bin]]` section exists in this tree yet, so this paragraph is
-# about a decision, not about current contents. `required-features` on that
-# entry will stop it from being BUILT by default; it does not stop it from
-# being PACKAGED, and it is deliberately not excluded here -- carving it out
-# would reopen the scope of an already-approved milestone. Built and packaged
-# are two different questions, and only the first is what `required-features`
-# answers.
+# One exception, decided rather than overlooked: the test-only binary at
+# `src/bin/stub_cli.rs` DOES ship. It exists in this tree and its `[[bin]]` section
+# is below. `required-features` on that entry stops it from being BUILT by default;
+# it does not stop it from being PACKAGED, and it is deliberately not excluded here
+# -- carving it out would reopen the scope of an already-approved milestone. Built
+# and packaged are two different questions, and only the first is what
+# `required-features` answers.
 exclude = [
     "docs/test/",
     "graphify-out/",

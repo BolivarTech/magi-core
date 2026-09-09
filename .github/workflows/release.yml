@@ -163,6 +163,21 @@ jobs:
     env:
       MAGI_CI: "1"
     steps:
+      # A comment is not a guard, and neither is the env block above. This fails the
+      # instant someone removes it, which is otherwise undetectable by construction:
+      # the variable only changes behaviour in the rare case where a defect fails to
+      # reproduce, so every ordinary run looks identical with or without it.
+      #
+      # It is a copy of the step in ci.yml's gate job on purpose. Arming one of two
+      # identical call sites is half a guard -- which is the finding that put the env
+      # block here in the first place, reproduced by adding it without this.
+      - name: Assert MAGI_CI is exported
+        run: |
+          if [ -z "${MAGI_CI:-}" ]; then
+            echo "MAGI_CI is empty or unset: this job's env block was removed." >&2
+            echo "It gates the CANNOT_TEST adjudication path; see the comment there." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v5
         with:
           # The verdict-search rule greps across history; a shallow clone would pass it by
