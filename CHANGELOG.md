@@ -34,9 +34,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `529` (Anthropic's `overloaded_error`) is now classified transient and retried with
   backoff, instead of failing fast and condemning the Claude lineage run-wide for all
-  three seats over what can be a load spike of seconds. With the shipped defaults, a
-  sustained `529` can now cost a seat up to `max_retries + 1` total attempts (4 with the
-  shipped `max_retries = 3`) against the same endpoint before giving up: `RetryClass::Http`
+  three seats over what can be a load spike of seconds. Retrying is the consumer's
+  choice: nothing in this crate wraps a provider in `RetryProvider`, so a seat that is
+  not wrapped still makes exactly one call and this paragraph does not apply to it. When
+  it is wrapped, with the shipped defaults, a sustained `529` can now cost a seat up to
+  `max_retries + 1` total attempts (4 with the shipped `max_retries = 3`) against the
+  same endpoint before giving up: `RetryClass::Http`
   is not one of the classes in `limited_retry_classes`, so the per-class cap does not
   shorten this chain; what bounds it is `max_retries` and, above that, `operation_budget`.
   Full jitter staggers the three seats' retries so they do not all hit the endpoint at
@@ -57,7 +60,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   table, so a consumer matching on `ProviderError::Process` for them stops matching —
   **the compiler cannot warn about this**, and the behaviour changes with it: a CLI
   `429` can now cost a seat up to four `claude` subprocesses where it previously cost
-  one. A status outside `100..=599`, or one that is not an integer, stays `Process`:
+  one -- but only where the consumer wrapped the provider in `RetryProvider`, which
+  this crate never does on their behalf. Unwrapped, it is still one subprocess and what
+  changed is only which variant reports the failure. A status outside `100..=599`, or one that is not an integer, stays `Process`:
   `Http.status` governs lineage condemnation, so a value no server could have returned
   is not admitted into it.
 

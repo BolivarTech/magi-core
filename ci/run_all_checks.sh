@@ -118,7 +118,7 @@ CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features openai-
 # a list its own rustdoc calls a tripwire, and a tripwire whose trip condition is
 # never built cannot fire. The CLI provider is also the only one reachable without
 # `reqwest`, so this is the cheapest way to catch a dependency creeping into it.
-echo "=== claude-cli alone (the constant's tripwire is only reachable here) ==="
+step "claude-cli alone (the constant's tripwire is only reachable here)"
 CARGO_TARGET_DIR="$DEF_DIR" cargo check --no-default-features --features claude-cli --all-targets
 
 step "tests (default features)"

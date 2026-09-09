@@ -37,10 +37,16 @@ categories = ["algorithms", "asynchronous"]
 # tracks" unless told otherwise, so without this line all three shipped anyway.
 #
 # Measured before and after this line was added: `cargo package --list` went from
-# 179 files to 59, a drop of 120. AS OF THIS COMMIT -- the count moved inside this
-# branch when three more guards landed in `ci/`, so an unmarked figure here goes
-# stale the same way. Re-measure rather than trusting the number. The count is recorded here so a future growth of the package is
-# something the next reader can see, rather than something that just happens.
+# 179 files to 63, a drop of 116, and it is 63 AS OF THIS COMMIT. Re-measure rather
+# than trusting the number: the figure is recorded so a future growth of the package
+# is something the next reader can see rather than something that just happens, and
+# that only works if the number is the one a fresh `--list` prints.
+#
+# It went stale once already, inside this branch, and the reason it gave for going
+# stale was wrong too: it blamed guards landing in `ci/`, which cannot move the count
+# at all now that `ci/` is excluded three paragraphs above. What actually moved it
+# was four files this milestone added under `src/` -- the stub binary and three
+# captured envelopes -- which is exactly the growth this paragraph exists to expose.
 #
 # EXPECTED WARNINGS, recorded so a future reader does not read them as a defect:
 # excluding `tests/` makes `cargo package` emit one "ignoring test X as
