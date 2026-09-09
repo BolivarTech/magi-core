@@ -754,6 +754,12 @@ impl LlmProvider for ClaudeCliProvider {
             {
                 wait_done = Some(v);
             }
+            // THE RE-POLL INVARIANT: this closure runs again on every wake, so a
+            // poll that returns `Pending` must leave the state exactly as it found
+            // it. `take()` empties both slots unconditionally, so the second arm
+            // PUTS BACK whichever half was already resolved -- without that, one
+            // ready future would be discarded and awaited forever.
+            //
             // Destructured rather than unwrapped: `unwrap` is forbidden outside
             // `cfg(test)`, and putting the halves back is what keeps this a plain
             // re-poll instead of a panic waiting for a scheduling order nobody
