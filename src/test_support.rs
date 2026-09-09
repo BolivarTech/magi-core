@@ -125,6 +125,23 @@ pub fn without_claudecode<F: FnOnce()>(f: F) {
 /// Same contract as [`without_claudecode`], and the same damage if it is broken:
 /// two threads calling either of these at once corrupt the environment of the
 /// whole process. Serialise them.
+/// # Its visibility SUPERSEDES a plan decision, and that is recorded rather than done quietly
+///
+/// The plan moved this helper and its twin out of a private test module as a PAIR and
+/// declared the consequence in writing: both would be `pub` behind `test-utils`, and
+/// an `unsafe` environment mutation would widen its reach with them. That decision was
+/// approved on the premise that the integration tests needed both.
+///
+/// Measured after the move, they do not: `without_claudecode` is consumed from
+/// `tests/` -- another crate -- and this one is called from exactly one place, a unit
+/// test inside this crate. So the premise holds for one half of the pair and not the
+/// other, which is the class of checkable-and-false claim this release exists to
+/// correct.
+///
+/// Splitting the pair is the deviation, and it is taken because the rule stated below
+/// is the stronger one: `docs.rs` builds with every feature on, so `pub` here means
+/// published API under the stability policy, and surface with no outside consumer is
+/// what the standards forbid.
 #[cfg(all(test, feature = "claude-cli"))]
 pub(crate) fn with_claudecode<F: FnOnce()>(f: F) {
     let original = std::env::var("CLAUDECODE").ok();
