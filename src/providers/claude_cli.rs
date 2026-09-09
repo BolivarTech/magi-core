@@ -272,6 +272,40 @@ fn classify_envelope_error(output: CliOutput, exit_code: Option<i32>) -> Provide
     }
 }
 
+/// Traces whatever the prompt write did, on a path where something else is the error.
+///
+/// ONE function and a `match` with no `_`, rather than an `if let` per site naming a
+/// single variant. Two failure paths reach here -- a child that exited non-zero and a
+/// reap that failed -- and until now both named only `Truncated`, so a `Flush` was
+/// dropped in silence on exactly the paths where an operator most needs to know
+/// whether the prompt ever reached the child. The success path had always handled
+/// both, which made this two sites treating one fact differently from their sibling:
+/// this project's most-repeated defect, and one half of it was introduced by the fix
+/// for the other half.
+///
+/// Exhaustive on purpose (this crate's standing rule): a third variant must break the
+/// build until somebody decides what it means here, rather than vanish into a `_`.
+///
+/// It never changes the error that gets returned. The write outcome is secondary on
+/// these paths by the precedence table's own ruling; what changes is only what the
+/// operator sees.
+fn trace_write_outcome_on_a_failure_path(write_outcome: &Result<(), WriteFailure>, context: &str) {
+    match write_outcome {
+        Ok(()) => {}
+        Err(WriteFailure::Truncated(e)) => tracing::warn!(
+            error = %e,
+            "the prompt write did not complete, but {context} and that is the diagnosis"
+        ),
+        // The bytes DID arrive; only the teardown failed. Worth saying precisely
+        // because it is the opposite diagnosis from the arm above -- the child had the
+        // prompt -- and an operator reading a process failure needs that distinction.
+        Err(WriteFailure::Flush(e)) => tracing::warn!(
+            error = %e,
+            "the prompt was delivered but closing its pipe failed, and {context}"
+        ),
+    }
+}
+
 /// Classifies a child that exited non-zero, which is row (3) of the precedence table.
 ///
 /// Extracted from `complete()` rather than left inline, and the reason is the one
@@ -287,14 +321,9 @@ fn classify_child_failure(
     write_outcome: &Result<(), WriteFailure>,
 ) -> ProviderError {
     // Row (3): the child died for its own reason, and THAT code is the diagnosis.
-    // A broken pipe the parent noticed is secondary and goes to tracing, never into
-    // the error type.
-    if let Err(WriteFailure::Truncated(e)) = write_outcome {
-        tracing::warn!(
-            error = %e,
-            "the prompt write did not complete, but the child's own exit is the diagnosis"
-        );
-    }
+    // Whatever the parent noticed about the write is secondary and goes to tracing,
+    // never into the error type.
+    trace_write_outcome_on_a_failure_path(write_outcome, "the child exited non-zero");
     // STDOUT FIRST. The discriminator arrives there precisely in the case where this
     // crate used to stop reading stdout, so an envelope that parses classifies the
     // failure; stderr is the FALLBACK, never the other way round. An empty stdout
@@ -747,20 +776,12 @@ impl LlmProvider for ClaudeCliProvider {
         let output = match reaped {
             Ok(output) => output,
             Err(e) => {
-                // THE SIBLING SITE of the trace below, and it used to be missing.
-                // The reap failure is the dominant error and stays the one returned
-                // -- the child's state is unknown, so nothing else can be asserted
-                // -- but a concurrent write failure was being dropped in silence
-                // HERE while the `!status.success()` arm traced its own. One of two
-                // places treating the same fact differently is this project's
-                // most-repeated defect; the error type does not change, only what
-                // reaches the operator.
-                if let Err(WriteFailure::Truncated(w)) = &write_outcome {
-                    tracing::warn!(
-                        error = %w,
-                        "the prompt write did not complete, but reaping the child failed and that is the diagnosis"
-                    );
-                }
+                // THE SIBLING SITE of the one in `classify_child_failure`, and it
+                // used to be missing entirely. The reap failure is the dominant error
+                // and stays the one returned -- the child's state is unknown, so
+                // nothing else can be asserted -- but the write outcome was being
+                // dropped in silence here.
+                trace_write_outcome_on_a_failure_path(&write_outcome, "reaping the child failed");
                 return Err(ProviderError::Process {
                     exit_code: None,
                     stderr: label_reap_diagnosis(&e),
