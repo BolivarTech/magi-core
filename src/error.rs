@@ -200,14 +200,21 @@ pub enum ProviderError {
         /// which of the three substitutions happened, not that everything else is
         /// verbatim.
         ///
-        /// # It is bounded, and by construction rather than by habit
+        /// # It is bounded, and in the CLI provider that is by construction
         ///
-        /// Every producer routes through the same byte budget, the labelled ones and
-        /// the unlabelled ones alike. That matters because two of them carry text this
-        /// crate did not author: a parse failure embeds the child's own output in the
-        /// message it reports, and a child's stderr is whatever the child chose to
-        /// write. Whatever lands here travels on to `failed_agents` and into the
-        /// serialized report, so an unbounded producer would be an unbounded report.
+        /// Every producer in that provider routes through the same byte budget, the
+        /// labelled ones and the unlabelled ones alike. That matters because two of
+        /// them carry text this crate did not author: a parse failure embeds the
+        /// child's own output in the message it reports, and a child's stderr is
+        /// whatever the child chose to write. Whatever lands here travels on to
+        /// `failed_agents` and into the serialized report, so an unbounded producer
+        /// would be an unbounded report.
+        ///
+        /// The mock provider behind `test-utils` builds this variant too, from fixed
+        /// literals and an agent name. Bounded, but by what it happens to interpolate
+        /// rather than by a cap — said here instead of left to the word "every",
+        /// which would be the kind of quantifier that is true until somebody edits
+        /// one of the three sites it silently covers.
         ///
         /// A truncated value says so; it never arrives quietly shortened.
         stderr: String,

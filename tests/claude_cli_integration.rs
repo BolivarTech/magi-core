@@ -494,6 +494,10 @@ async fn an_oversized_child_stderr_is_capped_before_it_reaches_the_consumer() {
     assert!(
         stderr.ends_with(CAP_MARKER),
         "and it has to say it cut, not just cut: {}",
-        &stderr[stderr.len().saturating_sub(80)..]
+        // A BYTE index into text the child wrote, so it needs the char boundary: this
+        // line only runs once the assertion has already failed, and a byte-index panic
+        // there would replace the diagnosis with a different failure. Cheap insurance
+        // against a class this crate paid for once in `fit_content`.
+        &stderr[stderr.floor_char_boundary(stderr.len().saturating_sub(80))..]
     );
 }

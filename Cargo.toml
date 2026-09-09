@@ -36,11 +36,15 @@ categories = ["algorithms", "asynchronous"]
 # consumer does not run any of the three, and cargo packages by "what git
 # tracks" unless told otherwise, so without this line all three shipped anyway.
 #
-# Measured before and after this line was added: `cargo package --list` went from
-# 179 files to 63, a drop of 116, and it is 63 AS OF THIS COMMIT. Re-measure rather
-# than trusting the number: the figure is recorded so a future growth of the package
-# is something the next reader can see rather than something that just happens, and
-# that only works if the number is the one a fresh `--list` prints.
+# TWO measurements, kept apart because they answer different questions and pairing
+# them produced a subtraction of two different trees. What this line BOUGHT, measured
+# when it was added: `cargo package --list` went from 179 files to 59. What the package
+# IS, measured on this commit: 63. The delta between those two numbers is not the value
+# of the exclude, it is the four files named below.
+#
+# Re-measure rather than trusting either: the figures are recorded so a future growth of
+# the package is something the next reader can see rather than something that just
+# happens, and that only works if the second number is the one a fresh `--list` prints.
 #
 # It went stale once already, inside this branch, and the reason it gave for going
 # stale was wrong too: it blamed guards landing in `ci/`, which cannot move the count
