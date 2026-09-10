@@ -391,10 +391,45 @@ impl MagiBuilder {
         provider: Arc<dyn LlmProvider>,
         lineage: Lineage,
     ) -> Self {
-        self.agent_providers.insert(agent, provider);
-        self.agent_lineages.insert(agent, lineage);
-        self.primary_probes.remove(&agent); // a plain primary declares no probe
+        self.register_seat(agent, provider, Some(lineage), None);
         self
+    }
+
+    /// **The one place the three seat maps are written.**
+    ///
+    /// R-4 was `with_provider` setting the provider and leaving a probe declared earlier
+    /// pointing at a model that seat no longer serves. `with_agent` had the `remove` and
+    /// `with_provider` did not — so the invariant lived in whoever remembered it, which is
+    /// how there came to be several writers of one piece of state.
+    ///
+    /// Written as prose in an acceptance criterion, the rule lasts until the next setter
+    /// somebody adds without reading it. Routing every write through here makes it
+    /// structural instead: the fields are private and a new setter has to come through this
+    /// method to touch them.
+    ///
+    /// `lineage: None` means **leave the declared lineage alone** — `with_provider`
+    /// overrides only the provider, and clearing it would silently un-declare the diversity
+    /// key. `probe: None` means **this seat now has none**, which is R-4 itself: a
+    /// registration that declares no probe must not inherit the previous one.
+    fn register_seat(
+        &mut self,
+        agent: AgentName,
+        provider: Arc<dyn LlmProvider>,
+        lineage: Option<Lineage>,
+        probe: Option<Arc<dyn ProviderProbe>>,
+    ) {
+        self.agent_providers.insert(agent, provider);
+        if let Some(lineage) = lineage {
+            self.agent_lineages.insert(agent, lineage);
+        }
+        match probe {
+            Some(probe) => {
+                self.primary_probes.insert(agent, probe);
+            }
+            None => {
+                self.primary_probes.remove(&agent);
+            }
+        }
     }
 
     /// Registers a primary provider that also declares a [`ProviderProbe`], so the
@@ -444,9 +479,7 @@ impl MagiBuilder {
         lineage: Lineage,
         probe: Arc<dyn ProviderProbe>,
     ) -> Self {
-        self.agent_providers.insert(agent, provider);
-        self.agent_lineages.insert(agent, lineage);
-        self.primary_probes.insert(agent, probe);
+        self.register_seat(agent, provider, Some(lineage), Some(probe));
         self
     }
 
@@ -536,11 +569,16 @@ impl MagiBuilder {
 
     /// Sets a per-agent provider override.
     ///
+    /// A plain override declares no probe, so a probe declared earlier for this seat is
+    /// cleared — the same guarantee [`with_agent`](Self::with_agent) already made. Left
+    /// behind, it would be paired with the NEW model in the preflight and its measurement
+    /// filed under the wrong key.
+    ///
     /// # Parameters
     /// - `name`: Which agent to override.
     /// - `provider`: The provider for that agent.
     pub fn with_provider(mut self, name: AgentName, provider: Arc<dyn LlmProvider>) -> Self {
-        self.agent_providers.insert(name, provider);
+        self.register_seat(name, provider, None, None);
         self
     }
 
@@ -3765,6 +3803,69 @@ mod tests {
         assert!(
             bits.iter().all(|b| *b < WarnOnce::COUNT),
             "a bit at or past COUNT is outside the mask this gate indexes"
+        );
+    }
+
+    /// The provider `MagiBuilder::new` requires. It takes no part in the R-4 case.
+    fn default_provider() -> Arc<dyn LlmProvider> {
+        trio()
+    }
+
+    /// Primary **A**: both `LlmProvider` and `ProviderProbe`, which is what the generic on
+    /// `with_probing_agent` demands. `MockProbe` already is both; no new double is written.
+    fn provider_a_with_probe() -> Arc<crate::test_support::MockProbe> {
+        crate::test_support::MockProbe::with_digest("model-a", &"a".repeat(64))
+    }
+
+    /// Primary **B**: replaces A and declares NO probe. Its `model()` is the key under
+    /// which A's measurement would be filed if the stale probe survived.
+    fn provider_b() -> Arc<dyn LlmProvider> {
+        Arc::new(MockProvider::success(
+            "b",
+            "model-b",
+            vec![mock_agent_json("melchior", "approve", 0.9)],
+        ))
+    }
+
+    /// A replaced provider clears the probe it no longer matches.
+    ///
+    /// `with_agent` already removes it — "a plain primary declares no probe" — and
+    /// `with_provider` did not, so the seat kept a probe pointing at a model it no longer
+    /// serves.
+    #[test]
+    fn a_replaced_provider_clears_the_probe_it_no_longer_matches() {
+        let lineage = Lineage::from("lin-a");
+        let builder = MagiBuilder::new(default_provider())
+            .with_probing_agent(AgentName::Melchior, provider_a_with_probe(), lineage)
+            .with_provider(AgentName::Melchior, provider_b());
+
+        assert!(
+            !builder.primary_probes.contains_key(&AgentName::Melchior),
+            "with_provider must clear a probe declared for the same seat"
+        );
+
+        // And the DAMAGE, which is the half that actually harms. Left behind, the entry
+        // makes `collect_probe_targets` pair `agent_models[Melchior]` — the NEW model, B —
+        // with the OLD probe, filing a measurement UNDER THE WRONG KEY. The window
+        // pre-filter then admits or rejects using another model's number, and the digest
+        // verify can turn a healthy candidate away over a collision that does not exist —
+        // this subsystem's only fail-closed direction. Asserting the builder alone leaves
+        // that consequence unpinned.
+        let rotation = RotationConfig {
+            primary_lineages: builder.agent_lineages.clone(),
+            primary_probes: builder.primary_probes.clone(),
+            strict_context_guard: builder.strict_context_guard,
+            pool: FallbackPool::builder().build(),
+        };
+        let agent_models =
+            BTreeMap::from([(AgentName::Melchior, provider_b().model().to_string())]);
+
+        let targets = collect_probe_targets(&agent_models, &rotation);
+        assert!(
+            targets
+                .iter()
+                .all(|(model, _)| model != provider_b().model()),
+            "no target may be keyed by B's model and measured by A's probe"
         );
     }
 
