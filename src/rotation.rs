@@ -1171,19 +1171,44 @@ pub(crate) async fn run_preflight_within(
             let Ok(_permit) = sem.acquire_owned().await else {
                 return (id, unmeasured);
             };
-            let measured = tokio::time::timeout(budget, async {
-                let window = probe.window().await.ok().flatten();
-                let digest = probe.digest().await.ok().flatten();
-                (window, digest)
-            })
-            .await;
-            let cap = match measured {
-                Ok((window, digest)) => ModelCapability {
-                    window,
-                    digest,
-                    supports_completion: true,
-                },
-                Err(_) => unmeasured,
+            // ONE deadline, TWO independent expiries. The worst case for the pair stays
+            // `budget` and does not double, while each half resolves on its own -- so the
+            // one that answered is kept even when its sibling never does. That is the
+            // whole of R-6.
+            //
+            // `timeout(join!(..))` does NOT work and is not a style preference: `timeout`
+            // drops the future it wraps, `join!` is a single future, so expiry cancels
+            // BOTH branches and throws away the completed measurement -- the very defect
+            // being fixed. `select!` is wrong for the mirror reason: it cancels the loser.
+            //
+            // `checked_add`, never `+`: `Instant + Duration` PANICS on an absurd budget,
+            // and `Duration::MAX` is exactly what a boundary test passes. Without a
+            // ceiling `Instant::now()` stands in and the preflight expires at once, which
+            // is the safe direction. Same saturating arithmetic, and the same reason, as
+            // `warn_threshold_is_unreachable`.
+            //
+            // Computed AFTER the permit, not before: the semaphore serialises candidates
+            // beyond `MAX_PREFLIGHT_CONCURRENCY`, so a deadline taken before queuing would
+            // hand a queued candidate whatever was left -- possibly nothing. Today's
+            // per-candidate budget is preserved exactly; what is now shared is the pair.
+            let deadline = tokio::time::Instant::now()
+                .checked_add(budget)
+                .unwrap_or_else(tokio::time::Instant::now);
+            // Concurrent, so the two compete for the same backend and a loaded daemon may
+            // answer both more slowly than it answered each alone. A failure from
+            // contention is treated as NOT MEASURED -- `None` -- never as an answer, which
+            // is the direction fail-open already takes. The claim here is not that
+            // measuring concurrently gives the same result as measuring in series; it is
+            // that keeping the half that answered beats throwing both away, and that holds
+            // either way.
+            let (window, digest) = tokio::join!(
+                tokio::time::timeout_at(deadline, probe.window()),
+                tokio::time::timeout_at(deadline, probe.digest()),
+            );
+            let cap = ModelCapability {
+                window: window.ok().and_then(|r| r.ok()).flatten(),
+                digest: digest.ok().and_then(|r| r.ok()).flatten(),
+                supports_completion: true,
             };
             (id, cap)
         });
@@ -2518,6 +2543,19 @@ mod tests {
             !window_ok(cap.window, MIN, true),
             "an unmeasured window is still filtered out; R-6 keeps data, it does not admit              candidates"
         );
+    }
+
+    /// An absurd budget does not panic.
+    ///
+    /// `Instant + Duration` panics on overflow, and `Duration::MAX` is the value a boundary
+    /// test passes — so the shorter spelling turns a nonsensical configuration into a crash
+    /// instead of a degradation. `checked_add` falls back to now, which expires the
+    /// preflight immediately: unmeasured, which is the safe direction.
+    #[tokio::test]
+    async fn an_absurd_preflight_budget_does_not_panic() {
+        let probe = InstrumentedProbe::new().into_arc();
+        let caps = run_preflight_within(vec![(MODEL.to_string(), probe)], Duration::MAX).await;
+        assert!(caps.contains_key(MODEL), "it answers rather than panicking");
     }
 
     /// A candidate whose digest is absent ROTATES; it is not discarded.
