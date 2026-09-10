@@ -112,6 +112,45 @@ pub enum Injection {
         status: u16,
         body: Vec<u8>,
     },
+    /// Accept the connection and **close it without answering** when the named
+    /// model asks for a completion.
+    ///
+    /// The other two variants can only produce a RESPONSE, and a response never
+    /// reaches the endpoint-down latch however bad its status: that latch is fed by
+    /// the crate's `is_connection`, which is true for `ProviderError::Network`
+    /// alone. A connection-level failure is therefore the only shape that arms it,
+    /// and R-5's two non-renounceable scenarios cannot be written without this
+    /// variant.
+    ///
+    /// **The budget is a COUNTER, never a timer.** The first `drop_first_n`
+    /// completions naming this model are cut and every one after them is forwarded
+    /// normally, so a scenario that needs "fail once, then rotate" neither sleeps
+    /// nor observes the product's progress — the two things that make a scenario
+    /// intermittent. `u32::MAX` means "always", which is the endpoint-really-down
+    /// case.
+    ///
+    /// `dropped` sits behind an `Arc` because `Injection` is `Clone`: a clone that
+    /// restarted the count would cut more connections than the scenario asked for,
+    /// in silence, and the extra failures would be attributed to the crate.
+    DropConnection {
+        model: String,
+        drop_first_n: u32,
+        dropped: Arc<std::sync::atomic::AtomicU32>,
+    },
+}
+
+impl Injection {
+    /// Builds a [`Injection::DropConnection`] with its counter at zero.
+    ///
+    /// The counter is shared state whose starting value is part of the contract, so
+    /// building the `Arc` at each call site is one more place to get it wrong.
+    pub fn drop_connection(model: impl Into<String>, drop_first_n: u32) -> Self {
+        Self::DropConnection {
+            model: model.into(),
+            drop_first_n,
+            dropped: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        }
+    }
 }
 
 /// One body type for every response the proxy returns, so the streamed path
@@ -1480,6 +1519,45 @@ mod tests {
             compat.status().as_u16(),
             503,
             "the compatibility completions path is a completion too"
+        );
+    }
+
+    /// A dropped connection reaches the client as `ProviderError::Network`.
+    ///
+    /// **This is the spike R-5 rests on, and it tests the HARNESS, not the crate.** The
+    /// classification half was settled by reading `to_provider_error`: `Network` is the
+    /// FALLBACK for a send failure that is neither a timeout nor a redirect, so it needs
+    /// no proving. What was genuinely unknown is the mechanic underneath — whether hyper
+    /// can be made to cut the socket without writing a response, and what reqwest reports
+    /// when it does.
+    ///
+    /// It matters because `is_connection` is true for `Network` alone, so any other
+    /// variant arriving here would leave the endpoint-down latch unarmable from a
+    /// scenario, and R-5's two non-renounceable scenarios unwritable.
+    ///
+    /// The upstream is a healthy echo server on purpose: the failure must come from the
+    /// proxy cutting the connection, not from a backend that was already broken.
+    #[tokio::test]
+    async fn a_dropped_connection_reaches_the_client_as_a_network_error() {
+        use crate::alias::magi_core::error::ProviderError;
+        use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider};
+        use crate::alias::magi_core::providers::ollama::OllamaProvider;
+
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
+            .await
+            .expect("proxy starts");
+        proxy.set_injection(Some(Injection::drop_connection("m", 1)));
+
+        let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
+        let err = provider
+            .complete("sys", "user", &CompletionConfig::default())
+            .await
+            .expect_err("the connection was cut before any response was written");
+
+        assert!(
+            matches!(err, ProviderError::Network { .. }),
+            "the endpoint-down latch is fed by is_connection, which is true for Network              ALONE: any other variant leaves R-5 unable to arm the latch from a scenario.              Got {err:?}"
         );
     }
 

@@ -1392,7 +1392,9 @@ fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
     // An exhaustive match rather than a `let ... else`: both injections name a model, and a
     // third one that did not would have to say so here instead of silently attributing to none.
     let model = match spec.injection.as_ref()? {
-        Injection::FailModel { model, .. } | Injection::ReplayBody { model, .. } => model,
+        Injection::FailModel { model, .. }
+        | Injection::ReplayBody { model, .. }
+        | Injection::DropConnection { model, .. } => model,
     };
     spec.seats
         .iter()
@@ -1790,7 +1792,9 @@ mod tests {
             "rotation, degradation and the crate-defect run all inject"
         );
         for inj in injected {
-            let (Injection::FailModel { model, .. } | Injection::ReplayBody { model, .. }) = inj;
+            let (Injection::FailModel { model, .. }
+            | Injection::ReplayBody { model, .. }
+            | Injection::DropConnection { model, .. }) = inj;
             assert!(
                 cfg.seats.iter().any(|s| &s.model == model),
                 "injected model {model:?} is in no seat"
