@@ -935,6 +935,68 @@ pub struct Magi {
     probe_declaration_warned: std::sync::atomic::AtomicBool,
 }
 
+/// Which one-shot warning is being asked for, and the data it renders.
+///
+/// **R-18 is why this exists.** Two builder warnings were latched behind their own
+/// `AtomicBool` and a third simply never got one, so it repeated on every `analyze()`.
+/// What failed was not the flag's TYPE — it was that having one was up to whoever wrote
+/// the warning. One shared gate moves that from discipline to structure.
+///
+/// # What this guards, and what it does not
+///
+/// Both matches below are exhaustive, so a new variant does not compile until it states
+/// **its bit** and **its rendering**: forgetting a cadence is no longer possible on the
+/// render side. It does **not** stop anyone writing a bare `tracing::warn!` and bypassing
+/// the gate — which is literally what R-18 was. That half is closed on the emit side by a
+/// gate check. Claiming the enum makes it impossible would be a false statement about the
+/// code beside it.
+///
+/// # Deviation from the plan's sketch, and why
+///
+/// The sketch used a field-less enum with explicit discriminants plus
+/// `assert!(Last as u32 == COUNT - 1)`. The variants carry payloads here, because a
+/// field-less enum forces the rendering data through a second parallel type whose variants
+/// can disagree with this one's at runtime — a hole where the sketch wanted a compile-time
+/// guarantee. `bit()` replaces the discriminant, and the discriminant assert is replaced by
+/// `every_warning_owns_a_distinct_bit_inside_the_mask`, which is **stronger**: the assert
+/// only checked the last variant, so a variant inserted in the middle with a duplicated bit
+/// passed it, and a duplicated bit swallows one warning for the rest of the process.
+pub(crate) enum WarnOnce<'a> {
+    /// `strict_context_guard` is on with nothing measured, so rotation cannot fire.
+    InertGuard { candidates: usize },
+    /// A probe declares a different model than the provider it was registered beside.
+    ProbeDeclaration {
+        targets: &'a [(String, Arc<dyn ProviderProbe>)],
+    },
+}
+
+impl WarnOnce<'_> {
+    /// How many variants there are, maintained BY HAND because Rust generates no such
+    /// item for an enum.
+    ///
+    /// The sketch prescribed `assert!(WarnOnce::COUNT <= 32)` against a `COUNT` that did
+    /// not exist, so the guard protecting the mask's ceiling **did not compile** — a guard
+    /// that reads as present while being absent, which is the class this release is about.
+    /// It is asserted against the list it counts in
+    /// `every_warning_owns_a_distinct_bit_inside_the_mask`.
+    pub(crate) const COUNT: u32 = 2;
+
+    /// This warning's bit in the mask.
+    ///
+    /// Exhaustive on purpose: a new variant must name its bit or the crate stops building.
+    pub(crate) fn bit(&self) -> u32 {
+        match self {
+            Self::InertGuard { .. } => 0,
+            Self::ProbeDeclaration { .. } => 1,
+        }
+    }
+}
+
+// `1 << 32` on a `u32` is undefined in release and a panic in debug, so a 33rd variant
+// would be a defect debug builds catch and release builds do not -- the exact shape of
+// 3.0.1's `fit_content`. A const assert makes it a compile error instead.
+const _: () = assert!(WarnOnce::COUNT <= 32);
+
 /// The message an agent-timeout cut reports, naming the CONFIGURED ceiling.
 ///
 /// # It names the ceiling as the ceiling, and does NOT pretend to a measurement
@@ -1033,6 +1095,13 @@ impl Magi {
     ///
     /// # Parameters
     /// - `provider`: The LLM provider shared by all three agents.
+    /// Emits a one-shot warning, or says nothing if it has already been said.
+    ///
+    /// STUB: declared so the cadence test compiles; it emits nothing yet.
+    pub(crate) fn warn_once(&self, which: WarnOnce<'_>) {
+        let _ = which;
+    }
+
     pub fn new(provider: Arc<dyn LlmProvider>) -> Self {
         // Safe to unwrap: no prompts_dir means no I/O, so build cannot fail.
         MagiBuilder::new(provider).build().expect(
@@ -3602,6 +3671,77 @@ mod tests {
         fn enter(&self, _span: &tracing::span::Id) {}
 
         fn exit(&self, _span: &tracing::span::Id) {}
+    }
+
+    /// A one-shot warning is emitted once however many times it is asked for.
+    ///
+    /// R-18 existed because a third builder warning simply never got a flag: the two beside
+    /// it were latched, it was not, and it repeated on every `analyze()`. What failed there
+    /// was not the flag TYPE — it was that having one was up to whoever wrote the warning.
+    /// One shared gate is what makes forgetting impossible on the render side.
+    ///
+    /// Two variants are exercised, not one, because a single-bit mistake is invisible with a
+    /// single warning: a mask that used the same bit for everything would still emit each
+    /// warning once here and would silently swallow every one after the first in a real run.
+    #[tokio::test]
+    async fn a_one_shot_warning_is_emitted_once_however_often_it_is_asked() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+        let magi = Magi::new(trio());
+
+        magi.warn_once(WarnOnce::InertGuard { candidates: 3 });
+        magi.warn_once(WarnOnce::InertGuard { candidates: 3 });
+        magi.warn_once(WarnOnce::InertGuard { candidates: 3 });
+
+        let guard_lines = log
+            .lines()
+            .iter()
+            .filter(|l| l.contains("strict_context_guard"))
+            .count();
+        assert_eq!(
+            guard_lines, 1,
+            "asked three times, said once: the condition it names cannot be fixed mid-run, so              a second telling describes a state that provably has not changed"
+        );
+
+        // A DIFFERENT warning still gets its turn. One bit per variant is the whole reason
+        // the discriminants are explicit; sharing one would make this second line vanish.
+        let probe: Arc<dyn ProviderProbe> = Arc::new(DeclaringProbe("declared-model"));
+        let targets = vec![("served-model".to_string(), probe)];
+        magi.warn_once(WarnOnce::ProbeDeclaration { targets: &targets });
+        assert_eq!(
+            log.lines()
+                .iter()
+                .filter(|l| l.contains("declared-model"))
+                .count(),
+            1,
+            "a second warning must not be swallowed by the first one's bit"
+        );
+    }
+
+    /// Every variant owns a distinct bit, and every bit fits the mask.
+    ///
+    /// This replaces the `COUNT - 1` discriminant assert the plan sketched, and it is
+    /// strictly stronger: that one checks only the LAST variant, so inserting a variant in
+    /// the middle with a duplicated bit passes it. Two variants sharing a bit swallow one
+    /// warning for the rest of the process, which is R-18 with a different cause.
+    #[test]
+    fn every_warning_owns_a_distinct_bit_inside_the_mask() {
+        let targets: Vec<(String, Arc<dyn ProviderProbe>)> = Vec::new();
+        let all = [
+            WarnOnce::InertGuard { candidates: 0 },
+            WarnOnce::ProbeDeclaration { targets: &targets },
+        ];
+        assert_eq!(
+            all.len() as u32,
+            WarnOnce::COUNT,
+            "COUNT is maintained by hand, so it is asserted against the list it counts"
+        );
+        let bits: std::collections::BTreeSet<u32> = all.iter().map(WarnOnce::bit).collect();
+        assert_eq!(bits.len(), all.len(), "no two variants may share a bit");
+        assert!(
+            bits.iter().all(|b| *b < WarnOnce::COUNT),
+            "a bit at or past COUNT is outside the mask this gate indexes"
+        );
     }
 
     fn trio() -> Arc<dyn LlmProvider> {
