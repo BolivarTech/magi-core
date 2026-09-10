@@ -153,6 +153,41 @@ impl Injection {
     }
 }
 
+/// What an injection decided, for the ONE caller in `handle`.
+///
+/// This was `Option<(u16, Vec<u8>)>`, which can only express a RESPONSE. Cutting a
+/// connection is not a response with a special status — it is the absence of one —
+/// and encoding it as, say, status `0` would put a value that is not an HTTP status
+/// into a field documented as the status the client received. `magi-core` deleted its
+/// own `PARSE_FAILURE_STATUS = 0` in 4.0.0 for exactly that reason, and the fix is not
+/// worth undoing one directory away.
+enum Injected {
+    /// Answer with this status and body, without forwarding.
+    Respond { status: u16, payload: Vec<u8> },
+    /// Close the connection without writing anything.
+    Drop,
+}
+
+/// Returned by `handle` to make `hyper` abort the connection.
+///
+/// The service's error type used to be `Infallible`, which is how the proxy said it
+/// always produces a response. It no longer always does: an error out of the service
+/// is what makes `serve_connection` shut the socket down **without writing a status
+/// line**, which is the only thing the crate's `is_connection` accepts.
+///
+/// It is not a harness failure and does not latch `degraded`: cutting the connection
+/// is the injection doing precisely what the scenario configured.
+#[derive(Debug)]
+struct ConnectionDropped;
+
+impl std::fmt::Display for ConnectionDropped {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("connection dropped by a DropConnection injection")
+    }
+}
+
+impl std::error::Error for ConnectionDropped {}
+
 /// One body type for every response the proxy returns, so the streamed path
 /// and the fixed-payload paths share a signature instead of forcing a
 /// generic.
@@ -966,11 +1001,18 @@ impl SpyProxy {
     /// Records, applies injection if any, and forwards. **The forwarded body
     /// is never altered** — that is what makes the transparency claim
     /// checkable.
+    /// # Errors
+    ///
+    /// Returns [`ConnectionDropped`] when a `DropConnection` injection matches, which
+    /// makes `hyper` shut the connection down without writing a status line. Every other
+    /// failure — an unreadable request, an unrelayable method, an upstream that will not
+    /// answer — is reported to the client AS a response, because those name a party that
+    /// failed and the crate has to be able to classify them.
     async fn handle(
         &self,
         req: hyper::Request<hyper::body::Incoming>,
         upstream: String,
-    ) -> Result<hyper::Response<ProxyBody>, std::convert::Infallible> {
+    ) -> Result<hyper::Response<ProxyBody>, ConnectionDropped> {
         let (parts, body) = req.into_parts();
         // The path for ROUTING, which is compared against known endpoints, and the path WITH
         // its query for forwarding and recording, which is what the client actually sent.
@@ -1034,26 +1076,45 @@ impl SpyProxy {
         // in the same record. This connection owns `rec` until then — no
         // second lock, no index into a shared Vec, and no chance of
         // completing someone else's row.
-        if let Some((status, payload)) = self.injected_response(&bytes, &path) {
-            self.push(rec.with_recorded_response(status, &payload, self.record_cap));
-            return Ok(hyper::Response::builder()
-                .status(status)
-                .body(fixed(&payload))
-                // The ONE site of the five that a caller can actually reach:
-                // `status` comes from the configured `Injection`, and a `u16`
-                // outside `100..1000` is not a `StatusCode`. LOCAL, because an
-                // injection is the harness standing in FOR the backend — no
-                // forward was attempted, so there is no gateway leg to blame.
-                //
-                // `degraded` is latched for the same reason the unreadable-body
-                // path above latches it: without that, a harness defect arrives
-                // at the crate as a plain server error and a scenario can go RED
-                // for something the proxy did. Degraded routes it to SKIP.
-                .unwrap_or_else(|_| {
-                    self.degraded
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    build_failed(LOCAL_BUILD_FAILED_STATUS)
-                }));
+        match self.injected_response(&bytes, &path) {
+            // NO RECORD IS PUSHED, deliberately, and the reason is three lines up in
+            // `record_of`: a record pushed without its response half "would claim a
+            // 0-status answer that never happened". Here there genuinely was no answer,
+            // so there is no status to record and inventing one is the fabrication this
+            // whole file guards against.
+            //
+            // Absence is not silence, and it is not the `degraded` latch either: the
+            // authority on how many connections were cut is the injection's own counter,
+            // which is deterministic and known to the scenario that configured it.
+            //
+            // CONSEQUENCE FOR A SCENARIO, said here rather than left to be discovered: a
+            // cut attempt does NOT appear in the registry, so an assertion that counts
+            // completions will not see it. That is correct — no exchange completed — but
+            // it means R-5's scenarios read their evidence from `analyze()`'s outcome and
+            // from the seeded budget, never from a row count.
+            Some(Injected::Drop) => return Err(ConnectionDropped),
+            None => {}
+            Some(Injected::Respond { status, payload }) => {
+                self.push(rec.with_recorded_response(status, &payload, self.record_cap));
+                return Ok(hyper::Response::builder()
+                    .status(status)
+                    .body(fixed(&payload))
+                    // The ONE site of the five that a caller can actually reach:
+                    // `status` comes from the configured `Injection`, and a `u16`
+                    // outside `100..1000` is not a `StatusCode`. LOCAL, because an
+                    // injection is the harness standing in FOR the backend — no
+                    // forward was attempted, so there is no gateway leg to blame.
+                    //
+                    // `degraded` is latched for the same reason the unreadable-body
+                    // path above latches it: without that, a harness defect arrives
+                    // at the crate as a plain server error and a scenario can go RED
+                    // for something the proxy did. Degraded routes it to SKIP.
+                    .unwrap_or_else(|_| {
+                        self.degraded
+                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                        build_failed(LOCAL_BUILD_FAILED_STATUS)
+                    }));
+            }
         }
         // TWO forwarding paths, because the two directions are not symmetric:
         //   - probe paths: buffered, recorded, then handed back whole. Small,
@@ -1233,7 +1294,7 @@ impl SpyProxy {
     /// rotation scenario stop injecting for the rest of the run while
     /// `is_degraded()` kept reporting clean. That is the harness lying about
     /// what it did.
-    fn injected_response(&self, body: &[u8], path: &str) -> Option<(u16, Vec<u8>)> {
+    fn injected_response(&self, body: &[u8], path: &str) -> Option<Injected> {
         // SCOPED TO COMPLETIONS, because that is what every injection means. It used to match
         // on the model name found anywhere in the body, whatever endpoint was hit -- so a
         // `FailModel` also failed that model's `POST /api/show`, which is the crate's
@@ -1259,13 +1320,26 @@ impl SpyProxy {
         let text = String::from_utf8_lossy(body);
         match inj {
             Injection::FailModel { model, status } if names_model(&text, model) => {
-                Some((*status, Vec::new()))
+                Some(Injected::Respond {
+                    status: *status,
+                    payload: Vec::new(),
+                })
             }
             Injection::ReplayBody {
                 model,
                 status,
                 body,
-            } if names_model(&text, model) => Some((*status, body.clone())),
+            } if names_model(&text, model) => Some(Injected::Respond {
+                status: *status,
+                payload: body.clone(),
+            }),
+            Injection::DropConnection {
+                model,
+                drop_first_n,
+                dropped,
+            } if names_model(&text, model) => {
+                claims_drop(*drop_first_n, dropped).then_some(Injected::Drop)
+            }
             _ => None,
         }
     }
@@ -1388,6 +1462,41 @@ impl SpyProxy {
 /// treated as a non-match rather than an error: a malformed body is the
 /// SUT's problem to surface, not the proxy's business to reject, and
 /// `injected_response` already forwards a `None` as "no injection applies".
+/// Whether this connection is claimed by a drop budget, spending one unit if so.
+///
+/// **Extracted so its boundary can be ASSERTED.** Driven through requests, the
+/// `u32::MAX` case is unreachable — a test would have to make 4.29 billion of them — so
+/// a test that drives a few attempts and passes says nothing about the branch that
+/// exists to serve it. Taking the counter by reference lets a test preload it to the
+/// edge and check the answer directly, which is the difference between pinning the rule
+/// and photographing a case that happens to work.
+///
+/// `u32::MAX` means **always**, and it is answered BEFORE the counter so it means that
+/// exactly. Left to the budget comparison alone, the counter eventually reaches the
+/// budget and the answer flips to "forward" — mid-scenario, with nothing said. The
+/// endpoint-really-down case would then quietly become an endpoint that recovered, which
+/// is the harness lying about what it did. Out of reach in practice is not the same as
+/// correct.
+///
+/// The claim is ONE atomic update, never a load followed by a store. Seats are dispatched
+/// concurrently, so two connections can arrive together; reading and then writing would
+/// let both see the same count and both be cut. That over-injects by one, takes out a
+/// seat the scenario meant to leave alone, and reads as the crate degrading rather than
+/// as the harness cutting too much. `fetch_update` answering `Err` is the closure
+/// refusing — the budget spent, and an honest "forward from here on".
+fn claims_drop(drop_first_n: u32, dropped: &std::sync::atomic::AtomicU32) -> bool {
+    if drop_first_n == u32::MAX {
+        return true;
+    }
+    dropped
+        .fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |n| (n < drop_first_n).then_some(n + 1),
+        )
+        .is_ok()
+}
+
 fn names_model(body_text: &str, model: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(body_text)
         .ok()
@@ -1558,6 +1667,143 @@ mod tests {
         assert!(
             matches!(err, ProviderError::Network { .. }),
             "the endpoint-down latch is fed by is_connection, which is true for Network              ALONE: any other variant leaves R-5 unable to arm the latch from a scenario.              Got {err:?}"
+        );
+    }
+
+    /// The budget is spent, and then the proxy forwards normally.
+    ///
+    /// This is the property `S-R5a` rests on: a seat whose first attempt is cut has to be
+    /// able to ROTATE and succeed, so "fail once" must mean once. Getting it wrong in the
+    /// permissive direction cuts every attempt and the scenario observes a dead endpoint
+    /// instead of a recovered run — the opposite of what it asserts, with no error to say
+    /// so.
+    ///
+    /// It also pins the two claims the drop path makes about its own bookkeeping, both of
+    /// which are invisible from the client's side: the cut attempt leaves **no row** in the
+    /// registry, because a record without a response half would carry a status that never
+    /// happened; and `degraded` stays **clear**, because cutting the connection is the
+    /// injection doing exactly what it was configured to do, not a harness fault.
+    #[tokio::test]
+    async fn a_spent_drop_budget_forwards_the_next_request() {
+        use crate::alias::magi_core::error::ProviderError;
+        use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider};
+        use crate::alias::magi_core::providers::ollama::OllamaProvider;
+
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
+            .await
+            .expect("proxy starts");
+        proxy.set_injection(Some(Injection::drop_connection("m", 1)));
+
+        let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
+        let cfg = CompletionConfig::default();
+
+        let first = provider.complete("sys", "user", &cfg).await;
+        assert!(
+            matches!(first, Err(ProviderError::Network { .. })),
+            "the budget covers the first attempt; got {first:?}"
+        );
+
+        let second = provider.complete("sys", "user", &cfg).await;
+        assert!(
+            second.is_ok(),
+            "the budget was spent, so this one is forwarded to a healthy upstream; got              {second:?}"
+        );
+
+        assert_eq!(
+            proxy.records().len(),
+            1,
+            "only the forwarded exchange is a row: the cut one had no response to record"
+        );
+        assert!(
+            !proxy.is_degraded(),
+            "a configured drop is not a harness fault, and latching degraded here would              route every assertion in the run to SKIP"
+        );
+    }
+
+    /// An always-budget stays down for a whole sequence of attempts, end to end.
+    ///
+    /// `S-R5b` needs an endpoint that does not recover, so this drives the real wire three
+    /// times. **It does NOT pin the `u32::MAX` branch** — three attempts never approach the
+    /// counter, so deleting that branch leaves this test green. The branch is pinned
+    /// directly by
+    /// [`an_always_budget_still_claims_after_the_counter_saturates`](tests::an_always_budget_still_claims_after_the_counter_saturates),
+    /// which preloads the counter to the edge. Saying so here is the point: a test whose
+    /// name implies a guarantee it cannot check is how a branch loses its cover.
+    #[tokio::test]
+    async fn an_always_drop_budget_cuts_every_attempt() {
+        use crate::alias::magi_core::error::ProviderError;
+        use crate::alias::magi_core::provider::{CompletionConfig, LlmProvider};
+        use crate::alias::magi_core::providers::ollama::OllamaProvider;
+
+        let upstream = crate::testkit::spawn_echo_server().await;
+        let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
+            .await
+            .expect("proxy starts");
+        proxy.set_injection(Some(Injection::drop_connection("m", u32::MAX)));
+
+        let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
+        let cfg = CompletionConfig::default();
+
+        for attempt in 1..=3 {
+            let err = provider
+                .complete("sys", "user", &cfg)
+                .await
+                .expect_err("every attempt is cut");
+            assert!(
+                matches!(err, ProviderError::Network { .. }),
+                "attempt {attempt} must still be a connection failure; got {err:?}"
+            );
+        }
+        assert!(
+            proxy.records().is_empty(),
+            "nothing completed, so nothing is a row"
+        );
+    }
+
+    /// A finite budget claims exactly that many connections, then stops.
+    ///
+    /// The boundary in both directions: the last unit is spent, and the one after it is
+    /// refused. A budget that were off by one in the permissive direction would cut the
+    /// rotated attempt too, and `S-R5a` would observe a dead endpoint while asserting a
+    /// recovered run.
+    #[test]
+    fn a_finite_drop_budget_is_spent_exactly_once_per_unit() {
+        let dropped = std::sync::atomic::AtomicU32::new(0);
+        assert!(claims_drop(2, &dropped), "first unit");
+        assert!(claims_drop(2, &dropped), "second and last unit");
+        assert!(
+            !claims_drop(2, &dropped),
+            "the budget is spent; forward from here on"
+        );
+    }
+
+    /// A zero budget claims nothing at all.
+    ///
+    /// The degenerate end of the range. It is worth a line because the natural way to write
+    /// the comparison — `<=` instead of `<` — cuts one connection for a budget of none, and
+    /// a scenario configured to inject nothing would get one silent cut.
+    #[test]
+    fn a_zero_drop_budget_claims_nothing() {
+        let dropped = std::sync::atomic::AtomicU32::new(0);
+        assert!(!claims_drop(0, &dropped));
+    }
+
+    /// `u32::MAX` keeps claiming after the counter has saturated.
+    ///
+    /// **This is the test the end-to-end always-case cannot be:** reaching the boundary by
+    /// driving requests needs 4.29 billion of them, so the branch that answers "always"
+    /// before consulting the counter would sit unguarded, and a later simplification that
+    /// deleted it would look free. Preloading the counter to one below the top makes the
+    /// difference observable in microseconds — with the branch removed, the second call
+    /// answers `false` and `S-R5b`'s endpoint silently recovers mid-scenario.
+    #[test]
+    fn an_always_budget_still_claims_after_the_counter_saturates() {
+        let dropped = std::sync::atomic::AtomicU32::new(u32::MAX - 1);
+        assert!(claims_drop(u32::MAX, &dropped), "at the edge");
+        assert!(
+            claims_drop(u32::MAX, &dropped),
+            "u32::MAX means ALWAYS, not 4.29 billion times: past the edge the budget              comparison alone would answer false and the endpoint would recover"
         );
     }
 
