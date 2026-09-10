@@ -1139,6 +1139,23 @@ const MAX_PREFLIGHT_CONCURRENCY: usize = 4;
 pub async fn run_preflight(
     probes: Vec<(String, Arc<dyn ProviderProbe>)>,
 ) -> BTreeMap<String, ModelCapability> {
+    run_preflight_within(probes, DEFAULT_PREFLIGHT_TIMEOUT).await
+}
+
+/// [`run_preflight`] with the per-candidate budget injected.
+///
+/// **Additive on purpose.** `run_preflight` is `pub` inside `pub mod rotation` with no
+/// `#[doc(hidden)]`, so it is reachable as `magi_core::rotation::run_preflight` from
+/// outside the crate; adding a parameter to it is a public break, and this release is a
+/// minor. So the budget lands here, `pub(crate)`, and the public function delegates with
+/// the default — its five existing callers compile untouched.
+///
+/// It exists because the budget has to be injectable to be TESTED: at the fixed 30 s a
+/// test asserting what survives a timeout either takes 30 s or cannot be written.
+pub(crate) async fn run_preflight_within(
+    probes: Vec<(String, Arc<dyn ProviderProbe>)>,
+    budget: Duration,
+) -> BTreeMap<String, ModelCapability> {
     let sem = Arc::new(tokio::sync::Semaphore::new(MAX_PREFLIGHT_CONCURRENCY));
     let mut set = tokio::task::JoinSet::new();
 
@@ -1154,7 +1171,7 @@ pub async fn run_preflight(
             let Ok(_permit) = sem.acquire_owned().await else {
                 return (id, unmeasured);
             };
-            let measured = tokio::time::timeout(DEFAULT_PREFLIGHT_TIMEOUT, async {
+            let measured = tokio::time::timeout(budget, async {
                 let window = probe.window().await.ok().flatten();
                 let digest = probe.digest().await.ok().flatten();
                 (window, digest)
@@ -2389,12 +2406,175 @@ mod tests {
 
     // ---- Task 12: window pre-filter + digest R5a (fail-open) ----
 
-    fn cap(digest: Option<&str>) -> ModelCapability {
+    /// The window floor the filter compares against.
+    ///
+    /// Module level, not inside a test: all three R-6 tests read it, and a `const` in a
+    /// function body is visible only there. Any value the measured window clears will do —
+    /// what these tests assert is whether the candidate gets filtered, not the threshold.
+    const MIN: usize = 1;
+
+    /// The target's key. `run_preflight` returns a map indexed BY MODEL, not positionally.
+    const MODEL: &str = "m1";
+
+    /// A probe whose two halves answer after a settable delay.
+    ///
+    /// `test_support::MockProbe` fixes window and digest by constructor and has **no
+    /// delay**, which is precisely the variable R-6 is about: the defect is that a slow
+    /// `digest()` used to discard an already-returned `window()`.
+    struct InstrumentedProbe {
+        window_after: Duration,
+        digest_after: Duration,
+    }
+
+    impl InstrumentedProbe {
+        fn new() -> Self {
+            Self {
+                window_after: Duration::ZERO,
+                digest_after: Duration::ZERO,
+            }
+        }
+        fn window_after(mut self, d: Duration) -> Self {
+            self.window_after = d;
+            self
+        }
+        fn digest_after(mut self, d: Duration) -> Self {
+            self.digest_after = d;
+            self
+        }
+        fn into_arc(self) -> Arc<dyn ProviderProbe> {
+            Arc::new(self)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderProbe for InstrumentedProbe {
+        async fn window(&self) -> Result<Option<usize>, ProviderError> {
+            tokio::time::sleep(self.window_after).await;
+            Ok(Some(4096))
+        }
+        async fn digest(&self) -> Result<Option<String>, ProviderError> {
+            tokio::time::sleep(self.digest_after).await;
+            Ok(Some("d".repeat(64)))
+        }
+    }
+
+    /// A measurement already paid for survives its sibling's timeout.
+    ///
+    /// The two calls used to sit inside ONE `timeout`, and its `Err` arm threw both away:
+    /// a slow `/api/tags` left the entry wholly unmeasured even though `window()` had
+    /// answered in milliseconds. With the strict guard that filters the candidate out, so a
+    /// slow tags endpoint silently disabled rotation for candidates whose window HAD been
+    /// measured.
+    #[tokio::test]
+    async fn the_preflight_keeps_what_it_did_measure() {
+        let probe = InstrumentedProbe::new()
+            .window_after(Duration::from_millis(10))
+            .digest_after(Duration::from_secs(60))
+            .into_arc();
+
+        let caps =
+            run_preflight_within(vec![(MODEL.to_string(), probe)], Duration::from_secs(1)).await;
+
+        let cap = &caps[MODEL];
+        assert!(
+            cap.window.is_some(),
+            "a paid measurement must survive its sibling's timeout"
+        );
+        assert!(cap.digest.is_none());
+        assert!(
+            window_ok(cap.window, MIN, true),
+            "and under the strict guard the candidate must NOT be filtered out"
+        );
+    }
+
+    /// The symmetric direction, and it is not ceremony.
+    ///
+    /// With only the test above, "a paid measurement survives" is demonstrated for `window`
+    /// and ASSUMED for `digest`: an implementation that kept the window and threw the
+    /// digest away passes it green. This is the mutation rule applied to the DATA — pick
+    /// the least favourable case, which here is the one its sibling does not look at.
+    #[tokio::test]
+    async fn the_preflight_keeps_the_other_half_too() {
+        let probe = InstrumentedProbe::new()
+            .window_after(Duration::from_secs(60))
+            .digest_after(Duration::from_millis(10))
+            .into_arc();
+
+        let caps =
+            run_preflight_within(vec![(MODEL.to_string(), probe)], Duration::from_secs(1)).await;
+
+        let cap = &caps[MODEL];
+        assert!(
+            cap.digest.is_some(),
+            "the paid measurement is the digest this time"
+        );
+        assert!(cap.window.is_none());
+
+        // And HERE the candidate IS filtered out, which is the opposite of its sibling and
+        // is correct: `window_ok(None, _, true)` is false by design. Asserted so nobody
+        // "fixes" that asymmetry believing it an oversight — R-6 keeps what was measured,
+        // it does not promise that what survived is enough to pass the filter.
+        assert!(
+            !window_ok(cap.window, MIN, true),
+            "an unmeasured window is still filtered out; R-6 keeps data, it does not admit              candidates"
+        );
+    }
+
+    /// A candidate whose digest is absent ROTATES; it is not discarded.
+    ///
+    /// The two tests above assert on `window_ok`, a PURE predicate: they prove the window
+    /// filter admits the candidate, not that rotation claims it. Between the predicate and
+    /// the outcome sits the digest verify, the only fail-closed direction in this
+    /// subsystem, and that is what this covers. An absent digest is an UNRESOLVABLE digest,
+    /// which fail-open R5a trusts by the declared lineage — the crate's existing decision,
+    /// said out loud here so the R-6 fix does not reinvent it.
+    #[tokio::test]
+    async fn a_candidate_with_a_measured_window_and_no_digest_still_rotates() {
+        let caps: BTreeMap<String, ModelCapability> =
+            [("md".to_string(), cap_with_window(Some(4096), None))].into();
+        let p = policy_with_caps(&[("d", "md")], caps, true, MIN);
+        let r = reg();
+        let mut st = state("mc");
+
+        let claimed = r
+            .claim_next(AgentName::Caspar, &p, &mut st)
+            .await
+            .expect("a measured window with an unresolvable digest is eligible");
+        assert_eq!(claimed.model, "md");
+        assert_eq!(claimed.lineage.as_str(), "d");
+    }
+
+    /// A capability with BOTH halves settable.
+    ///
+    /// `cap` fixed `window: None` with no parameter, so "measured window" was impossible to
+    /// build and R-6's third test could not state its own precondition. It is a SIBLING
+    /// rather than a widened `cap`: `cap` has five positional callers in this module, and
+    /// adding a parameter breaks all five for nothing.
+    fn cap_with_window(window: Option<usize>, digest: Option<&str>) -> ModelCapability {
         ModelCapability {
-            window: None,
+            window,
             digest: digest.map(String::from),
             supports_completion: true,
         }
+    }
+    fn cap(digest: Option<&str>) -> ModelCapability {
+        cap_with_window(None, digest)
+    }
+
+    /// A policy that actually CARRIES capabilities, plus the guard and the window floor.
+    ///
+    /// `policy()` goes through `for_tests_no_probe`, which hardcodes an empty capability
+    /// map, so a `caps` built beside it never reaches the filter — the value would sit
+    /// there dead, and under `-D warnings` an unused binding is a build error. Without
+    /// this, a test claiming to exercise a measured window passes for another reason
+    /// entirely: an empty map admits by default.
+    fn policy_with_caps(
+        cand: &[(&'static str, &str)],
+        caps: BTreeMap<String, ModelCapability>,
+        strict: bool,
+        min_window: usize,
+    ) -> RotationPolicy {
+        RotationPolicy::new(pool(cand), 3, caps, strict, min_window)
     }
     fn caps_map(pairs: &[(&str, Option<&str>)]) -> BTreeMap<String, ModelCapability> {
         pairs
