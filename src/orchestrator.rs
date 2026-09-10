@@ -837,8 +837,7 @@ impl MagiBuilder {
             rng_source: Arc::new(Mutex::new(rng_source)),
             complexity_gate: self.complexity_gate,
             rotation_config,
-            inert_guard_warned: std::sync::atomic::AtomicBool::new(false),
-            probe_declaration_warned: std::sync::atomic::AtomicBool::new(false),
+            warned: std::sync::atomic::AtomicU32::new(0),
         })
     }
 }
@@ -917,22 +916,22 @@ pub struct Magi {
     /// pool). `None` ⇒ rotation disabled (2.0.x path). Read by `dispatch_with_retry`
     /// to route between the no-rotation and rotation dispatch paths.
     rotation_config: Option<Arc<RotationConfig>>,
-    /// Latches once the inert-strict-guard warning has been emitted.
+    /// One bit per [`WarnOnce`] variant: set once that warning has been said.
     ///
-    /// That warning reports a CONFIGURATION mistake but can only be detected after the
-    /// preflight, so its natural home is per-run — and a long-lived orchestrator would
-    /// then repeat the same sentence on every call. Nobody reads a log line they have
-    /// seen four hundred times, which is the failure this whole warning exists to avoid.
-    /// Once per instance is the honest cadence: the condition it names cannot be fixed
-    /// mid-run anyway.
+    /// These warnings report CONFIGURATION, and a long-lived orchestrator would repeat the
+    /// same sentence on every call. Nobody reads a line they have seen four hundred times,
+    /// which is the failure the warnings exist to avoid; and the conditions they name are
+    /// decided before dispatch and cannot be fixed mid-run, so a second telling describes a
+    /// state that provably has not changed.
     ///
-    /// `Relaxed` is sufficient for both latches here: they order nothing but themselves,
-    /// and the only property required is that exactly one caller observes the transition.
-    inert_guard_warned: std::sync::atomic::AtomicBool,
-    /// Latches the probe-declaration warnings, for the same reason and with more force:
-    /// what they report is fixed when the builder runs, so every later call would repeat
-    /// a sentence about a state that provably has not changed.
-    probe_declaration_warned: std::sync::atomic::AtomicBool,
+    /// **A mask rather than one flag per warning, because one-flag-each IS what R-18 was.**
+    /// Two warnings had an `AtomicBool` and a third never got one; nothing noticed, because
+    /// having a flag was up to whoever wrote the warning. Going through
+    /// [`warn_once`](Magi::warn_once) makes the cadence structural on the render side.
+    ///
+    /// A `HashMap` would need a `Mutex` to mutate through `&self` — a lock on the dispatch
+    /// path to hold a handful of flags. `Relaxed` suffices; see `warn_once`.
+    warned: std::sync::atomic::AtomicU32,
 }
 
 /// Which one-shot warning is being asked for, and the data it renders.
@@ -988,6 +987,25 @@ impl WarnOnce<'_> {
         match self {
             Self::InertGuard { .. } => 0,
             Self::ProbeDeclaration { .. } => 1,
+        }
+    }
+
+    /// Writes the warning.
+    ///
+    /// Exhaustive for the same reason as `bit`: a new variant must say what it prints.
+    /// Called only once per variant per instance — the gate is `Magi::warn_once`.
+    fn emit(&self) {
+        match self {
+            Self::InertGuard { candidates } => tracing::warn!(
+                candidates = candidates,
+                "strict_context_guard is on and no fallback candidate has a measured context                  window, so every candidate is filtered out and rotation cannot fire; declare a                  probe for the candidates or turn the guard off"
+            ),
+            // DELEGATES rather than reimplementing. Inlining the body here rewrote its two
+            // messages from memory: the field names came out different and the SECOND
+            // warning -- two probes registered for one model -- disappeared entirely. One
+            // implementation is also what keeps this arm honest when that function grows a
+            // third condition.
+            Self::ProbeDeclaration { targets } => warn_on_probe_disagreement(targets),
         }
     }
 }
@@ -1095,19 +1113,34 @@ impl Magi {
     ///
     /// # Parameters
     /// - `provider`: The LLM provider shared by all three agents.
-    /// Emits a one-shot warning, or says nothing if it has already been said.
-    ///
-    /// STUB: declared so the cadence test compiles; it emits nothing yet.
-    pub(crate) fn warn_once(&self, which: WarnOnce<'_>) {
-        let _ = which;
-    }
-
     pub fn new(provider: Arc<dyn LlmProvider>) -> Self {
         // Safe to unwrap: no prompts_dir means no I/O, so build cannot fail.
         MagiBuilder::new(provider).build().expect(
             "Magi::new uses all defaults and cannot fail; \
              this is an internal invariant violation",
         )
+    }
+
+    /// Emits a one-shot warning, or says nothing if this instance already said it.
+    ///
+    /// **One gate for every builder warning.** R-18 was a third warning that never got a
+    /// flag while its two neighbours had theirs, so it repeated on every `analyze()`. The
+    /// flag's type was never the problem: having one was up to whoever wrote the warning.
+    ///
+    /// `Relaxed` is sufficient. The guarantee asked for is "at most once", not an ordering
+    /// between distinct warnings, and it is what the two `AtomicBool`s this replaces used.
+    /// `fetch_or` returns the mask BEFORE the write, so exactly one caller sees the bit
+    /// clear however many arrive together.
+    pub(crate) fn warn_once(&self, which: WarnOnce<'_>) {
+        let bit = 1u32 << which.bit();
+        if self
+            .warned
+            .fetch_or(bit, std::sync::atomic::Ordering::Relaxed)
+            & bit
+            == 0
+        {
+            which.emit();
+        }
     }
 
     /// Returns a builder for configuring a MAGI orchestrator.
@@ -1493,12 +1526,9 @@ impl Magi {
         // Latched like the inert-guard warning below, and for a stronger reason: what these
         // name is decided when the builder runs, so a second telling would describe a state
         // that provably has not changed since the first.
-        if !self
-            .probe_declaration_warned
-            .swap(true, std::sync::atomic::Ordering::Relaxed)
-        {
-            warn_on_probe_disagreement(&probe_targets);
-        }
+        self.warn_once(WarnOnce::ProbeDeclaration {
+            targets: &probe_targets,
+        });
         let capabilities = Arc::new(run_preflight(probe_targets).await);
         // G2: warn (never error) if two primaries resolve to the SAME weights digest
         // — reduced ensemble diversity, but the run proceeds. Diversity never blocks
@@ -1556,16 +1586,10 @@ impl Magi {
         // into a line repeated on every call of a long-lived orchestrator — see the field.
         if rotation.pool.max_rotations() > 0
             && strict_guard_is_inert(strict_context_guard, &candidate_models, &capabilities)
-            && !self
-                .inert_guard_warned
-                .swap(true, std::sync::atomic::Ordering::Relaxed)
         {
-            tracing::warn!(
-                candidates = candidate_models.len(),
-                "strict_context_guard is on and no fallback candidate has a measured context \
-                 window, so every candidate is filtered out and rotation cannot fire; declare a \
-                 probe for the candidates or turn the guard off"
-            );
+            self.warn_once(WarnOnce::InertGuard {
+                candidates: candidate_models.len(),
+            });
         }
 
         // Pre-seed telemetry OUTSIDE any task stack so a panicked agent still has a
