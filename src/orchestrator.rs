@@ -7043,6 +7043,39 @@ mod tests {
         );
     }
 
+    /// The quorum condition wraps the endpoint-down branch ONLY. Read as "wrap the whole
+    /// of `resolve_run_abort`" it would let a latched defect of this crate ride on a
+    /// reachable quorum, and no other test would notice.
+    #[tokio::test]
+    async fn a_crate_defect_aborts_even_when_the_quorum_is_reachable() {
+        let mut init = BTreeMap::new();
+        init.insert(
+            AgentName::Caspar,
+            ActiveEntry {
+                lineage: Lineage::new("deepseek"),
+                model: "d".into(),
+            },
+        );
+        let reg = LineageRegistry::new(init);
+        assert!(
+            !reg.endpoint_down_signalled().await,
+            "no outage in this scenario"
+        );
+        reg.latch_crate_defect(CrateDefectRecord {
+            observation: "no generation - token counters absent".to_string(),
+            hypothesis: CRATE_DEFECT_HYPOTHESIS,
+            agent: AgentName::Caspar,
+            model: "d".to_string(),
+        })
+        .await;
+
+        // Two successes in hand and one seat pending against a quorum of three: reachable.
+        let err = resolve_run_abort(&reg, &BTreeMap::new(), 2, 1, 3)
+            .await
+            .expect("a defect of ours aborts regardless of the quorum");
+        assert!(matches!(err, MagiError::CrateDefect { .. }), "{err}");
+    }
+
     #[test]
     fn a_crate_defect_records_nothing_because_its_report_will_not_exist() {
         // Recording an attempt whose run is invalidated would assert there was
