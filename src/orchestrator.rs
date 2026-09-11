@@ -1005,6 +1005,12 @@ pub(crate) enum WarnOnce<'a> {
     ProbeDeclaration {
         targets: &'a [(String, Arc<dyn ProviderProbe>)],
     },
+    /// Two primaries resolve to the same weights digest — reduced ensemble diversity.
+    ///
+    /// This is the warning R-18 was about: it sat outside the latch its two neighbours
+    /// had and repeated on every `analyze()`. What it names is decided by the preflight
+    /// over configuration that cannot change between calls.
+    SharedDigest,
 }
 
 impl WarnOnce<'_> {
@@ -1016,7 +1022,7 @@ impl WarnOnce<'_> {
     /// that reads as present while being absent, which is the class this release is about.
     /// It is asserted against the list it counts in
     /// `every_warning_owns_a_distinct_bit_inside_the_mask`.
-    pub(crate) const COUNT: u32 = 2;
+    pub(crate) const COUNT: u32 = 3;
 
     /// This warning's bit in the mask.
     ///
@@ -1025,6 +1031,7 @@ impl WarnOnce<'_> {
         match self {
             Self::InertGuard { .. } => 0,
             Self::ProbeDeclaration { .. } => 1,
+            Self::SharedDigest => 2,
         }
     }
 
@@ -1044,6 +1051,10 @@ impl WarnOnce<'_> {
             // implementation is also what keeps this arm honest when that function grows a
             // third condition.
             Self::ProbeDeclaration { targets } => warn_on_probe_disagreement(targets),
+            Self::SharedDigest => tracing::warn!(
+                "two primary mages resolve to the same weights digest \
+                 (reduced ensemble diversity, not fatal)"
+            ),
         }
     }
 }
@@ -1577,11 +1588,13 @@ impl Magi {
             .values()
             .map(|m| capabilities.get(m).and_then(|c| c.digest.clone()))
             .collect();
+        // Latched with its two neighbours (R-18): it was the one builder warning left
+        // outside the latch, and it repeated on every `analyze()` of a long-lived
+        // orchestrator. The digests come from the preflight over configuration that
+        // cannot change between calls, so a second telling would describe a state that
+        // provably has not changed.
         if digest_collision(&trio_digests).is_some() {
-            tracing::warn!(
-                "two primary mages resolve to the same weights digest \
-                 (reduced ensemble diversity, not fatal)"
-            );
+            self.warn_once(WarnOnce::SharedDigest);
         }
         // Coarse lower bound on the raw payload (R16): reject only candidates whose
         // measured window is smaller than the prompt itself would need. `chars/4` is
@@ -3902,6 +3915,7 @@ mod tests {
         let all = [
             WarnOnce::InertGuard { candidates: 0 },
             WarnOnce::ProbeDeclaration { targets: &targets },
+            WarnOnce::SharedDigest,
         ];
         assert_eq!(
             all.len() as u32,
