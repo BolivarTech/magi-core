@@ -879,9 +879,37 @@ pub(crate) struct AgentRotationState {
     pub digest_collisions: BTreeMap<String, &'static str>,
     pub rotations_done: u32,
     pub ran_unmeasured: bool,
+    /// Set once a `claim_next` pass exhausted the pool with every candidate rejected by a
+    /// proven digest collision — a backend answering one digest for every model.
+    ///
+    /// Private, unlike its siblings: it has exactly one writer,
+    /// [`record_degenerate_pool`](Self::record_degenerate_pool), and one reader,
+    /// [`degenerate_pool`](Self::degenerate_pool). Monotonic for the life of the state,
+    /// which is one seat of one run: it starts `false` and is never cleared. Clearing it
+    /// per pass — the way `digest_collisions` is — would leave it `false` after a later,
+    /// healthy pass, and the warning it feeds answers a question about the run, not
+    /// about the last pass.
+    degenerate_pool: bool,
 }
 
 impl AgentRotationState {
+    /// A fresh per-seat state: the configured model is the model in use, already
+    /// counted as `used` so rotation never proposes it back, nothing failed, nothing
+    /// rotated, and no pass recorded as degenerate.
+    pub(crate) fn new(model_configured: String) -> Self {
+        Self {
+            model_used: model_configured.clone(),
+            used: [model_configured.clone()].into_iter().collect(),
+            model_configured,
+            chain: Vec::new(),
+            failed_lineages: BTreeSet::new(),
+            digest_collisions: BTreeMap::new(),
+            rotations_done: 0,
+            ran_unmeasured: false,
+            degenerate_pool: false,
+        }
+    }
+
     /// Records that `model` was rejected because its digest **provably** collided
     /// with an active mage's.
     ///
@@ -893,6 +921,25 @@ impl AgentRotationState {
     pub(crate) fn record_digest_collision(&mut self, model: &str) {
         self.digest_collisions
             .insert(model.to_string(), DIGEST_COLLISION_REASON);
+    }
+
+    /// Records that a `claim_next` pass found the pool degenerate: it was exhausted, and
+    /// a proven digest collision was the only thing that rejected anyone.
+    ///
+    /// No arguments and no map, for the same reason `record_digest_collision` is a
+    /// method: the fact is one boolean per seat, and a bare field write is how a map
+    /// named for one thing came to hold another.
+    pub(crate) fn record_degenerate_pool(&mut self) {
+        self.degenerate_pool = true;
+    }
+
+    /// Whether any `claim_next` pass of this seat found the pool degenerate.
+    ///
+    /// Read by the orchestrator where it already receives `claim_next`'s `None`, so the
+    /// warning that names the condition goes through the one-shot gate there — this
+    /// module names the shape, the core decides the consequence.
+    pub(crate) fn degenerate_pool(&self) -> bool {
+        self.degenerate_pool
     }
 }
 
@@ -1768,16 +1815,7 @@ mod tests {
     // ---- Task 4: claim_next + AgentSlotGuard ----
 
     fn state(configured: &str) -> AgentRotationState {
-        AgentRotationState {
-            model_configured: configured.into(),
-            model_used: configured.into(),
-            chain: vec![],
-            used: [configured.to_string()].into(),
-            failed_lineages: BTreeSet::new(),
-            digest_collisions: BTreeMap::new(),
-            rotations_done: 0,
-            ran_unmeasured: false,
-        }
+        AgentRotationState::new(configured.into())
     }
     fn policy() -> RotationPolicy {
         RotationPolicy::for_tests_no_probe(pool(&[("d", "md"), ("e", "me")]), 3)
@@ -3233,6 +3271,99 @@ mod tests {
         assert!(
             r.claim_next(AgentName::Caspar, &p, &mut s).await.is_some(),
             "calling agent excluded → no spurious self-collision"
+        );
+    }
+
+    // ---- R-15: a degenerate digest pool is named, not silently degraded ----
+
+    /// Every candidate collides with the active mage's digest: the pool is exhausted and
+    /// a proven collision is the ONLY thing that rejected anyone. That is a backend
+    /// answering one digest for every model, and the fail-open rule cannot see it by
+    /// construction — it protects the UNRESOLVED digest, and this one resolves.
+    #[tokio::test]
+    async fn a_pool_exhausted_by_collisions_alone_is_recorded_as_degenerate() {
+        let (r, p, mut s) = digest_case(
+            "mx",
+            Some("sha:same"),
+            &[("d", "md"), ("e", "me")],
+            vec![("md", Some("sha:same")), ("me", Some("sha:same"))],
+        );
+        assert!(!s.degenerate_pool(), "a fresh seat has recorded nothing");
+        let got = r.claim_next(AgentName::Caspar, &p, &mut s).await;
+        assert!(
+            got.is_none(),
+            "both candidates collide, so nothing is claimed"
+        );
+        assert!(
+            s.degenerate_pool(),
+            "exhausted with every rejection a proven collision: the pool is degenerate"
+        );
+    }
+
+    /// The MIXED case, and it is the one that separates the condition from a look-alike:
+    /// the pool is exhausted, and there WAS a collision, but another condition rejected
+    /// the other candidate — here its lineage is already in play. An implementation that
+    /// fired on "exhausted and at least one collision" passes every other test and fails
+    /// this one.
+    #[tokio::test]
+    async fn a_pool_exhausted_by_mixed_causes_is_not_degenerate() {
+        // `d` carries Melchior's live lineage (`mel-lin`) → rejected by condition 1;
+        // `e` collides on digest → rejected by the verify. Exhausted, but not by the digest
+        // alone.
+        let (r, p, mut s) = digest_case(
+            "mx",
+            Some("sha:same"),
+            &[("mel-lin", "md"), ("e", "me")],
+            vec![("md", Some("sha:other")), ("me", Some("sha:same"))],
+        );
+        let got = r.claim_next(AgentName::Caspar, &p, &mut s).await;
+        assert!(
+            got.is_none(),
+            "the pool must be exhausted for the case to mean anything"
+        );
+        assert!(
+            s.digest_collisions.contains_key("me"),
+            "and one rejection must have been a proven collision"
+        );
+        assert!(
+            !s.degenerate_pool(),
+            "a lineage rejection means the digest is not the only thing discriminating"
+        );
+    }
+
+    /// A pool of ONE candidate that collides satisfies "every rejection was a collision"
+    /// by vacuity of the plural. Naming that degenerate would call a healthy backend
+    /// with a small pool degenerate.
+    #[tokio::test]
+    async fn a_single_colliding_candidate_is_not_a_degenerate_pool() {
+        let (r, p, mut s) = digest_case(
+            "mx",
+            Some("sha:same"),
+            &[("d", "md")],
+            vec![("md", Some("sha:same"))],
+        );
+        let got = r.claim_next(AgentName::Caspar, &p, &mut s).await;
+        assert!(got.is_none(), "the only candidate collides");
+        assert!(
+            !s.degenerate_pool(),
+            "one collision says nothing about the backend; two identical ones do"
+        );
+    }
+
+    /// The flag is monotonic for the life of the seat: a later pass that claims a
+    /// candidate does not clear it, because the warning it feeds is about the run.
+    #[tokio::test]
+    async fn a_recorded_degenerate_pool_survives_a_later_healthy_pass() {
+        let mut s = state("mc");
+        s.record_degenerate_pool();
+        let (r, p, _) = digest_case("mx", Some("sha:a"), &[("d", "md")], vec![("md", None)]);
+        assert!(
+            r.claim_next(AgentName::Caspar, &p, &mut s).await.is_some(),
+            "an unresolved candidate digest is trusted by its lineage"
+        );
+        assert!(
+            s.degenerate_pool(),
+            "a healthy pass must not clear the record"
         );
     }
 }

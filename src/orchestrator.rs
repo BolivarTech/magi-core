@@ -2778,16 +2778,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
         min_window_tokens,
     );
 
-    let mut state = AgentRotationState {
-        model_configured: model_configured.clone(),
-        model_used: model_configured.clone(),
-        chain: Vec::new(),
-        used: [model_configured].into_iter().collect(),
-        failed_lineages: std::collections::BTreeSet::new(),
-        digest_collisions: BTreeMap::new(),
-        rotations_done: 0,
-        ran_unmeasured: false,
-    };
+    let mut state = AgentRotationState::new(model_configured);
 
     let mut current_provider = agent.provider().clone();
     let mut current_lineage = primary_lineage;
@@ -4370,6 +4361,167 @@ mod tests {
 
         assert_eq!(after_first, 1, "the shared digest must be named once");
         assert_eq!(after_second, 1, "and not repeated on the next call");
+    }
+
+    /// A trio whose Caspar must rotate (schema failure on both attempts) into `pool`, with
+    /// Melchior a probing primary whose digest is `melchior_digest` — the active digest
+    /// every candidate is verified against.
+    fn magi_rotating_into(melchior_digest: &str, pool: FallbackPool) -> Magi {
+        use crate::test_support::{Beh, MockProbe, ScriptProvider};
+        MagiBuilder::new(trio())
+            .with_probing_agent(
+                AgentName::Melchior,
+                MockProbe::with_digest("m-a", melchior_digest),
+                Lineage::new("vendor-a"),
+            )
+            .with_agent(
+                AgentName::Balthasar,
+                ScriptProvider::new("m-b", vec![Beh::Ok]),
+                Lineage::new("vendor-b"),
+            )
+            .with_agent(
+                AgentName::Caspar,
+                ScriptProvider::new("m-c", vec![Beh::BadJson]),
+                Lineage::new("vendor-c"),
+            )
+            .with_fallback_pool(pool)
+            .build()
+            .expect("builds")
+    }
+
+    fn degenerate_lines(log: &EventLog) -> usize {
+        log.lines()
+            .iter()
+            .filter(|l| l.starts_with("WARN") && l.contains("degenerate"))
+            .count()
+    }
+
+    /// R-15: a backend answering ONE digest for every model makes every candidate a
+    /// proven collision, the re-propose loop exhausts the pool, and until now the seat
+    /// degraded with nothing naming why. It is named once per instance — born with the
+    /// cadence R-18 had to be given after the fact.
+    #[tokio::test]
+    async fn a_degenerate_digest_pool_is_named_once_per_instance() {
+        use crate::test_support::MockProbe;
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push_probing(
+                MockProbe::with_digest("cand-1", "same"),
+                Lineage::new("vendor-x"),
+            )
+            .push_probing(
+                MockProbe::with_digest("cand-2", "same"),
+                Lineage::new("vendor-y"),
+            )
+            .max_rotations(3)
+            .build();
+        let magi = magi_rotating_into("same", pool);
+
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("two seats answer, so the run completes degraded");
+        assert!(
+            report
+                .failed_agents
+                .get(&AgentName::Caspar)
+                .is_some_and(|r| r.contains("no_fitting_candidate")),
+            "the seat must actually have exhausted its pool: {:?}",
+            report.failed_agents
+        );
+        let after_first = degenerate_lines(&log);
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let after_second = degenerate_lines(&log);
+
+        assert_eq!(after_first, 1, "the degenerate pool must be named");
+        assert_eq!(
+            after_second, 1,
+            "and named once per instance, like its neighbours"
+        );
+    }
+
+    /// Exhausted by MIXED causes — one candidate turned down by its window, the other by a
+    /// proven collision — is not a degenerate pool, and must not be called one. This is
+    /// the test that separates the conjunction from "exhausted and at least one collision".
+    #[tokio::test]
+    async fn a_pool_exhausted_by_mixed_causes_is_not_named_degenerate() {
+        use crate::test_support::MockProbe;
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        // `cand-1`: measured window of 1 token, far below what the prompt needs → condition
+        // 6 rejects it (its digest, `sha:cand-1`, collides with nothing). `cand-2`: collides.
+        let pool = FallbackPool::builder()
+            .push_probing(
+                MockProbe::with_window("cand-1", Some(1)),
+                Lineage::new("vendor-x"),
+            )
+            .push_probing(
+                MockProbe::with_digest("cand-2", "same"),
+                Lineage::new("vendor-y"),
+            )
+            .max_rotations(3)
+            .build();
+        let magi = magi_rotating_into("same", pool);
+
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("completes degraded");
+        assert!(
+            report
+                .failed_agents
+                .get(&AgentName::Caspar)
+                .is_some_and(|r| r.contains("no_fitting_candidate")),
+            "the pool must be exhausted for the case to mean anything: {:?}",
+            report.failed_agents
+        );
+        assert_eq!(
+            degenerate_lines(&log),
+            0,
+            "a window rejection means the digest was not the only discriminator: {:?}",
+            log.lines()
+        );
+    }
+
+    /// A pool of ONE colliding candidate satisfies "every rejection was a collision" by
+    /// vacuity of the plural. Naming it degenerate would accuse a healthy backend with a
+    /// small pool.
+    #[tokio::test]
+    async fn a_single_colliding_candidate_is_not_named_degenerate() {
+        use crate::test_support::MockProbe;
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let pool = FallbackPool::builder()
+            .push_probing(
+                MockProbe::with_digest("cand-1", "same"),
+                Lineage::new("vendor-x"),
+            )
+            .max_rotations(3)
+            .build();
+        let magi = magi_rotating_into("same", pool);
+
+        let report = magi
+            .analyze(&Mode::CodeReview, "fn main() {}")
+            .await
+            .expect("completes degraded");
+        assert!(
+            report
+                .failed_agents
+                .get(&AgentName::Caspar)
+                .is_some_and(|r| r.contains("no_fitting_candidate")),
+            "the only candidate must have been rejected: {:?}",
+            report.failed_agents
+        );
+        assert_eq!(
+            degenerate_lines(&log),
+            0,
+            "one collision says nothing about the backend: {:?}",
+            log.lines()
+        );
     }
 
     /// A long-lived orchestrator must not repeat a configuration complaint on every call.
