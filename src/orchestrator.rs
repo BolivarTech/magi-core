@@ -1715,6 +1715,10 @@ impl Magi {
         // a slow-but-alive host while two others connection-fail, delaying the abort
         // by that mage's timeout. The run stays CORRECT — it still aborts (and the
         // `AbortGuard` cancels the stragglers) — only the fast-fail *latency* grows.
+        // With the quorum condition the abort can also land on the FINAL join, when the
+        // seats joined earlier kept the quorum reachable until the last one failed: no
+        // stragglers to cancel then, and the latency is the whole run. That is the
+        // price of never abandoning a run that could still have recovered.
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
@@ -8244,13 +8248,19 @@ mod tests {",
         #[tokio::test]
         async fn a_truly_dead_endpoint_still_aborts_fast() {
             // Without this, the fix silently degrades into "consult only at the end"
-            // and nothing would tell us.
+            // and nothing would tell us. "It does not wait" is asserted by the 10 s
+            // hang guard inside `analyze_with`: seats 2 and 3 never produce on their
+            // own, so a loop that waited for them would hang into it instead of
+            // returning. The count below cannot vary with the implementation -- it is
+            // 1 whenever the run returns at all -- so it pins the FIXTURE's shape:
+            // exactly one seat produced before the abort. If it ever reads 3 the
+            // barriers are gone and this test measures nothing about waiting.
             let (res, joins) = analyze_with(dead_endpoint(), min_agents(3)).await;
             assert!(matches!(res, Err(MagiError::EndpointDown { .. })));
-            let n = joined_before_abort(&joins);
-            assert!(
-                n < 3,
-                "it must not wait for the remaining seats: {n} completed"
+            assert_eq!(
+                joined_before_abort(&joins),
+                1,
+                "only seat 1 produces in this fixture; the other two are cancelled"
             );
         }
 
