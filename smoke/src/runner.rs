@@ -714,6 +714,8 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::MixedTrio,
         RunId::Large62k,
         RunId::CrateDefect,
+        RunId::EndpointBlip,
+        RunId::EndpointDown,
         RunId::NoBackend,
     ]
 }
@@ -789,6 +791,10 @@ impl RunSpec {
         // The eligibility snapshot is PRE-DISPATCH, so the cheapest payload serves:
         // nothing about it has to make a seat rotate.
         let small_for_eligibility = small.clone();
+        // The two endpoint runs are about the WIRE, not the content: a cut connection
+        // costs the same whatever the payload, so the cheapest one serves.
+        let small_for_blip = small.clone();
+        let small_for_down = small.clone();
         let large_no_reasoning = payload::generate(repo_root, cfg.payload_target_bytes)?;
         Ok(vec![
             RunSpec {
@@ -936,10 +942,67 @@ impl RunSpec {
                 reasoning: ReasoningControl::Default,
                 trace: false,
             },
+            RunSpec {
+                id: RunId::EndpointBlip,
+                seats: cfg.seats.clone(),
+                // The full pool, and the run needs at least TWO candidates in it. The two
+                // cut seats rotate concurrently, and the crate lets a lineage be held by one
+                // live mage at a time, so with a single candidate one seat rotates and the
+                // other has nowhere to go: the run completes degraded and `S-R5a` goes RED,
+                // deterministically, with the cause written in its module. The preflight
+                // already guarantees the candidates' lineages are distinct from every seat's
+                // and from each other's; the count is the config's to provide.
+                fallbacks: cfg.fallbacks.clone(),
+                payload: small_for_blip,
+                // The FIRST connection of the first two seats is cut; everything after it —
+                // including those seats' rotated attempts — is forwarded. Two seats because
+                // the latch needs two distinct lineages to arm, and the property under test
+                // is that an armed latch does not abort a run that recovered. The third seat
+                // is left alone so the trio can complete.
+                injection: Some(Injection::drop_connection(
+                    cfg.seats.iter().take(BLIP_SEATS).map(|s| s.model.clone()),
+                    1,
+                )),
+                providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            RunSpec {
+                id: RunId::EndpointDown,
+                seats: cfg.seats.clone(),
+                // The pool is PRESENT on purpose: a dead endpoint has to abort the run even
+                // when every seat still has candidates to try, or the assertion would only
+                // hold for a trio with nowhere to rotate. Every candidate is cut too, below.
+                fallbacks: cfg.fallbacks.clone(),
+                payload: small_for_down,
+                // EVERY connection of EVERY model the run can dispatch, seats and
+                // candidates alike, with the always-budget: no seat can ever succeed, so the
+                // quorum becomes unreachable at the second join and the run must abort with
+                // the typed `EndpointDown` rather than wait the rest out.
+                injection: Some(Injection::drop_connection(
+                    cfg.seats
+                        .iter()
+                        .map(|s| s.model.clone())
+                        .chain(cfg.fallbacks.iter().map(|f| f.model.clone())),
+                    u32::MAX,
+                )),
+                providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+                trace: false,
+            },
             no_backend_spec,
         ])
     }
 }
+
+/// How many seats the endpoint-blip run cuts.
+///
+/// Two, because the endpoint-down latch arms on two DISTINCT lineages failing at the
+/// connection level, and the run exists to show an armed latch does not abort a run that
+/// recovered. `pub(crate)` so the scenario that counts the rotations back reads the same
+/// number the run cut, rather than a copy that would keep agreeing with itself after this
+/// one moved.
+pub(crate) const BLIP_SEATS: usize = 2;
 
 /// The status the proxy injects when a run wants a model to fail.
 ///
@@ -1233,10 +1296,15 @@ impl Runner {
         // tell "the crate returned a typed failure" from "the run never
         // happened", so a real crate defect would be reported as a SKIP — green
         // by omission with extra steps.
-        let (report, error, error_class) =
+        let (report, error, error_class, reported_endpoint_down) =
             match magi.analyze(&Mode::Design, &spec.payload.text).await {
-                Ok(r) => (Some(r), None, None),
-                Err(e) => (None, Some(render_error(&e)), Some(classify_error(&e))),
+                Ok(r) => (Some(r), None, None, false),
+                Err(e) => (
+                    None,
+                    Some(render_error(&e)),
+                    Some(classify_error(&e)),
+                    is_endpoint_down(&e),
+                ),
             };
         RunResult {
             run: spec.id,
@@ -1244,7 +1312,7 @@ impl Runner {
             report,
             error,
             error_class,
-            reported_endpoint_down: false,
+            reported_endpoint_down,
             records: proxy.records_since(mark),
             proxy_degraded: proxy.is_degraded(),
             attempts: 1,
@@ -1393,6 +1461,13 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
 /// Returns `None` when the run injected nothing, and also when the injected
 /// model matches no seat — which is a configuration mistake, not an agent.
 ///
+/// **And `None` when the run injected MORE THAN ONE model.** The field answers
+/// "which seat", and the two endpoint runs cut two seats or every model there is,
+/// so there is no single honest answer: naming the first would be a half-truth
+/// about a run that a reader could act on. No scenario reading those runs asks
+/// the question — their evidence is the report and the typed error — so the
+/// field stays what its name promises for the runs that do.
+///
 /// # The match is EXACT on both sides, and it has to stay that way
 ///
 /// This resolves the seat by `s.model == model`, and the proxy decides which
@@ -1408,16 +1483,16 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
 /// that took out two seats, reported against one, and read as the crate
 /// degrading badly rather than as the harness over-injecting.
 fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
-    // An exhaustive match rather than a `let ... else`: both injections name a model, and a
-    // third one that did not would have to say so here instead of silently attributing to none.
-    let model = match spec.injection.as_ref()? {
-        Injection::FailModel { model, .. }
-        | Injection::ReplayBody { model, .. }
-        | Injection::DropConnection { model, .. } => model,
-    };
+    // `Injection::models` is the one exhaustive enumeration of what each variant names; a
+    // variant added without a model has to say so THERE, not be attributed to none here.
+    let mut models = spec.injection.as_ref()?.models();
+    let model = models.next()?;
+    if models.next().is_some() {
+        return None;
+    }
     spec.seats
         .iter()
-        .find(|s| &s.model == model)
+        .find(|s| s.model == model)
         .and_then(|s| s.agent_name().ok())
 }
 
@@ -1427,6 +1502,16 @@ fn injected_agent(spec: &RunSpec) -> Option<AgentName> {
 /// each call site choosing its own wording.
 fn render_error(e: &MagiError) -> String {
     e.to_string()
+}
+
+/// Whether a typed failure is the crate's endpoint-down abort — see
+/// [`RunContext::reported_endpoint_down`] for why the class alone cannot say.
+///
+/// # Parameters
+///
+/// * `e` — the failure `analyze()` returned.
+fn is_endpoint_down(e: &MagiError) -> bool {
+    matches!(e, MagiError::EndpointDown { .. })
 }
 
 /// Which of the two things a typed failure means — see [`ErrorClass`].
@@ -1807,16 +1892,84 @@ mod tests {
         let injected: Vec<&Injection> = specs.iter().filter_map(|s| s.injection.as_ref()).collect();
         assert_eq!(
             injected.len(),
-            3,
-            "rotation, degradation and the crate-defect run all inject"
+            5,
+            "rotation, degradation, the crate-defect run and both endpoint runs inject"
         );
         for inj in injected {
-            let (Injection::FailModel { model, .. }
-            | Injection::ReplayBody { model, .. }
-            | Injection::DropConnection { model, .. }) = inj;
-            assert!(
-                cfg.seats.iter().any(|s| &s.model == model),
-                "injected model {model:?} is in no seat"
+            for model in inj.models() {
+                // A seat OR a rotation candidate: the dead-endpoint run cuts the candidates
+                // too, or a seat could rotate its way out of a dead endpoint.
+                assert!(
+                    cfg.seats.iter().any(|s| s.model == model)
+                        || cfg.fallbacks.iter().any(|f| f.model == model),
+                    "injected model {model:?} is in no seat and no candidate"
+                );
+            }
+        }
+    }
+
+    /// The blip run cuts exactly `BLIP_SEATS` seats, once each, and the dead-endpoint run
+    /// cuts every seat AND every candidate, always.
+    ///
+    /// The counts are read back from the injection rather than assumed from the spec's
+    /// comment: a `take(1)` where `take(2)` belongs would leave the latch unarmed — one
+    /// lineage never arms it — and `S-R5a` would pass over a run that tested nothing.
+    #[test]
+    fn the_endpoint_runs_cut_what_their_scenarios_count_on() {
+        let cfg = Config::default();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the manifest dir always has a parent");
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
+        let injection_of = |id: RunId| {
+            specs
+                .iter()
+                .find(|s| s.id == id)
+                .and_then(|s| s.injection.as_ref())
+                .unwrap_or_else(|| panic!("{} injects", id.as_str()))
+        };
+
+        let Injection::DropConnection {
+            drop_first_n,
+            dropped,
+        } = injection_of(RunId::EndpointBlip)
+        else {
+            panic!("the blip run cuts connections");
+        };
+        assert_eq!(*drop_first_n, 1, "one cut per seat, then forwarded");
+        assert_eq!(dropped.len(), BLIP_SEATS);
+        assert!(
+            dropped
+                .keys()
+                .all(|m| cfg.seats.iter().any(|s| &s.model == m)),
+            "the blip cuts seats, never candidates: {dropped:?}"
+        );
+
+        let Injection::DropConnection {
+            drop_first_n,
+            dropped,
+        } = injection_of(RunId::EndpointDown)
+        else {
+            panic!("the dead-endpoint run cuts connections");
+        };
+        assert_eq!(*drop_first_n, u32::MAX, "always");
+        assert_eq!(
+            dropped.len(),
+            cfg.seats.len() + cfg.fallbacks.len(),
+            "every seat and every candidate: {dropped:?}"
+        );
+
+        // And neither run names a single seat as "the" injected one.
+        for id in [RunId::EndpointBlip, RunId::EndpointDown] {
+            let spec = specs
+                .iter()
+                .find(|s| s.id == id)
+                .expect("both endpoint runs are launched");
+            assert_eq!(
+                injected_agent(spec),
+                None,
+                "{} injects several models, so no one seat is the injected one",
+                id.as_str()
             );
         }
     }

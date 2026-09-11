@@ -74,22 +74,82 @@
 //! precondition is a fault worth a red row, exactly as `RunId::PoolEligibility` treats a config
 //! with fewer than two seats.
 
+use crate::alias::magi_core::reporting::MagiReport;
+use crate::alias::magi_core::rotation::RotationKind;
 use crate::config::RunId;
-use crate::runner::{Assertion, BackendNeed, RunContext, Scenario, Source};
+use crate::runner::{
+    assert_that, Assertion, BackendNeed, RunContext, Scenario, Source, BLIP_SEATS,
+};
+
+const NAME_RECOVERED_RUN_COMPLETES: &str =
+    "a run whose seats rotated past a connection blip completes with three verdicts";
+const NAME_BLIP_REALLY_HAPPENED: &str = "exactly two seats rotated away from a cut connection";
+const NAME_DEAD_ENDPOINT_ABORTS: &str = "a dead endpoint aborts the run with a typed EndpointDown";
+
+/// How many verdicts a full, non-degraded trio produces.
+const FULL_TRIO: usize = 3;
+
+/// The skip reason for a run that produced neither a report nor an error.
+const NEVER_HAPPENED: &str = "the run never happened";
 
 /// `S-R5a` — a run that recovered from a connection blip is not aborted.
 ///
 /// Two rows. The first is the property R-5 exists for: a report with a full trio and no
 /// degradation, where the pre-fix crate returned `EndpointDown`. The second is the evidence the
-/// blip was real — exactly two seats whose first rotation hop is classified as transport — so
-/// the first cannot pass on a run where the injection never fired.
+/// blip was real — exactly [`BLIP_SEATS`] seats whose first rotation hop is
+/// [`RotationKind::Transport`] — so the first cannot pass on a run where the injection never
+/// fired.
 ///
 /// A typed error fails the first row and leaves the second unreadable: the run aborted before
 /// any rotation telemetry existed, so that row skips naming the error rather than inventing a
 /// count. A run that never happened skips both.
 fn s_r5a_recovered_run_is_not_aborted(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    let _ = ctx;
-    Vec::new()
+    match (ctx.report, ctx.error) {
+        (Some(report), _) => vec![
+            assert_that(
+                NAME_RECOVERED_RUN_COMPLETES,
+                report.agents.len() == FULL_TRIO && !report.degraded,
+            ),
+            assert_that(
+                NAME_BLIP_REALLY_HAPPENED,
+                seats_that_left_on_transport(report) == BLIP_SEATS,
+            ),
+        ],
+        // A typed failure where a report belongs: the pre-fix outcome, and a red row.
+        (None, Some(error)) => vec![
+            assert_that(NAME_RECOVERED_RUN_COMPLETES, false),
+            Assertion::skip(
+                NAME_BLIP_REALLY_HAPPENED,
+                format!("the run aborted before any rotation could be read: {error}"),
+            ),
+        ],
+        (None, None) => vec![
+            Assertion::skip(NAME_RECOVERED_RUN_COMPLETES, NEVER_HAPPENED),
+            Assertion::skip(NAME_BLIP_REALLY_HAPPENED, NEVER_HAPPENED),
+        ],
+    }
+}
+
+/// How many seats' FIRST rotation hop was a transport failure — the footprint a cut
+/// connection leaves in the report.
+///
+/// The first hop and not any hop: a seat cut once rotates once for that reason, and a later
+/// hop for another cause is that seat's story, not the blip's. Counted over the seats rather
+/// than over the hops for the same reason.
+///
+/// # Complexity
+///
+/// `O(a)` in the number of agents, reading one hop each.
+fn seats_that_left_on_transport(report: &MagiReport) -> usize {
+    report
+        .rotations
+        .values()
+        .filter(|r| {
+            r.chain
+                .first()
+                .is_some_and(|hop| hop.kind() == RotationKind::Transport)
+        })
+        .count()
 }
 
 /// `S-R5b` — an endpoint that is really down still aborts the run, typed.
@@ -100,19 +160,38 @@ fn s_r5a_recovered_run_is_not_aborted(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// merely waited every seat out leaves with `InsufficientAgents`. A run that never happened
 /// skips.
 fn s_r5b_dead_endpoint_still_aborts(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    let _ = ctx;
-    Vec::new()
+    if ctx.report.is_none() && ctx.error.is_none() {
+        return vec![Assertion::skip(NAME_DEAD_ENDPOINT_ABORTS, NEVER_HAPPENED)];
+    }
+    // A report, or any error but the endpoint-down abort, is the run carrying on past an
+    // unreachable quorum — the regression, not a reading that could not be made.
+    vec![assert_that(
+        NAME_DEAD_ENDPOINT_ABORTS,
+        ctx.reported_endpoint_down,
+    )]
 }
 
 /// The two R-5 scenarios, each over the run that exists for it.
 pub fn r5_scenarios() -> Vec<Scenario> {
-    Vec::new()
+    vec![
+        Scenario {
+            id: "S-R5a",
+            source: Source::Run(RunId::EndpointBlip),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s_r5a_recovered_run_is_not_aborted,
+        },
+        Scenario {
+            id: "S-R5b",
+            source: Source::Run(RunId::EndpointDown),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s_r5b_dead_endpoint_still_aborts,
+        },
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::alias::magi_core::reporting::MagiReport;
     use crate::outcome::ScenarioState;
     use crate::runner::ErrorClass;
 
@@ -281,6 +360,50 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].state, ScenarioState::Fail, "{:?}", rows[0]);
         assert_eq!(rows[1].state, ScenarioState::Fail, "{:?}", rows[1]);
+    }
+
+    /// `S-R5a`'s first row needs BOTH the trio count and the degradation flag, each on its
+    /// own.
+    ///
+    /// The degraded fixture above fails on the flag alone, so a mutation that relaxed the
+    /// count to `>= 2` survived it. Two verdicts under a clean flag is a report that contradicts
+    /// itself — a seat is missing and nothing says so — and three verdicts under a raised
+    /// flag is one that admits a failure the count hides; the row must be red on either.
+    #[test]
+    fn s_r5a_first_row_needs_both_the_count_and_the_flag() {
+        let two_hops = [
+            ("melchior", transport_hop("alibaba", "deepseek")),
+            ("balthasar", transport_hop("moonshot", "openai")),
+            ("caspar", no_hop("zhipu")),
+        ];
+
+        let two_under_a_clean_flag = report_with(&[AGENT_MELCHIOR, AGENT_CASPAR], false, &two_hops);
+        let ctx = RunContext {
+            report: Some(&two_under_a_clean_flag),
+            ..RunContext::blank(RunId::EndpointBlip)
+        };
+        let rows = s_r5a_recovered_run_is_not_aborted(&ctx);
+        assert_eq!(
+            rows[0].state,
+            ScenarioState::Fail,
+            "two verdicts is not a full trio, whatever the flag says"
+        );
+
+        let three_under_a_raised_flag = report_with(
+            &[AGENT_MELCHIOR, AGENT_BALTHASAR, AGENT_CASPAR],
+            true,
+            &two_hops,
+        );
+        let ctx = RunContext {
+            report: Some(&three_under_a_raised_flag),
+            ..RunContext::blank(RunId::EndpointBlip)
+        };
+        let rows = s_r5a_recovered_run_is_not_aborted(&ctx);
+        assert_eq!(
+            rows[0].state,
+            ScenarioState::Fail,
+            "a report that calls itself degraded is not a recovered run, whatever the count"
+        );
     }
 
     /// `S-R5a`'s evidence row goes RED on a healthy trio that never rotated.

@@ -174,9 +174,26 @@ The order is enforced rather than conventional: the ledger refuses to produce a 
 estimate was announced first. Before the spend the number is a decision the operator can still
 make; after it, the same number is only a receipt.
 
-The default invocation runs **eight** backend runs: six over a small payload — happy path,
-rotation, degradation, mixed trio, the crate-defect replay and the pool-eligibility one — plus
-**two** over the large one, and one run with no backend at all.
+The default invocation runs **ten** backend runs: eight over a small payload — happy path,
+rotation, degradation, mixed trio, the crate-defect replay, the pool-eligibility one, the
+endpoint blip and the dead endpoint — plus **two** over the large one, and one run with no
+backend at all.
+
+**The two endpoint runs cost almost nothing beyond their completions, and only one of them
+completes at all.** Both inject a CUT CONNECTION rather than a status: the blip run cuts the
+first attempt of two seats and lets them rotate, so it pays a small payload three times like
+the happy one; the dead-endpoint run cuts every attempt of every model, so the crate aborts in
+milliseconds and no completion is ever paid for. A cut attempt leaves **no row** in the proxy's
+record — there was no response to record — so the two scenarios reading those runs take their
+evidence from `analyze()`'s outcome and the report's rotation telemetry, never from the wire.
+
+**The blip run needs at least TWO rotation candidates in the config, and the shipped configs
+carry one.** The two cut seats rotate concurrently and the crate lets a lineage be held by one
+live mage at a time, so with a single candidate one seat rotates and the other has nowhere to
+go: the run completes degraded and `S-R5a` goes **red, deterministically**, naming a
+precondition the config did not build — never a skip, which would be the one outcome that says
+nothing. Add a second candidate of a fifth lineage (the preflight enforces the distinctness)
+before reading that row as a verdict about the crate.
 
 **The eighth is declared here rather than folded into the happy one, and the reason is the
 tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
@@ -313,7 +330,7 @@ invocation: putting two together leaves the second one unrun, which is green by 
 
 | invocation | what it covers |
 |---|---|
-| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, and both large-payload runs |
+| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, the endpoint blip, the dead endpoint, and both large-payload runs |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |

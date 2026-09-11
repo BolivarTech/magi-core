@@ -2273,6 +2273,9 @@ mod tests {
             Err("cannot test twice"),
             Ok("pass"),
             Ok("pass again"),
+            // The two endpoint runs: one recovers, one ends in the typed abort.
+            Ok("recovered"),
+            Err("endpoint down"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");
         for outcome in outcomes {

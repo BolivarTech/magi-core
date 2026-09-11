@@ -76,6 +76,8 @@
 //! fabricated by `unwrap_or(POST)`.
 //!
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -112,8 +114,8 @@ pub enum Injection {
         status: u16,
         body: Vec<u8>,
     },
-    /// Accept the connection and **close it without answering** when the named
-    /// model asks for a completion.
+    /// Accept the connection and **close it without answering** when one of the
+    /// named models asks for a completion.
     ///
     /// The other two variants can only produce a RESPONSE, and a response never
     /// reaches the endpoint-down latch however bad its status: that latch is fed by
@@ -123,33 +125,69 @@ pub enum Injection {
     /// variant.
     ///
     /// **The budget is a COUNTER, never a timer.** The first `drop_first_n`
-    /// completions naming this model are cut and every one after them is forwarded
+    /// completions naming a model are cut and every one after them is forwarded
     /// normally, so a scenario that needs "fail once, then rotate" neither sleeps
     /// nor observes the product's progress — the two things that make a scenario
     /// intermittent. `u32::MAX` means "always", which is the endpoint-really-down
     /// case.
     ///
-    /// `dropped` sits behind an `Arc` because `Injection` is `Clone`: a clone that
-    /// restarted the count would cut more connections than the scenario asked for,
-    /// in silence, and the extra failures would be attributed to the crate.
+    /// **One budget size, one counter PER MODEL.** The endpoint-blip run cuts the
+    /// first connection of two seats, and the dead-endpoint run cuts every
+    /// connection of every model the run can dispatch; both are ONE rule over
+    /// several models with the same budget, which is why the variant names a set
+    /// rather than the run carrying a list of injections. The counters are separate
+    /// because the budget means "the first `n` attempts OF THAT MODEL": a shared
+    /// counter of one would let the first seat to connect spend the budget the
+    /// scenario meant for the other, and the second seat would go through untouched
+    /// while the scenario went on believing both had been cut.
+    ///
+    /// Each counter sits behind an `Arc` because `Injection` is `Clone`: a clone
+    /// that restarted the count would cut more connections than the scenario asked
+    /// for, in silence, and the extra failures would be attributed to the crate.
     DropConnection {
-        model: String,
         drop_first_n: u32,
-        dropped: Arc<std::sync::atomic::AtomicU32>,
+        dropped: BTreeMap<String, Arc<AtomicU32>>,
     },
 }
 
 impl Injection {
-    /// Builds a [`Injection::DropConnection`] with its counter at zero.
+    /// Builds a [`Injection::DropConnection`] over `models`, every counter at zero.
     ///
-    /// The counter is shared state whose starting value is part of the contract, so
-    /// building the `Arc` at each call site is one more place to get it wrong.
-    pub fn drop_connection(model: impl Into<String>, drop_first_n: u32) -> Self {
+    /// The counters are shared state whose starting value is part of the contract, so
+    /// building the `Arc`s at each call site is one more place to get it wrong. A model
+    /// named twice gets one counter, since the budget is per model and not per mention.
+    ///
+    /// # Parameters
+    ///
+    /// * `models` — the models whose completions are cut.
+    /// * `drop_first_n` — how many of each model's completions to cut; `u32::MAX` is
+    ///   "always".
+    pub fn drop_connection(
+        models: impl IntoIterator<Item = impl Into<String>>,
+        drop_first_n: u32,
+    ) -> Self {
         Self::DropConnection {
-            model: model.into(),
             drop_first_n,
-            dropped: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            dropped: models
+                .into_iter()
+                .map(|m| (m.into(), Arc::new(AtomicU32::new(0))))
+                .collect(),
         }
+    }
+
+    /// Every model this injection names, in a stable order.
+    ///
+    /// The ONE place the variants are enumerated for their models: the runner derives
+    /// the injected seat from it, and a variant added without a model would have to
+    /// say so here rather than be silently attributed to none.
+    pub fn models(&self) -> impl Iterator<Item = &str> {
+        // A `Vec` rather than two iterator types behind a `Box`: the longest list is
+        // the dead-endpoint run's, a handful of names read once per run.
+        let models: Vec<&str> = match self {
+            Self::FailModel { model, .. } | Self::ReplayBody { model, .. } => vec![model],
+            Self::DropConnection { dropped, .. } => dropped.keys().map(String::as_str).collect(),
+        };
+        models.into_iter()
     }
 }
 
@@ -1334,12 +1372,12 @@ impl SpyProxy {
                 payload: body.clone(),
             }),
             Injection::DropConnection {
-                model,
                 drop_first_n,
                 dropped,
-            } if names_model(&text, model) => {
-                claims_drop(*drop_first_n, dropped).then_some(Injected::Drop)
-            }
+            } => model_of(&text)
+                .and_then(|m| dropped.get(&m))
+                .filter(|counter| claims_drop(*drop_first_n, counter))
+                .map(|_| Injected::Drop),
             _ => None,
         }
     }
@@ -1484,7 +1522,7 @@ impl SpyProxy {
 /// seat the scenario meant to leave alone, and reads as the crate degrading rather than
 /// as the harness cutting too much. `fetch_update` answering `Err` is the closure
 /// refusing — the budget spent, and an honest "forward from here on".
-fn claims_drop(drop_first_n: u32, dropped: &std::sync::atomic::AtomicU32) -> bool {
+fn claims_drop(drop_first_n: u32, dropped: &AtomicU32) -> bool {
     if drop_first_n == u32::MAX {
         return true;
     }
@@ -1498,10 +1536,16 @@ fn claims_drop(drop_first_n: u32, dropped: &std::sync::atomic::AtomicU32) -> boo
 }
 
 fn names_model(body_text: &str, model: &str) -> bool {
+    model_of(body_text).is_some_and(|m| m == model)
+}
+
+/// The `model` field of a completion body, or `None` when the body is not JSON or
+/// carries none — the same non-match `names_model` has always answered, so a
+/// malformed body stays the crate's problem to surface.
+fn model_of(body_text: &str) -> Option<String> {
     serde_json::from_str::<serde_json::Value>(body_text)
         .ok()
         .and_then(|v| v.get("model").and_then(|m| m.as_str().map(str::to_owned)))
-        .is_some_and(|m| m == model)
 }
 
 /// Reads a `reqwest::Response` one chunk at a time via `Response::chunk()`
@@ -1656,7 +1700,7 @@ mod tests {
         let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
             .await
             .expect("proxy starts");
-        proxy.set_injection(Some(Injection::drop_connection("m", 1)));
+        proxy.set_injection(Some(Injection::drop_connection(["m"], 1)));
 
         let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
         let err = provider
@@ -1693,7 +1737,7 @@ mod tests {
         let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
             .await
             .expect("proxy starts");
-        proxy.set_injection(Some(Injection::drop_connection("m", 1)));
+        proxy.set_injection(Some(Injection::drop_connection(["m"], 1)));
 
         let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
         let cfg = CompletionConfig::default();
@@ -1740,7 +1784,7 @@ mod tests {
         let proxy = SpyProxy::start(upstream.url(), 250_000, Duration::from_secs(10))
             .await
             .expect("proxy starts");
-        proxy.set_injection(Some(Injection::drop_connection("m", u32::MAX)));
+        proxy.set_injection(Some(Injection::drop_connection(["m"], u32::MAX)));
 
         let provider = OllamaProvider::new(proxy.base_url(), "m").expect("provider builds");
         let cfg = CompletionConfig::default();
@@ -1769,7 +1813,7 @@ mod tests {
     /// recovered run.
     #[test]
     fn a_finite_drop_budget_is_spent_exactly_once_per_unit() {
-        let dropped = std::sync::atomic::AtomicU32::new(0);
+        let dropped = AtomicU32::new(0);
         assert!(claims_drop(2, &dropped), "first unit");
         assert!(claims_drop(2, &dropped), "second and last unit");
         assert!(
@@ -1785,7 +1829,7 @@ mod tests {
     /// a scenario configured to inject nothing would get one silent cut.
     #[test]
     fn a_zero_drop_budget_claims_nothing() {
-        let dropped = std::sync::atomic::AtomicU32::new(0);
+        let dropped = AtomicU32::new(0);
         assert!(!claims_drop(0, &dropped));
     }
 
@@ -1799,7 +1843,7 @@ mod tests {
     /// answers `false` and `S-R5b`'s endpoint silently recovers mid-scenario.
     #[test]
     fn an_always_budget_still_claims_after_the_counter_saturates() {
-        let dropped = std::sync::atomic::AtomicU32::new(u32::MAX - 1);
+        let dropped = AtomicU32::new(u32::MAX - 1);
         assert!(claims_drop(u32::MAX, &dropped), "at the edge");
         assert!(
             claims_drop(u32::MAX, &dropped),
