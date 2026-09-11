@@ -752,6 +752,7 @@ impl MagiBuilder {
         // telemetry mute with nobody the wiser. Say it once, here — and do NOT clamp it: that
         // would substitute our guess for what the caller actually asked for.
         if warn_threshold_is_unreachable(&self.config) {
+            // warn-once-exempt: build() runs once per builder; the gate lives on the Magi not built yet
             tracing::warn!(
                 input_warn_tokens = self.config.input_warn_tokens,
                 max_input_len = self.config.max_input_len,
@@ -789,6 +790,7 @@ impl MagiBuilder {
             let mut seen = std::collections::BTreeSet::new();
             for (agent, lineage) in &self.agent_lineages {
                 if !seen.insert(lineage.clone()) {
+                    // warn-once-exempt: build() runs once per builder; the gate lives on the Magi not built yet
                     tracing::warn!(
                         agent = agent.display_name(),
                         lineage = lineage.as_str(),
@@ -1047,6 +1049,7 @@ impl WarnOnce<'_> {
     /// Called only once per variant per instance — the gate is `Magi::warn_once`.
     fn emit(&self) {
         match self {
+            // warn-once-exempt: this is the gate's own rendering, reached only through warn_once
             Self::InertGuard { candidates } => tracing::warn!(
                 candidates = candidates,
                 "strict_context_guard is on and no fallback candidate has a measured context                  window, so every candidate is filtered out and rotation cannot fire; declare a                  probe for the candidates or turn the guard off"
@@ -1057,10 +1060,12 @@ impl WarnOnce<'_> {
             // implementation is also what keeps this arm honest when that function grows a
             // third condition.
             Self::ProbeDeclaration { targets } => warn_on_probe_disagreement(targets),
+            // warn-once-exempt: this is the gate's own rendering, reached only through warn_once
             Self::SharedDigest => tracing::warn!(
                 "two primary mages resolve to the same weights digest \
                  (reduced ensemble diversity, not fatal)"
             ),
+            // warn-once-exempt: this is the gate's own rendering, reached only through warn_once
             Self::DegenerateDigest { agent } => tracing::warn!(
                 agent = agent.display_name(),
                 "degenerate digest pool: every fallback candidate was rejected by a proven \
@@ -1282,6 +1287,7 @@ impl Magi {
         //      `max_input_len` check in step 1, and it has already run.
         let input_size = measure_input(content, &self.config);
         if input_size.exceeded {
+            // warn-once-exempt: per-call condition, the input measured differs on every analyze()
             tracing::warn!(
                 estimated_tokens = input_size.estimated_tokens,
                 warn_threshold = input_size.warn_threshold,
@@ -2022,6 +2028,7 @@ pub(crate) async fn dispatch_one_agent(
     // record of why. The structured field is the diagnosis an operator needs, and it is
     // deliberately the cause and not the message - the message is prose, the cause is a
     // value you can filter and count on.
+    // warn-once-exempt: per-attempt event, it reports what this model did on this call
     tracing::warn!(
         target: "magi_core::verdict",
         cause = ?first_err.cause,
@@ -2200,6 +2207,7 @@ fn warn_on_probe_disagreement(targets: &[(String, Arc<dyn ProviderProbe>)]) {
             // The window lands under `model` while the probe measured `declared`, and the
             // same key drives the digest collision check — the one place in this subsystem
             // that REJECTS. A wrong digest there can turn a healthy candidate away.
+            // warn-once-exempt: rendered through WarnOnce::ProbeDeclaration; the gate is at its caller
             tracing::warn!(
                 filed_under = %model,
                 probe_declares = %declared,
@@ -2211,6 +2219,7 @@ fn warn_on_probe_disagreement(targets: &[(String, Arc<dyn ProviderProbe>)]) {
         if !seen.insert(model.as_str()) {
             // The preflight collects into a map keyed by model, so the later answer wins —
             // and "later" is completion order, not declaration order.
+            // warn-once-exempt: rendered through WarnOnce::ProbeDeclaration; the gate is at its caller
             tracing::warn!(
                 model = %model,
                 "two probes are registered for the same model; whichever answers last wins, \
@@ -2382,6 +2391,7 @@ async fn attempt_model(
     });
     // See the note at the non-rotating dispatch site: the typed cause is the diagnosis,
     // and on this path it also explains a rotation that would otherwise look arbitrary.
+    // warn-once-exempt: per-attempt event, it reports what this model did on this call
     tracing::warn!(
         target: "magi_core::verdict",
         cause = ?first_err.cause,
@@ -2732,11 +2742,13 @@ pub(crate) async fn resolve_abnormal_exit(
     // a defect of ours was logged as an outage. That is this milestone's own thesis, reproduced
     // inside the abort path built to end it.
     match &decision {
+        // warn-once-exempt: per-run abort event, said as the run it names ends
         Some(MagiError::CrateDefect { .. }) => tracing::warn!(
             agent = agent.display_name(),
             cause = %err,
             "abnormal agent exit with a crate-defect latch set; aborting run"
         ),
+        // warn-once-exempt: per-run abort event, said as the run it names ends
         Some(_) => tracing::warn!(
             agent = agent.display_name(),
             cause = %err,
@@ -2976,6 +2988,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     detail,
                 );
                 state.chain.push(event);
+                // warn-once-exempt: per-rotation event, one telling per hop is the record
                 tracing::warn!(
                     agent = agent_name.display_name(),
                     from = %current_lineage,

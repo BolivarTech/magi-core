@@ -177,6 +177,16 @@ bash ci/check_redaction.sh --self-test
 step "redaction rule"
 bash ci/check_redaction.sh
 
+# The emit-side half of the one-shot warning gate. `WarnOnce` makes forgetting a cadence
+# impossible on the render side; nothing there stops a bare `tracing::warn!` written beside
+# the gate, which is what R-18 was. This grep is the only guard against a recurrence until
+# `clippy::disallowed_macros` lands, and like its siblings it is self-tested first.
+step "warn-once gate (self-test)"
+sh ci/check_warn_once.sh --self-test
+
+step "warn-once gate"
+sh ci/check_warn_once.sh
+
 # The Python interpreter, RESOLVED rather than assumed. Which name works is not the
 # same on both ends: a GitHub `ubuntu-latest` image always has `python3` and does not
 # promise `python`, while on a Windows dev box `python3` is often the Microsoft Store
