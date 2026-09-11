@@ -2090,6 +2090,8 @@ mod tests {
             RunId::MixedTrio,
             RunId::Large62kNoReasoning,
             RunId::PoolEligibility,
+            RunId::EndpointBlip,
+            RunId::EndpointDown,
             RunId::NoBackend,
         ];
         for id in all {
@@ -2102,6 +2104,8 @@ mod tests {
                 | RunId::MixedTrio
                 | RunId::Large62kNoReasoning
                 | RunId::PoolEligibility
+                | RunId::EndpointBlip
+                | RunId::EndpointDown
                 | RunId::NoBackend => {}
             }
         }

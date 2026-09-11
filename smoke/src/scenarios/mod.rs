@@ -18,6 +18,9 @@
 //! - `f` — the axis-F scenarios of MS2 (`S-F1`, `S-F2a`, `S-F2b`, `S-F3`, `S-F4`, `S-F5`), three
 //!   of which run; the other three are out of scope from here, each with its reason in its own
 //!   name so the row still says why.
+//! - `r5` — the two endpoint-down scenarios of MS3 (`S-R5a`, `S-R5b`), the only ones that
+//!   milestone declares non-waivable: the abort criterion lives in the join loop's interaction
+//!   with the abort guard, which a unit test approximates and only a run exercises.
 //!
 //! Split per milestone rather than living directly here, so each has a sibling to land in
 //! without reshaping this file.
@@ -26,11 +29,13 @@ mod e;
 mod e1;
 mod e2;
 mod f;
+mod r5;
 
 pub use e::e_scenarios;
 pub use e1::e1_scenarios;
 pub use e2::e2_scenarios;
 pub use f::f_scenarios;
+pub use r5::r5_scenarios;
 
 #[cfg(test)]
 mod tests {

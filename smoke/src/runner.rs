@@ -222,6 +222,17 @@ pub struct RunContext<'a> {
     pub error: Option<&'a str>,
     /// How `error` must be READ. `Some` exactly when `error` is.
     pub error_class: Option<ErrorClass>,
+    /// `true` exactly when `error` is the crate's `MagiError::EndpointDown` — the one
+    /// typed abort a scenario asserts BY VARIANT.
+    ///
+    /// `error_class` says how to read the error and deliberately not which environment
+    /// failure it was: until the endpoint scenarios, no reader needed to tell
+    /// `EndpointDown` from `InsufficientAgents`, and both are read the same way. `S-R5b`
+    /// does need to — a regression that stopped aborting early would wait every seat out
+    /// and leave with `InsufficientAgents`, which is `Environment` too. Derived from the
+    /// same `MagiError` as `error`, where it still exists as a type, never from the
+    /// rendered text.
+    pub reported_endpoint_down: bool,
     /// Everything the proxy saw on the wire during THIS run.
     pub records: &'a [RequestRecord],
     /// Whether the PROXY is degraded — a latch, not a fact about this run.
@@ -306,6 +317,7 @@ impl RunContext<'static> {
             erosion_probe_status: None,
             error: None,
             error_class: None,
+            reported_endpoint_down: false,
             records: &[],
             proxy_degraded: false,
             budget_exceeded: None,
@@ -455,6 +467,9 @@ pub struct RunResult {
     /// How `error` must be read. `Some` exactly when `error` is, and derived
     /// from the SAME failure, so the two cannot disagree about one run.
     pub error_class: Option<ErrorClass>,
+    /// `true` exactly when `error` is `MagiError::EndpointDown`, derived from the same
+    /// failure as the two fields above — see [`RunContext::reported_endpoint_down`].
+    pub reported_endpoint_down: bool,
     /// Everything the proxy saw during this run.
     pub records: Vec<RequestRecord>,
     /// Whether the PROXY is degraded — a latch, not a fact about this run.
@@ -504,6 +519,7 @@ impl RunResult {
             // `CannotTest` before one sees it. Classed all the same, so the
             // "`Some` exactly when `error` is" invariant holds everywhere.
             error_class: Some(ErrorClass::Environment),
+            reported_endpoint_down: false,
             records: Vec::new(),
             proxy_degraded: false,
             attempts: 1,
@@ -1174,6 +1190,7 @@ impl Runner {
                 report: None,
                 error: None,
                 error_class: None,
+                reported_endpoint_down: false,
                 records: Vec::new(),
                 proxy_degraded: false,
                 attempts: 1,
@@ -1227,6 +1244,7 @@ impl Runner {
             report,
             error,
             error_class,
+            reported_endpoint_down: false,
             records: proxy.records_since(mark),
             proxy_degraded: proxy.is_degraded(),
             attempts: 1,
@@ -1362,6 +1380,7 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
         report: None,
         error: None,
         error_class: None,
+        reported_endpoint_down: false,
         records: Vec::new(),
         proxy_degraded: false,
         attempts: 1,

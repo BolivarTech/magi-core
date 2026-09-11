@@ -248,6 +248,7 @@ async fn main() -> std::process::ExitCode {
     scenarios.extend(scenarios::e2_scenarios());
     scenarios.extend(scenarios::f_scenarios());
     scenarios.extend(scenarios::e_scenarios());
+    scenarios.extend(scenarios::r5_scenarios());
 
     // 1. Config, printed BEFORE anything runs: a run whose configuration is
     //    unstated cannot be read afterwards.
@@ -633,6 +634,7 @@ fn evaluate(
                         ctx.report = r.report.as_ref();
                         ctx.error = r.error.as_deref();
                         ctx.error_class = r.error_class;
+                        ctx.reported_endpoint_down = r.reported_endpoint_down;
                         ctx.records = &r.records;
                         ctx.proxy_degraded = r.proxy_degraded;
                         ctx.budget_exceeded = r.budget_exceeded;
@@ -724,6 +726,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         erosion_probe_status: None,
         error: None,
         error_class: None,
+        reported_endpoint_down: false,
         records: &[],
         proxy_degraded: false,
         budget_exceeded: None,
@@ -1731,6 +1734,7 @@ mod tests {
             report: None,
             error: None,
             error_class: None,
+            reported_endpoint_down: false,
             records: (0..n)
                 .map(|_| proxy::RequestRecord {
                     path: runner::COMPLETIONS_PATH.to_string(),

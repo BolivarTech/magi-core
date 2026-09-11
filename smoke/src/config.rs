@@ -276,6 +276,14 @@ pub enum RunId {
     MixedTrio,
     Large62kNoReasoning,
     PoolEligibility,
+    /// Two seats of distinct lineages lose their FIRST connection and rotate;
+    /// the third answers first time. The latch is armed and the run must still
+    /// complete — the case the abort criterion exists for.
+    EndpointBlip,
+    /// Every model the run can dispatch loses EVERY connection: the quorum is
+    /// unreachable, and the run must abort with `EndpointDown` rather than wait
+    /// for seats that cannot succeed.
+    EndpointDown,
     NoBackend,
 }
 
@@ -292,6 +300,8 @@ impl RunId {
             Self::MixedTrio => "mixed_trio",
             Self::Large62kNoReasoning => "large_62k_no_reasoning",
             Self::PoolEligibility => "pool_eligibility",
+            Self::EndpointBlip => "endpoint_blip",
+            Self::EndpointDown => "endpoint_down",
             Self::NoBackend => "no_backend",
         }
     }
@@ -310,7 +320,9 @@ impl RunId {
             | Self::CrateDefect
             | Self::MixedTrio
             | Self::Large62kNoReasoning
-            | Self::PoolEligibility => true,
+            | Self::PoolEligibility
+            | Self::EndpointBlip
+            | Self::EndpointDown => true,
             Self::NoBackend => false,
         }
     }
@@ -482,9 +494,15 @@ impl Config {
         let secs = match run {
             RunId::HappySmall => self.budgets.happy_secs,
             RunId::Large62k | RunId::Large62kNoReasoning => self.budgets.large_payload_secs,
-            RunId::Rotation | RunId::Degradation | RunId::CrateDefect | RunId::MixedTrio => {
-                self.budgets.injected_secs
-            }
+            // The two endpoint runs are injected runs over the small payload, like the
+            // rotation one: a cut connection costs the crate milliseconds, and what the
+            // budget bounds is the completions that follow it.
+            RunId::Rotation
+            | RunId::Degradation
+            | RunId::CrateDefect
+            | RunId::MixedTrio
+            | RunId::EndpointBlip
+            | RunId::EndpointDown => self.budgets.injected_secs,
             // The same shape of run as the happy one — small payload, nothing injected —
             // so it borrows that budget rather than inventing a knob nobody would tune.
             RunId::PoolEligibility => self.budgets.happy_secs,
