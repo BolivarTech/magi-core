@@ -961,6 +961,31 @@ impl LineageRegistry {
     /// only grows over a finite pool, so the loop terminates. The whole
     /// read-decide-commit runs under the single lock (no `await` inside — the probe
     /// ran in the preflight).
+    ///
+    /// # A degenerate pool is recorded, not returned
+    ///
+    /// The fail-open rule protects the *unresolvable* digest. A backend that answers the
+    /// SAME digest for every model is the opposite case — resolvable, and colliding with
+    /// everything — so every candidate is a proven collision, the loop exhausts the pool,
+    /// and the seat degrades with nothing naming why. That condition is exact and it is
+    /// decided here: the pass **exhausted** the pool (not the short-circuit of a claim),
+    /// and a proven collision was the **only** thing that rejected anyone.
+    ///
+    /// Both numbers come from the exhausting scan itself. `next_model` returning `None`
+    /// means its last scan evaluated every candidate in the pool and turned each one
+    /// down; a candidate that had collided earlier in this pass is turned down there by
+    /// condition #5 and by nothing else, since it passed the other conditions to be
+    /// proposed at all. So the pool size is the count of candidates that scan rejected,
+    /// and `digest_collisions` — cleared at entry, so it holds this pass only — is the
+    /// count of those rejected by a collision. Equal means no other condition rejected
+    /// anyone; greater than one excludes the unit pool, where "every rejection was a
+    /// collision" holds by vacuity of the plural and says nothing about the backend.
+    /// A pass that never scanned (rotation budget spent) records zero collisions against
+    /// a non-empty pool and is therefore not degenerate.
+    ///
+    /// The fact travels through the state and never the return type: twelve test sites
+    /// read this `Option`, and the orchestrator holds the state where it receives the
+    /// `None`. Emitting is the core's job — this module names the shape.
     pub async fn claim_next(
         &self,
         agent: AgentName,
@@ -976,16 +1001,22 @@ impl LineageRegistry {
                 .filter(|(a, _)| **a != agent)
                 .map(|(_, e)| e.lineage.clone())
                 .collect();
-            let chosen = policy
-                .next_model(
-                    &state.failed_lineages,
-                    &g.run_failed,
-                    &in_play,
-                    &state.used,
-                    &state.digest_collisions,
-                    state.rotations_done,
-                )?
-                .clone();
+            let Some(chosen) = policy.next_model(
+                &state.failed_lineages,
+                &g.run_failed,
+                &in_play,
+                &state.used,
+                &state.digest_collisions,
+                state.rotations_done,
+            ) else {
+                let evaluated = policy.fallback.len();
+                let collided = state.digest_collisions.len();
+                if collided == evaluated && evaluated > 1 {
+                    state.record_degenerate_pool();
+                }
+                return None;
+            };
+            let chosen = chosen.clone();
 
             // The candidate is index 0; every OTHER active mage's digest follows.
             // `digest_collision` returning `Some((0, _))` means the candidate's

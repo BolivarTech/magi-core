@@ -1011,6 +1011,11 @@ pub(crate) enum WarnOnce<'a> {
     /// had and repeated on every `analyze()`. What it names is decided by the preflight
     /// over configuration that cannot change between calls.
     SharedDigest,
+    /// A seat exhausted its fallback pool with every candidate rejected by a proven digest
+    /// collision: the backend answers one digest for every model, so rotation is inert for
+    /// that seat and, until this was named, it degraded in silence. The fail-open rule
+    /// cannot see it — it protects the unresolvable digest, and this one resolves.
+    DegenerateDigest { agent: AgentName },
 }
 
 impl WarnOnce<'_> {
@@ -1022,7 +1027,7 @@ impl WarnOnce<'_> {
     /// that reads as present while being absent, which is the class this release is about.
     /// It is asserted against the list it counts in
     /// `every_warning_owns_a_distinct_bit_inside_the_mask`.
-    pub(crate) const COUNT: u32 = 3;
+    pub(crate) const COUNT: u32 = 4;
 
     /// This warning's bit in the mask.
     ///
@@ -1032,6 +1037,7 @@ impl WarnOnce<'_> {
             Self::InertGuard { .. } => 0,
             Self::ProbeDeclaration { .. } => 1,
             Self::SharedDigest => 2,
+            Self::DegenerateDigest { .. } => 3,
         }
     }
 
@@ -1054,6 +1060,12 @@ impl WarnOnce<'_> {
             Self::SharedDigest => tracing::warn!(
                 "two primary mages resolve to the same weights digest \
                  (reduced ensemble diversity, not fatal)"
+            ),
+            Self::DegenerateDigest { agent } => tracing::warn!(
+                agent = agent.display_name(),
+                "degenerate digest pool: every fallback candidate was rejected by a proven \
+                 digest collision, so the backend reports one digest for every model and \
+                 rotation is inert for this seat; check the probe's digest source"
             ),
         }
     }
@@ -1735,22 +1747,26 @@ impl Magi {
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
-                Ok((Ok(output), agent_rotation, was_retried, failures, records)) => {
+                Ok((result, agent_rotation, was_retried, failures, records, degenerate_pool)) => {
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
                     completions.insert(name, records);
-                    successful.push(output);
                     if was_retried {
                         retried.insert(name);
                     }
-                }
-                Ok((Err(reason), agent_rotation, was_retried, failures, records)) => {
-                    rotations.insert(name, agent_rotation);
-                    extraction_failures.insert(name, failures);
-                    completions.insert(name, records);
-                    failed.insert(name, reason);
-                    if was_retried {
-                        retried.insert(name);
+                    // R-15, through the same gate as the builder warnings and for the same
+                    // reason: the digests come from the preflight, so a second seat or a
+                    // second call naming the same backend adds nothing. Checked on both
+                    // outcomes rather than only the failed one, so this arm does not have to
+                    // know that a seat which found its pool degenerate cannot have succeeded.
+                    if degenerate_pool {
+                        self.warn_once(WarnOnce::DegenerateDigest { agent: name });
+                    }
+                    match result {
+                        Ok(output) => successful.push(output),
+                        Err(reason) => {
+                            failed.insert(name, reason);
+                        }
                     }
                 }
                 Err(join_err) => {
@@ -2743,8 +2759,12 @@ pub(crate) async fn resolve_abnormal_exit(
 /// (the mage keeps its lineage); a normal failure explicitly `release`s then
 /// `mark_released`; a panic/cancellation relies on the guard's `Drop`.
 ///
-/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried)` — the
-/// per-agent output plus its real rotation chain (empty when it never rotated).
+/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried, failures,
+/// records, degenerate_pool)` — the per-agent output plus its real rotation chain
+/// (empty when it never rotated). The last element is
+/// [`AgentRotationState::degenerate_pool`], read here because this task holds the
+/// state where it receives `claim_next`'s `None`, and carried out because the one-shot
+/// gate that names it lives on `Magi`, which a spawned task does not hold.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_one_agent_rotating(
     agent: Agent,
@@ -2766,6 +2786,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
     bool,
     Vec<ExtractionFailure>,
     Vec<CompletionRecord>,
+    bool,
 ) {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
@@ -2824,6 +2845,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     was_retried,
                     failures,
                     records,
+                    state.degenerate_pool(),
                 );
             }
             ModelOutcome::Unexpected(detail) => {
@@ -2835,6 +2857,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     was_retried,
                     failures,
                     records,
+                    state.degenerate_pool(),
                 );
             }
             ModelOutcome::MageLocal { detail, kind } => {
@@ -2882,6 +2905,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     was_retried,
                     failures,
                     records,
+                    state.degenerate_pool(),
                 );
             }
             ModelOutcome::OversizedResponse { limit } => {
@@ -2974,6 +2998,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     was_retried,
                     failures,
                     records,
+                    state.degenerate_pool(),
                 );
             }
         }
@@ -3907,6 +3932,9 @@ mod tests {
             WarnOnce::InertGuard { candidates: 0 },
             WarnOnce::ProbeDeclaration { targets: &targets },
             WarnOnce::SharedDigest,
+            WarnOnce::DegenerateDigest {
+                agent: AgentName::Caspar,
+            },
         ];
         assert_eq!(
             all.len() as u32,
@@ -7497,28 +7525,29 @@ mod tests {
             .max_rotations(2)
             .build();
 
-        let (result, rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
-            agent,
-            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
-                .to_string(),
-            CompletionConfig::default(),
-            Arc::new(Validator::new()),
-            Duration::from_secs(30),
-            true,
-            Arc::clone(&registry),
-            Arc::new(RotationConfig {
-                primary_lineages: BTreeMap::new(),
-                primary_probes: BTreeMap::new(),
-                pool,
-                strict_context_guard: false,
-            }),
-            Lineage::new("deepseek"),
-            "deepseek".to_string(),
-            Arc::new(BTreeMap::new()),
-            false,
-            0,
-        )
-        .await;
+        let (result, rotation, _retried, _failures, _records, _degenerate) =
+            dispatch_one_agent_rotating(
+                agent,
+                "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                    .to_string(),
+                CompletionConfig::default(),
+                Arc::new(Validator::new()),
+                Duration::from_secs(30),
+                true,
+                Arc::clone(&registry),
+                Arc::new(RotationConfig {
+                    primary_lineages: BTreeMap::new(),
+                    primary_probes: BTreeMap::new(),
+                    pool,
+                    strict_context_guard: false,
+                }),
+                Lineage::new("deepseek"),
+                "deepseek".to_string(),
+                Arc::new(BTreeMap::new()),
+                false,
+                0,
+            )
+            .await;
 
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
@@ -7582,31 +7611,32 @@ mod tests {
             .push(Arc::clone(&fallback), Lineage::new("zhipu"))
             .max_rotations(2)
             .build();
-        let (result, _rotation, _retried, _failures, _records) = dispatch_one_agent_rotating(
-            Agent::new(AgentName::Caspar, primary),
-            "MODE: code-review
+        let (result, _rotation, _retried, _failures, _records, _degenerate) =
+            dispatch_one_agent_rotating(
+                Agent::new(AgentName::Caspar, primary),
+                "MODE: code-review
 ---BEGIN USER CONTEXT n---
 x
 ---END USER CONTEXT n---"
-                .to_string(),
-            CompletionConfig::default(),
-            Arc::new(Validator::new()),
-            Duration::from_secs(30),
-            true,
-            Arc::clone(&registry),
-            Arc::new(RotationConfig {
-                primary_lineages: BTreeMap::new(),
-                primary_probes: BTreeMap::new(),
-                pool,
-                strict_context_guard: false,
-            }),
-            Lineage::new("deepseek"),
-            "deepseek".to_string(),
-            Arc::new(BTreeMap::new()),
-            false,
-            0,
-        )
-        .await;
+                    .to_string(),
+                CompletionConfig::default(),
+                Arc::new(Validator::new()),
+                Duration::from_secs(30),
+                true,
+                Arc::clone(&registry),
+                Arc::new(RotationConfig {
+                    primary_lineages: BTreeMap::new(),
+                    primary_probes: BTreeMap::new(),
+                    pool,
+                    strict_context_guard: false,
+                }),
+                Lineage::new("deepseek"),
+                "deepseek".to_string(),
+                Arc::new(BTreeMap::new()),
+                false,
+                0,
+            )
+            .await;
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
         // The classifier's decision, read from where it is made. Asserted directly as
