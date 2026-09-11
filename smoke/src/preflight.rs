@@ -52,7 +52,7 @@ use crate::config::{Config, RunId, PROBE_RETRY_FACTOR};
 use crate::fixtures;
 use crate::paths::{fixture_dir, repo_root, smoke_dir};
 use crate::proxy::SpyProxy;
-use crate::runner::stage_e1_run_ids;
+use crate::runner::{stage_e1_run_ids, BLIP_SEATS};
 use std::path::Path;
 use std::time::Duration;
 
@@ -360,6 +360,19 @@ pub fn check_seats(cfg: &Config) -> Result<(), String> {
     if cfg.fallbacks.is_empty() {
         return Err(format!(
             "config declares no [[fallbacks]]: the rotation run needs at least one candidate to rotate INTO, and without one it reports a red row about the crate for a mistake in this file. {SEAT_FIX}"
+        ));
+    }
+    // The endpoint-blip run needs MORE than one. It cuts two seats at once, they
+    // rotate concurrently, and the crate lets a lineage be held by one live mage
+    // at a time — so with a single candidate the second seat has nowhere to go,
+    // the run degrades, and S-R5a reports two red rows about the crate for a
+    // section short in this file. The same 1-versus-2 confusion as above,
+    // arriving through the pool's DEPTH instead of its presence.
+    if cfg.fallbacks.len() < BLIP_SEATS {
+        return Err(format!(
+            "config declares {} [[fallbacks]] but the {} run needs at least {BLIP_SEATS}: it cuts {BLIP_SEATS} seats at once and they rotate concurrently, each into a lineage no live mage holds, so with fewer candidates one seat has nowhere to go and the run reports a red row about the crate for a section short in this file. {SEAT_FIX}",
+            cfg.fallbacks.len(),
+            RunId::EndpointBlip.as_str()
         ));
     }
     // A candidate sharing a seat's lineage is not a rotation target either:
@@ -3068,6 +3081,28 @@ mod tests {
         assert!(
             err.contains("[[fallbacks]]"),
             "the message must name the missing section: {err}"
+        );
+    }
+
+    #[test]
+    fn a_config_with_one_fallback_is_a_config_fault_not_a_crate_verdict() {
+        // The endpoint-blip run cuts two seats at once; they rotate concurrently and a
+        // lineage held by a live mage is not free, so one candidate leaves the second
+        // seat nowhere to go. The run then degrades where S-R5a asserts a full trio,
+        // and its red rows name the CRATE for a section short in this file — the same
+        // 1-versus-2 confusion the empty-pool check above exists to prevent. Caught
+        // here it is exit 2, naming the run and the count it needs.
+        let mut cfg = Config::default();
+        cfg.fallbacks.truncate(BLIP_SEATS - 1);
+        let err = check_seats(&cfg).unwrap_err();
+        assert!(
+            err.contains(RunId::EndpointBlip.as_str()) && err.contains("[[fallbacks]]"),
+            "the message must name the run that needs the candidates and the section: {err}"
+        );
+        // And the built-in defaults carry enough, or every run would be refused.
+        assert!(
+            Config::default().fallbacks.len() >= BLIP_SEATS,
+            "the defaults must satisfy the guard they ship with"
         );
     }
 

@@ -25,9 +25,10 @@
 //! rotate to a candidate of yet another lineage, and the third seat answers first time.
 //! `S-R5a` asserts that `analyze()` returned a report with **three** verdicts and no
 //! degradation — the pre-fix crate returned `EndpointDown` here, and that is the red this row
-//! exists to produce — plus one piece of evidence that the blip really happened: **exactly two**
-//! seats carry a rotation hop classified as transport. Without that second row a run whose
-//! injection silently never fired would pass the first on a trivially healthy trio.
+//! exists to produce — plus one piece of evidence that the blip really happened: **exactly as
+//! many seats as were cut** carry a rotation hop classified as transport. Without that second
+//! row a run whose injection silently never fired would pass the first on a trivially healthy
+//! trio.
 //!
 //! [`RunId::EndpointDown`] cuts **every** connection of every model the run can dispatch —
 //! seats and fallbacks alike, with an unbounded budget — so no seat can ever succeed and the
@@ -62,17 +63,18 @@
 //! neither scenario reads `records`: the evidence is `analyze()`'s outcome — the report, or the
 //! typed error — and the rotation telemetry inside the report.
 //!
-//! # The precondition `S-R5a` needs from the CONFIG, and what happens when it is missing
+//! # The precondition `S-R5a` needs from the CONFIG, and where it is enforced
 //!
 //! Two seats rotate **concurrently**, and the crate lets one lineage be held by one live mage
 //! at a time, so the two dropped seats need **two** fallbacks of lineages distinct from every
-//! seat's and from each other's. The harness preflight already enforces the distinctness; what
-//! it does not enforce is the count. A config with a single fallback lets one seat rotate and
+//! seat's and from each other's. A config with a single fallback lets one seat rotate and
 //! leaves the other with nowhere to go: the run completes **degraded with two verdicts**, and
-//! `S-R5a` goes RED — deterministically, with its cause written here — rather than skipping.
-//! A skip would be the one outcome that says nothing, and a config that cannot build the
-//! precondition is a fault worth a red row, exactly as `RunId::PoolEligibility` treats a config
-//! with fewer than two seats.
+//! the two rows here would go red naming the CRATE for a section short in a TOML file — the
+//! 1-versus-2 confusion the harness exists to eliminate. So the **preflight refuses** such a
+//! config in its config step, beside the check that refuses an empty pool for the rotation
+//! run: exit 2, naming this run and the count it needs, before anything is spent. The rows
+//! here still read the report honestly — a degraded report is red, not skipped — so a config
+//! that somehow reached a run with too shallow a pool would still not pass by omission.
 
 use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::RotationKind;
@@ -83,7 +85,7 @@ use crate::runner::{
 
 const NAME_RECOVERED_RUN_COMPLETES: &str =
     "a run whose seats rotated past a connection blip completes with three verdicts";
-const NAME_BLIP_REALLY_HAPPENED: &str = "exactly two seats rotated away from a cut connection";
+const NAME_BLIP_REALLY_HAPPENED: &str = "every cut seat rotated away from its connection";
 const NAME_DEAD_ENDPOINT_ABORTS: &str = "a dead endpoint aborts the run with a typed EndpointDown";
 
 /// How many verdicts a full, non-degraded trio produces.
@@ -336,11 +338,12 @@ mod tests {
         assert_eq!(rows[1].state, ScenarioState::Pass, "{:?}", rows[1]);
     }
 
-    /// `S-R5a` goes RED when the run completed degraded — the shape a config with a single
-    /// fallback produces, where one cut seat rotates and the other has nowhere to go.
+    /// `S-R5a` goes RED when the run completed degraded — the shape a pool one candidate
+    /// deep produces, where one cut seat rotates and the other has nowhere to go.
     ///
-    /// Both rows are red: two verdicts is not a full trio, and one transport hop is not two.
-    /// A skip here would hide a precondition the config failed to build.
+    /// The preflight refuses that config before any run, so this is the row's honesty on a
+    /// report it should never see: both rows red, because two verdicts is not a full trio and
+    /// one transport hop is not two, and never a skip that reads as green by omission.
     #[test]
     fn s_r5a_fails_on_a_degraded_report() {
         let report = report_with(

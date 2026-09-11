@@ -191,11 +191,14 @@ evidence from `analyze()`'s outcome and the report's rotation telemetry, never f
 the cheap profile both carry two.** The two cut seats rotate concurrently and the crate lets a
 lineage be held by one live mage at a time, so with a single candidate one seat rotates and the
 other has nowhere to go: the run completes degraded where `S-R5a` asserts a full trio. The
-second candidate is a fifth lineage — the preflight enforces the distinctness — and each one
-costs a preflight probe, which is why there are exactly as many as the runs need.
+preflight refuses a config with fewer candidates than the blip run cuts, in the same config step
+that refuses an empty pool for the rotation run — a section short in a TOML file is a fault of
+ours, exit 2, never a red row about the crate. The second candidate is a fifth lineage — the
+preflight enforces the distinctness too — and each one costs a preflight probe, which is why
+there are exactly as many as the runs need.
 
-**The eighth is declared here rather than folded into the happy one, and the reason is the
-tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
+**The pool-eligibility run is declared here rather than folded into the happy one, and the
+reason is the tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
 reasons at once, which means a candidate whose lineage duplicates a seat's — something the
 config's own rustdoc says buys nothing, because rotation exists to reach a DIFFERENT lineage.
 Injecting that into a shared run would change the world for every scenario reading it and

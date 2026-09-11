@@ -76,7 +76,7 @@ supports_reasoning_control = true
 # endpoint-blip run cuts two seats at once: they rotate concurrently, and a
 # lineage held by a live mage is not free, so with a single candidate the second
 # seat has nowhere to go and the run degrades where its scenario asserts a full
-# trio.
+# trio. The preflight refuses a config with fewer.
 #
 # `lineage` must DIFFER from every seat's and from every other candidate's:
 # rotation exists to reach a different lineage, so a candidate that shares one

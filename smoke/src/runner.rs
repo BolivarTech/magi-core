@@ -945,13 +945,13 @@ impl RunSpec {
             RunSpec {
                 id: RunId::EndpointBlip,
                 seats: cfg.seats.clone(),
-                // The full pool, and the run needs at least TWO candidates in it. The two
-                // cut seats rotate concurrently, and the crate lets a lineage be held by one
-                // live mage at a time, so with a single candidate one seat rotates and the
-                // other has nowhere to go: the run completes degraded and `S-R5a` goes RED,
-                // deterministically, with the cause written in its module. The preflight
-                // already guarantees the candidates' lineages are distinct from every seat's
-                // and from each other's; the count is the config's to provide.
+                // The full pool, and the run needs at least `BLIP_SEATS` candidates in it.
+                // The cut seats rotate concurrently, and the crate lets a lineage be held by
+                // one live mage at a time, so with fewer candidates one seat has nowhere to
+                // go and the run degrades where `S-R5a` asserts a full trio. The preflight
+                // refuses such a config in its config step — a section short in a TOML file
+                // is a fault of ours, not a red row about the crate — and guarantees the
+                // candidates' lineages are distinct from every seat's and from each other's.
                 fallbacks: cfg.fallbacks.clone(),
                 payload: small_for_blip,
                 // The FIRST connection of the first two seats is cut; everything after it —
@@ -1889,20 +1889,29 @@ mod tests {
             .parent()
             .expect("the manifest dir always has a parent");
         let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
-        let injected: Vec<&Injection> = specs.iter().filter_map(|s| s.injection.as_ref()).collect();
+        let injected: Vec<(RunId, &Injection)> = specs
+            .iter()
+            .filter_map(|s| s.injection.as_ref().map(|i| (s.id, i)))
+            .collect();
         assert_eq!(
             injected.len(),
             5,
             "rotation, degradation, the crate-defect run and both endpoint runs inject"
         );
-        for inj in injected {
+        for (run, inj) in injected {
             for model in inj.models() {
-                // A seat OR a rotation candidate: the dead-endpoint run cuts the candidates
-                // too, or a seat could rotate its way out of a dead endpoint.
+                let is_seat = cfg.seats.iter().any(|s| s.model == model);
+                // ONE run may name a candidate, and only alongside every seat: the
+                // dead-endpoint run cuts the candidates too, or a seat could rotate its way
+                // out of a dead endpoint. Every other injection names a seat, or it would
+                // fire on nothing — and a candidate admitted there would be exactly that,
+                // since nobody rotates INTO the failed model.
+                let is_candidate_of_the_dead_run =
+                    run == RunId::EndpointDown && cfg.fallbacks.iter().any(|f| f.model == model);
                 assert!(
-                    cfg.seats.iter().any(|s| s.model == model)
-                        || cfg.fallbacks.iter().any(|f| f.model == model),
-                    "injected model {model:?} is in no seat and no candidate"
+                    is_seat || is_candidate_of_the_dead_run,
+                    "{} injects model {model:?}, which is in no seat",
+                    run.as_str()
                 );
             }
         }
