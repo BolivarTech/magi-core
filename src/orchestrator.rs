@@ -7579,6 +7579,678 @@ mod tests {",
             );
         }
     }
+
+    /// The endpoint-down latch must not abort a run that can still reach its quorum.
+    ///
+    /// # The scaffolding is derived from ONE type
+    ///
+    /// `SeatBehaviour` is the source and every helper below is a function that builds
+    /// from it. Fixtures declare BEHAVIOUR, never wiring: what a seat answers first, what
+    /// the pool candidate answers if it rotates, and whether it waits for other seats to
+    /// have joined before it answers at all. The bridge (`analyze_with`) turns three of
+    /// them into a `Magi` with rotation ENGAGED — without a fallback pool the run goes
+    /// through the non-rotating dispatcher, whose join loop never consults the latch, so
+    /// `MagiError::EndpointDown` would be unconstructible and half the tests here could
+    /// not pass in Red or in Green.
+    mod endpoint_down_quorum {
+        use super::*;
+        use crate::error::ResponseContractCause;
+        use crate::test_support::RoutingMockProvider;
+        use crate::verdict_markers::{VERDICT_CLOSE, VERDICT_OPEN};
+
+        /// What a seat does when it is dispatched. It is NOT a provider: it is the
+        /// recipe the fixture builds one from, plus the mark that makes order countable.
+        struct SeatBehaviour {
+            lineage: &'static str,
+            /// The first response. `Ok` completes; the `Err`s choose WHICH class of
+            /// failure, which is what decides whether it feeds the latch (`Network`) or
+            /// not (`schema`).
+            first: Outcome,
+            /// What the POOL CANDIDATE answers when this seat rotates.
+            ///
+            /// **The pool consumes it, NOT the `SeatProvider`**, and the distinction is
+            /// structural: on rotation, `dispatch_one_agent_rotating` replaces
+            /// `current_provider` with the pool candidate's, so the second attempt
+            /// **never returns** to the seat's provider.
+            ///
+            /// `None` = "does not rotate" in the sense of **rotates and fails the same
+            /// way again**, never "it is not asked a second time": the bridge translates
+            /// it to `first`.
+            after_rotation: Option<Outcome>,
+            /// OPTIONAL barrier: the seat does not produce its result until `n` seats
+            /// have completed theirs. It is what orders the fixtures WITHOUT a clock.
+            waits_for_joins: Option<usize>,
+        }
+
+        /// `Copy` because the bridge reads it TWICE without moving the `SeatBehaviour`:
+        /// once for the seat and once to seed the pool candidate.
+        #[derive(Clone, Copy)]
+        enum Outcome {
+            Ok,
+            ConnectionFailure,
+            SchemaFailure,
+            Panic,
+        }
+
+        /// Counter of seats that COMPLETED their work, incremented by the seat itself.
+        /// It lives entirely in the scaffolding: production does not gain even a hook.
+        ///
+        /// # Why it does NOT count loop joins
+        ///
+        /// Counting processed joins requires instrumenting the `analyze()` loop, that is,
+        /// production surface added for a test to look at. It is not needed: the property
+        /// `a_truly_dead_endpoint_still_aborts_fast` asserts is "I do not wait for the
+        /// remaining seats", and that is observed by its consequence — the `AbortGuard`
+        /// cancels them, so they never complete and never increment.
+        ///
+        /// # Why a `watch` and NOT an `AtomicUsize` with `Relaxed`
+        ///
+        /// `waits_for_joins` needs a happens-before between "N seats completed" and "this
+        /// seat produces its failure". `Relaxed` orders nothing, and the test would end up
+        /// depending on the scheduler. A `watch` really synchronises, with no spin.
+        /// (The `Relaxed` of the `warn_once` gate is another matter and it stays: there
+        /// the guarantee asked for is "at most once", not an ordering between events.)
+        type JoinCounter = tokio::sync::watch::Sender<usize>;
+
+        /// The bridge. It does NOT take providers: it takes `SeatBehaviour` values and
+        /// builds them, so the fixtures declare BEHAVIOUR and not wiring.
+        ///
+        /// The timeout is mandatory and comes first because it is what makes a miswired
+        /// barrier FAIL instead of hang: 10 s is two orders of magnitude above what these
+        /// tests take and a fraction of any CI timeout.
+        ///
+        /// The three seats are POSITIONAL: `seats[0]` is Melchior, `seats[1]` Balthasar,
+        /// `seats[2]` Caspar, and the join loop joins them in that same order — which is
+        /// what makes the barriers deterministic.
+        async fn analyze_with(
+            seats: Vec<SeatBehaviour>,
+            consensus: ConsensusConfig,
+        ) -> (Result<MagiReport, MagiError>, JoinCounter) {
+            // Any input works -- these tests measure the abort criterion, not the
+            // analysis -- but it is declared so the scaffolding has no loose symbol.
+            const INPUT: &str = "fn main() {}";
+
+            let (tx, _rx) = tokio::sync::watch::channel(0usize);
+
+            let mut builder = MagiBuilder::new(default_provider()).with_consensus_config(consensus);
+
+            let names = [AgentName::Melchior, AgentName::Balthasar, AgentName::Caspar];
+
+            // The candidate's provider is `RoutingMockProvider`, which already does
+            // exactly this: it reads `CURRENT_AGENT_IDENTITY`, dispenses a per-agent
+            // FIFO and fails closed if the identity is not in scope. `Agent::execute_with`
+            // wraps the fallback call in that identity, so ONE shared provider serves any
+            // mage that rotated.
+            let mut rot = RoutingMockProvider::new();
+            for (seat_name, seat) in names.into_iter().zip(seats.iter()) {
+                // `after_rotation: None` translates to `first`: "does not rotate" means
+                // *rotates and fails the same way again*, never *it is not asked*.
+                let on_rotation = seat.after_rotation.unwrap_or(seat.first);
+                // A panicking seat never rotates, so its candidate is never asked -- and
+                // `into_routing_response(Panic)` would evaluate the panic HERE, in the
+                // test's own task, before `analyze()` runs. It stays unregistered, and
+                // `RoutingMockProvider` fails closed if that assumption ever breaks.
+                if matches!(on_rotation, Outcome::Panic) {
+                    continue;
+                }
+                rot = rot.with_agent_responses(
+                    seat_name,
+                    vec![on_rotation.into_routing_response(seat_name)],
+                );
+            }
+            let rot: Arc<dyn LlmProvider> = Arc::new(rot);
+
+            // THREE candidates, THREE distinct lineages, ONE shared provider.
+            // DISTINCT because `claim_next` rejects a candidate whose lineage is already
+            // active in another seat: with a single candidate, the second seat to rotate
+            // would be rejected for diversity and would degrade -- and the premise of
+            // `a_recovered_run_is_not_aborted` is that BOTH rotate. SHARED because the
+            // per-seat response comes from the identity and not from the object.
+            //
+            // The three lineages are also distinct from the ones the fixtures declare,
+            // which is the other half of the diversity condition.
+            let pool = FallbackPool::builder()
+                .push(Arc::clone(&rot), "rot-a".into())
+                .push(Arc::clone(&rot), "rot-b".into())
+                .push(Arc::clone(&rot), "rot-c".into())
+                .build();
+            builder = builder.with_fallback_pool(pool);
+
+            for (seat_name, seat) in names.into_iter().zip(seats) {
+                // One provider per seat. `waits_for_joins` decides whether it gets a
+                // Receiver; a seat with `None` gets none and resolves as soon as it can.
+                let rx = seat.waits_for_joins.map(|_| tx.subscribe());
+                // Read BEFORE moving `seat`: `SeatProvider::new` takes it by value.
+                let lineage = seat.lineage;
+                let provider = SeatProvider::new(seat_name, seat, tx.clone(), rx);
+                builder = builder.with_agent(seat_name, Arc::new(provider), lineage.into());
+            }
+
+            let magi = builder
+                .build()
+                .expect("the scaffolding builds no invalid config");
+            let out = tokio::time::timeout(
+                Duration::from_secs(10),
+                magi.analyze(&Mode::CodeReview, INPUT),
+            )
+            .await
+            .expect("analyze_with hung: a barrier is waiting on a join that never came");
+            (out, tx)
+        }
+
+        /// `ConsensusConfig { min_agents: n, ..Default::default() }` — the knob every
+        /// test here varies. It is a `ConsensusConfig` field, not a `MagiConfig` one, and
+        /// reaches the builder through `with_consensus_config`.
+        fn min_agents(n: usize) -> ConsensusConfig {
+            ConsensusConfig {
+                min_agents: n,
+                ..Default::default()
+            }
+        }
+
+        /// How many seats completed their work before the run returned. It is what makes
+        /// "without waiting for the remaining seats" verifiable rather than prose.
+        fn joined_before_abort(joins: &JoinCounter) -> usize {
+            *joins.borrow()
+        }
+
+        /// The provider `analyze_with` builds per seat. It waits on the barrier if it
+        /// has a `Receiver`, produces **always** `seat.first` for `name`, and increments
+        /// the join counter **after** producing. It does NOT consume `after_rotation`
+        /// and carries no call counter: on rotation the second attempt goes to the pool
+        /// candidate and never comes back to this object.
+        struct SeatProvider {
+            seat: SeatBehaviour,
+            /// WHICH seat it serves. **Explicit, not read from `CURRENT_AGENT_IDENTITY`**:
+            /// the verdict it produces carries this name, and the agent-identity
+            /// post-validation compares it against the seat it was dispatched to.
+            name: AgentName,
+            joins: JoinCounter,
+            barrier: Option<tokio::sync::watch::Receiver<usize>>,
+        }
+
+        impl SeatProvider {
+            fn new(
+                name: AgentName,
+                seat: SeatBehaviour,
+                joins: JoinCounter,
+                barrier: Option<tokio::sync::watch::Receiver<usize>>,
+            ) -> Self {
+                Self {
+                    seat,
+                    name,
+                    joins,
+                    barrier,
+                }
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl LlmProvider for SeatProvider {
+            async fn complete(
+                &self,
+                _system: &str,
+                _user: &str,
+                _cfg: &CompletionConfig,
+            ) -> Result<Completion, ProviderError> {
+                // THREE steps, in this order, exercised by
+                // `a_seat_provider_honours_its_three_rules`.
+                //
+                // 1. Wait on the barrier, if this seat has one: until the counter
+                //    reaches the seat's `waits_for_joins`. A seat with `None` skips this
+                //    entirely -- and has no `.await` at all, so it is ready on the first
+                //    poll.
+                //
+                // 2. Produce the result with `self.seat.first.into_result(self.name)`.
+                //    The agent is a PARAMETER because the verdict carries its name.
+                //
+                // 3. Increment the join counter with `send_modify(|n| *n += 1)` --
+                //    **AFTER producing, never before**. Another seat's barrier must
+                //    release when this join HAS happened; moving it earlier reintroduces
+                //    the race the `watch` exists to remove. `send_modify` takes the
+                //    channel's lock, so two seats completing at once lose no count.
+                if let (Some(rx), Some(n)) = (&self.barrier, self.seat.waits_for_joins) {
+                    let mut rx = rx.clone();
+                    while *rx.borrow_and_update() < n {
+                        rx.changed()
+                            .await
+                            .expect("the join counter outlives every seat");
+                    }
+                }
+                let result = self.seat.first.into_result(self.name);
+                self.joins.send_modify(|n| *n += 1);
+                result
+            }
+            fn name(&self) -> &str {
+                "seat"
+            }
+            fn model(&self) -> &str {
+                "seat-model"
+            }
+        }
+
+        /// The `Outcome -> ProviderError` mapping, which is where it is decided WHAT
+        /// feeds the latch. This is the load-bearing half: `is_connection` returns `true`
+        /// ONLY for `Network`, so a `ConnectionFailure` built as any other variant would
+        /// leave the tests green with no latch on -- green by omission, over the very
+        /// mechanism under test.
+        impl Outcome {
+            fn into_result(self, agent: AgentName) -> Result<Completion, ProviderError> {
+                match self {
+                    Outcome::Ok => Ok(completion_with_a_valid_verdict(agent)),
+                    // `Network`, and no other: it is the only one that feeds the latch.
+                    Outcome::ConnectionFailure => Err(ProviderError::Network {
+                        message: "connection refused".to_string(),
+                    }),
+                    // Mage-local on purpose: the unreachable-quorum-without-latch case
+                    // needs a quorum that cannot be reached with NO latch.
+                    Outcome::SchemaFailure => Err(ProviderError::ResponseContract {
+                        reason: ResponseContractCause::Unreadable,
+                        detail: String::new(),
+                    }),
+                    // Does not return: it panics inside the task, which is what the
+                    // panic-path test exercises.
+                    Outcome::Panic => panic!("seat panicked on purpose"),
+                }
+            }
+
+            /// The same thing, but as TEXT, which is what `RoutingMockProvider`
+            /// dispenses. DERIVED from `into_result` instead of repeating the error
+            /// mapping: two copies of that table is how one gets updated and the other
+            /// does not.
+            fn into_routing_response(self, agent: AgentName) -> Result<String, ProviderError> {
+                self.into_result(agent).map(|c| c.text)
+            }
+        }
+
+        /// The `Ok` payload. It must PARSE: a response that does not satisfy the verdict
+        /// sentinel turns every `Ok` seat into a contract failure, and then no test here
+        /// measures what it claims to.
+        fn valid_verdict_text(agent: AgentName) -> String {
+            // THE AGENT IS A PARAMETER, and this is not cosmetic: the agent-identity
+            // post-validation rejects a verdict whose `agent` is not the dispatched seat.
+            // It is built with `json!` so the `agent` is SERIALIZED from the enum
+            // (`rename_all = "lowercase"`) instead of transcribing the spelling.
+            let body = serde_json::json!({
+                "agent": agent,
+                "verdict": "approve",
+                "confidence": 0.9,
+                "summary": "s",
+                "reasoning": "r",
+                "findings": [],
+                "recommendation": "go",
+            })
+            .to_string();
+            // The markers come from `verdict_markers`, for the same reason. The `join`
+            // leaves each of them ALONE on its own line, which is what the sentinel
+            // requires.
+            [VERDICT_OPEN, body.as_str(), VERDICT_CLOSE].join("\n")
+        }
+
+        fn completion_with_a_valid_verdict(agent: AgentName) -> Completion {
+            // Telemetry reports `unmeasured`, which is correct: this measures nothing.
+            Completion::new(valid_verdict_text(agent))
+        }
+
+        /// Two seats with a connection failure in DISTINCT LINEAGES that then rotate
+        /// successfully, and a third that completes on its first try.
+        fn blip_then_recover() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: Some(Outcome::Ok),
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: Some(Outcome::Ok),
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::Ok,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+            ]
+        }
+
+        /// A truly dead endpoint -- seat 1 fails on connection, rotates, and fails on
+        /// connection again, which is two condemned lineages and the latch on.
+        /// `after_rotation: None` is what makes rotating useless too.
+        ///
+        /// SEATS 2 AND 3 NEVER PRODUCE ON THEIR OWN, and that is what makes "it does not
+        /// wait for the remaining seats" observable. Measured, not assumed: with three
+        /// unbarriered seats the current-thread scheduler polls every one of them to
+        /// completion before the join loop gets its first turn, so the counter read 3
+        /// with `EndpointDown` already returned at seat 1's join -- the count could not
+        /// separate a fast abort from a slow one. Barriered on a join that never comes,
+        /// they stand for connection attempts still in flight: the only way they resolve
+        /// is being cancelled by the `AbortGuard`, so the counter reads 1 exactly when
+        /// the loop did not wait for them, and an implementation that waits hangs into
+        /// the 10 s guard instead of passing.
+        fn dead_endpoint() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: Some(usize::MAX),
+                },
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: Some(usize::MAX),
+                },
+            ]
+        }
+
+        /// An unreachable quorum WITHOUT the latch. `SchemaFailure` is mage-local, so by
+        /// construction it cannot turn the endpoint-down latch on -- which is the whole
+        /// precondition of the scenario.
+        fn two_schema_failures() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::SchemaFailure,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::SchemaFailure,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::Ok,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+            ]
+        }
+
+        /// A seat panics with the latch on and the quorum still REACHABLE.
+        ///
+        /// The panicking seat goes THIRD and without a barrier, and both are deliberate:
+        /// the join loop joins in dispatch order, so by the time its panic is processed
+        /// the other two have already joined successfully -- `successful = 2`,
+        /// `remaining = 0`, and with `min_agents(2)` the criterion gives `2 + 0 >= 2`,
+        /// that is, it does NOT abort. A barrier here would be worse than useless: the
+        /// panicking seat cannot wait on joins if it goes first, because no join can
+        /// happen until it resolves.
+        fn one_panicking_seat_with_reachable_quorum() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: Some(Outcome::Ok),
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: Some(Outcome::Ok),
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::Panic,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+            ]
+        }
+
+        /// Leaves the EXACT state the criterion crosses -- `successful = 1`,
+        /// `remaining = 1`, latch on -- at the check that follows seat 2's join.
+        ///
+        /// THE BARRIER GOES ON SEAT 2, NOT ON SEAT 3, and it is the only thing that makes
+        /// this deterministic. The latch needs TWO registered connection failures; seat 3
+        /// is the second one. With seat 2 waiting for the counter to reach 2 -- seat 1
+        /// produces (1), seat 3 produces (2) -- seat 2 only then produces, so by the time
+        /// the loop joins it the latch is ALREADY on, and seat 3 is STILL UNJOINED
+        /// because the loop joins in dispatch order.
+        fn one_ok_one_err_one_pending() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::Ok,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: Some(2),
+                },
+                // IT ROTATES SUCCESSFULLY, and the test closing in BOTH of its directions
+                // depends on that. Seat 3 has to fail on connection -- it is the second
+                // lineage that turns the latch on -- but if it also stayed failed, with
+                // `min_agents(2)` the run would abort at ITS join (`successful=1`,
+                // `remaining=0`, `1 < 2`) and the assertion "1+1 >= 2 -> keep going"
+                // would be false because of an abort later than the one the scenario
+                // names. By rotating, `successful` reaches 2 and the criterion holds.
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: Some(Outcome::Ok),
+                    waits_for_joins: None,
+                },
+            ]
+        }
+
+        /// The latch turns on AFTER the loop started. Seat 1 completes clean and only
+        /// then do the two connection failures land, each waiting for that join to have
+        /// happened. A latch read cached before the loop would never see it.
+        fn latch_after_first_join() -> Vec<SeatBehaviour> {
+            vec![
+                SeatBehaviour {
+                    lineage: "l1",
+                    first: Outcome::Ok,
+                    after_rotation: None,
+                    waits_for_joins: None,
+                },
+                SeatBehaviour {
+                    lineage: "l2",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: Some(1),
+                },
+                SeatBehaviour {
+                    lineage: "l3",
+                    first: Outcome::ConnectionFailure,
+                    after_rotation: None,
+                    waits_for_joins: Some(1),
+                },
+            ]
+        }
+
+        #[tokio::test]
+        async fn a_recovered_run_is_not_aborted() {
+            // Two connection failures in distinct lineages, both seats rotate
+            // successfully, the third completes first try. Before the fix: seat 1 joins
+            // with Ok, resolve_run_abort finds the latch true, returns EndpointDown --
+            // and the AbortGuard cancels seats 2 and 3, which were about to succeed.
+            let (res, _joins) = analyze_with(blip_then_recover(), min_agents(3)).await;
+            let report = res.expect("the run recovered");
+            // `agents`, NOT `verdicts`: `MagiReport` has no such field, and its field of
+            // produced outputs is `pub agents: Vec<AgentOutput>`.
+            assert_eq!(report.agents.len(), 3);
+        }
+
+        #[tokio::test]
+        async fn a_truly_dead_endpoint_still_aborts_fast() {
+            // Without this, the fix silently degrades into "consult only at the end"
+            // and nothing would tell us.
+            let (res, joins) = analyze_with(dead_endpoint(), min_agents(3)).await;
+            assert!(matches!(res, Err(MagiError::EndpointDown { .. })));
+            let n = joined_before_abort(&joins);
+            assert!(
+                n < 3,
+                "it must not wait for the remaining seats: {n} completed"
+            );
+        }
+
+        #[tokio::test]
+        async fn the_criterion_follows_min_agents_in_both_directions() {
+            // successful=1, remaining=1, latch on -- which blip_then_recover() does NOT
+            // produce: it ends all-Ok, so the criterion is never even evaluated with a
+            // remaining handle. Its own fixture: seat 1 Ok, seat 2 Err, seat 3 still
+            // pending, with seat 2 barriered behind seat 1's join so the state at the
+            // decision point is the one the spec names.
+            let aborted = |consensus| async move {
+                let (res, _) = analyze_with(one_ok_one_err_one_pending(), consensus).await;
+                matches!(res, Err(MagiError::EndpointDown { .. }))
+            };
+            assert!(!aborted(min_agents(2)).await, "1+1 >= 2 -> keep going");
+            assert!(aborted(min_agents(3)).await, "1+1 < 3 -> abort here");
+
+            // And the THIRD direction, which was declared correct and left unpinned:
+            // with min_agents <= 1 the criterion is vacuous BY ARITHMETIC -- a single
+            // success already reaches the quorum, so `successful + remaining <
+            // min_agents` never holds and the run does not abort on endpoint-down. A
+            // declaration without a test is a preference; this line makes it a property.
+            assert!(
+                !aborted(min_agents(1)).await,
+                "min_agents 1 -> the criterion is vacuous"
+            );
+        }
+
+        #[tokio::test]
+        async fn an_unreachable_quorum_without_the_latch_is_not_endpoint_down() {
+            // Two schema failures, no connection failure at all.
+            let (res, _) = analyze_with(two_schema_failures(), min_agents(3)).await;
+            let err = res.unwrap_err();
+            assert!(matches!(err, MagiError::InsufficientAgents { .. }));
+        }
+
+        #[tokio::test]
+        async fn the_panic_path_applies_the_same_criterion() {
+            // resolve_abnormal_exit also consults the latch; omitting it leaves the
+            // same door open by another route -- literally the defect 4.0.0 found there.
+            //
+            // THIS TEST ENTERS THROUGH THE JOIN LOOP, it does not call
+            // `resolve_abnormal_exit` directly, and that is not a style preference: the
+            // two magnitudes of the criterion -- the successes so far and the handles
+            // still to join -- are captured by the join loop itself at the call site,
+            // and `resolve_abnormal_exit` inherits the conjunction by delegating to
+            // `resolve_run_abort` with those numbers, without evaluating it on its own.
+            let (res, _) =
+                analyze_with(one_panicking_seat_with_reachable_quorum(), min_agents(2)).await;
+            assert!(res.is_ok());
+        }
+
+        #[tokio::test]
+        async fn the_latch_is_read_fresh_on_every_iteration() {
+            // The latch turns on AFTER the loop started -- seat 1 joins clean, THEN two
+            // connection failures land -- so a value cached before the loop would never
+            // see it. That is the signal the per-outcome check exists to recover, and
+            // with the other five green a cached read stays invisible.
+            let (res, _) = analyze_with(latch_after_first_join(), min_agents(3)).await;
+            // A cached read would never see a latch that turns on mid-loop, so the run
+            // would NOT abort. The variant alone separates the two implementations; a
+            // count assertion here would need a production hook to observe, and buys
+            // nothing this does not already decide.
+            assert!(matches!(res, Err(MagiError::EndpointDown { .. })));
+        }
+
+        /// Scaffolding proving scaffolding, and it earns its place: these three rules
+        /// hold up every test in this module, so if the bridge behaved differently they
+        /// would all measure something else and none would say so.
+        #[tokio::test]
+        async fn a_seat_provider_honours_its_three_rules() {
+            fn beh(first: Outcome, waits: Option<usize>) -> SeatBehaviour {
+                SeatBehaviour {
+                    lineage: "l",
+                    first,
+                    after_rotation: None,
+                    waits_for_joins: waits,
+                }
+            }
+            let (tx, _rx) = tokio::sync::watch::channel(0usize);
+            let cfg = CompletionConfig::default();
+
+            // Rule 2 -- it produces `first`, and it produces it for ITS OWN agent. A
+            // verdict carrying another mage's name is rejected by the agent-identity
+            // post-validation, so this is what keeps every `Ok` seat countable.
+            let ok = SeatProvider::new(
+                AgentName::Balthasar,
+                beh(Outcome::Ok, None),
+                tx.clone(),
+                None,
+            );
+            let out = ok
+                .complete("", "", &cfg)
+                .await
+                .expect("Ok produces a completion");
+            assert!(
+                out.text.contains("balthasar"),
+                "the verdict carries the agent this seat serves"
+            );
+
+            let bad = SeatProvider::new(
+                AgentName::Caspar,
+                beh(Outcome::ConnectionFailure, None),
+                tx.clone(),
+                None,
+            );
+            assert!(bad.complete("", "", &cfg).await.is_err());
+
+            // Rules 1 and 3 are asserted BY POLLING, not with a clock: a heuristic
+            // deadline is the flaky scenario the harness doctrine names last among its
+            // antipatterns, and none is needed here.
+            let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+
+            // Rule 1 -- with no barrier the body has no `.await` at all, so the FIRST
+            // poll already returns Ready. "Ready without yielding" is strictly stronger
+            // than "finished within a second", and it cannot flake.
+            {
+                let mut fut = std::pin::pin!(ok.complete("", "", &cfg));
+                assert!(
+                    std::future::Future::poll(fut.as_mut(), &mut cx).is_ready(),
+                    "a seat with no barrier is ready on the first poll"
+                );
+            }
+
+            // Rule 3 -- the counter is bumped AFTER producing, so a seat barriered at 1
+            // stays blocked until one join HAS happened. `Pending` on the first poll IS
+            // "still blocked", measured and not timed.
+            let (btx, brx) = tokio::sync::watch::channel(0usize);
+            let barriered = SeatProvider::new(
+                AgentName::Melchior,
+                beh(Outcome::Ok, Some(1)),
+                btx.clone(),
+                Some(brx),
+            );
+            let mut fut = std::pin::pin!(barriered.complete("", "", &cfg));
+            assert!(
+                std::future::Future::poll(fut.as_mut(), &mut cx).is_pending(),
+                "no join yet -> still blocked"
+            );
+            btx.send_modify(|n| *n += 1);
+            // This timeout is NOT the assertion: it is a guard so that an implementation
+            // which never releases FAILS instead of hanging the suite.
+            assert!(
+                tokio::time::timeout(std::time::Duration::from_secs(5), fut)
+                    .await
+                    .expect("the barrier never released")
+                    .is_ok(),
+                "one join -> released"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
