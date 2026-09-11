@@ -72,10 +72,20 @@ supports_reasoning_control = true
 # Rotation candidates, shared by the whole trio rather than declared per seat —
 # the crate's fallback pool belongs to the run, not to a mage. Without at least
 # one the rotation run has nowhere to rotate TO, and the scenario that reads it
-# can only report that it could not be tested.
+# can only report that it could not be tested. And at least TWO, because the
+# endpoint-blip run cuts two seats at once: they rotate concurrently, and a
+# lineage held by a live mage is not free, so with a single candidate the second
+# seat has nowhere to go and the run degrades where its scenario asserts a full
+# trio.
 #
-# `lineage` must DIFFER from every seat's: rotation exists to reach a different
-# lineage, so a candidate that shares one buys nothing.
+# `lineage` must DIFFER from every seat's and from every other candidate's:
+# rotation exists to reach a different lineage, so a candidate that shares one
+# buys nothing. Strongest-first: the LAST candidate is what the contention
+# probe names as the weakest model this file knows.
 [[fallbacks]]
 model = "deepseek-v4-pro:cloud"
 lineage = "deepseek"
+
+[[fallbacks]]
+model = "gpt-oss:120b-cloud"
+lineage = "openai"

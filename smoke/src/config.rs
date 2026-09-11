@@ -888,13 +888,26 @@ impl Config {
 /// one seat that cannot honour it.
 /// The default rotation candidates.
 ///
-/// One is enough for the property under test — that a seat whose model fails
-/// reaches a DIFFERENT lineage — and each extra one costs a preflight probe.
+/// **Two, and the second is not slack.** One is enough for the rotation run — a seat
+/// whose model fails reaches a DIFFERENT lineage — but the endpoint-blip run cuts two
+/// seats at once, they rotate concurrently, and the crate lets a lineage be held by
+/// one live mage at a time: with a single candidate the second seat has nowhere to
+/// go and the run degrades where its scenario asserts a full trio. Each candidate
+/// costs a preflight probe, which is why there are exactly as many as the runs need.
+///
+/// Declared strongest-first, like every candidate list here: the LAST one is what the
+/// contention probe names as the weakest model the config knows.
 fn default_fallbacks() -> Vec<Fallback> {
-    vec![Fallback {
-        model: "deepseek-v4-pro:cloud".into(),
-        lineage: "deepseek".into(),
-    }]
+    vec![
+        Fallback {
+            model: "deepseek-v4-pro:cloud".into(),
+            lineage: "deepseek".into(),
+        },
+        Fallback {
+            model: "gpt-oss:120b-cloud".into(),
+            lineage: "openai".into(),
+        },
+    ]
 }
 
 fn default_seats() -> Vec<Seat> {

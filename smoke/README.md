@@ -187,13 +187,12 @@ milliseconds and no completion is ever paid for. A cut attempt leaves **no row**
 record — there was no response to record — so the two scenarios reading those runs take their
 evidence from `analyze()`'s outcome and the report's rotation telemetry, never from the wire.
 
-**The blip run needs at least TWO rotation candidates in the config, and the shipped configs
-carry one.** The two cut seats rotate concurrently and the crate lets a lineage be held by one
-live mage at a time, so with a single candidate one seat rotates and the other has nowhere to
-go: the run completes degraded and `S-R5a` goes **red, deterministically**, naming a
-precondition the config did not build — never a skip, which would be the one outcome that says
-nothing. Add a second candidate of a fifth lineage (the preflight enforces the distinctness)
-before reading that row as a verdict about the crate.
+**The blip run needs at least TWO rotation candidates, which is why the built-in defaults and
+the cheap profile both carry two.** The two cut seats rotate concurrently and the crate lets a
+lineage be held by one live mage at a time, so with a single candidate one seat rotates and the
+other has nowhere to go: the run completes degraded where `S-R5a` asserts a full trio. The
+second candidate is a fifth lineage — the preflight enforces the distinctness — and each one
+costs a preflight probe, which is why there are exactly as many as the runs need.
 
 **The eighth is declared here rather than folded into the happy one, and the reason is the
 tradeoff it avoids.** The two axis-E scenarios need a candidate that is ineligible for two
@@ -353,7 +352,7 @@ issue the invocation above:
 ```sh
 python -c "
 import json, socket, threading
-MODELS = ['qwen3.5:397b-cloud', 'kimi-k2.6:cloud', 'glm-5.2:cloud', 'deepseek-v4-pro:cloud']
+MODELS = ['qwen3.5:397b-cloud', 'kimi-k2.6:cloud', 'glm-5.2:cloud', 'deepseek-v4-pro:cloud', 'gpt-oss:120b-cloud']
 TAGS = json.dumps({'models': [{'name': m, 'model': m, 'digest': 'a'*64} for m in MODELS]})
 held = []
 def serve(c):
@@ -377,7 +376,7 @@ saturated Ollama answers it instantly too. The held sockets are kept in `held` s
 them; dropping one sends a reset, and a reset is the *unreachable* case the second row already
 covers. `Ctrl-C` when done, and it leaves nothing behind.
 
-**`MODELS` is the built-in default trio plus its one rotation candidate.** Point `seats` or
+**`MODELS` is the built-in default trio plus its two rotation candidates.** Point `seats` or
 `fallbacks` somewhere else and this list has to follow, or reachability fails on the models the
 listing does not name and you are back at step 5.
 
