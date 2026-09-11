@@ -4318,6 +4318,46 @@ mod tests {
         assert_eq!(second, 1, "and not repeated on the next call");
     }
 
+    /// The shared-digest warning is latched like its two neighbours.
+    ///
+    /// It was the one builder warning left outside the latch: what it names — two primaries
+    /// resolving to the same weights digest — is decided by the preflight over configuration
+    /// that cannot change between calls, so a second telling describes a state that provably
+    /// has not changed. Before the fix this counted two.
+    #[tokio::test]
+    async fn the_shared_digest_warning_is_told_once_per_instance() {
+        let log = EventLog::default();
+        let _guard = tracing::subscriber::set_default(log.clone());
+
+        let magi = MagiBuilder::new(trio())
+            .with_probing_agent(
+                AgentName::Melchior,
+                crate::test_support::MockProbe::with_digest("m-a", "same-weights"),
+                Lineage::new("vendor-a"),
+            )
+            .with_probing_agent(
+                AgentName::Balthasar,
+                crate::test_support::MockProbe::with_digest("m-b", "same-weights"),
+                Lineage::new("vendor-b"),
+            )
+            .build()
+            .expect("builds");
+
+        let count = |log: &EventLog| {
+            log.lines()
+                .iter()
+                .filter(|l| l.starts_with("WARN") && l.contains("same weights digest"))
+                .count()
+        };
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let after_first = count(&log);
+        let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
+        let after_second = count(&log);
+
+        assert_eq!(after_first, 1, "the shared digest must be named once");
+        assert_eq!(after_second, 1, "and not repeated on the next call");
+    }
+
     /// A long-lived orchestrator must not repeat a configuration complaint on every call.
     /// The condition cannot be fixed mid-run, so the second telling carries no information
     /// and costs the channel its credibility.
