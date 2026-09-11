@@ -806,8 +806,10 @@ pub enum MagiError {
     Io(#[from] std::io::Error),
 
     /// Endpoint-down fast-fail: two distinct lineages failed at the
-    /// connection level, so no endpoint is reachable. The run aborts **before**
-    /// consensus rather than degrade. Additive (enabled by `#[non_exhaustive]`).
+    /// connection level, so no endpoint is reachable, and the seats still in
+    /// flight can no longer reach the consensus quorum. The run aborts **before**
+    /// consensus rather than degrade; a run whose seats rotated and recovered is
+    /// never abandoned on the latch alone. Additive (enabled by `#[non_exhaustive]`).
     #[error("endpoint down: no lineage reachable ({})", .lineages.iter().map(|l| l.as_str()).collect::<Vec<_>>().join(", "))]
     EndpointDown {
         /// The connection-failed lineages that tripped the fast-fail.

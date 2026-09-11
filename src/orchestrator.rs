@@ -1206,7 +1206,8 @@ impl Magi {
     /// - [`MagiError::SkippedByComplexityGate`] if a complexity gate was installed and
     ///   returned `false` — before any dispatch, so nothing was spent.
     /// - [`MagiError::EndpointDown`] once connection failures on distinct lineages cross the
-    ///   latch: the run is abandoned rather than degraded.
+    ///   latch AND the seats still in flight can no longer reach `min_agents`: the run is
+    ///   abandoned rather than degraded. A run whose seats rotated and recovered continues.
     /// - [`MagiError::CrateDefect`] — **new in `4.0.0`** — when a backend accepts a request and
     ///   generates nothing with its token counters absent. That footprint is a defect of THIS
     ///   crate, so the run aborts instead of rotating, and this call is the only surface it
@@ -1514,8 +1515,9 @@ impl Magi {
     /// ([`dispatch_one_agent_rotating`]) per agent, collects the real per-agent
     /// [`AgentRotation`] chains, and enforces the endpoint-down fast-fail: after
     /// EVERY agent outcome (success, failure, OR panic/`JoinError`) it consults the
-    /// registry latch and, if set, returns `Err(EndpointDown)` **before** consensus
-    /// — the single source of truth, robust to a panicked latch-holder.
+    /// registry latch and, if set AND the quorum is no longer reachable, returns
+    /// `Err(EndpointDown)` **before** consensus — the single source of truth, robust
+    /// to a panicked latch-holder, and never at the expense of a run that recovered.
     async fn dispatch_with_rotation(
         &self,
         agents: Vec<Agent>,
@@ -1683,6 +1685,12 @@ impl Magi {
 
         let _guard = AbortGuard(abort_handles);
 
+        // The two magnitudes of the abort criterion, taken BEFORE the loop: `min_agents`
+        // was computed after it, and the `for` below consumes `handles` by value, so the
+        // count of seats still to join has to be captured here and derived per iteration.
+        let min_agents = self.consensus_engine.min_agents();
+        let total_handles = handles.len();
+
         let mut successful = Vec::new();
         let mut failed = BTreeMap::new();
         let mut retried = std::collections::BTreeSet::new();
@@ -1691,6 +1699,12 @@ impl Magi {
         // (success, normal failure, OR panic) before ANY return/continue. Do not drop
         // this check in a refactor; a panicked latch-holder that never propagated the
         // signal is recovered here (R8/W11).
+        //
+        // CONSULTED every time, ACTED ON only when the run can no longer reach its quorum:
+        // the latch turns on at the second condemned lineage, but the seats that condemned
+        // them may rotate and succeed before the loop reaches their join. The conjunction
+        // lives in `resolve_endpoint_down`; this loop only supplies the numbers, fresh on
+        // every iteration.
         //
         // ABORT LATENCY (documented, not a bug): handles are awaited in a fixed order,
         // so the latch is only OBSERVED once the currently-awaited agent's task
@@ -1733,8 +1747,16 @@ impl Magi {
                     // endpoint-down latch and then `continue`, so a crate defect latched by a
                     // concurrent seat was skipped on every panicked join.
                     let joined = joined_so_far(&successful, &failed);
-                    if let Some(err) =
-                        resolve_abnormal_exit(name, &join_err, &registry, &joined).await
+                    if let Some(err) = resolve_abnormal_exit(
+                        name,
+                        &join_err,
+                        &registry,
+                        &joined,
+                        successful.len(),
+                        remaining_seats(total_handles, &joined),
+                        min_agents,
+                    )
+                    .await
                     {
                         return Err(err);
                     }
@@ -1745,12 +1767,19 @@ impl Magi {
             // `AbortGuard` cancels whatever is still in flight when this returns — the existing
             // mechanism doing its job, not a new one.
             let joined = joined_so_far(&successful, &failed);
-            if let Some(err) = resolve_run_abort(&registry, &joined).await {
+            if let Some(err) = resolve_run_abort(
+                &registry,
+                &joined,
+                successful.len(),
+                remaining_seats(total_handles, &joined),
+                min_agents,
+            )
+            .await
+            {
                 return Err(err);
             }
         }
 
-        let min_agents = self.consensus_engine.min_agents();
         if successful.len() < min_agents {
             return Err(MagiError::InsufficientAgents {
                 succeeded: successful.len(),
@@ -2469,17 +2498,70 @@ fn provider_err_outcome(err: ProviderError) -> ModelOutcome {
 const CRATE_DEFECT_HYPOTHESIS: &str =
     "the known cause is a request without `messages`, which points at a defect in magi-core";
 
-/// Returns `Some(MagiError::EndpointDown)` iff the registry's endpoint-down latch
-/// is set, else `None`. The latch is the single source of truth for the fast-fail
-///; the `lineages` come from the run's connection-condemned set.
-async fn resolve_endpoint_down(reg: &LineageRegistry) -> Option<MagiError> {
-    if reg.endpoint_down_signalled().await {
-        Some(MagiError::EndpointDown {
-            lineages: reg.connection_failed_lineages().await,
-        })
-    } else {
-        None
+/// Returns `Some(MagiError::EndpointDown)` iff the registry's endpoint-down latch is set
+/// AND the run can no longer reach its quorum; `None` otherwise. The `lineages` come from
+/// the run's connection-condemned set.
+///
+/// # The conjunction, and why it lives here and nowhere else
+///
+/// The latch is evaluated early and consulted late: it turns on at the second condemned
+/// lineage, but the seats that condemned them may rotate and succeed before the join loop
+/// reaches them. Acting on the latch alone aborted after the FIRST successful join and
+/// cancelled two seats that were about to succeed. So the latch decides the DIAGNOSIS —
+/// `EndpointDown`, naming the condemned lineages — and the quorum decides whether to ACT on
+/// it now. Both halves are needed: without the quorum half a recovered run is thrown away;
+/// without the latch half an unreachable quorum for any other cause would be reported as an
+/// outage nobody observed, where `InsufficientAgents` belongs.
+///
+/// The latch is still READ on every call and only the action is conditioned: a caller that
+/// cached it before its loop would miss a signal that arrives mid-loop, which is exactly
+/// what the per-outcome check exists to recover. The panic arm inherits this by delegation
+/// through [`resolve_run_abort`], so the rule is written once.
+///
+/// # Parameters
+///
+/// * `successful` — seats that have already joined with an output.
+/// * `remaining` — seats dispatched but not yet joined, each of which may still succeed.
+/// * `min_agents` — the quorum the consensus engine requires.
+async fn resolve_endpoint_down(
+    reg: &LineageRegistry,
+    successful: usize,
+    remaining: usize,
+    min_agents: usize,
+) -> Option<MagiError> {
+    if !reg.endpoint_down_signalled().await {
+        return None;
     }
+    if quorum_reachable(successful, remaining, min_agents) {
+        return None;
+    }
+    Some(MagiError::EndpointDown {
+        lineages: reg.connection_failed_lineages().await,
+    })
+}
+
+/// Whether the run can still reach its quorum: every seat already successful plus every
+/// seat not yet joined — each of which may still succeed — against `min_agents`.
+///
+/// With `min_agents <= 1` this is vacuously true whenever anything is done or pending, so
+/// the endpoint-down abort never fires there — deliberately: the operator declared that one
+/// verdict suffices, and cancelling a run that can still produce it would be the defect this
+/// criterion removes.
+fn quorum_reachable(successful: usize, remaining: usize, min_agents: usize) -> bool {
+    successful + remaining >= min_agents
+}
+
+/// Seats dispatched but not yet joined.
+///
+/// DERIVED, never maintained: `joined` holds one entry per seat the loop has processed, so
+/// `total - joined.len()` is the count of handles still to await, and the subtraction cannot
+/// underflow because every joined seat was dispatched. Its failure direction is declared: if
+/// a seat ever resolved without entering `successful` or `failed`, `joined` would undercount
+/// and this would OVERcount, so the abort criterion would lean towards continuing and the
+/// run would fall through to `InsufficientAgents` at the end of the loop — never towards
+/// aborting a run that could still recover.
+fn remaining_seats(total: usize, joined: &BTreeMap<AgentName, ()>) -> usize {
+    total - joined.len()
 }
 
 /// The seats already JOINED when an abort was reached.
@@ -2535,14 +2617,32 @@ fn crate_defect_error(d: CrateDefectRecord, joined: &BTreeMap<AgentName, ()>) ->
 ///
 /// It is a FUNCTION rather than two calls at each site because it had already drifted: the
 /// panic arm consulted one latch and skipped the other entirely.
+///
+/// # Only the endpoint-down branch is conditioned on the quorum
+///
+/// A defect of this crate aborts unconditionally — its cost is bounded by construction, see
+/// [`resolve_crate_defect`] — and the quorum numbers are passed straight through to
+/// [`resolve_endpoint_down`], which is where the conjunction lives. Wrapping this whole body
+/// instead would silently disable the crate-defect abort while the quorum is reachable, and
+/// `a_crate_defect_aborts_even_when_the_quorum_is_reachable` is what tells the two readings
+/// apart.
+///
+/// # Parameters
+///
+/// * `successful`, `remaining`, `min_agents` — the quorum magnitudes the join loop has at
+///   hand, see [`resolve_endpoint_down`]. Loose numbers rather than a struct: their only use
+///   is crossing this call.
 async fn resolve_run_abort(
     reg: &LineageRegistry,
     joined_before_abort: &BTreeMap<AgentName, ()>,
+    successful: usize,
+    remaining: usize,
+    min_agents: usize,
 ) -> Option<MagiError> {
     if let Some(err) = resolve_crate_defect(reg, joined_before_abort).await {
         return Some(err);
     }
-    resolve_endpoint_down(reg).await
+    resolve_endpoint_down(reg, successful, remaining, min_agents).await
 }
 
 /// Raises a latched defect of THIS crate into the run-aborting error.
@@ -2577,17 +2677,23 @@ async fn resolve_crate_defect(
 /// out for race-free unit testing.
 ///
 /// A panicked task loses its transport classification, so the decision derives
-/// **solely** from the registry latch — never from `err`. `agent`/`err` document
+/// **solely** from the registry latches — never from `err`. `agent`/`err` document
 /// the call site (and feed a diagnostic `tracing` event); the verdict is exactly
-/// [`resolve_endpoint_down`]. This catches a latch-holder that crossed the
-/// endpoint-down threshold and then died before propagating the signal.
+/// [`resolve_run_abort`], with the quorum magnitudes PASSED THROUGH and never
+/// evaluated here, so the panic arm applies the same criterion as the normal arm
+/// by construction. This catches a latch-holder that crossed the endpoint-down
+/// threshold and then died before propagating the signal.
 pub(crate) async fn resolve_abnormal_exit(
     agent: AgentName,
     err: &tokio::task::JoinError,
     reg: &LineageRegistry,
     joined_before_abort: &BTreeMap<AgentName, ()>,
+    successful: usize,
+    remaining: usize,
+    min_agents: usize,
 ) -> Option<MagiError> {
-    let decision = resolve_run_abort(reg, joined_before_abort).await;
+    let decision =
+        resolve_run_abort(reg, joined_before_abort, successful, remaining, min_agents).await;
     // The message names WHICH latch decided it. It used to say endpoint-down unconditionally,
     // which stopped being true the moment this started consulting both — so an abort caused by
     // a defect of ours was logged as an outage. That is this milestone's own thesis, reproduced
@@ -4666,8 +4772,18 @@ mod tests {
         handle.abort();
         let join_err = handle.await.unwrap_err();
 
-        let decision =
-            resolve_abnormal_exit(AgentName::Caspar, &join_err, &reg, &BTreeMap::new()).await;
+        // Nothing joined and nothing pending: the quorum is unreachable, so the latch
+        // alone decides. What this pins is the RECOVERY of the signal, not the criterion.
+        let decision = resolve_abnormal_exit(
+            AgentName::Caspar,
+            &join_err,
+            &reg,
+            &BTreeMap::new(),
+            0,
+            0,
+            ConsensusConfig::default().min_agents,
+        )
+        .await;
         assert!(
             matches!(decision, Some(MagiError::EndpointDown { .. })),
             "abnormal exit must recover EndpointDown from the registry latch"
@@ -6915,7 +7031,9 @@ mod tests {
         })
         .await;
 
-        let err = resolve_run_abort(&reg, &BTreeMap::new())
+        // The quorum is unreachable, so BOTH latches would abort on their own: what is
+        // tested is the order, not the criterion.
+        let err = resolve_run_abort(&reg, &BTreeMap::new(), 0, 0, 3)
             .await
             .expect("both latches are set, so the run must abort");
 
