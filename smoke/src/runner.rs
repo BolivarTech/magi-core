@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-11
 
 //! The shared-run executor, and the contract between runs and scenarios.
 //!

@@ -1,5 +1,5 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
+// Version: 4.1.0
 // Date: 2026-09-11
 
 //! The two endpoint-down scenarios of R-5: `S-R5a` and `S-R5b`.

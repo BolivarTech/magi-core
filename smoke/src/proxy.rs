@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 4.0.0
-// Date: 2026-08-23
+// Version: 4.1.0
+// Date: 2026-09-11
 
 //! The spy proxy: sits between the crate and the real backend, records every
 //! request and can inject failures.
