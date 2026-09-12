@@ -397,7 +397,7 @@ impl MagiBuilder {
 
     /// **The one place the three seat maps are written.**
     ///
-    /// R-4 was `with_provider` setting the provider and leaving a probe declared earlier
+    /// The defect was `with_provider` setting the provider and leaving a probe declared earlier
     /// pointing at a model that seat no longer serves. `with_agent` had the `remove` and
     /// `with_provider` did not — so the invariant lived in whoever remembered it, which is
     /// how there came to be several writers of one piece of state.
@@ -410,8 +410,8 @@ impl MagiBuilder {
     ///
     /// `lineage: None` means **leave the declared lineage alone** — `with_provider`
     /// overrides only the provider, and clearing it would silently un-declare the diversity
-    /// key. `probe: None` means **this seat now has none**, which is R-4 itself: a
-    /// registration that declares no probe must not inherit the previous one.
+    /// key. `probe: None` means **this seat now has none**, which is the defect above turned
+    /// into a rule: a registration that declares no probe must not inherit the previous one.
     fn register_seat(
         &mut self,
         agent: AgentName,
@@ -965,9 +965,10 @@ pub struct Magi {
     /// decided before dispatch and cannot be fixed mid-run, so a second telling describes a
     /// state that provably has not changed.
     ///
-    /// **A mask rather than one flag per warning, because one-flag-each IS what R-18 was.**
-    /// Two warnings had an `AtomicBool` and a third never got one; nothing noticed, because
-    /// having a flag was up to whoever wrote the warning. Going through
+    /// **A mask rather than one flag per warning, because one-flag-each is exactly how the
+    /// shared-digest warning came to repeat on every `analyze()`.** Two warnings had an
+    /// `AtomicBool` and a third never got one; nothing noticed, because having a flag was
+    /// up to whoever wrote the warning. Going through
     /// [`warn_once`](Magi::warn_once) makes the cadence structural on the render side.
     ///
     /// A `HashMap` would need a `Mutex` to mutate through `&self` — a lock on the dispatch
@@ -977,17 +978,19 @@ pub struct Magi {
 
 /// Which one-shot warning is being asked for, and the data it renders.
 ///
-/// **R-18 is why this exists.** Two builder warnings were latched behind their own
-/// `AtomicBool` and a third simply never got one, so it repeated on every `analyze()`.
-/// What failed was not the flag's TYPE — it was that having one was up to whoever wrote
-/// the warning. One shared gate moves that from discipline to structure.
+/// **This exists because two builder warnings were latched behind their own
+/// `AtomicBool` while the shared-weights-digest warning simply never got one, so it
+/// repeated on every `analyze()`.** What failed was not the flag's TYPE — it was that
+/// having one was up to whoever wrote the warning. One shared gate moves that from
+/// discipline to structure.
 ///
 /// # What this guards, and what it does not
 ///
 /// Both matches below are exhaustive, so a new variant does not compile until it states
 /// **its bit** and **its rendering**: forgetting a cadence is no longer possible on the
 /// render side. It does **not** stop anyone writing a bare `tracing::warn!` and bypassing
-/// the gate — which is literally what R-18 was. That half is closed on the emit side by a
+/// the gate — which is literally how the shared-digest warning went unlatched in the
+/// first place. That half is closed on the emit side by a
 /// gate check. Claiming the enum makes it impossible would be a false statement about the
 /// code beside it.
 ///
@@ -1010,9 +1013,9 @@ pub(crate) enum WarnOnce<'a> {
     },
     /// Two primaries resolve to the same weights digest — reduced ensemble diversity.
     ///
-    /// This is the warning R-18 was about: it sat outside the latch its two neighbours
-    /// had and repeated on every `analyze()`. What it names is decided by the preflight
-    /// over configuration that cannot change between calls.
+    /// This is the warning that sat outside the latch its two neighbours had and repeated
+    /// on every `analyze()`. What it names is decided by the preflight over configuration
+    /// that cannot change between calls.
     SharedDigest,
     /// A seat exhausted its fallback pool with every candidate rejected by a proven digest
     /// collision: the backend answers one digest for every model, so rotation is inert for
@@ -1200,9 +1203,10 @@ impl Magi {
 
     /// Emits a one-shot warning, or says nothing if this instance already said it.
     ///
-    /// **One gate for every builder warning.** R-18 was a third warning that never got a
-    /// flag while its two neighbours had theirs, so it repeated on every `analyze()`. The
-    /// flag's type was never the problem: having one was up to whoever wrote the warning.
+    /// **One gate for every builder warning.** The shared-digest warning was a third
+    /// warning that never got a flag while its two neighbours had theirs, so it repeated
+    /// on every `analyze()`. The flag's type was never the problem: having one was up to
+    /// whoever wrote the warning.
     ///
     /// `Relaxed` is sufficient. The guarantee asked for is "at most once", not an ordering
     /// between distinct warnings, and it is what the two `AtomicBool`s this replaces used.
