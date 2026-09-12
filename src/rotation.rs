@@ -977,13 +977,16 @@ impl LineageRegistry {
     /// condition #5 and by nothing else, since it passed the other conditions to be
     /// proposed at all. So the pool size is the count of candidates that scan rejected,
     /// and `digest_collisions` — cleared at entry, so it holds this pass only — is the
-    /// count of those rejected by a collision. Equal means no other condition rejected
+    /// count of those rejected by a collision. The map is keyed by MODEL NAME, so two
+    /// pool entries that share a model collapse into one entry: the count under-reports
+    /// whenever that happens, and the safe direction is the one it errs in — the pool is
+    /// never called degenerate when it is not. Equal means no other condition rejected
     /// anyone; greater than one excludes the unit pool, where "every rejection was a
     /// collision" holds by vacuity of the plural and says nothing about the backend.
     /// A pass that never scanned (rotation budget spent) records zero collisions against
     /// a non-empty pool and is therefore not degenerate.
     ///
-    /// The fact travels through the state and never the return type: twelve test sites
+    /// The fact travels through the state and never the return type: its test sites
     /// read this `Option`, and the orchestrator holds the state where it receives the
     /// `None`. Emitting is the core's job — this module names the shape.
     pub async fn claim_next(

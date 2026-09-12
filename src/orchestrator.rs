@@ -403,9 +403,10 @@ impl MagiBuilder {
     /// how there came to be several writers of one piece of state.
     ///
     /// Written as prose in an acceptance criterion, the rule lasts until the next setter
-    /// somebody adds without reading it. Routing every write through here makes it
-    /// structural instead: the fields are private and a new setter has to come through this
-    /// method to touch them.
+    /// somebody adds without reading it. Routing every write through here makes it the
+    /// convention instead of a memory: one method writes the three maps and every setter
+    /// delegates to it. The fields are only module-private, so a direct write elsewhere in
+    /// this module still compiles — that write is the thing the next reader must not add.
     ///
     /// `lineage: None` means **leave the declared lineage alone** — `with_provider`
     /// overrides only the provider, and clearing it would silently un-declare the diversity
@@ -2591,7 +2592,8 @@ async fn resolve_endpoint_down(
 /// With `min_agents <= 1` this is vacuously true whenever anything is done or pending, so
 /// the endpoint-down abort never fires there — deliberately: the operator declared that one
 /// verdict suffices, and cancelling a run that can still produce it would be the defect this
-/// criterion removes.
+/// criterion removes. With nothing done and nothing pending it still fires, because a quorum
+/// of one seat that is no longer reachable is exactly the case the abort exists to catch.
 fn quorum_reachable(successful: usize, remaining: usize, min_agents: usize) -> bool {
     successful + remaining >= min_agents
 }

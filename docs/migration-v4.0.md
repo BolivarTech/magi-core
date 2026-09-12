@@ -494,8 +494,9 @@ parallel or serialises them is something this crate does not know.
 > configuration, and the two outcomes look nothing alike:
 >
 > - **With rotation engaged** — you declared a fallback pool or primary probes — cuts on **two
->   distinct lineages** abort the run with `MagiError::EndpointDown`, an error that does not
->   mention your proxy.
+>   distinct lineages** abort the run with `MagiError::EndpointDown` (since 4.1.0, only once the
+>   seats already successful plus those still in flight can no longer reach `min_agents`; a run
+>   whose cut seats rotated and recovered completes), an error that does not mention your proxy.
 > - **Without rotation** — the default — there is no registry and no latch at all, so the seat
 >   simply fails and the run **degrades**. You see a missing mage, or `InsufficientAgents`, not
 >   `EndpointDown`.
