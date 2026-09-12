@@ -1710,7 +1710,9 @@ mod tests {
 
         assert!(
             matches!(err, ProviderError::Network { .. }),
-            "the endpoint-down latch is fed by is_connection, which is true for Network              ALONE: any other variant leaves R-5 unable to arm the latch from a scenario.              Got {err:?}"
+            "the endpoint-down latch is fed by is_connection, which is true for Network \
+             ALONE: any other variant leaves R-5 unable to arm the latch from a scenario. \
+             Got {err:?}"
         );
     }
 
@@ -1751,7 +1753,8 @@ mod tests {
         let second = provider.complete("sys", "user", &cfg).await;
         assert!(
             second.is_ok(),
-            "the budget was spent, so this one is forwarded to a healthy upstream; got              {second:?}"
+            "the budget was spent, so this one is forwarded to a healthy upstream; got \
+             {second:?}"
         );
 
         assert_eq!(
@@ -1761,7 +1764,8 @@ mod tests {
         );
         assert!(
             !proxy.is_degraded(),
-            "a configured drop is not a harness fault, and latching degraded here would              route every assertion in the run to SKIP"
+            "a configured drop is not a harness fault, and latching degraded here would \
+             route every assertion in the run to SKIP"
         );
     }
 
@@ -1847,7 +1851,8 @@ mod tests {
         assert!(claims_drop(u32::MAX, &dropped), "at the edge");
         assert!(
             claims_drop(u32::MAX, &dropped),
-            "u32::MAX means ALWAYS, not 4.29 billion times: past the edge the budget              comparison alone would answer false and the endpoint would recover"
+            "u32::MAX means ALWAYS, not 4.29 billion times: past the edge the budget \
+             comparison alone would answer false and the endpoint would recover"
         );
     }
 
@@ -2124,7 +2129,8 @@ mod tests {
         );
         assert!(
             !proxy.records()[0].response_recorded,
-            "nothing was recorded, and an empty recording would look like a genuine empty \n             answer"
+            "nothing was recorded, and an empty recording would look like a genuine empty \
+             answer"
         );
     }
 
@@ -2214,19 +2220,22 @@ mod tests {
         assert_eq!(
             r.status().as_u16(),
             hyper::StatusCode::FOUND.as_u16(),
-            "the upstream answered 302 and the client must see 302, not the status of a hop              the proxy took on its behalf"
+            "the upstream answered 302 and the client must see 302, not the status of a hop \
+             the proxy took on its behalf"
         );
         assert_eq!(
             r.headers()
                 .get(hyper::header::LOCATION)
                 .and_then(|v| v.to_str().ok()),
             Some(REDIRECT_TARGET),
-            "and with the Location it was given: a redirect stripped of its target is not a              verbatim relay either"
+            "and with the Location it was given: a redirect stripped of its target is not a \
+             verbatim relay either"
         );
         assert_eq!(
             seen.load(std::sync::atomic::Ordering::SeqCst),
             1,
-            "the far end must have been reached ONCE — a second request is the hop the proxy              is not allowed to take"
+            "the far end must have been reached ONCE — a second request is the hop the proxy \
+             is not allowed to take"
         );
         assert_eq!(
             proxy.records()[0].response_status,
@@ -2271,7 +2280,8 @@ mod tests {
         assert_eq!(
             proxy.records()[0].response_status,
             RELAY_BUILD_FAILED_STATUS.as_u16(),
-            "and the record must say the same thing the client was told, not the status of an              exchange that was never relayed"
+            "and the record must say the same thing the client was told, not the status of an \
+             exchange that was never relayed"
         );
     }
 

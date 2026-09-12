@@ -1052,7 +1052,9 @@ impl WarnOnce<'_> {
             // warn-once-exempt: this is the gate's own rendering, reached only through warn_once
             Self::InertGuard { candidates } => tracing::warn!(
                 candidates = candidates,
-                "strict_context_guard is on and no fallback candidate has a measured context                  window, so every candidate is filtered out and rotation cannot fire; declare a                  probe for the candidates or turn the guard off"
+                "strict_context_guard is on and no fallback candidate has a measured context \
+                 window, so every candidate is filtered out and rotation cannot fire; declare a \
+                 probe for the candidates or turn the guard off"
             ),
             // DELEGATES rather than reimplementing. Inlining the body here rewrote its two
             // messages from memory: the field names came out different and the SECOND
@@ -3500,7 +3502,8 @@ mod tests {
                 ),
                 ModelOutcome::ExternalFailure { .. } => assert!(
                     RotationKind::ExternalFailure.is_mage_local(),
-                    "this crate cannot know what a third-party backend's failure implies for                      the lineages the other seats are using"
+                    "this crate cannot know what a third-party backend's failure implies for \
+                     the lineages the other seats are using"
                 ),
                 other => panic!("{rendered} produced no scoped outcome: {other:?}"),
             }
@@ -3914,7 +3917,8 @@ mod tests {
             .count();
         assert_eq!(
             guard_lines, 1,
-            "asked three times, said once: the condition it names cannot be fixed mid-run, so              a second telling describes a state that provably has not changed"
+            "asked three times, said once: the condition it names cannot be fixed mid-run, so \
+             a second telling describes a state that provably has not changed"
         );
 
         // A DIFFERENT warning still gets its turn. One bit per variant is the whole reason
@@ -7946,7 +7950,9 @@ mod tests {",
         let sites = prod.matches("tokio::time::timeout(timeout,").count();
         assert_eq!(
             all, sites,
-            "a `tokio::time::timeout(` this guard does not recognise was added: it counts by an              exact spelling, so an unrecognised one would be invisible to the check below rather              than failing it. Either use the `(timeout,` form or teach this test the new one"
+            "a `tokio::time::timeout(` this guard does not recognise was added: it counts by an \
+             exact spelling, so an unrecognised one would be invisible to the check below rather \
+             than failing it. Either use the `(timeout,` form or teach this test the new one"
         );
         // Without this the test is VACUOUS if the cut lands early — a `#[cfg(test)]` over any
         // production helper is enough — because `0 == 0` passes. A test reporting success having

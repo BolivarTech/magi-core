@@ -2610,7 +2610,8 @@ mod tests {
         // it does not promise that what survived is enough to pass the filter.
         assert!(
             !window_ok(cap.window, MIN, true),
-            "an unmeasured window is still filtered out; R-6 keeps data, it does not admit              candidates"
+            "an unmeasured window is still filtered out; the fix keeps data, it does not admit \
+             candidates"
         );
     }
 
