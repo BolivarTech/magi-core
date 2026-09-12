@@ -1781,7 +1781,15 @@ impl Magi {
         // Optimizing that out-of-scope multi-host case is deliberately not done here.
         for (name, handle) in handles {
             match handle.await {
-                Ok((result, agent_rotation, was_retried, failures, records, degenerate_pool)) => {
+                Ok(dispatch) => {
+                    let RotatingDispatch {
+                        output: result,
+                        rotation: agent_rotation,
+                        was_retried,
+                        extraction_failures: failures,
+                        completions: records,
+                        degenerate_pool,
+                    } = dispatch;
                     rotations.insert(name, agent_rotation);
                     extraction_failures.insert(name, failures);
                     completions.insert(name, records);
@@ -2788,6 +2796,28 @@ pub(crate) async fn resolve_abnormal_exit(
     decision
 }
 
+/// The outcome of dispatching one agent through the rotation state machine.
+///
+/// Returned by [`dispatch_one_agent_rotating`] to the join loop, which reads
+/// every field once the seat's task resolves.
+pub(crate) struct RotatingDispatch {
+    /// The agent's final output, or the error string reported for the seat.
+    pub(crate) output: Result<AgentOutput, String>,
+    /// The seat's real rotation chain (empty when it never rotated).
+    pub(crate) rotation: AgentRotation,
+    /// Whether the seat's corrective retry ran on any attempt.
+    pub(crate) was_retried: bool,
+    /// Extraction failures recorded across every attempt on this seat, in order.
+    pub(crate) extraction_failures: Vec<ExtractionFailure>,
+    /// Completion records recorded across every attempt on this seat, in order.
+    pub(crate) completions: Vec<CompletionRecord>,
+    /// [`AgentRotationState::degenerate_pool`], read here because this task holds
+    /// the state where it receives `claim_next`'s `None`, and carried out because
+    /// the one-shot gate that names it lives on `Magi`, which a spawned task does
+    /// not hold.
+    pub(crate) degenerate_pool: bool,
+}
+
 /// Dispatch a single agent through the rotation state machine.
 ///
 /// Runs the agent's primary model, then — on a **transport** failure (condemned
@@ -2800,12 +2830,7 @@ pub(crate) async fn resolve_abnormal_exit(
 /// (the mage keeps its lineage); a normal failure explicitly `release`s then
 /// `mark_released`; a panic/cancellation relies on the guard's `Drop`.
 ///
-/// Returns `(Result<AgentOutput, String>, AgentRotation, was_retried, failures,
-/// records, degenerate_pool)` — the per-agent output plus its real rotation chain
-/// (empty when it never rotated). The last element is
-/// [`AgentRotationState::degenerate_pool`], read here because this task holds the
-/// state where it receives `claim_next`'s `None`, and carried out because the one-shot
-/// gate that names it lives on `Magi`, which a spawned task does not hold.
+/// Returns a [`RotatingDispatch`] — see its fields for what each one carries.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_one_agent_rotating(
     agent: Agent,
@@ -2821,14 +2846,7 @@ pub(crate) async fn dispatch_one_agent_rotating(
     capabilities: Arc<BTreeMap<String, ModelCapability>>,
     strict_context_guard: bool,
     min_window_tokens: usize,
-) -> (
-    Result<AgentOutput, String>,
-    AgentRotation,
-    bool,
-    Vec<ExtractionFailure>,
-    Vec<CompletionRecord>,
-    bool,
-) {
+) -> RotatingDispatch {
     let agent_name = agent.name();
     let mut guard = AgentSlotGuard::new(Arc::clone(&registry), agent_name);
 
@@ -2880,26 +2898,26 @@ pub(crate) async fn dispatch_one_agent_rotating(
                     .and_then(|c| c.window)
                     .is_none();
                 guard.mark_succeeded();
-                return (
-                    Ok(output),
-                    state.to_rotation(),
+                return RotatingDispatch {
+                    output: Ok(output),
+                    rotation: state.to_rotation(),
                     was_retried,
-                    failures,
-                    records,
-                    state.degenerate_pool(),
-                );
+                    extraction_failures: failures,
+                    completions: records,
+                    degenerate_pool: state.degenerate_pool(),
+                };
             }
             ModelOutcome::Unexpected(detail) => {
                 registry.release(agent_name).await;
                 guard.mark_released();
-                return (
-                    Err(detail),
-                    state.to_rotation(),
+                return RotatingDispatch {
+                    output: Err(detail),
+                    rotation: state.to_rotation(),
                     was_retried,
-                    failures,
-                    records,
-                    state.degenerate_pool(),
-                );
+                    extraction_failures: failures,
+                    completions: records,
+                    degenerate_pool: state.degenerate_pool(),
+                };
             }
             ModelOutcome::MageLocal { detail, kind } => {
                 // Mage-local, exactly like `Schema`: this seat gives up on this lineage and the
@@ -2933,8 +2951,8 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // a blank seat would be worse than a named one. `joined_before_abort` is empty HERE
                 // because this task cannot know it — the abort path fills it from the map the
                 // join loop already holds.
-                return (
-                    Err(MagiError::CrateDefect {
+                return RotatingDispatch {
+                    output: Err(MagiError::CrateDefect {
                         observation,
                         hypothesis,
                         agent: agent_name,
@@ -2942,12 +2960,12 @@ pub(crate) async fn dispatch_one_agent_rotating(
                         joined_before_abort: Vec::new(),
                     }
                     .to_string()),
-                    state.to_rotation(),
+                    rotation: state.to_rotation(),
                     was_retried,
-                    failures,
-                    records,
-                    state.degenerate_pool(),
-                );
+                    extraction_failures: failures,
+                    completions: records,
+                    degenerate_pool: state.degenerate_pool(),
+                };
             }
             ModelOutcome::OversizedResponse { limit } => {
                 // Mage-local, exactly like `Schema`: this seat will not retry this lineage, and
@@ -3034,14 +3052,14 @@ pub(crate) async fn dispatch_one_agent_rotating(
                 // Needed to rotate but found no eligible candidate.
                 registry.release(agent_name).await;
                 guard.mark_released();
-                return (
-                    Err(format!("no_fitting_candidate: {detail}")),
-                    state.to_rotation(),
+                return RotatingDispatch {
+                    output: Err(format!("no_fitting_candidate: {detail}")),
+                    rotation: state.to_rotation(),
                     was_retried,
-                    failures,
-                    records,
-                    state.degenerate_pool(),
-                );
+                    extraction_failures: failures,
+                    completions: records,
+                    degenerate_pool: state.degenerate_pool(),
+                };
             }
         }
     }
@@ -7593,29 +7611,35 @@ mod tests {
             .max_rotations(2)
             .build();
 
-        let (result, rotation, _retried, _failures, _records, _degenerate) =
-            dispatch_one_agent_rotating(
-                agent,
-                "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
-                    .to_string(),
-                CompletionConfig::default(),
-                Arc::new(Validator::new()),
-                Duration::from_secs(30),
-                true,
-                Arc::clone(&registry),
-                Arc::new(RotationConfig {
-                    primary_lineages: BTreeMap::new(),
-                    primary_probes: BTreeMap::new(),
-                    pool,
-                    strict_context_guard: false,
-                }),
-                Lineage::new("deepseek"),
-                "deepseek".to_string(),
-                Arc::new(BTreeMap::new()),
-                false,
-                0,
-            )
-            .await;
+        let RotatingDispatch {
+            output: result,
+            rotation,
+            was_retried: _retried,
+            extraction_failures: _failures,
+            completions: _records,
+            degenerate_pool: _degenerate,
+        } = dispatch_one_agent_rotating(
+            agent,
+            "MODE: code-review\n---BEGIN USER CONTEXT n---\nx\n---END USER CONTEXT n---"
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
 
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
@@ -7679,32 +7703,38 @@ mod tests {
             .push(Arc::clone(&fallback), Lineage::new("zhipu"))
             .max_rotations(2)
             .build();
-        let (result, _rotation, _retried, _failures, _records, _degenerate) =
-            dispatch_one_agent_rotating(
-                Agent::new(AgentName::Caspar, primary),
-                "MODE: code-review
+        let RotatingDispatch {
+            output: result,
+            rotation: _rotation,
+            was_retried: _retried,
+            extraction_failures: _failures,
+            completions: _records,
+            degenerate_pool: _degenerate,
+        } = dispatch_one_agent_rotating(
+            Agent::new(AgentName::Caspar, primary),
+            "MODE: code-review
 ---BEGIN USER CONTEXT n---
 x
 ---END USER CONTEXT n---"
-                    .to_string(),
-                CompletionConfig::default(),
-                Arc::new(Validator::new()),
-                Duration::from_secs(30),
-                true,
-                Arc::clone(&registry),
-                Arc::new(RotationConfig {
-                    primary_lineages: BTreeMap::new(),
-                    primary_probes: BTreeMap::new(),
-                    pool,
-                    strict_context_guard: false,
-                }),
-                Lineage::new("deepseek"),
-                "deepseek".to_string(),
-                Arc::new(BTreeMap::new()),
-                false,
-                0,
-            )
-            .await;
+                .to_string(),
+            CompletionConfig::default(),
+            Arc::new(Validator::new()),
+            Duration::from_secs(30),
+            true,
+            Arc::clone(&registry),
+            Arc::new(RotationConfig {
+                primary_lineages: BTreeMap::new(),
+                primary_probes: BTreeMap::new(),
+                pool,
+                strict_context_guard: false,
+            }),
+            Lineage::new("deepseek"),
+            "deepseek".to_string(),
+            Arc::new(BTreeMap::new()),
+            false,
+            0,
+        )
+        .await;
         assert!(result.is_ok(), "the seat rotated and recovered: {result:?}");
 
         // The classifier's decision, read from where it is made. Asserted directly as
