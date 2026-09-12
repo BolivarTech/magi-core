@@ -198,6 +198,24 @@ fn short() {
 EOF
     expect_reject "$tmp/bare" "[direct-warn]" "bare warn!"
 
+    # 5b. The `{ }` delimiter form is valid, rustfmt-preserved Rust and must be caught too.
+    mkdir -p "$tmp/braced"; skeleton "$tmp/braced/a.rs"
+    cat >> "$tmp/braced/a.rs" <<'EOF'
+fn braced() {
+    tracing::warn!{"braced spelling"};
+}
+EOF
+    expect_reject "$tmp/braced" "[direct-warn]" "braced warn!"
+
+    # 5c. So is the `[ ]` delimiter form.
+    mkdir -p "$tmp/bracketed"; skeleton "$tmp/bracketed/a.rs"
+    cat >> "$tmp/bracketed/a.rs" <<'EOF'
+fn bracketed() {
+    tracing::warn!["bracketed spelling"];
+}
+EOF
+    expect_reject "$tmp/bracketed" "[direct-warn]" "bracketed warn!"
+
     # 6. A module that does NOT use the gate is out of scope: its warnings are per-event by
     #    design and the rule does not reach them. Prose naming the macro is not a hit either.
     mkdir -p "$tmp/scope"; skeleton "$tmp/scope/a.rs"
