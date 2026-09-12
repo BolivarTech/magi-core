@@ -15,7 +15,8 @@
 # ## The rule
 #
 # In every module that CALLS `warn_once` -- discovered by grep, never listed, so a second
-# module adopting the gate is covered the day it does -- a direct `warn!(` invocation is
+# module adopting the gate is covered the day it does -- a direct `warn!` invocation, in any
+# of its three rustfmt-preserved delimiter forms (`warn!(..)`, `warn![..]`, `warn!{..}`), is
 # rejected unless the line immediately before it carries the exemption marker
 #
 #     // warn-once-exempt: <reason>
@@ -27,9 +28,10 @@
 # ## What it does not see
 #
 # This is a grep, with the fragility this project already knows from `check_redaction.sh`. It
-# looks for the macro NAME followed by `(`; a `warn!` reached through an alias, a wrapper
-# macro, or `tracing::event!(Level::WARN, ..)` is invisible to it. Named here rather than
-# left implied: a guard that looks wider than it is reads as coverage that does not exist.
+# looks for the macro NAME followed by one of its three opening delimiters; a `warn!` reached
+# through an alias, a wrapper macro, or `tracing::event!(Level::WARN, ..)` is invisible to it.
+# Named here rather than left implied: a guard that looks wider than it is reads as coverage
+# that does not exist.
 #
 # ## Discipline inherited from the siblings
 #
@@ -86,7 +88,7 @@ scan() {
     rc=0
     for module in $modules; do
         # Line numbers of every non-comment line invoking the macro.
-        hits="$(grep -nE '(^|[^A-Za-z0-9_])warn!\(' "$module" | grep -vE '^[0-9]+:[[:space:]]*//' | cut -d: -f1 || true)"
+        hits="$(grep -nE '(^|[^A-Za-z0-9_])warn![[:space:]]*[(\[{]' "$module" | grep -vE '^[0-9]+:[[:space:]]*//' | cut -d: -f1 || true)"
         for line in $hits; do
             prev=$((line - 1))
             before="$(sed -n "${prev}p" "$module")"
