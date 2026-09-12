@@ -4586,11 +4586,12 @@ mod tests {
             .expect("builds");
 
         let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
-        let after_first = log
+        let first_run_lines: Vec<String> = log
             .lines()
-            .iter()
+            .into_iter()
             .filter(|l| l.contains("strict_context_guard"))
-            .count();
+            .collect();
+        let after_first = first_run_lines.len();
         let _ = magi.analyze(&Mode::CodeReview, "fn main() {}").await;
         let after_second = log
             .lines()
@@ -4600,6 +4601,13 @@ mod tests {
 
         assert_eq!(after_first, 1, "the first run must say it");
         assert_eq!(after_second, 1, "the second run must not say it again");
+        assert!(
+            first_run_lines.iter().any(|l| l.contains("context window")),
+            "the operator-facing text must read \"context window\" as two words \
+             separated by a single space, not a run of spaces left by a lost \
+             line-continuation escape: {:?}",
+            first_run_lines
+        );
     }
 
     /// Rotation switched off by configuration is not the reported foot-gun. The pool never
