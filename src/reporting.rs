@@ -324,13 +324,26 @@ pub struct MagiReport {
     /// (e.g., `"parse: no valid JSON"`, `"validation: confidence out of range"`).
     pub failed_agents: BTreeMap<AgentName, String>,
     /// Agents whose first attempt failed schema/parse validation and that
-    /// were retried once. Included in JSON only if non-empty.
+    /// were retried at least once on some model. Included in JSON only if
+    /// non-empty.
     ///
-    /// Composes with `failed_agents` for two derived cohorts:
-    /// - `retried_agents - failed_agents.keys()` → "retry recovered"
-    /// - `retried_agents ∩ failed_agents.keys()` → "retry also failed"
+    /// **This flag predates per-agent rotation** (v2.1.0) — it was added for
+    /// Python parity with `run_magi.py:485, 631-632` (v2.2.0 telemetry),
+    /// from before a retry and a model change were two different events. It
+    /// is set once per agent and never reset across models, so on its own it
+    /// only means "this agent was retried on some model at some point" — it
+    /// does not say the retry is what produced the agent's eventual output.
     ///
-    /// Python parity: `run_magi.py:485, 631-632` (v2.2.0 telemetry).
+    /// It used to compose with `failed_agents` for two derived cohorts, and
+    /// one of them no longer holds now that agents can rotate:
+    /// - `retried_agents - failed_agents.keys()` does **not** mean the retry
+    ///   recovered anything: an agent whose retry failed on its original
+    ///   model and then rotated to a different model and succeeded ends up
+    ///   in this set too. Check `rotations` — its `chain` is non-empty
+    ///   exactly when the agent rotated — to see what actually happened.
+    /// - `retried_agents ∩ failed_agents.keys()` still means "retry also
+    ///   failed": an agent in both sets never produced a usable output, on
+    ///   the retried model or on any rotation target.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub retried_agents: BTreeSet<AgentName>,
 
