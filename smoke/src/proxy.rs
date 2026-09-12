@@ -1494,12 +1494,6 @@ impl SpyProxy {
     }
 }
 
-/// Whether a raw request body names `model` in its top-level `"model"` field.
-///
-/// A body that fails to parse as JSON, or that has no `model` field, is
-/// treated as a non-match rather than an error: a malformed body is the
-/// SUT's problem to surface, not the proxy's business to reject, and
-/// `injected_response` already forwards a `None` as "no injection applies".
 /// Whether this connection is claimed by a drop budget, spending one unit if so.
 ///
 /// **Extracted so its boundary can be ASSERTED.** Driven through requests, the
@@ -1535,6 +1529,12 @@ fn claims_drop(drop_first_n: u32, dropped: &AtomicU32) -> bool {
         .is_ok()
 }
 
+/// Whether a raw request body names `model` in its top-level `"model"` field.
+///
+/// A body that fails to parse as JSON, or that has no `model` field, is
+/// treated as a non-match rather than an error: a malformed body is the
+/// SUT's problem to surface, not the proxy's business to reject, and
+/// `injected_response` already forwards a `None` as "no injection applies".
 fn names_model(body_text: &str, model: &str) -> bool {
     model_of(body_text).is_some_and(|m| m == model)
 }
