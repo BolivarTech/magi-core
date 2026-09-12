@@ -1084,6 +1084,14 @@ impl WarnOnce<'_> {
 // 3.0.1's `fit_content`. A const assert makes it a compile error instead.
 const _: () = assert!(WarnOnce::COUNT <= 32);
 
+/// The mask bit for warning index `shift`, or `None` if it does not fit a `u32` mask.
+///
+/// A free function rather than inline arithmetic in [`Magi::warn_once`] so its boundary can
+/// be pinned by a test without adding a throwaway 33rd `WarnOnce` variant just to reach it.
+fn warn_bit_mask(shift: u32) -> Option<u32> {
+    1u32.checked_shl(shift)
+}
+
 /// The message an agent-timeout cut reports, naming the CONFIGURED ceiling.
 ///
 /// # It names the ceiling as the ceiling, and does NOT pretend to a measurement
@@ -1200,15 +1208,28 @@ impl Magi {
     /// between distinct warnings, and it is what the two `AtomicBool`s this replaces used.
     /// `fetch_or` returns the mask BEFORE the write, so exactly one caller sees the bit
     /// clear however many arrive together.
+    ///
+    /// The `1u32 << which.bit()` this used to compute inline is undefined in release for a
+    /// shift of 32 or more, which is exactly what a 33rd variant added without bumping
+    /// `WarnOnce::COUNT` would produce -- the const assert on `COUNT` guards the enum's
+    /// size, not this arithmetic, so a drift between them would not be caught here. Going
+    /// through [`warn_bit_mask`] makes the failure loud instead of silent: on `None` the
+    /// warning is emitted UNCONDITIONALLY rather than swallowed, because a warning printed
+    /// on every call is a nuisance and one dropped on the floor is the defect this exists
+    /// to prevent.
     pub(crate) fn warn_once(&self, which: WarnOnce<'_>) {
-        let bit = 1u32 << which.bit();
-        if self
-            .warned
-            .fetch_or(bit, std::sync::atomic::Ordering::Relaxed)
-            & bit
-            == 0
-        {
-            which.emit();
+        match warn_bit_mask(which.bit()) {
+            Some(bit) => {
+                if self
+                    .warned
+                    .fetch_or(bit, std::sync::atomic::Ordering::Relaxed)
+                    & bit
+                    == 0
+                {
+                    which.emit();
+                }
+            }
+            None => which.emit(),
         }
     }
 
@@ -4408,6 +4429,22 @@ mod tests {
 
         assert_eq!(after_first, 1, "the shared digest must be named once");
         assert_eq!(after_second, 1, "and not repeated on the next call");
+    }
+
+    /// `warn_bit_mask` returns `None` exactly at the boundary a hand-maintained `COUNT`
+    /// could silently miss: a 31-bit shift is the last one a `u32` mask holds, and a 32-bit
+    /// shift is undefined behaviour for `1u32 << shift`. Pinned as a free function so the
+    /// boundary is testable without adding a throwaway 33rd `WarnOnce` variant just to
+    /// reach it.
+    #[test]
+    fn warn_bit_mask_returns_none_at_the_32_bit_boundary() {
+        assert_eq!(warn_bit_mask(0), Some(1u32));
+        assert_eq!(warn_bit_mask(31), Some(1u32 << 31));
+        assert_eq!(
+            warn_bit_mask(32),
+            None,
+            "a shift of 32 is out of range for a u32 mask"
+        );
     }
 
     /// A trio whose Caspar must rotate (schema failure on both attempts) into `pool`, with
