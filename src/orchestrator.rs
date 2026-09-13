@@ -6228,12 +6228,17 @@ mod tests {
         assert!(parse_and_validate(&raw, &Validator::new()).is_ok());
     }
 
-    /// The cause→variant mapping, PINNED for ALL SEVEN causes.
+    /// The cause→variant mapping, PINNED for ALL EIGHT causes.
     ///
     /// Tested against `magi_error_for` directly rather than through the parser: three of
-    /// the seven are produced by later stages, so routing every case through the parser
+    /// the eight are produced by later stages, so routing every case through the parser
     /// would leave the table partial — and a PARTIAL table is how the mapping's one
     /// discriminating line (Deserialization vs Validation) goes untested.
+    ///
+    /// This table is a local array, so an exhaustive `match` in `magi_error_for` does
+    /// not force it to grow: a new cause must be added here BY HAND, or its side of the
+    /// line goes unpinned. `MalformedObject` is the tempting mistake — it reads like the
+    /// three validation causes, yet no `AgentOutput` was ever obtained.
     #[test]
     fn test_every_cause_maps_to_the_pinned_error_variant() {
         use ExtractionFailureCause::*;
@@ -6244,6 +6249,7 @@ mod tests {
             (Unterminated, false),
             (Ambiguous, false),
             (InvalidJson, false),
+            (MalformedObject, false),
             (Schema, true),
             (EchoedExample, true),
             (AgentIdentity, true),
@@ -6272,13 +6278,13 @@ mod tests {
         ));
     }
 
-    /// Keeps the mapping function honest against what the parser actually emits — the
-    /// three parser-reachable causes carry their pinned variant end to end.
+    /// Keeps the mapping function honest against what the parser actually emits —
+    /// four parser-reachable causes carry their pinned variant end to end.
     #[test]
     fn test_parser_reachable_causes_carry_their_pinned_variant_end_to_end() {
         let open = crate::verdict_markers::VERDICT_OPEN;
         let close = crate::verdict_markers::VERDICT_CLOSE;
-        let cases: [(String, ExtractionFailureCause); 3] = [
+        let cases: [(String, ExtractionFailureCause); 4] = [
             ("sin markers".into(), ExtractionFailureCause::MissingMarkers),
             (
                 format!("{open}\n{{}}"),
@@ -6287,6 +6293,10 @@ mod tests {
             (
                 format!("{open}\nno json at all\n{close}"),
                 ExtractionFailureCause::InvalidJson,
+            ),
+            (
+                format!("{open}\n{{}}\n{close}"),
+                ExtractionFailureCause::MalformedObject,
             ),
         ];
         for (raw, cause) in cases {
@@ -6334,6 +6344,65 @@ mod tests {
         let f = parse_and_validate(&raw, &Validator::new()).unwrap_err();
         assert_eq!(f.cause, ExtractionFailureCause::Schema);
         assert!(matches!(f.error, MagiError::Validation(_)));
+    }
+
+    /// Wraps a body in the markers, each alone on its own line — the only way
+    /// `parse_agent_response` reaches `serde_json` at all. A bare body stops at
+    /// delimitation with `MissingMarkers` and would test the sentinel, not the parser.
+    fn wrapped(body: &str) -> String {
+        format!(
+            "{}\n{body}\n{}",
+            crate::verdict_markers::VERDICT_OPEN,
+            crate::verdict_markers::VERDICT_CLOSE
+        )
+    }
+
+    /// Syntactically valid JSON with a required key missing is a `MalformedObject`: the
+    /// text parsed, so telling the model it was "not parseable JSON" is advice for a
+    /// defect it did not commit, and the failure record would blame the wrong thing.
+    #[test]
+    fn a_missing_key_is_a_malformed_object() {
+        let block = wrapped(r#"{"agent":"melchior","verdict":"approve","confidence":0.9}"#);
+        let err = parse_agent_response(&block).unwrap_err();
+        assert_eq!(err.cause, ExtractionFailureCause::MalformedObject);
+    }
+
+    /// The other shape `serde_json::error::Category::Data` covers: every key present, one
+    /// value of the wrong type. It reaches the same cause, which is why the corrective
+    /// template must speak of types and not only of missing keys.
+    #[test]
+    fn a_wrong_type_is_also_malformed_object_not_invalid_json() {
+        let block = wrapped(
+            r#"{"agent":"melchior","verdict":"approve","confidence":"high",
+                    "summary":"s","reasoning":"r","findings":[],"recommendation":"x"}"#,
+        );
+        let err = parse_agent_response(&block).unwrap_err();
+        assert_eq!(err.cause, ExtractionFailureCause::MalformedObject);
+    }
+
+    /// Broken syntax and JSON that ends early stay `InvalidJson`. Neither is
+    /// `Unterminated`: both markers were present, so the model did not cut — it emitted
+    /// a malformed text and then closed the block. Folding an early end into the
+    /// truncation cause would blur the telemetry that decides which model leaves the
+    /// pool.
+    ///
+    /// `Category::Io` carries no case: it is unreachable through `from_str`, where no
+    /// reader can fail, and fabricating an entry point to reach it would be surface
+    /// without a consumer. It is a declared gap, not an oversight.
+    #[test]
+    fn broken_syntax_and_truncated_json_stay_invalid_json() {
+        assert_eq!(
+            parse_agent_response(&wrapped("{not json"))
+                .unwrap_err()
+                .cause,
+            ExtractionFailureCause::InvalidJson
+        );
+        assert_eq!(
+            parse_agent_response(&wrapped(r#"{"agent":"melchior""#))
+                .unwrap_err()
+                .cause,
+            ExtractionFailureCause::InvalidJson
+        );
     }
 
     /// Builds a marker-delimited response whose `summary`/`recommendation` are the

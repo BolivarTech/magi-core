@@ -237,6 +237,15 @@ pub enum ExtractionFailureCause {
     Ambiguous,
     /// The delimited block is not valid JSON.
     InvalidJson,
+    /// The delimited block is valid JSON but not a verdict object: a required key is
+    /// missing, or a value is not of the type its key demands.
+    ///
+    /// Distinct from [`Self::InvalidJson`] on one side — the text parsed — and from
+    /// [`Self::Schema`] on the other: no [`crate::schema::AgentOutput`] was ever
+    /// obtained, so the validator never saw it. The corrective feedback differs for each
+    /// of the three, and the record of which model produced the failure must not blur
+    /// them.
+    MalformedObject,
     /// The object parsed but the validator rejected it.
     Schema,
     /// The output reproduces the worked example from the instructions.
@@ -809,6 +818,19 @@ mod tests {
     fn test_cause_serializes_as_kebab_case() {
         let json = serde_json::to_string(&ExtractionFailureCause::MissingMarkers).unwrap();
         assert_eq!(json, "\"missing-markers\"");
+    }
+
+    /// `#[serde(rename_all)]` freezes the tag the moment a report carrying it ships, so
+    /// the new variant gets its own literal pin beside its sibling above: the sibling
+    /// proves the casing rule for one variant, not for a name that did not exist when it
+    /// was written.
+    #[test]
+    fn the_new_cause_serializes_with_the_casing_frozen_at_tag_time() {
+        let json = serde_json::to_string(&ExtractionFailureCause::MalformedObject).unwrap();
+        assert_eq!(
+            json, "\"malformed-object\"",
+            "kebab-case, asserted literally"
+        );
     }
 
     #[test]

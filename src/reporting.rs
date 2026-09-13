@@ -3658,4 +3658,19 @@ mod tests {
         let back: MagiReport = serde_json::from_value(doc).expect("parses without the field");
         assert!(back.completions.is_empty());
     }
+
+    /// The label of the new cause is user-visible output in `## Extraction Failures`.
+    ///
+    /// An exhaustive `match` guarantees that an arm EXISTS for the variant, never that
+    /// its text is the right one: an arm returning `""` or `"schema mismatch"` compiles
+    /// just the same. This test guards the CONTENT, which is the only thing separating
+    /// the new cause from its two neighbours, "invalid JSON" and "schema mismatch", in
+    /// what an operator reads.
+    #[test]
+    fn the_new_cause_has_its_own_label() {
+        assert_eq!(
+            cause_label(ExtractionFailureCause::MalformedObject),
+            "malformed object"
+        );
+    }
 }

@@ -1160,7 +1160,7 @@ mod tests {
     /// The instruction is selected PER CAUSE. Before the sentinel there was one generic
     /// paragraph, and its last sentence ("do not emit anything outside the JSON object")
     /// now contradicts the sentinel outright: the model MUST emit the marker lines and
-    /// MAY reason freely outside them. A single template cannot be right for all seven
+    /// MAY reason freely outside them. A single template cannot be right for all eight
     /// failures, and the reader is a weak model that already failed once.
     #[test]
     fn test_each_cause_yields_a_distinct_instruction() {
@@ -1170,6 +1170,7 @@ mod tests {
             Unterminated,
             Ambiguous,
             InvalidJson,
+            MalformedObject,
             Schema,
             EchoedExample,
             AgentIdentity,
@@ -1578,6 +1579,7 @@ mod tests {
         for cause in [
             ExtractionFailureCause::Ambiguous,
             ExtractionFailureCause::InvalidJson,
+            ExtractionFailureCause::MalformedObject,
             ExtractionFailureCause::Schema,
             ExtractionFailureCause::EchoedExample,
             ExtractionFailureCause::AgentIdentity,
@@ -1588,5 +1590,27 @@ mod tests {
                 "{cause:?} must not vary with the termination reason"
             );
         }
+    }
+
+    #[test]
+    fn the_malformed_object_cause_reaches_the_schema_template() {
+        // The model's JSON parsed. Telling it "not parseable JSON" -- the `InvalidJson`
+        // advice, "emit ONLY the JSON object" -- is feedback for a defect it did not
+        // commit; what it needs is the instruction that enumerates the seven keys.
+        let template = retry_template(ExtractionFailureCause::MalformedObject, None);
+        assert!(
+            template.contains("ALL SEVEN top-level keys"),
+            "the model's JSON parsed; telling it 'not parseable JSON' is advice for \
+             another defect: {template}"
+        );
+        // `serde_json::error::Category::Data` also covers a value of the wrong TYPE, so a
+        // template that speaks only of a missing key gives false advice in half the cases
+        // it serves. The word is asserted, not the sentence: the exact wording may be
+        // rewritten without breaking this pin.
+        assert!(
+            template.contains("type"),
+            "Data covers a wrong type too; a template that names only the missing key \
+             gives false advice for half the cases it serves: {template}"
+        );
     }
 }
