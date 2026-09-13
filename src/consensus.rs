@@ -1011,6 +1011,52 @@ mod tests {
         assert!(result.findings[0].sources.contains(&AgentName::Balthasar));
     }
 
+    /// R-22: an agent that reports two findings deduping into the same group
+    /// must appear once in `sources`, not once per contributing finding.
+    /// Before the fix, `state.sources.push(agent.agent)` ran unconditionally
+    /// on every match against an existing group, so this fixture produced
+    /// `[Melchior, Melchior]`.
+    #[test]
+    fn test_merged_finding_sources_do_not_repeat_the_same_agent() {
+        let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m.findings
+            .push(Finding::new(Severity::Warning, "Repeated Title", "first"));
+        m.findings
+            .push(Finding::new(Severity::Critical, "repeated title", "second"));
+        let out = ConsensusEngine::default().deduplicate_findings(&[m]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].sources, vec![AgentName::Melchior]);
+    }
+
+    /// R-22: `sources` preserves first-appearance order, and a duplicate must
+    /// be dropped even when it is NOT adjacent to its first occurrence. The
+    /// sequence is deliberately `[Melchior, Balthasar, Melchior]`: an
+    /// adjacent-only fix (`Vec::dedup_by`) leaves it untouched at three
+    /// elements, and a `HashSet` round-trip drops the duplicate but does not
+    /// guarantee this order. Only "remember what was already seen" satisfies
+    /// both.
+    #[test]
+    fn test_merged_finding_sources_preserve_first_appearance_order_across_a_nonadjacent_duplicate()
+    {
+        let mut m1 = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m1.findings
+            .push(Finding::new(Severity::Warning, "Shared Title", "d1"));
+        let mut b = make_output(AgentName::Balthasar, Verdict::Approve, 0.9);
+        b.findings
+            .push(Finding::new(Severity::Warning, "Shared Title", "d2"));
+        let mut m2 = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
+        m2.findings
+            .push(Finding::new(Severity::Warning, "Shared Title", "d3"));
+
+        let out = ConsensusEngine::default().deduplicate_findings(&[m1, b, m2]);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].sources,
+            vec![AgentName::Melchior, AgentName::Balthasar]
+        );
+    }
+
     /// Detail preserved from highest-severity finding.
     #[test]
     fn test_merged_finding_detail_from_highest_severity() {
