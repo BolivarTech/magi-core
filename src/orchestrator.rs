@@ -3088,7 +3088,10 @@ pub(crate) fn magi_error_for(cause: ExtractionFailureCause, message: &str) -> Ma
         ExtractionFailureCause::MissingMarkers
         | ExtractionFailureCause::Unterminated
         | ExtractionFailureCause::Ambiguous
-        | ExtractionFailureCause::InvalidJson => MagiError::Deserialization(message.to_string()),
+        | ExtractionFailureCause::InvalidJson
+        | ExtractionFailureCause::MalformedObject => {
+            MagiError::Deserialization(message.to_string())
+        }
         _ => MagiError::Deserialization(message.to_string()),
     }
 }
@@ -3120,7 +3123,8 @@ impl ParseFailure {
 ///
 /// ```text
 /// raw → verdict_markers::extract → serde_json::from_str::<AgentOutput>
-///       (Err ⇒ typed cause)        (Err ⇒ InvalidJson)
+///       (Err ⇒ typed cause)        (Err ⇒ InvalidJson, or MalformedObject when the
+///                                   text parsed but is not a verdict object)
 /// ```
 ///
 /// # There is no search, and no fast path
@@ -3155,11 +3159,23 @@ fn parse_agent_response(raw: &str) -> Result<AgentOutput, ParseFailure> {
     let block = crate::verdict_markers::extract(raw)
         .map_err(|e| ParseFailure::new(e.cause(), e.to_string()))?;
 
-    serde_json::from_str::<AgentOutput>(block).map_err(|e| {
-        ParseFailure::new(
+    serde_json::from_str::<AgentOutput>(block).map_err(|e| match e.classify() {
+        serde_json::error::Category::Data => ParseFailure::new(
+            ExtractionFailureCause::MalformedObject,
+            format!("the delimited verdict block is valid JSON but not a verdict object: {e}"),
+        ),
+        // `Eof` stays here and NOT under `Unterminated`: that cause means the model was cut
+        // before the closing marker, and such a text never reaches serde -- `extract` has
+        // already rejected it. Reaching this arm means BOTH markers were present, so the
+        // model did not cut; it emitted a malformed text and then closed the block. Folding
+        // the two together would blur the telemetry that decides which model leaves the
+        // pool. `Io` cannot occur with `from_str` and is grouped conservatively.
+        serde_json::error::Category::Syntax
+        | serde_json::error::Category::Eof
+        | serde_json::error::Category::Io => ParseFailure::new(
             ExtractionFailureCause::InvalidJson,
             format!("the delimited verdict block is not valid JSON: {e}"),
-        )
+        ),
     })
 }
 
@@ -6483,8 +6499,9 @@ mod tests {
         let f = parse_validate_and_check(&raw, AgentName::Caspar, &Validator::new()).unwrap_err();
         assert_eq!(
             f.cause,
-            ExtractionFailureCause::InvalidJson,
-            "the name is canonicalized by serde, so a wrong case is invalid JSON"
+            ExtractionFailureCause::MalformedObject,
+            "the name is canonicalized by serde: the text parsed, but a wrong case is not a \
+             variant, so no AgentOutput is obtained"
         );
     }
 

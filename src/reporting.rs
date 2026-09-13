@@ -678,6 +678,7 @@ fn cause_label(cause: ExtractionFailureCause) -> &'static str {
         ExtractionFailureCause::Unterminated => "unterminated block",
         ExtractionFailureCause::Ambiguous => "ambiguous markers",
         ExtractionFailureCause::InvalidJson => "invalid JSON",
+        ExtractionFailureCause::MalformedObject => "malformed object",
         ExtractionFailureCause::Schema => "schema mismatch",
         ExtractionFailureCause::EchoedExample => "echoed example",
         ExtractionFailureCause::AgentIdentity => "agent identity mismatch",

@@ -410,6 +410,13 @@ fn retry_template(cause: ExtractionFailureCause, finish: Option<FinishReason>) -
              prose, no commentary, no trailing text. Any reasoning must go BEFORE the \
              opening marker, where it is allowed and ignored."
         ),
+        ExtractionFailureCause::MalformedObject => "Your JSON object parsed but is not a \
+             verdict object: a required key is missing, or a value is not of the type \
+             its key requires (for example, a string where a number belongs). Include \
+             ALL SEVEN top-level keys, spelled exactly: agent, verdict, confidence, \
+             summary, reasoning, findings, recommendation — and give each one a value \
+             of the type your instructions specify."
+            .to_string(),
         ExtractionFailureCause::Schema => "Your JSON object parsed but was missing a \
              required key or carried an invalid value. Include ALL SEVEN top-level keys, \
              spelled exactly: agent, verdict, confidence, summary, reasoning, findings, \
