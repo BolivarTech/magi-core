@@ -389,6 +389,17 @@ impl ConsensusEngine {
     /// The verdict follows the score alone; `approve_count` and `reject_count`
     /// only render the `(N-M)` split in the label. A score within `epsilon` of
     /// zero is `HOLD -- TIE` with a `Reject` verdict whatever the count says.
+    ///
+    /// # The `epsilon` boundary is `>`, deliberately
+    ///
+    /// At `score == epsilon` exactly, neither `score > epsilon` (false) nor
+    /// `score.abs() < epsilon` (also false) holds, so the case falls through
+    /// to the final `else` and is labelled `HOLD (reject_count-approve_count)`
+    /// with a **positive** score. The comparison stays `>` rather than moving
+    /// to `>=`: widening it would reclassify a score that today lands in
+    /// `HOLD` into `GO`/`GO WITH CAVEATS`, which is an observable change to a
+    /// case nobody reported. This function exists to make the boundary an
+    /// explicit, tested choice rather than to move it.
     fn classify(
         &self,
         score: f64,
@@ -938,6 +949,82 @@ mod tests {
         let result = engine.determine(&agents).unwrap();
         assert_eq!(result.consensus, "HOLD -- TIE");
         assert_eq!(result.consensus_verdict, Verdict::Reject);
+    }
+
+    /// R-23: at `score == epsilon` neither `score > epsilon` nor
+    /// `score.abs() < epsilon` holds, so `classify` falls to its final `else`
+    /// and labels the case `HOLD (reject_count-approve_count)` with a
+    /// POSITIVE score. This is a deliberate, documented boundary, not a bug
+    /// to fix -- the comparison stays `>` (see `classify`'s doc comment).
+    #[test]
+    fn a_score_equal_to_epsilon_classifies_as_hold_deliberately() {
+        // The values are NOT arbitrary. Two Conditional give
+        // score = (0.5 + 0.5) / 2 = 0.5, and 0.5 is EXACTLY representable in
+        // binary -- just like the epsilon. The equality is real, not "almost
+        // equal": it does not depend on two distinct expressions rounding to the
+        // same double. (Approve+Approve+Reject with epsilon = 1/3 also lands
+        // exactly, but it relies on that shared rounding, which is more fragile
+        // for nothing.)
+        let cfg = ConsensusConfig {
+            epsilon: 0.5,
+            ..Default::default()
+        };
+        let result = engine(cfg)
+            .determine(&[
+                agent(AgentName::Melchior, Verdict::Conditional),
+                agent(AgentName::Balthasar, Verdict::Conditional),
+            ])
+            .expect("two agents clear min_agents");
+
+        // score > epsilon is false and score.abs() < epsilon is too: it falls to the else.
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
+        assert!(result.consensus.starts_with("HOLD"));
+
+        // This pins the PRECONDITION of the finding, not an open acceptance: the
+        // acceptance (c) --inverting the label-- was WITHDRAWN by the user on
+        // 2026-09-07, so the REQ closes with (a) and (b). What the positive score
+        // proves is that the case exists and is reachable; that the label reads
+        // oddly with that score is the question that went to the backlog with
+        // its evidence.
+        assert!(
+            result.score > 0.0,
+            "the precondition of the whole complaint"
+        );
+        // THE LABEL IS NUMERIC, it carries no words: `classify` builds
+        // `format!("HOLD ({}-{})", reject_count, approve_count)` (see `classify`),
+        // so with two Conditional and no Reject it renders "HOLD (0-2)".
+        //
+        // THE ORDER IS NOT INVERTED -- user decision, 2026-09-07. The label stays
+        // `("{}-{}", reject_count, approve_count)`, and this test PINS it as is
+        // instead of asking for it to change.
+        //
+        // Why: the order is DOCUMENTED as deliberate in `README.md` -- "the order
+        // flips with the verdict: GO prints (go, no) while HOLD prints (no, go)"
+        // -- i.e. the first number is the side that WON. Inverting it would make
+        // false two documents that travel in the immutable tarball, and the
+        // question of whether that convention is the right one has its own
+        // backlog row.
+        //
+        // The two counts, DECLARED: they are the fixture's -- two Conditional,
+        // which `effective()` counts as Approve, and no Reject.
+        let approve_count = 2;
+        let reject_count = 0;
+
+        // The CURRENT order is asserted, and in both directions: the positive one
+        // pins what the label says, the negative one prevents anyone from
+        // inverting it without going through the backlog decision.
+        assert!(
+            result
+                .consensus
+                .contains(&format!("({reject_count}-{approve_count})")),
+            "HOLD prints (no side, go side): the FIRST number is the reject count"
+        );
+        assert!(
+            !result
+                .consensus
+                .contains(&format!("({approve_count}-{reject_count})")),
+            "inverting the order silently would contradict README.md's documented convention"
+        );
     }
 
     // -- BDD Scenario 4: unanimous reject --

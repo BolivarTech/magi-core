@@ -12,7 +12,7 @@
 #
 # ROW BY ROW, never a bag of tokens: a grep over a flat list lets one row HIDE
 # BEHIND another's token -- `ProviderError::Http` appears for R-3 and would cover
-# R-2. Sixteen independent conditions, each naming the row it failed.
+# R-2. Fifteen independent conditions, each naming the row it failed.
 #
 # SCOPED to the current version's section. Without scoping, the tokens are found
 # in any older entry and the floor passes while THIS version says nothing -- a
@@ -24,7 +24,7 @@
 #
 # WHAT THIS DOES NOT DO, said so the floor is not read as wider than it is: a grep
 # catches the total omission, not a mention that fails to EXPLAIN. That half stays
-# with the person writing the release. And one row of the contract's sixteen is
+# with the person writing the release. And one row of the contract's fifteen is
 # NOT here at all -- R-1's derivation caveat (`register_transport_failure`) is
 # verified by READING, because what it asserts is that a function has a single
 # production caller, which no grep over prose can answer.
@@ -55,10 +55,16 @@ DISCLOSURES = [
     ("R-8  dissent lists other agents", "all", ["ConsensusResult::dissent"]),
     ("R-9  schema failures stop being InvalidJson", "all", ["MalformedObject"]),
     ("R-22 sources stops repeating an agent", "all", ["DedupFinding::sources"]),
-    # Recovered from the contract: the plan's table had thirteen rows and §2 9b has
-    # sixteen. These two were the grep-able ones missing.
-    ("R-23 the HOLD label stops reading as a rejection win",
-     "all", ["ConsensusResult::consensus"]),
+    # R-23 does NOT have a row here. Its finding closed with the comparison
+    # left at `>` and the `HOLD (reject-approve)` label UNCHANGED (MS4 Task 4,
+    # user decision 2026-09-07): inverting the label was withdrawn once it was
+    # measured to be documented as deliberate in two published documents. With
+    # nothing observable changing, there is no silent change to disclose, and a
+    # row demanding `ConsensusResult::consensus` would ask every future
+    # CHANGELOG for a token this release never emits -- the exact
+    # self-disarming shape this floor exists to prevent. Retired here rather
+    # than left dangling; contract §1.1(e) prunes a row the same way whether
+    # its REQ changed nothing observable or its milestone did not land.
     ("R-26 the CLI reports what the backend said",
      "all", ["FinishReason", "completion_tokens"]),
     ("R-32 tests, .github and ci leave the package", "all", ["exclude = ["]),
@@ -109,8 +115,9 @@ DEPRECATED_HEADING = "### Deprecated"
 # Contract §1.1(e): if a milestone does not land, the rows its REQ produce have no
 # entry to be named in, so they come OUT of this list in the same reported decision
 # that drops the milestone. The correspondence row -> milestone is direct: R-1/R-2 are
-# MS1, R-3/R-26 MS2, R-4/R-5/R-6 MS3, R-8/R-9/R-22/R-23 MS4, R-7's deprecations MS5,
-# R-21's deprecation MS6, R-32 MS0. Pruning is mechanical; what is inadmissible is
+# MS1, R-3/R-26 MS2, R-4/R-5/R-6 MS3, R-8/R-9/R-22 MS4, R-7's deprecations MS5,
+# R-21's deprecation MS6, R-32 MS0 (R-23 is MS4 too, but never had a row -- see
+# where it is described above). Pruning is mechanical; what is inadmissible is
 # pruning a row whose REQ DID land.
 APPLIES_TO = "4.1.0"
 
