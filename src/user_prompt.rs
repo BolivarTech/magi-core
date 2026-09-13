@@ -299,7 +299,8 @@ const MAX_ERROR_CHARS: usize = 400;
 ///   (output of [`build_user_prompt`]).
 /// * `error` — Error description from the failed parse/validation.
 /// * `finish` — the termination reason the backend reported for the attempt being retried, when
-///   it reported one. It changes the feedback for exactly one cause; see [`retry_template`].
+///   it reported one. It changes the feedback for two causes, `Unterminated` and
+///   `MissingMarkers`; see [`retry_template`].
 ///
 /// # Returns
 ///
@@ -328,7 +329,8 @@ pub(crate) fn build_retry_prompt(
 /// # Parameters
 ///
 /// * `cause` — the typed reason the previous output was rejected.
-/// * `finish` — why generation ended, when the backend said. Used by exactly one cause.
+/// * `finish` — why generation ended, when the backend said. Used by the two causes matched
+///   below, `Unterminated` and `MissingMarkers`; every other cause ignores it.
 ///
 /// # An `Unterminated` cut this crate CAUSED is not attributed to the model
 ///
