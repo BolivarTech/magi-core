@@ -431,7 +431,10 @@ fn retry_template(cause: ExtractionFailureCause, finish: Option<FinishReason>) -
              different agent than the one you were asked to act as. Set the agent field \
              to YOUR OWN agent name, matching the role you were assigned."
             .to_string(),
-        _ => format!(
+        // The enum's forward-compatibility catch-all, never constructed by this crate: a
+        // generic instruction is the only honest one for a cause this version cannot name.
+        // No `_` arm: a new cause must not compile until it has its own wording.
+        ExtractionFailureCause::Other => format!(
             "Your previous response was rejected by the parsing pipeline. Re-emit a \
              complete, valid JSON object with all seven required keys (agent, verdict, \
              confidence, summary, reasoning, findings, recommendation), wrapped between \

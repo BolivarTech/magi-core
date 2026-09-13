@@ -670,8 +670,11 @@ impl CompletionRecord {
 /// `## Extraction Failures` section.
 ///
 /// `Other` is the enum's own catch-all for a cause a NEWER crate version produced — never
-/// constructed here, but the `_` arm is required because the enum is `#[non_exhaustive]`,
-/// and `"other"` is the truthful label for something this version cannot name.
+/// constructed here — and `"other"` is the truthful label for something this version
+/// cannot name. The match is exhaustive on purpose: `#[non_exhaustive]` forces a wildcard
+/// on consumers of other crates, not on this one, and without a `_` arm a new cause does
+/// not compile until it has a label of its own instead of being rendered as `"other"` in
+/// silence.
 fn cause_label(cause: ExtractionFailureCause) -> &'static str {
     match cause {
         ExtractionFailureCause::MissingMarkers => "missing markers",
@@ -682,7 +685,7 @@ fn cause_label(cause: ExtractionFailureCause) -> &'static str {
         ExtractionFailureCause::Schema => "schema mismatch",
         ExtractionFailureCause::EchoedExample => "echoed example",
         ExtractionFailureCause::AgentIdentity => "agent identity mismatch",
-        _ => "other",
+        ExtractionFailureCause::Other => "other",
     }
 }
 

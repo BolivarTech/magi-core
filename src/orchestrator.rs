@@ -3077,9 +3077,15 @@ pub(crate) async fn dispatch_one_agent_rotating(
 /// post-validation checks — which run **on an already-deserialized output** — on the
 /// second.
 ///
-/// The `Other` arm exists because [`ExtractionFailureCause`] is `#[non_exhaustive]`. It
-/// maps to `Deserialization`, the conservative choice: an unknown cause must not claim a
-/// verdict object was obtained.
+/// `Other` — the enum's own forward-compatibility catch-all, never constructed by this
+/// crate — maps to `Deserialization`, the conservative choice: an unknown cause must not
+/// claim a verdict object was obtained.
+///
+/// # The match is exhaustive on purpose
+///
+/// `#[non_exhaustive]` forces a wildcard on consumers of *other* crates, not here, and
+/// this match has none: a new cause does not compile until someone decides which side of
+/// the line it falls on. That is the protection wanted, so do not add a `_` arm.
 pub(crate) fn magi_error_for(cause: ExtractionFailureCause, message: &str) -> MagiError {
     match cause {
         ExtractionFailureCause::Schema
@@ -3089,10 +3095,8 @@ pub(crate) fn magi_error_for(cause: ExtractionFailureCause, message: &str) -> Ma
         | ExtractionFailureCause::Unterminated
         | ExtractionFailureCause::Ambiguous
         | ExtractionFailureCause::InvalidJson
-        | ExtractionFailureCause::MalformedObject => {
-            MagiError::Deserialization(message.to_string())
-        }
-        _ => MagiError::Deserialization(message.to_string()),
+        | ExtractionFailureCause::MalformedObject
+        | ExtractionFailureCause::Other => MagiError::Deserialization(message.to_string()),
     }
 }
 
