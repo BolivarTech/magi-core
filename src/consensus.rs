@@ -476,7 +476,15 @@ impl ConsensusEngine {
                         state.severity = finding.severity;
                         state.detail = finding.detail.clone();
                     }
-                    state.sources.push(agent.agent);
+                    // `sources` names WHICH agents reported this finding, a set in
+                    // first-appearance order, not one entry per contributing
+                    // finding. An agent that reports two findings deduping to the
+                    // same group -- or the same agent reappearing non-adjacently
+                    // across the input slice -- must contribute only its first
+                    // occurrence.
+                    if !state.sources.contains(&agent.agent) {
+                        state.sources.push(agent.agent);
+                    }
                 } else {
                     groups.push((
                         key_str,
