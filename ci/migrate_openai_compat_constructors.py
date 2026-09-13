@@ -78,14 +78,24 @@ def discover(repo_root: Path) -> list[Site]:
     return sites
 
 
-def qualified_paths(path: str) -> tuple[str, str]:
-    """Return the dialect and timeout expressions for a given file path.
+def qualified_paths(path: str, text: str) -> tuple[str, str]:
+    """Return the dialect and timeout expressions for a given call site.
 
     The expressions are fully qualified so that no extra ``use`` statements are
     needed; duplicate or unused imports would break builds with ``-D warnings``.
 
+    Two call sites do not live in the crate the file suggests, and each needs
+    its own root:
+
+    * A rustdoc example line (``///`` or ``//!``) under ``src/`` compiles as an
+      EXTERNAL crate, so ``crate::`` does not resolve there; it takes the same
+      ``magi_core::`` paths as ``tests/`` and ``examples/``.
+    * ``smoke/src/`` does not depend on a crate named ``magi_core``: the harness
+      renames its dependency and reaches it through ``crate::alias::magi_core``.
+
     Args:
         path: Repository-relative path to the file containing the call site.
+        text: The call site's line, used to recognise a rustdoc example.
 
     Returns:
         A tuple of ``(dialect_expr, timeout_expr)``.
@@ -93,17 +103,23 @@ def qualified_paths(path: str) -> tuple[str, str]:
     Raises:
         ValueError: If the path does not match any known prefix pattern.
     """
-    if path == "src/providers/openai_compat.rs":
-        return (
-            "Dialect::MaxTokens",
-            "crate::provider::DEFAULT_CLIENT_TIMEOUT",
-        )
-    if path.startswith("src/"):
+    is_doc_line = text.lstrip().startswith(("///", "//!"))
+    if path.startswith("src/") and not is_doc_line:
+        if path == "src/providers/openai_compat.rs":
+            return (
+                "Dialect::MaxTokens",
+                "crate::provider::DEFAULT_CLIENT_TIMEOUT",
+            )
         return (
             "crate::providers::openai_compat::Dialect::MaxTokens",
             "crate::provider::DEFAULT_CLIENT_TIMEOUT",
         )
-    if path.startswith(("tests/", "examples/", "smoke/src/")):
+    if path.startswith("smoke/src/"):
+        return (
+            "crate::alias::magi_core::providers::openai_compat::Dialect::MaxTokens",
+            "crate::alias::magi_core::provider::DEFAULT_CLIENT_TIMEOUT",
+        )
+    if path.startswith(("src/", "tests/", "examples/")):
         return (
             "magi_core::providers::openai_compat::Dialect::MaxTokens",
             "magi_core::provider::DEFAULT_CLIENT_TIMEOUT",
@@ -183,7 +199,7 @@ def rewrite_line(text: str, path: str) -> str:
         ValueError: If the call has no matching closing parenthesis on the line,
             or if the constructor name is not recognized.
     """
-    dialect_expr, timeout_expr = qualified_paths(path)
+    dialect_expr, timeout_expr = qualified_paths(path, text)
     if OLD_NEW in text:
         old_ctor = OLD_NEW[:-1]
         is_new = True
