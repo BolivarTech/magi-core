@@ -256,9 +256,14 @@ pub async fn run_against_a_hanging_backend()
 
     // A short client timeout: the property is that the seat is lost to a hang, not how long a
     // test is willing to sit still for it.
-    let hanging =
-        OpenAiCompatibleProvider::with_timeout(url, "m-hanging", None, HANGING_SEAT_CLIENT_TIMEOUT)
-            .expect("the hanging provider builds");
+    let hanging = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m-hanging",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        HANGING_SEAT_CLIENT_TIMEOUT,
+    )
+    .expect("the hanging provider builds");
 
     // WRAPPED in a `RetryProvider`, and that is load-bearing rather than decoration: without it
     // the single record would come from a single call and the test would pass identically

@@ -18,7 +18,16 @@ use support::mock_server;
 #[tokio::test]
 async fn test_real_429_with_header_waits_what_the_server_asked() {
     let (url, handle) = mock_server::spawn_429_with_retry_after("2").await;
-    let inner = Arc::new(OpenAiCompatibleProvider::new(url, "test-model", None).expect("provider"));
+    let inner = Arc::new(
+        OpenAiCompatibleProvider::with_dialect(
+            url,
+            "test-model",
+            None,
+            magi_core::providers::openai_compat::Dialect::MaxTokens,
+            magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("provider"),
+    );
     let retry = RetryProvider::new(inner);
 
     let start = Instant::now();
@@ -50,7 +59,16 @@ async fn test_real_429_with_header_waits_what_the_server_asked() {
 async fn test_unintelligible_header_abandons_end_to_end() {
     let (url, handle) =
         mock_server::spawn_429_with_retry_after("Sun, 06 Nov 1994 08:49:37 GMT").await;
-    let inner = Arc::new(OpenAiCompatibleProvider::new(url, "test-model", None).expect("provider"));
+    let inner = Arc::new(
+        OpenAiCompatibleProvider::with_dialect(
+            url,
+            "test-model",
+            None,
+            magi_core::providers::openai_compat::Dialect::MaxTokens,
+            magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("provider"),
+    );
     let retry = RetryProvider::new(inner);
 
     let err = retry
@@ -76,7 +94,16 @@ async fn test_unintelligible_header_abandons_end_to_end() {
 #[tokio::test]
 async fn test_retry_after_zero_falls_back_to_jittered_formula() {
     let (url, handle) = mock_server::spawn_429_with_retry_after("0").await;
-    let inner = Arc::new(OpenAiCompatibleProvider::new(url, "test-model", None).expect("provider"));
+    let inner = Arc::new(
+        OpenAiCompatibleProvider::with_dialect(
+            url,
+            "test-model",
+            None,
+            magi_core::providers::openai_compat::Dialect::MaxTokens,
+            magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("provider"),
+    );
     let retry = RetryProvider::new(inner);
 
     let start = Instant::now();

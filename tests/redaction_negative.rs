@@ -36,7 +36,14 @@ fn assert_clean(haystack: &str, channel: &str) {
 }
 
 fn provider_with(url: String) -> OpenAiCompatibleProvider {
-    OpenAiCompatibleProvider::new(url, "some-model", None).expect("constructs")
+    OpenAiCompatibleProvider::with_dialect(
+        url,
+        "some-model",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs")
 }
 
 #[test]

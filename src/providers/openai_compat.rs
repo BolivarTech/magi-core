@@ -700,31 +700,51 @@ mod tests {
     }
 
     #[test]
-    fn test_new_valid_url_ok_and_model_passthrough() {
-        let p = OpenAiCompatibleProvider::new("http://127.0.0.1:11434/v1", "phi4-mini", None)
-            .expect("valid url constructs");
+    fn test_valid_url_ok_and_model_passthrough() {
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://127.0.0.1:11434/v1",
+            "phi4-mini",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("valid url constructs");
         assert_eq!(p.model(), "phi4-mini");
         assert_eq!(p.name(), "openai-compat");
     }
 
     #[test]
-    fn test_new_invalid_url_returns_network_error() {
-        let result = OpenAiCompatibleProvider::new("notaurl", "m", None);
+    fn test_invalid_url_returns_network_error() {
+        let result = OpenAiCompatibleProvider::with_dialect(
+            "notaurl",
+            "m",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        );
         assert!(matches!(result, Err(ProviderError::Network { .. })));
     }
 
     #[test]
-    fn test_new_non_http_scheme_returns_network_error() {
-        let result = OpenAiCompatibleProvider::new("file:///etc/passwd", "m", None);
+    fn test_non_http_scheme_returns_network_error() {
+        let result = OpenAiCompatibleProvider::with_dialect(
+            "file:///etc/passwd",
+            "m",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        );
         assert!(matches!(result, Err(ProviderError::Network { .. })));
     }
 
     #[test]
-    fn test_new_cloud_with_key_passthrough() {
-        let p = OpenAiCompatibleProvider::new(
+    fn test_cloud_with_key_passthrough() {
+        let p = OpenAiCompatibleProvider::with_dialect(
             "https://api.openai.com/v1",
             "gpt-4o",
             Some("sk-x".into()),
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
         )
         .expect("valid url constructs");
         assert_eq!(p.model(), "gpt-4o");
@@ -732,8 +752,14 @@ mod tests {
 
     #[test]
     fn test_debug_redacts_api_key() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", Some("sk-super-secret".into()))
-            .expect("constructs");
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "m",
+            Some("sk-super-secret".into()),
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("constructs");
         let dbg = format!("{p:?}");
         assert!(
             !dbg.contains("sk-super-secret"),
@@ -743,7 +769,14 @@ mod tests {
 
     #[test]
     fn test_build_request_body_shape() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "phi4-mini", None).unwrap();
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "phi4-mini",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
         let cfg = CompletionConfig::default();
         let body = p.build_request_body("S", "U", &cfg);
         assert_eq!(body.model, "phi4-mini");
@@ -758,7 +791,14 @@ mod tests {
 
     #[test]
     fn test_build_request_body_has_no_stream_field() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "m",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
         let body = p.build_request_body("S", "U", &CompletionConfig::default());
         let json = serde_json::to_string(&body).unwrap();
         assert!(
@@ -770,7 +810,14 @@ mod tests {
     #[test]
     #[allow(clippy::field_reassign_with_default)] // CompletionConfig is #[non_exhaustive]; struct literal unavailable
     fn test_build_request_body_carries_config_values() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "m",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
         let mut cfg = CompletionConfig::default();
         cfg.max_tokens = 256;
         cfg.temperature = 0.7;
@@ -781,7 +828,14 @@ mod tests {
 
     #[test]
     fn test_auth_header_some_when_key_present() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", Some("sk-x".into())).unwrap();
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "m",
+            Some("sk-x".into()),
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
         assert_eq!(
             p.auth_header(),
             Some(("Authorization", "Bearer sk-x".to_string()))
@@ -790,7 +844,14 @@ mod tests {
 
     #[test]
     fn test_auth_header_none_when_key_absent() {
-        let p = OpenAiCompatibleProvider::new("http://h/v1", "m", None).unwrap();
+        let p = OpenAiCompatibleProvider::with_dialect(
+            "http://h/v1",
+            "m",
+            None,
+            Dialect::MaxTokens,
+            crate::provider::DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
         assert_eq!(p.auth_header(), None);
     }
 
@@ -876,8 +937,16 @@ mod tests {
     async fn test_usable_as_dyn_llm_provider() {
         use crate::provider::LlmProvider;
         use std::sync::Arc;
-        let p: Arc<dyn LlmProvider> =
-            Arc::new(OpenAiCompatibleProvider::new("http://h/v1", "phi4-mini", None).unwrap());
+        let p: Arc<dyn LlmProvider> = Arc::new(
+            OpenAiCompatibleProvider::with_dialect(
+                "http://h/v1",
+                "phi4-mini",
+                None,
+                Dialect::MaxTokens,
+                crate::provider::DEFAULT_CLIENT_TIMEOUT,
+            )
+            .unwrap(),
+        );
         assert_eq!(p.name(), "openai-compat");
         assert_eq!(p.model(), "phi4-mini");
     }
@@ -1292,7 +1361,7 @@ mod tests {
         //     to `serde`, and its first rule is that RE-GENERATING THE BASELINE IS NOT THE
         //     FIRST ANSWER.
         assert!(
-            body.contains("max_tokens"),
+            body.contains("\"max_tokens\":"),
             "the default dialect stopped emitting `max_tokens`: product regression, not serde"
         );
         assert_eq!(body, BODY_AS_OF_4_0_0, "byte-identical to 4.0.0");

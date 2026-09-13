@@ -25,8 +25,14 @@ async fn the_limit_follows_the_class_of_the_error_that_just_happened() {
 
     // 200 ms rather than the 300 s default: the hang is ended by the CLIENT, and this task does
     // not change that default.
-    let inner = OpenAiCompatibleProvider::with_timeout(url, "m", None, Duration::from_millis(200))
-        .expect("provider builds");
+    let inner = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        Duration::from_millis(200),
+    )
+    .expect("provider builds");
 
     let mut cfg = RetryConfig::default();
     // So the backoff cannot dominate the clock either.

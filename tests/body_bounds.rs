@@ -141,8 +141,14 @@ async fn a_success_body_over_the_cap_fails_rather_than_arriving_truncated() {
     // its closing marker, and the parser would report a truncated *model* output — blaming the
     // model for a cut this reader made, with a retry that can never fix it.
     let (addr, server) = serve_one_body("200 OK", VERDICT_CAP + 1);
-    let provider =
-        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        format!("http://{addr}/v1"),
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("sys", "usr", &CompletionConfig::default())
@@ -168,8 +174,14 @@ async fn a_success_body_at_the_cap_is_read_whole() {
     // The boundary is `>`, not `>=`. Without this the previous test would also pass with an
     // off-by-one that rejected a body of exactly the permitted size.
     let (addr, server) = serve_one_body("200 OK", VERDICT_CAP);
-    let provider =
-        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        format!("http://{addr}/v1"),
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("sys", "usr", &CompletionConfig::default())
@@ -189,8 +201,14 @@ async fn an_error_body_over_the_cap_keeps_its_prefix_and_announces_the_cut() {
     // cut could falsify, and dropping a 500's body whole discards the only reason that error is
     // read at all.
     let (addr, server) = serve_one_body("500 Internal Server Error", DIAGNOSTIC_CAP * 4);
-    let provider =
-        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        format!("http://{addr}/v1"),
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("sys", "usr", &CompletionConfig::default())
@@ -291,8 +309,14 @@ async fn a_verdict_body_that_is_not_utf8_fails_instead_of_being_mangled() {
     body.push(0xff);
     body.extend_from_slice(br#""},"finish_reason":"stop"}]}"#);
     let (addr, server) = serve_framed("200 OK", body, Framing::Length);
-    let provider =
-        OpenAiCompatibleProvider::new(format!("http://{addr}/v1"), "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        format!("http://{addr}/v1"),
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("sys", "usr", &CompletionConfig::default())

@@ -13,9 +13,14 @@ use support::mock_server;
 #[tokio::test]
 async fn test_hanging_body_produces_timeout_error() {
     let (url, handle) = mock_server::spawn_hanging_headers().await;
-    let provider =
-        OpenAiCompatibleProvider::with_timeout(url, "test-model", None, Duration::from_millis(300))
-            .expect("provider");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "test-model",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        Duration::from_millis(300),
+    )
+    .expect("provider");
 
     let err = provider
         .complete("system", "user", &CompletionConfig::default())

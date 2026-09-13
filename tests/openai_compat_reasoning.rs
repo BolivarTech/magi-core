@@ -25,7 +25,14 @@ const OK_BODY: &str = r#"{"choices":[{"message":{"content":"a verdict"}}]}"#;
 #[tokio::test]
 async fn a_provider_that_cannot_honour_the_control_says_so_and_does_not_break_the_run() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, OK_BODY).await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let cfg = CompletionConfig::default().with_reasoning(ReasoningControl::Disabled);
     let out = provider
@@ -50,7 +57,14 @@ async fn a_provider_that_cannot_honour_the_control_says_so_and_does_not_break_th
 #[tokio::test]
 async fn the_default_control_asks_for_nothing_and_declares_nothing() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, OK_BODY).await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let out = provider
         .complete("s", "u", &CompletionConfig::default())
@@ -71,7 +85,14 @@ async fn the_default_control_asks_for_nothing_and_declares_nothing() {
 #[tokio::test]
 async fn the_declaration_is_a_type_not_a_string_a_consumer_must_grep() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, OK_BODY).await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let cfg = CompletionConfig::default().with_reasoning(ReasoningControl::Disabled);
     let out = provider
@@ -101,7 +122,14 @@ const FIX_C: &str = include_str!("fixtures/ec/resp-C.json");
 #[tokio::test]
 async fn the_telemetry_of_a_captured_success_survives_the_whole_call() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, FIX_H).await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let out = provider
         .complete("s", "u", &CompletionConfig::default())
@@ -129,7 +157,14 @@ async fn the_telemetry_of_a_captured_success_survives_the_whole_call() {
 #[tokio::test]
 async fn a_budget_exhausted_completion_is_named_for_what_it_is_and_carries_no_http_status() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, FIX_C).await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("s", "u", &CompletionConfig::default())
@@ -162,7 +197,14 @@ async fn a_budget_exhausted_completion_is_named_for_what_it_is_and_carries_no_ht
 #[tokio::test]
 async fn an_unreadable_body_is_a_contract_failure_not_a_synthetic_http_status() {
     let (url, _captured, handle) = mock_server::spawn_capturing(200, "not json").await;
-    let provider = OpenAiCompatibleProvider::new(url, "m", None).expect("constructs");
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
 
     let err = provider
         .complete("s", "u", &CompletionConfig::default())
