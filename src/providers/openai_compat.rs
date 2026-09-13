@@ -319,8 +319,9 @@ impl OpenAiCompatibleProvider {
     /// `ProviderError::Network`. `api_key = None` omits the `Authorization`
     /// header (e.g., Ollama).
     ///
-    /// Speaks the default [`Dialect`] (`max_tokens`); see [`Self::with_dialect`]
-    /// to choose another.
+    /// Speaks the default [`Dialect`] (`max_tokens`). Deprecated in favour of
+    /// [`Self::with_dialect`], which states the dialect and the timeout explicitly;
+    /// it keeps working until the next major release removes it.
     //
     // `new` keeps delegating to `with_timeout` once both are deprecated, and the `allow` is
     // a declaration rather than a silence: the two constructors are removed TOGETHER in the
@@ -328,6 +329,12 @@ impl OpenAiCompatibleProvider {
     // shared lifetime of a pair already scheduled to go. Without it the crate would warn at
     // itself, and the gate's `-D warnings` makes that an error.
     #[allow(deprecated)]
+    #[deprecated(
+        since = "4.1.0",
+        note = "still works and speaks the `max_tokens` dialect, but is removed in the next \
+                major release; use `with_dialect(base_url, model, api_key, \
+                Dialect::MaxTokens, DEFAULT_CLIENT_TIMEOUT)` instead"
+    )]
     pub fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -344,7 +351,15 @@ impl OpenAiCompatibleProvider {
     /// generating. Pass `Duration::MAX` for "no timeout" (dangerous: a hung
     /// model would hang forever).
     ///
-    /// Speaks the default [`Dialect`] (`max_tokens`), like [`Self::new`].
+    /// Speaks the default [`Dialect`] (`max_tokens`), like [`Self::new`]. Deprecated in
+    /// favour of [`Self::with_dialect`], which takes the same timeout plus the dialect; it
+    /// keeps working until the next major release removes it.
+    #[deprecated(
+        since = "4.1.0",
+        note = "still works and speaks the `max_tokens` dialect, but is removed in the next \
+                major release; use `with_dialect(base_url, model, api_key, \
+                Dialect::MaxTokens, timeout)` instead"
+    )]
     pub fn with_timeout(
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -358,7 +373,7 @@ impl OpenAiCompatibleProvider {
     /// **total** request timeout.
     ///
     /// This is the one constructor that states every choice: which field carries the
-    /// generation cap and how long a request may take. [`Self::new`] and
+    /// generation cap and how long a request may take. The deprecated [`Self::new`] and
     /// [`Self::with_timeout`] are the same call with `Dialect::default()`, and `new` also
     /// fills in [`DEFAULT_CLIENT_TIMEOUT`].
     ///
@@ -371,7 +386,8 @@ impl OpenAiCompatibleProvider {
     ///   never from the model name: Ollama's `/v1` endpoint discards
     ///   `max_completion_tokens` without an error, so the wrong choice there leaves the
     ///   cap unenforced in silence.
-    /// - `timeout`: the **total** request timeout, as in [`Self::with_timeout`]; pass
+    /// - `timeout`: the **total** request timeout, covering the whole exchange from send
+    ///   to the last body byte ([`reqwest::ClientBuilder::timeout`]); pass
     ///   [`DEFAULT_CLIENT_TIMEOUT`] to keep the default.
     ///
     /// # Errors
@@ -550,7 +566,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
     ///
     /// # Errors
     /// - `Timeout` if the request exceeds the **total** client timeout (300 s by
-    ///   default, or the value passed to [`Self::with_timeout`]) — it fires even
+    ///   default, or the value passed to [`Self::with_dialect`]) — it fires even
     ///   when the server returns headers and then hangs on the body.
     /// - `Network` on connection failures (and on a malformed `base_url`/client).
     /// - `Auth` on 401/403; `Http` on any other non-2xx — and `Http` now carries
