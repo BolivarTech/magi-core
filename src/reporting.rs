@@ -1543,7 +1543,11 @@ mod tests {
             .collect::<Vec<_>>()
             .join(" | ");
 
-        ConsensusResult {
+        // `majority_summary` is deprecated in favour of the rename in the next
+        // major; this helper builds the struct the formatter renders, so it
+        // keeps filling the field on purpose until then.
+        #[allow(deprecated)]
+        let result = ConsensusResult {
             consensus: label.to_string(),
             consensus_verdict: verdict,
             confidence,
@@ -1555,7 +1559,8 @@ mod tests {
             findings: vec![],
             conditions: vec![],
             recommendations,
-        }
+        };
+        result
     }
 
     // -- BDD Scenario 15: banner width --

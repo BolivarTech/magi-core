@@ -346,7 +346,12 @@ impl ConsensusEngine {
             .map(|a| (a.agent, a.recommendation.clone()))
             .collect();
 
-        Ok(ConsensusResult {
+        // `majority_summary` is deprecated in favour of the rename in the next
+        // major; until then this crate keeps filling it on purpose, so the
+        // deprecation must not fire on its own constructor. Scoped to this
+        // statement, not the function, so any other deprecated use still warns.
+        #[allow(deprecated)]
+        let result = ConsensusResult {
             consensus: label,
             consensus_verdict,
             confidence,
@@ -358,7 +363,8 @@ impl ConsensusEngine {
             findings,
             conditions,
             recommendations,
-        })
+        };
+        Ok(result)
     }
 
     /// Classifies a score into a consensus label and verdict.
@@ -565,6 +571,9 @@ mod tests {
     /// label is HOLD -- TIE (Reject) while the effective count is 2-1 Approve.
     /// No tie to break, so no agent name intervenes: count and score diverge
     /// every time.
+    // `majority_summary` is deprecated in favour of the rename in the next
+    // major; this test asserts its content on purpose until then.
+    #[allow(deprecated)]
     #[test]
     fn the_deterministic_case_two_conditionals_and_one_reject() {
         // `ConsensusConfig::default()` and not a loose `cfg`: this case does not
@@ -638,6 +647,9 @@ mod tests {
     /// A two-agent tie (one Approve, one Reject) emits HOLD -- TIE (Reject); the
     /// agent listed as dissenting, the summary and the confidence must follow
     /// that verdict whichever agent holds which vote.
+    // `majority_summary` is deprecated in favour of the rename in the next
+    // major; this test asserts its content on purpose until then.
+    #[allow(deprecated)]
     #[test]
     fn tie_attribution_does_not_depend_on_the_names() {
         // MUTATION RULE: the LEAST favourable case is running BOTH name
@@ -1124,7 +1136,10 @@ mod tests {
         assert!((result.confidence - 0.38).abs() < 0.01);
     }
 
+    // `majority_summary` is deprecated in favour of the rename in the next
+    // major; this test asserts its content on purpose until then.
     /// Majority summary joins majority agent summaries with " | ".
+    #[allow(deprecated)]
     #[test]
     fn test_majority_summary_joins_with_pipe() {
         let agents = vec![
@@ -1148,7 +1163,10 @@ mod tests {
         assert!(!result.majority_summary.contains("Caspar summary"));
     }
 
+    // `majority_summary` is deprecated in favour of the rename in the next
+    // major; this test asserts its content on purpose until then.
     /// Majority summary uses agent display name capitalized (not lowercase).
+    #[allow(deprecated)]
     #[test]
     fn test_majority_summary_uses_display_name_capitalized() {
         let agents = vec![
