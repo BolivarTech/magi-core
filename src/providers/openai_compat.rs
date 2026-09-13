@@ -321,6 +321,13 @@ impl OpenAiCompatibleProvider {
     ///
     /// Speaks the default [`Dialect`] (`max_tokens`); see [`Self::with_dialect`]
     /// to choose another.
+    //
+    // `new` keeps delegating to `with_timeout` once both are deprecated, and the `allow` is
+    // a declaration rather than a silence: the two constructors are removed TOGETHER in the
+    // next major, so this deprecated call is not debt that outlives anything -- it is the
+    // shared lifetime of a pair already scheduled to go. Without it the crate would warn at
+    // itself, and the gate's `-D warnings` makes that an error.
+    #[allow(deprecated)]
     pub fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,
