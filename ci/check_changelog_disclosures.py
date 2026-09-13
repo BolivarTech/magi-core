@@ -219,10 +219,11 @@ def check(changelog=Path("CHANGELOG.md"), manifest=Path("Cargo.toml")):
                    % (APPLIES_TO, version, version, version)]
     # THE TWO CANNOT BOTH BE TRUE, and checking it is not pedantry: with the
     # release's own version in NO_DISCLOSURES, the escape fired FIRST and returned
-    # 0 while every disclosure row and deprecation went unchecked -- sixteen
-    # findings on the same input without the entry. The escape was hardened to
-    # cost a reason and stayed open on the flank nobody looked at: a version that
-    # HAS a list cannot simultaneously claim it carries nothing to disclose.
+    # 0 while every disclosure row and deprecation went unchecked -- the WHOLE
+    # list, not just the contradiction, on an input that carried none of it. The
+    # escape was hardened to cost a reason and stayed open on the flank nobody
+    # looked at: a version that HAS a list cannot simultaneously claim it carries
+    # nothing to disclose.
     if APPLIES_TO in NO_DISCLOSURES:
         return 1, ["FAIL: %s is both APPLIES_TO and in NO_DISCLOSURES. A version "
                    "with a disclosure list cannot also declare it has no silent "
@@ -490,9 +491,9 @@ def self_test():
 
     # 15. The escape cannot be pointed at the version it is escaping FROM. With the
     #     release's own version in NO_DISCLOSURES the escape fired first and returned
-    #     0 while every row and deprecation went unchecked -- sixteen findings on the
-    #     same input without the entry. The escape was hardened once to cost a reason
-    #     and stayed open on the flank nobody looked at.
+    #     0 while every row and deprecation went unchecked -- the WHOLE list, not
+    #     just the contradiction. The escape was hardened once to cost a reason and
+    #     stayed open on the flank nobody looked at.
     saved = dict(NO_DISCLOSURES)
     NO_DISCLOSURES[APPLIES_TO] = "nothing to see here"
     try:

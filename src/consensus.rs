@@ -93,7 +93,8 @@ pub struct DedupFinding {
     pub title: String,
     /// Finding detail (from highest-severity contributor).
     pub detail: String,
-    /// Agents that reported this finding.
+    /// Agents that reported this finding, each listed at most once, in
+    /// first-appearance order (never a repeat, never re-sorted).
     pub sources: Vec<AgentName>,
     /// Agent-reported, unverified (see `crate::schema::Finding::file`).
     #[serde(default)]
@@ -951,7 +952,7 @@ mod tests {
         assert_eq!(result.consensus_verdict, Verdict::Reject);
     }
 
-    /// R-23: at `score == epsilon` neither `score > epsilon` nor
+    /// Epsilon boundary: at `score == epsilon` neither `score > epsilon` nor
     /// `score.abs() < epsilon` holds, so `classify` falls to its final `else`
     /// and labels the case `HOLD (reject_count-approve_count)` with a
     /// POSITIVE score. This is a deliberate, documented boundary, not a bug
@@ -1106,11 +1107,11 @@ mod tests {
         assert!(result.findings[0].sources.contains(&AgentName::Balthasar));
     }
 
-    /// R-22: an agent that reports two findings deduping into the same group
-    /// must appear once in `sources`, not once per contributing finding.
-    /// Before the fix, `state.sources.push(agent.agent)` ran unconditionally
-    /// on every match against an existing group, so this fixture produced
-    /// `[Melchior, Melchior]`.
+    /// Sources dedup: an agent that reports two findings deduping into the
+    /// same group must appear once in `sources`, not once per contributing
+    /// finding. An unconditional `state.sources.push(agent.agent)` on every
+    /// match against an existing group would produce `[Melchior, Melchior]`
+    /// for this fixture.
     #[test]
     fn test_merged_finding_sources_do_not_repeat_the_same_agent() {
         let mut m = make_output(AgentName::Melchior, Verdict::Approve, 0.9);
@@ -1123,9 +1124,9 @@ mod tests {
         assert_eq!(out[0].sources, vec![AgentName::Melchior]);
     }
 
-    /// R-22: `sources` preserves first-appearance order, and a duplicate must
-    /// be dropped even when it is NOT adjacent to its first occurrence. The
-    /// sequence is deliberately `[Melchior, Balthasar, Melchior]`: an
+    /// Sources dedup: `sources` preserves first-appearance order, and a
+    /// duplicate must be dropped even when it is NOT adjacent to its first
+    /// occurrence. The sequence is deliberately `[Melchior, Balthasar, Melchior]`: an
     /// adjacent-only fix (`Vec::dedup_by`) leaves it untouched at three
     /// elements, and a `HashSet` round-trip drops the duplicate but does not
     /// guarantee this order. Only "remember what was already seen" satisfies
