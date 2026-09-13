@@ -643,8 +643,14 @@ pub fn build_magi_against(
                     // `with_agent`, not `with_probing_agent`: this provider is no `ProviderProbe`,
                     // and that asymmetry is the point — a consumer really does mix them.
                     let compat = Arc::new(
-                        OpenAiCompatibleProvider::new(format!("{base_url}/v1"), &seat.model, None)
-                            .map_err(|e| e.to_string())?,
+                        OpenAiCompatibleProvider::with_dialect(
+                            format!("{base_url}/v1"),
+                            &seat.model,
+                            None,
+                            crate::alias::magi_core::providers::openai_compat::Dialect::MaxTokens,
+                            crate::alias::magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+                        )
+                        .map_err(|e| e.to_string())?,
                     );
                     builder = builder.with_agent(name, compat as Arc<dyn LlmProvider>, lineage);
                 } else {
