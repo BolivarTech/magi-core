@@ -201,6 +201,32 @@ impl OpenAiResponse {
 /// The backend name this provider reports when it cannot honour a reasoning control.
 const COMPAT_BACKEND_NAME: &str = "openai-compatible";
 
+/// The name of the request field that caps generation — the one thing that varies between
+/// backends speaking this same wire format.
+///
+/// OpenAI documents `max_completion_tokens` as the field its current models take; Ollama's
+/// `/v1` endpoint accepts `max_tokens` and **silently discards** `max_completion_tokens`
+/// (measured: 692 tokens generated against 16 requested, `finish_reason: stop`, no error).
+/// The two spellings cannot be sent together — strict backends reject unknown fields — so the
+/// caller declares which one its backend wants.
+///
+/// The default is [`Dialect::MaxTokens`], and the reason is that measurement, not history: it is
+/// the only spelling no measured backend discards without an error. A default that Ollama ignores
+/// would leave the consumer's budget unenforced with nothing to say so.
+///
+/// `#[non_exhaustive]`: a third spelling is additive. Inside this crate the `match` over it is
+/// exhaustive on purpose, so adding a variant fails to compile until its wire field is decided.
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Dialect {
+    /// Sends `max_tokens`. The default, and by measurement the only spelling every measured
+    /// backend honours (OpenRouter accepts both; Ollama's `/v1` accepts only this one).
+    #[default]
+    MaxTokens,
+    /// Sends `max_completion_tokens`, the spelling OpenAI documents for its current models.
+    MaxCompletionTokens,
+}
+
 /// LLM provider for any endpoint that speaks the OpenAI Chat Completions wire
 /// format.
 ///
@@ -276,6 +302,18 @@ impl OpenAiCompatibleProvider {
         // Parsing, scheme validation and normalisation all live in the URL authority now.
         let base_url = ProviderUrl::parse(&base_url.into())?;
         Self::from_authority(base_url, model, api_key, timeout)
+    }
+
+    /// Creates a provider that speaks the given request [`Dialect`], with an explicit
+    /// **total** request timeout.
+    pub fn with_dialect(
+        _base_url: impl Into<String>,
+        _model: impl Into<String>,
+        _api_key: Option<String>,
+        _dialect: Dialect,
+        _timeout: Duration,
+    ) -> Result<Self, ProviderError> {
+        todo!("Red scaffold: the dialect-aware constructor is not implemented yet")
     }
 
     /// Builds a provider from an already-parsed URL authority.
@@ -1063,5 +1101,98 @@ mod tests {
         assert_eq!(c.telemetry.prompt_tokens, None);
         assert_eq!(c.telemetry.finish, None);
         assert_eq!(c.telemetry.reasoning, ReasoningState::NotMeasured);
+    }
+
+    // ---- Request dialect ------------------------------------------------------------------
+    //
+    // The scaffolding the two dialect tests share. `https`, because the constructor validates
+    // the scheme and a rejected URL would fail the `expect` for the wrong reason. The prompts
+    // are literals: what is under test is the FIELD that carries the cap, not the messages.
+
+    /// The test `base_url`.
+    fn url() -> &'static str {
+        "https://h/v1"
+    }
+
+    /// The test model, the same literal the rest of this module uses.
+    const MODEL: &str = "m";
+
+    /// The completion config: the default, so the cap comes from the default and not from a
+    /// value chosen here.
+    fn cfg() -> CompletionConfig {
+        CompletionConfig::default()
+    }
+
+    const SYSTEM_PROMPT: &str = "S";
+    const USER_PROMPT: &str = "U";
+
+    /// The number of top-level keys a request body carries: `model`, `messages`, the cap
+    /// field, `temperature`. Counted EXACTLY, never `>= N`: a key too many is as much a defect
+    /// as one too few, because a field added upstream reaches the wire without review.
+    const EXPECTED_BODY_KEYS: usize = 4;
+
+    /// The body `4.0.0` serializes for `SYSTEM_PROMPT` / `USER_PROMPT` under the default
+    /// config. GENERATED on the untouched tree by an ephemeral test that printed
+    /// `serde_json::to_string` of `build_request_body(...)`, then pasted here and the test
+    /// deleted; not written by hand, because a hand-written baseline is what one BELIEVES the
+    /// code emits, and this constant exists precisely so as not to trust that.
+    const BODY_AS_OF_4_0_0: &str = r#"{"model":"m","messages":[{"role":"system","content":"S"},{"role":"user","content":"U"}],"max_tokens":16384,"temperature":0.0}"#;
+
+    #[test]
+    fn the_provider_completes_against_the_dialect_its_backend_demands() {
+        let provider = OpenAiCompatibleProvider::with_dialect(
+            url(),
+            MODEL,
+            None,
+            Dialect::MaxCompletionTokens,
+            DEFAULT_CLIENT_TIMEOUT,
+        )
+        .expect("a valid https base_url builds");
+        let req = provider.build_request_body(SYSTEM_PROMPT, USER_PROMPT, &cfg());
+        let body: serde_json::Value = serde_json::to_value(req).unwrap();
+        let obj = body.as_object().unwrap();
+
+        assert!(obj.contains_key("max_completion_tokens"));
+        assert!(!obj.contains_key("max_tokens"));
+        assert_eq!(obj.len(), EXPECTED_BODY_KEYS);
+    }
+
+    #[test]
+    fn the_default_cannot_change_the_wire() {
+        // This is the scenario that protects Ollama: its `/v1` endpoint answers 200 and
+        // DISCARDS `max_completion_tokens` in silence (measured: 692 tokens generated against
+        // 16 requested), so a changed default would break it without any error betraying the
+        // regression. Only a byte-identical comparison can see it.
+        let provider = OpenAiCompatibleProvider::with_dialect(
+            url(),
+            MODEL,
+            None,
+            Dialect::default(),
+            DEFAULT_CLIENT_TIMEOUT,
+        )
+        .unwrap();
+        let req = provider.build_request_body(SYSTEM_PROMPT, USER_PROMPT, &cfg());
+        let body = serde_json::to_string(&req).unwrap();
+        // The byte-identical check holds because serde emits in DECLARATION order and the
+        // struct keeps the positions (the cap where `max_tokens` was, `temperature` last).
+        // A structural assertion ("has max_tokens") would pass just the same with the order
+        // altered and with extra keys.
+        //
+        // THE DISTINCTION IS MECHANICAL, not a judgement call: the first assertion separates
+        // the two failure modes the byte-identical check conflates into one.
+        //
+        //   - If the first one fails, the key is missing: the default dialect stopped
+        //     emitting `max_tokens`. That is a PRODUCT REGRESSION.
+        //   - If the first passes and the second fails, the key is there and what changed is
+        //     its POSITION: `#[serde(flatten)]` emits the variant elsewhere. That is serde,
+        //     not us -- measured for the current version but not contractual, and a
+        //     `cargo update` within `1.x` can move it. The triage lives in `Cargo.toml`, next
+        //     to `serde`, and its first rule is that RE-GENERATING THE BASELINE IS NOT THE
+        //     FIRST ANSWER.
+        assert!(
+            body.contains("max_tokens"),
+            "the default dialect stopped emitting `max_tokens`: product regression, not serde"
+        );
+        assert_eq!(body, BODY_AS_OF_4_0_0, "byte-identical to 4.0.0");
     }
 }
