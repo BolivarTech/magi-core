@@ -29,12 +29,38 @@ use std::time::{Duration, Instant};
 /// (`POST /chat/completions`). Non-streaming; no `stream` field.
 ///
 /// `pub(crate)` — internal HTTP plumbing, not part of the public contract.
+///
+/// Field order is load-bearing: serde emits in declaration order, and the test
+/// `the_default_cannot_change_the_wire` pins the default body byte-for-byte against the one
+/// `4.0.0` produced. The cap sits where `max_tokens` used to, `temperature` stays last.
 #[derive(Debug, Serialize)]
 pub(crate) struct OpenAiRequest {
     pub(crate) model: String,
     pub(crate) messages: Vec<OpenAiMessage>,
-    pub(crate) max_tokens: u32,
+    /// Flattened so the variant's key appears inline, in this position, as the cap field.
+    #[serde(flatten)]
+    pub(crate) cap: TokenCap,
     pub(crate) temperature: f64,
+}
+
+/// The generation cap, under exactly one of the two field names a [`Dialect`] selects.
+///
+/// An enum rather than two `Option`s with `skip_serializing_if`: with two options, a
+/// construction path that fills neither would emit a body **without any cap** — no error, no
+/// warning, the consumer's budget silently ignored. The enum makes that state unrepresentable,
+/// so the guarantee is the type's, not a discipline at the construction site.
+///
+/// Externally tagged, so `#[serde(flatten)]` on the owning field emits `{"max_tokens": n}` or
+/// `{"max_completion_tokens": n}` inline. `#[serde(untagged)]` would be wrong here: it emits the
+/// bare number with no key at all.
+///
+/// `PartialEq` is consumed by the request-shape tests, which compare the field directly.
+#[derive(Debug, PartialEq, Serialize)]
+pub(crate) enum TokenCap {
+    #[serde(rename = "max_tokens")]
+    MaxTokens(u32),
+    #[serde(rename = "max_completion_tokens")]
+    MaxCompletionTokens(u32),
 }
 
 /// A single message in the OpenAI Chat Completions `messages` array.
@@ -259,6 +285,9 @@ pub struct OpenAiCompatibleProvider {
     base_url: ProviderUrl,
     model: String,
     api_key: Option<String>,
+    /// Which field name carries the generation cap on the wire. Read in exactly one place,
+    /// [`Self::build_request_body`]; the rest of the provider does not know a dialect exists.
+    dialect: Dialect,
 }
 
 impl fmt::Debug for OpenAiCompatibleProvider {
@@ -268,6 +297,7 @@ impl fmt::Debug for OpenAiCompatibleProvider {
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("api_key", &"[REDACTED]")
+            .field("dialect", &self.dialect)
             .finish()
     }
 }
@@ -278,6 +308,9 @@ impl OpenAiCompatibleProvider {
     /// normalized (trailing `/` stripped); an invalid URL or scheme returns
     /// `ProviderError::Network`. `api_key = None` omits the `Authorization`
     /// header (e.g., Ollama).
+    ///
+    /// Speaks the default [`Dialect`] (`max_tokens`); see [`Self::with_dialect`]
+    /// to choose another.
     pub fn new(
         base_url: impl Into<String>,
         model: impl Into<String>,
@@ -293,34 +326,84 @@ impl OpenAiCompatibleProvider {
     /// `ProviderError::Timeout` reachable against a model that hangs while
     /// generating. Pass `Duration::MAX` for "no timeout" (dangerous: a hung
     /// model would hang forever).
+    ///
+    /// Speaks the default [`Dialect`] (`max_tokens`), like [`Self::new`].
     pub fn with_timeout(
         base_url: impl Into<String>,
         model: impl Into<String>,
         api_key: Option<String>,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        // Parsing, scheme validation and normalisation all live in the URL authority now.
-        let base_url = ProviderUrl::parse(&base_url.into())?;
-        Self::from_authority(base_url, model, api_key, timeout)
+        Self::with_dialect(base_url, model, api_key, Dialect::default(), timeout)
     }
 
     /// Creates a provider that speaks the given request [`Dialect`], with an explicit
     /// **total** request timeout.
+    ///
+    /// This is the one constructor that states every choice: which field carries the
+    /// generation cap and how long a request may take. [`Self::new`] and
+    /// [`Self::with_timeout`] are the same call with `Dialect::default()`, and `new` also
+    /// fills in [`DEFAULT_CLIENT_TIMEOUT`].
+    ///
+    /// # Parameters
+    /// - `base_url`: validated eagerly (scheme restricted to http/https) and normalized
+    ///   (trailing `/` stripped).
+    /// - `model`: passed through verbatim; no alias resolution.
+    /// - `api_key`: `None` omits the `Authorization` header (e.g., Ollama).
+    /// - `dialect`: the name of the field that caps generation. Choose it for the backend,
+    ///   never from the model name: Ollama's `/v1` endpoint discards
+    ///   `max_completion_tokens` without an error, so the wrong choice there leaves the
+    ///   cap unenforced in silence.
+    /// - `timeout`: the **total** request timeout, as in [`Self::with_timeout`]; pass
+    ///   [`DEFAULT_CLIENT_TIMEOUT`] to keep the default.
+    ///
+    /// # Errors
+    /// [`ProviderError::Network`] on an invalid URL or scheme, or if the HTTP client cannot
+    /// be built.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use magi_core::provider::DEFAULT_CLIENT_TIMEOUT;
+    /// use magi_core::providers::openai_compat::{Dialect, OpenAiCompatibleProvider};
+    ///
+    /// // OpenAI cloud: its current models take `max_completion_tokens`.
+    /// let cloud = OpenAiCompatibleProvider::with_dialect(
+    ///     "https://api.openai.com/v1",
+    ///     "gpt-5",
+    ///     Some("sk-...".into()),
+    ///     Dialect::MaxCompletionTokens,
+    ///     DEFAULT_CLIENT_TIMEOUT,
+    /// )
+    /// .expect("valid url");
+    ///
+    /// // Local Ollama: `max_tokens` is the spelling it honours.
+    /// let local = OpenAiCompatibleProvider::with_dialect(
+    ///     "http://localhost:11434/v1",
+    ///     "phi4-mini",
+    ///     None,
+    ///     Dialect::MaxTokens,
+    ///     DEFAULT_CLIENT_TIMEOUT,
+    /// )
+    /// .expect("valid url");
+    /// ```
     pub fn with_dialect(
-        _base_url: impl Into<String>,
-        _model: impl Into<String>,
-        _api_key: Option<String>,
-        _dialect: Dialect,
-        _timeout: Duration,
+        base_url: impl Into<String>,
+        model: impl Into<String>,
+        api_key: Option<String>,
+        dialect: Dialect,
+        timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        todo!("Red scaffold: the dialect-aware constructor is not implemented yet")
+        // Parsing, scheme validation and normalisation all live in the URL authority.
+        let base_url = ProviderUrl::parse(&base_url.into())?;
+        Self::from_authority(base_url, model, api_key, dialect, timeout)
     }
 
     /// Builds a provider from an already-parsed URL authority.
     ///
     /// # Parameters
     /// - `base_url`: the authority, derived rather than re-parsed.
-    /// - `model`, `api_key`, `timeout`: as in [`with_timeout`](Self::with_timeout).
+    /// - `model`, `api_key`, `dialect`, `timeout`: as in [`with_dialect`](Self::with_dialect).
     ///
     /// # Errors
     /// [`ProviderError::Network`] if the HTTP client cannot be built.
@@ -335,6 +418,7 @@ impl OpenAiCompatibleProvider {
         base_url: ProviderUrl,
         model: impl Into<String>,
         api_key: Option<String>,
+        dialect: Dialect,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
         let client = reqwest::Client::builder()
@@ -352,6 +436,7 @@ impl OpenAiCompatibleProvider {
             base_url,
             model: model.into(),
             api_key,
+            dialect,
         })
     }
 
@@ -405,7 +490,8 @@ impl OpenAiCompatibleProvider {
     ///
     /// Constructs a non-streaming [`OpenAiRequest`] with a two-message
     /// conversation: a `system` message followed by a `user` message.
-    /// Token limit and temperature are taken from `config`.
+    /// Token limit and temperature are taken from `config`; the field name
+    /// that carries the token limit is the provider's [`Dialect`].
     ///
     /// `pub(crate)` — consumed by `complete()`.
     pub(crate) fn build_request_body(
@@ -414,6 +500,12 @@ impl OpenAiCompatibleProvider {
         user_prompt: &str,
         config: &CompletionConfig,
     ) -> OpenAiRequest {
+        // The ONE place the dialect is read. Exhaustive on purpose: a new variant must fail
+        // to compile until its wire field is decided, never fall through to a default.
+        let cap = match self.dialect {
+            Dialect::MaxTokens => TokenCap::MaxTokens(config.max_tokens),
+            Dialect::MaxCompletionTokens => TokenCap::MaxCompletionTokens(config.max_tokens),
+        };
         OpenAiRequest {
             model: self.model.clone(),
             messages: vec![
@@ -426,7 +518,7 @@ impl OpenAiCompatibleProvider {
                     content: user_prompt.to_string(),
                 },
             ],
-            max_tokens: config.max_tokens,
+            cap,
             temperature: config.temperature,
         }
     }
@@ -645,7 +737,7 @@ mod tests {
         let cfg = CompletionConfig::default();
         let body = p.build_request_body("S", "U", &cfg);
         assert_eq!(body.model, "phi4-mini");
-        assert_eq!(body.max_tokens, 16_384);
+        assert_eq!(body.cap, TokenCap::MaxTokens(16_384));
         assert!((body.temperature - 0.0).abs() < f64::EPSILON);
         assert_eq!(body.messages.len(), 2);
         assert_eq!(body.messages[0].role, "system");
@@ -673,7 +765,7 @@ mod tests {
         cfg.max_tokens = 256;
         cfg.temperature = 0.7;
         let body = p.build_request_body("S", "U", &cfg);
-        assert_eq!(body.max_tokens, 256);
+        assert_eq!(body.cap, TokenCap::MaxTokens(256));
         assert!((body.temperature - 0.7).abs() < f64::EPSILON);
     }
 

@@ -97,6 +97,20 @@ exclude = [
 [dependencies]
 thiserror = "2"
 tracing = "~0.1.41"
+# The key order `#[serde(flatten)]` emits is load-bearing for the test
+# `the_default_cannot_change_the_wire` (src/providers/openai_compat.rs), which
+# pins the OpenAI-compatible request body byte-for-byte. That order is measured
+# for the current serde, not contractual, and a `cargo update` within `1.x` can
+# move it. If that test goes red after a dependency move, start here, in this
+# order: (1) confirm it was serde -- `cargo update` on a clean tree with no code
+# change makes the red appear on its own; (2) compare the produced body against
+# the baseline FIELD BY FIELD, not as a string -- same keys and values, only the
+# order changed, is the serde regression this note anticipates; a changed key
+# SET is a product regression; (3) only then decide, and it is the user's call:
+# pin serde to the version that produces the old order, or regenerate the
+# baseline AND declare in the CHANGELOG that the body's key order changed.
+# Regenerating the baseline quietly is never the first answer: it would turn the
+# test into one that accommodates whatever the code emits.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 regex = "1"
