@@ -497,6 +497,9 @@ impl Default for ConsensusEngine {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::LazyLock;
+
     use super::*;
     use crate::schema::*;
 
@@ -509,6 +512,177 @@ mod tests {
             reasoning: format!("{} reasoning", agent.display_name()),
             findings: vec![],
             recommendation: format!("{} recommendation", agent.display_name()),
+        }
+    }
+
+    /// The `summary` that [`make_output`] gives each agent, so a `contains`
+    /// assertion compares against a string the engine actually produces. The
+    /// values are NOT free: they must be what `make_output` formats, or the
+    /// assertion is false always (or, worse, true always if the value were a
+    /// common prefix).
+    static SUMMARY_OF: LazyLock<HashMap<AgentName, &'static str>> = LazyLock::new(|| {
+        HashMap::from([
+            (AgentName::Melchior, "Melchior summary"),
+            (AgentName::Balthasar, "Balthasar summary"),
+            (AgentName::Caspar, "Caspar summary"),
+        ])
+    });
+
+    /// The fixed confidence [`agent`] gives each agent. Distinct on purpose: if
+    /// the three were equal, summing the wrong side would give the same number
+    /// and no confidence assertion could fail.
+    static CONFIDENCE_OF: LazyLock<HashMap<AgentName, f64>> = LazyLock::new(|| {
+        HashMap::from([
+            (AgentName::Melchior, 0.9),
+            (AgentName::Balthasar, 0.8),
+            (AgentName::Caspar, 0.7),
+        ])
+    });
+
+    /// The confidence expected when that agent is the only one on the emitted
+    /// side of a two-agent tie (score 0.0, weight factor 0.5, divisor 2):
+    /// Melchior 0.9/2 * 0.5 = 0.225 -> 0.23; Balthasar 0.8/2 * 0.5 = 0.20.
+    /// Literals executed once against the real formula, never recomputed here:
+    /// a test that re-derives the number follows the code and cannot go red.
+    static EXPECTED_CONFIDENCE_OF: LazyLock<HashMap<AgentName, f64>> = LazyLock::new(|| {
+        HashMap::from([(AgentName::Melchior, 0.23), (AgentName::Balthasar, 0.20)])
+    });
+
+    /// An output with the FIXED, known confidence of [`CONFIDENCE_OF`]; without
+    /// that fixity the confidence formula cannot be predicted in an assertion.
+    fn agent(name: AgentName, verdict: Verdict) -> AgentOutput {
+        make_output(name, verdict, CONFIDENCE_OF[&name])
+    }
+
+    /// Sugar over [`ConsensusEngine::new`].
+    fn engine(config: ConsensusConfig) -> ConsensusEngine {
+        ConsensusEngine::new(config)
+    }
+
+    // -- Attribution follows the EMITTED verdict, not the count majority --
+
+    /// Two Conditionals and one Reject: score = (0.5 + 0.5 - 1.0)/3 = 0.0, so the
+    /// label is HOLD -- TIE (Reject) while the effective count is 2-1 Approve.
+    /// No tie to break, so no agent name intervenes: count and score diverge
+    /// every time.
+    #[test]
+    fn the_deterministic_case_two_conditionals_and_one_reject() {
+        // `ConsensusConfig::default()` and not a loose `cfg`: this case does not
+        // vary the config -- the default min_agents is 2, and there are three
+        // agents here -- so there is no reason for a variable.
+        let result = engine(ConsensusConfig::default())
+            .determine(&[
+                agent(AgentName::Melchior, Verdict::Conditional),
+                agent(AgentName::Balthasar, Verdict::Conditional),
+                agent(AgentName::Caspar, Verdict::Reject),
+            ])
+            .expect("three agents clear min_agents");
+
+        assert_eq!(result.consensus_verdict, Verdict::Reject);
+        let dissenting: Vec<_> = result.dissent.iter().map(|d| d.agent).collect();
+        assert_eq!(dissenting.len(), 2, "exactly two, not 'at least two'");
+        // Exact equality on ORDER is correct: `dissent` is built with
+        // `agents.iter().filter(..).collect()`, which preserves the slice order,
+        // and `determine` never sorts its input. A `HashSet` would be weaker
+        // without being safer: it would stop detecting an introduced ordering.
+        assert_eq!(
+            dissenting,
+            vec![AgentName::Melchior, AgentName::Balthasar],
+            "both Conditionals differ from the EMITTED verdict; Caspar agrees with it"
+        );
+        // The assertion is on the CONTENT of the summary, not on the agent's
+        // name: a `.contains("Caspar")` would pass on a summary that mentions
+        // him for another reason -- for example when listing dissenters.
+        assert!(
+            result
+                .majority_summary
+                .contains(SUMMARY_OF[&AgentName::Caspar])
+        );
+        // BOTH Conditionals must be absent, not just one: asserting only
+        // Melchior would stay green on an implementation that dropped him and
+        // kept Balthasar, which is half the defect.
+        assert!(
+            !result
+                .majority_summary
+                .contains(SUMMARY_OF[&AgentName::Melchior])
+        );
+        assert!(
+            !result
+                .majority_summary
+                .contains(SUMMARY_OF[&AgentName::Balthasar])
+        );
+        // The confidence: the third consumer, and the one whose number changes
+        // silently for identical votes. The complete formula, read from
+        // `determine` and not assumed:
+        //
+        //   base   = sum of the confidences on the EMITTED side / n
+        //   weight = (|score| + 1) / 2        <- with score 0.0 it is 0.5
+        //   final  = (base * weight) rounded to 2 decimals, clamped to [0,1]
+        //
+        // The rounding is what makes `==` CORRECT here: the value comes out
+        // quantised, so a tolerance would be weaker without being safer.
+        // A LITERAL, not the formula recomputed: re-deriving it here makes the
+        // test follow the code, so a wrong change moves both halves together
+        // and the test stays green. Computed ONCE by executing the formula:
+        //   base   = CONFIDENCE_OF[Caspar] / 3   (the divisor is the total, not the majority)
+        //   weight = 0.5                          (score 0.0)
+        //   0.7/3 = 0.2333..; * 0.5 = 0.11666..; rounded to two decimals, 0.12.
+        // Executed and not derived by hand because the rounding is not
+        // language-neutral: Rust's `f64::round()` rounds half away from zero
+        // (22.5 -> 23), Python's `round()` is banker's rounding (22.5 -> 22). A
+        // literal derived in the wrong language is a red test that looks like a
+        // product defect.
+        assert_eq!(result.confidence, 0.12);
+    }
+
+    /// A two-agent tie (one Approve, one Reject) emits HOLD -- TIE (Reject); the
+    /// agent listed as dissenting, the summary and the confidence must follow
+    /// that verdict whichever agent holds which vote.
+    #[test]
+    fn tie_attribution_does_not_depend_on_the_names() {
+        // MUTATION RULE: the LEAST favourable case is running BOTH name
+        // assignments, not one -- an alphabetical tie-break passes one of them
+        // by accident.
+        for (approver, rejecter) in [
+            (AgentName::Balthasar, AgentName::Melchior),
+            (AgentName::Melchior, AgentName::Balthasar),
+        ] {
+            let result = engine(ConsensusConfig::default())
+                .determine(&[
+                    agent(approver, Verdict::Approve),
+                    agent(rejecter, Verdict::Reject),
+                ])
+                // `ConsensusConfig::default()` carries `min_agents = 2` -- pinned
+                // by `test_consensus_config_default_values` -- so a degraded run
+                // of two agents clears the quorum and this `expect` cannot fire.
+                .expect("two agents clear min_agents");
+            assert_eq!(result.consensus_verdict, Verdict::Reject);
+            // ONE dissenter only, so order does not intervene here.
+            assert_eq!(
+                result.dissent.iter().map(|d| d.agent).collect::<Vec<_>>(),
+                vec![approver],
+                "only the agent differing from the emitted verdict dissents"
+            );
+            // THREE consumers, not one. Asserting only dissent would leave
+            // summary and confidence free to keep filtering against the old
+            // majority.
+            //
+            // And THERE IS NO FOURTH SITE, verified and not assumed: the
+            // `make_consensus` helper in `reporting.rs` computes its own
+            // `majority_summary` instead of receiving it, so it looked like one
+            // more consumer to migrate. It is NOT -- it already filters by
+            // `a.effective_verdict() == verdict.effective()`, where `verdict` is
+            // the one it emits as `consensus_verdict`. Written here because the
+            // next reader will ask the same question, and "we looked and it was
+            // already right" is information.
+            assert!(result.majority_summary.contains(SUMMARY_OF[&rejecter]));
+            assert!(!result.majority_summary.contains(SUMMARY_OF[&approver]));
+            // A LITERAL by lookup, for the same reason as its sibling above. The
+            // value depends on WHO rejects -- the two agents have different
+            // confidences on purpose -- so the table carries it already computed:
+            // if someone touches the divisor or the weight, both numbers go
+            // wrong and the test turns red.
+            assert_eq!(result.confidence, EXPECTED_CONFIDENCE_OF[&rejecter]);
         }
     }
 
