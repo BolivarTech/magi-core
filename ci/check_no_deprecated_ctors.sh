@@ -80,8 +80,39 @@ resolve_self() {
 SELF="$(resolve_self "$0")" || fail "cannot resolve my own path from '$0'"
 
 scan() {
-    # Not written yet: the self-test below is the contract it has to satisfy.
-    fail "[not-implemented] scan over $1"
+    scan_root="$1"
+    rc=0
+    files=0
+    for sub in $ROOTS; do
+        dir="$scan_root/$sub"
+        [ -d "$dir" ] || fail "$dir not found -- update this script"
+        # `/dev/null` as a second operand keeps grep printing `path:line:` even when `find`
+        # hands it a single file; `-n` alone would drop the path in that case.
+        hits="$(find "$dir" -name '*.rs' -type f -exec grep -nE "$QUALIFIED" /dev/null {} + 2>/dev/null || true)"
+        if [ -n "$hits" ]; then
+            printf '%s\n' "$hits" | while IFS= read -r hit; do
+                echo "check_no_deprecated_ctors: [deprecated-ctor] $hit -- migrate to OpenAiCompatibleProvider::with_dialect(base_url, model, api_key, dialect, timeout)" >&2
+            done
+            rc=1
+        fi
+        n="$(find "$dir" -name '*.rs' -type f | wc -l)"
+        files=$((files + n))
+    done
+    if [ "$files" -eq 0 ]; then
+        fail "[empty-scan] no .rs file under $ROOTS; nothing to guard is not a pass"
+    fi
+
+    compat="$scan_root/$COMPAT_FILE"
+    if [ -f "$compat" ]; then
+        self_calls="$(grep -cE "$SELF_CALL" "$compat" || true)"
+    else
+        self_calls=0
+    fi
+    if [ "$self_calls" -ne "$EXPECTED_SELF_CALLS" ]; then
+        echo "check_no_deprecated_ctors: [self-delegation] $COMPAT_FILE: expected exactly $EXPECTED_SELF_CALLS Self::(new|with_timeout)( call -- new delegating to with_timeout under its #[allow(deprecated)] -- found $self_calls" >&2
+        rc=1
+    fi
+    return "$rc"
 }
 
 self_test() {

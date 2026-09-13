@@ -187,6 +187,16 @@ sh ci/check_warn_once.sh --self-test
 step "warn-once gate"
 sh ci/check_warn_once.sh
 
+# The deprecated OpenAI-compatible constructors have no caller left, and the next major
+# deletes them on that premise. The compiler already refuses a new caller under
+# `-D warnings`; what it cannot refuse is a fresh `#[allow(deprecated)]` beside one, and
+# that is the single thing this grep exists to catch. Self-tested first, like its siblings.
+step "deprecated constructors (self-test)"
+sh ci/check_no_deprecated_ctors.sh --self-test
+
+step "deprecated constructors"
+sh ci/check_no_deprecated_ctors.sh
+
 # The Python interpreter, RESOLVED rather than assumed. Which name works is not the
 # same on both ends: a GitHub `ubuntu-latest` image always has `python3` and does not
 # promise `python`, while on a Windows dev box `python3` is often the Microsoft Store
