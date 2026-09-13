@@ -3072,14 +3072,15 @@ pub(crate) async fn dispatch_one_agent_rotating(
 /// which is why it is pinned rather than left to whoever writes the next branch.
 ///
 /// The line between them: `Deserialization` = *I never got an `AgentOutput`*;
-/// `Validation` = *I had one and it did not survive*. The three `extract` causes and a
-/// `serde_json` failure fall on the first side; the schema rejection and the two
-/// post-validation checks — which run **on an already-deserialized output** — on the
-/// second.
+/// `Validation` = *I had one and it did not survive*. The three `extract` causes and
+/// the two `serde_json` failures (`InvalidJson`, `MalformedObject`) fall on the first
+/// side; `Other` joins them conservatively. The schema rejection and the two
+/// post-validation checks — which run **on an already-deserialized output** — fall on
+/// the second.
 ///
-/// `Other` — the enum's own forward-compatibility catch-all, never constructed by this
-/// crate — maps to `Deserialization`, the conservative choice: an unknown cause must not
-/// claim a verdict object was obtained.
+/// `Other` is the enum's own forward-compatibility catch-all, never constructed by
+/// this crate; it joins the first side because an unknown cause must not claim a
+/// verdict object was obtained.
 ///
 /// # The match is exhaustive on purpose
 ///

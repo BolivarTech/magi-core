@@ -1008,12 +1008,12 @@ mod tests {
         assert_eq!(result.consensus_verdict, Verdict::Reject);
         assert!(result.consensus.starts_with("HOLD"));
 
-        // This pins the PRECONDITION of the finding, not an open acceptance: the
-        // acceptance (c) --inverting the label-- was WITHDRAWN by the user on
-        // 2026-09-07, so the REQ closes with (a) and (b). What the positive score
-        // proves is that the case exists and is reachable; that the label reads
-        // oddly with that score is the question that went to the backlog with
-        // its evidence.
+        // This pins the PRECONDITION of the finding, not an open question: the
+        // positive score at this boundary is real and reachable by construction
+        // (see `classify`'s doc comment on why the comparison stays `>`). What
+        // it proves is that the case exists; that the label reads oddly with a
+        // positive score is a separate, unresolved question this test does not
+        // decide.
         assert!(
             result.score > 0.0,
             "the precondition of the whole complaint"
@@ -1022,16 +1022,14 @@ mod tests {
         // `format!("HOLD ({}-{})", reject_count, approve_count)` (see `classify`),
         // so with two Conditional and no Reject it renders "HOLD (0-2)".
         //
-        // THE ORDER IS NOT INVERTED -- user decision, 2026-09-07. The label stays
+        // THE ORDER IS NOT INVERTED. The label stays
         // `("{}-{}", reject_count, approve_count)`, and this test PINS it as is
         // instead of asking for it to change.
         //
         // Why: the order is DOCUMENTED as deliberate in `README.md` -- "the order
         // flips with the verdict: GO prints (go, no) while HOLD prints (no, go)"
         // -- i.e. the first number is the side that WON. Inverting it would make
-        // false two documents that travel in the immutable tarball, and the
-        // question of whether that convention is the right one has its own
-        // backlog row.
+        // false two documents that travel in the immutable tarball.
         //
         // The two counts, DECLARED: they are the fixture's -- two Conditional,
         // which `effective()` counts as Approve, and no Reject.
@@ -1040,7 +1038,7 @@ mod tests {
 
         // The CURRENT order is asserted, and in both directions: the positive one
         // pins what the label says, the negative one prevents anyone from
-        // inverting it without going through the backlog decision.
+        // inverting it silently.
         assert!(
             result
                 .consensus

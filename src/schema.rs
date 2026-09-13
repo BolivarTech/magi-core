@@ -51,7 +51,8 @@ pub enum Verdict {
     Approve,
     /// The agent rejects the content.
     Reject,
-    /// The agent approves with conditions; counts as approval for majority.
+    /// The agent approves with conditions; counts as approval for the
+    /// effective vote count.
     Conditional,
 }
 
@@ -69,7 +70,8 @@ impl Verdict {
         }
     }
 
-    /// Maps the verdict to its effective binary form for majority counting.
+    /// Maps the verdict to its effective binary form for the effective vote
+    /// count.
     ///
     /// `Conditional` maps to `Approve`; others are identity.
     pub fn effective(&self) -> Verdict {

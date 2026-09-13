@@ -413,16 +413,18 @@ fn retry_template(cause: ExtractionFailureCause, finish: Option<FinishReason>) -
              opening marker, where it is allowed and ignored."
         ),
         ExtractionFailureCause::MalformedObject => "Your JSON object parsed but is not a \
-             verdict object: a required key is missing, or a value is not of the type \
-             its key requires (for example, a string where a number belongs). Include \
-             ALL SEVEN top-level keys, spelled exactly: agent, verdict, confidence, \
-             summary, reasoning, findings, recommendation — and give each one a value \
-             of the type your instructions specify."
+             verdict object: a required key is missing, a value is not of the type its \
+             key requires (for example, a string where a number belongs), or a value \
+             has the right type but not an accepted spelling (for example, an agent or \
+             verdict name that does not match one of the values your instructions \
+             define). Include ALL SEVEN top-level keys, spelled exactly: agent, verdict, \
+             confidence, summary, reasoning, findings, recommendation — and give each \
+             one a value of the type and spelling your instructions specify."
             .to_string(),
-        ExtractionFailureCause::Schema => "Your JSON object parsed but was missing a \
-             required key or carried an invalid value. Include ALL SEVEN top-level keys, \
-             spelled exactly: agent, verdict, confidence, summary, reasoning, findings, \
-             recommendation. Do not omit any key and do not rename any key."
+        ExtractionFailureCause::Schema => "Your JSON object parsed but carried an \
+             invalid value. Include ALL SEVEN top-level keys, spelled exactly: agent, \
+             verdict, confidence, summary, reasoning, findings, recommendation. Do not \
+             omit any key and do not rename any key."
             .to_string(),
         ExtractionFailureCause::EchoedExample => "You returned the worked example from \
              your instructions instead of analyzing the content under review. Emit YOUR \
@@ -1125,9 +1127,9 @@ mod tests {
                         Your previous response was rejected by the parsing pipeline:\n\
                         missing field `recommendation`\n\
                         \n\
-                        Your JSON object parsed but was missing a required key or carried \
-                        an invalid value. Include ALL SEVEN top-level keys, spelled \
-                        exactly: agent, verdict, confidence, summary, reasoning, findings, \
+                        Your JSON object parsed but carried an invalid value. Include \
+                        ALL SEVEN top-level keys, spelled exactly: agent, verdict, \
+                        confidence, summary, reasoning, findings, \
                         recommendation. Do not omit any key and do not rename any key.";
         assert_eq!(out, expected);
     }
