@@ -23,6 +23,14 @@ pub struct ConsensusConfig {
 
 /// Result of the consensus determination.
 ///
+/// The verdict comes from the weighted score, and every per-side field —
+/// [`confidence`](Self::confidence), [`dissent`](Self::dissent) and
+/// [`majority_summary`](Self::majority_summary) — is attributed against that
+/// **emitted** verdict, never against the count of effective votes. The two can
+/// disagree: two `Conditional` votes and one `Reject` count 2-1 for approval
+/// yet score exactly zero, so the verdict is `Reject` and the two
+/// `Conditional` agents are the dissenters.
+///
 /// # Stability
 ///
 /// `#[non_exhaustive]`: an **output** type the crate may enrich with further
@@ -43,9 +51,29 @@ pub struct ConsensusResult {
     pub agent_count: usize,
     /// Per-agent verdicts.
     pub votes: BTreeMap<AgentName, Verdict>,
-    /// Joined summaries from majority side.
+    /// Joined summaries of the agents on the side of the **emitted** verdict
+    /// ([`consensus_verdict`](Self::consensus_verdict)), one
+    /// `Name: summary` entry per agent, separated by `" | "`.
+    ///
+    /// Despite its name this is not the count majority's side. On a run of two
+    /// `Conditional` votes and one `Reject` the emitted verdict is `Reject`, so
+    /// this holds the one `Reject` summary and the two `Conditional` agents
+    /// appear in [`dissent`](Self::dissent) instead. The field is renamed to
+    /// `emitted_side_summary` in the next major; the deprecation is the
+    /// compile-time signal a minor release can give.
+    #[deprecated(
+        since = "4.1.0",
+        note = "since 4.1.0 this holds the summaries of the EMITTED verdict's side \
+                (`consensus_verdict`), which is not always the count majority; it is \
+                renamed `emitted_side_summary` in the next major"
+    )]
     pub majority_summary: String,
-    /// Dissenting agent details.
+    /// Agents whose effective verdict differs from the **emitted** verdict
+    /// ([`consensus_verdict`](Self::consensus_verdict)), in input order.
+    ///
+    /// Not the count minority: when two `Conditional` votes and one `Reject`
+    /// score zero, the verdict is `Reject` and both `Conditional` agents are
+    /// listed here, although they outnumber the agent they differ from.
     pub dissent: Vec<Dissent>,
     /// Deduplicated findings sorted by severity (Critical first).
     pub findings: Vec<DedupFinding>,
@@ -212,6 +240,11 @@ impl ConsensusEngine {
 
     /// Synthesizes agent outputs into a unified consensus result.
     ///
+    /// The verdict is classified from the weighted score (see
+    /// [`Verdict::weight`]), and the confidence, the dissent list and the
+    /// joined summary are all attributed against that emitted verdict. The
+    /// effective vote count only shapes the `(N-M)` part of the label.
+    ///
     /// # Errors
     ///
     /// - [`MagiError::InsufficientAgents`] if fewer than `min_agents` are provided.
@@ -242,7 +275,11 @@ impl ConsensusEngine {
         // 3. Compute normalized score
         let score: f64 = agents.iter().map(|a| a.verdict.weight()).sum::<f64>() / n;
 
-        // 4. Determine majority verdict
+        // 4. Count the effective split. It feeds the `(N-M)` labels only: the
+        // verdict comes from the score, and everything attributed below follows
+        // that verdict, never this count. The two can disagree -- two
+        // Conditionals and one Reject count 2-1 for approval yet score 0.0 --
+        // so a count-side "majority" would attribute the wrong side.
         let approve_count = agents
             .iter()
             .filter(|a| a.effective_verdict() == Verdict::Approve)
@@ -251,30 +288,9 @@ impl ConsensusEngine {
 
         let has_conditional = agents.iter().any(|a| a.verdict == Verdict::Conditional);
 
-        let majority_verdict = match approve_count.cmp(&reject_count) {
-            std::cmp::Ordering::Greater => Verdict::Approve,
-            std::cmp::Ordering::Less => Verdict::Reject,
-            std::cmp::Ordering::Equal => {
-                // Tie: break by alphabetically first agent on each side
-                let first_approve = agents
-                    .iter()
-                    .filter(|a| a.effective_verdict() == Verdict::Approve)
-                    .map(|a| a.agent)
-                    .min();
-                let first_reject = agents
-                    .iter()
-                    .filter(|a| a.effective_verdict() == Verdict::Reject)
-                    .map(|a| a.agent)
-                    .min();
-                match (first_approve, first_reject) {
-                    (Some(a), Some(r)) if a < r => Verdict::Approve,
-                    (Some(_), None) => Verdict::Approve,
-                    _ => Verdict::Reject,
-                }
-            }
-        };
-
-        // 5. Classify score to label + consensus verdict
+        // 5. Classify score to label + consensus verdict. `consensus_verdict` is
+        // the EMITTED verdict, always `Approve` or `Reject`, and it is what the
+        // confidence, the dissent and the summary below are attributed against.
         let (mut label, consensus_verdict) =
             self.classify(score, epsilon, approve_count, reject_count, has_conditional);
 
@@ -288,15 +304,16 @@ impl ConsensusEngine {
         }
 
         // 7. Compute confidence
-        // base_confidence: sum of majority-side confidences divided by TOTAL agent
-        // count (not majority count). This intentionally penalizes non-unanimous
-        // results — a dissenting agent dilutes the overall confidence even though
-        // it is not on the majority side.
+        // base_confidence: sum of the confidences on the EMITTED verdict's side
+        // divided by TOTAL agent count (not the count of that side). This
+        // intentionally penalizes non-unanimous results — a dissenting agent
+        // dilutes the overall confidence even though it is not on the emitted
+        // side.
         // weight_factor: maps |score| from [0,1] to [0.5,1.0], so unanimous
         // verdicts (|score|=1) get full weight while ties (score=0) halve it.
         let base_confidence: f64 = agents
             .iter()
-            .filter(|a| a.effective_verdict() == majority_verdict)
+            .filter(|a| a.effective_verdict() == consensus_verdict)
             .map(|a| a.confidence)
             .sum::<f64>()
             / n;
@@ -307,10 +324,10 @@ impl ConsensusEngine {
         // 8. Deduplicate findings
         let findings = self.deduplicate_findings(agents);
 
-        // 9. Identify dissent
+        // 9. Identify dissent: whoever differs from the EMITTED verdict.
         let dissent: Vec<Dissent> = agents
             .iter()
-            .filter(|a| a.effective_verdict() != majority_verdict)
+            .filter(|a| a.is_dissenting(consensus_verdict))
             .map(|a| Dissent {
                 agent: a.agent,
                 summary: a.summary.clone(),
@@ -332,10 +349,10 @@ impl ConsensusEngine {
         let votes: BTreeMap<AgentName, Verdict> =
             agents.iter().map(|a| (a.agent, a.verdict)).collect();
 
-        // 12. Build majority summary
+        // 12. Join the summaries of the EMITTED verdict's side
         let majority_summary = agents
             .iter()
-            .filter(|a| a.effective_verdict() == majority_verdict)
+            .filter(|a| a.effective_verdict() == consensus_verdict)
             .map(|a| format!("{}: {}", a.agent.display_name(), a.summary))
             .collect::<Vec<_>>()
             .join(" | ");
@@ -368,6 +385,10 @@ impl ConsensusEngine {
     }
 
     /// Classifies a score into a consensus label and verdict.
+    ///
+    /// The verdict follows the score alone; `approve_count` and `reject_count`
+    /// only render the `(N-M)` split in the label. A score within `epsilon` of
+    /// zero is `HOLD -- TIE` with a `Reject` verdict whatever the count says.
     fn classify(
         &self,
         score: f64,
@@ -804,7 +825,7 @@ mod tests {
 
     /// Two conditionals + one reject.
     /// score = (0.5 + 0.5 - 1.0) / 3 = 0.0 → HOLD -- TIE (score is exactly zero).
-    /// Reject pulls score to zero despite conditional majority on effective-verdict side.
+    /// Reject pulls score to zero despite the 2-1 effective count for approval.
     #[test]
     fn test_go_with_caveats_two_conditionals_one_reject() {
         let agents = vec![
@@ -1104,7 +1125,7 @@ mod tests {
     fn test_confidence_formula_clamped_and_rounded() {
         // 3 approve agents with confidence 0.9 each
         // score = (1+1+1)/3 = 1.0
-        // majority side = all 3 (approve), base = (0.9+0.9+0.9)/3 = 0.9
+        // emitted side = all 3 (approve), base = (0.9+0.9+0.9)/3 = 0.9
         // weight_factor = (1.0 + 1.0) / 2.0 = 1.0
         // confidence = 0.9 * 1.0 = 0.9
         let agents = vec![
@@ -1122,7 +1143,7 @@ mod tests {
     fn test_confidence_with_mixed_verdicts() {
         // 2 approve (0.9, 0.8) + 1 reject (0.7)
         // score = (1+1-1)/3 = 1/3 ≈ 0.3333
-        // majority = approve side: Melchior(0.9), Balthasar(0.8)
+        // emitted verdict = Approve, its side: Melchior(0.9), Balthasar(0.8)
         // base = (0.9 + 0.8) / 3 = 0.5667
         // weight_factor = (0.3333 + 1.0) / 2.0 = 0.6667
         // confidence = 0.5667 * 0.6667 = 0.3778 → rounded = 0.38
@@ -1138,7 +1159,7 @@ mod tests {
 
     // `majority_summary` is deprecated in favour of the rename in the next
     // major; this test asserts its content on purpose until then.
-    /// Majority summary joins majority agent summaries with " | ".
+    /// The summary joins the emitted side's agent summaries with " | ".
     #[allow(deprecated)]
     #[test]
     fn test_majority_summary_joins_with_pipe() {
@@ -1165,7 +1186,7 @@ mod tests {
 
     // `majority_summary` is deprecated in favour of the rename in the next
     // major; this test asserts its content on purpose until then.
-    /// Majority summary uses agent display name capitalized (not lowercase).
+    /// The summary uses the agent display name capitalized (not lowercase).
     #[allow(deprecated)]
     #[test]
     fn test_majority_summary_uses_display_name_capitalized() {
@@ -1279,19 +1300,19 @@ mod tests {
         assert!((config.epsilon - 1e-9).abs() < 1e-15);
     }
 
-    /// Tiebreak by AgentName::cmp() — alphabetically first agent's side wins.
+    /// A score of exactly zero classifies as HOLD -- TIE with a Reject verdict.
+    /// Nothing is broken by agent name: which agent approves and which rejects
+    /// plays no part in the label or the verdict, and the attribution that
+    /// follows them is pinned by `tie_attribution_does_not_depend_on_the_names`.
     #[test]
-    fn test_tiebreak_by_agent_name_ordering() {
-        // Balthasar=Approve, Melchior=Reject → tie (score=0)
-        // Balthasar < Melchior alphabetically → Balthasar's side (Approve) wins tiebreak
-        // But label should still be HOLD -- TIE
+    fn test_a_null_score_classifies_as_hold_tie() {
+        // Balthasar=Approve, Melchior=Reject → score = (1 - 1)/2 = 0
         let agents = vec![
             make_output(AgentName::Balthasar, Verdict::Approve, 0.9),
             make_output(AgentName::Melchior, Verdict::Reject, 0.9),
         ];
         let engine = ConsensusEngine::new(ConsensusConfig::default());
         let result = engine.determine(&agents).unwrap();
-        // Score is 0, so label is HOLD -- TIE, verdict is Reject
         assert_eq!(result.consensus, "HOLD -- TIE");
         assert_eq!(result.consensus_verdict, Verdict::Reject);
     }

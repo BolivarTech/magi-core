@@ -390,9 +390,14 @@ impl AgentOutput {
         matches!(self.verdict, Verdict::Approve | Verdict::Conditional)
     }
 
-    /// Returns `true` if this agent's effective verdict differs from the majority.
-    pub fn is_dissenting(&self, majority: Verdict) -> bool {
-        self.effective_verdict() != majority
+    /// Returns `true` if this agent's effective verdict differs from the given
+    /// verdict.
+    ///
+    /// The consensus engine passes the **emitted** verdict, which is not always
+    /// the count majority's side: two `Conditional` votes and one `Reject`
+    /// score zero and emit `Reject`, so both `Conditional` agents dissent.
+    pub fn is_dissenting(&self, verdict: Verdict) -> bool {
+        self.effective_verdict() != verdict
     }
 
     /// Returns the effective binary verdict (delegates to [`Verdict::effective`]).
@@ -735,19 +740,19 @@ mod tests {
     }
 
     #[test]
-    fn test_agent_output_is_dissenting_when_verdict_differs_from_majority() {
+    fn test_agent_output_is_dissenting_when_verdict_differs_from_the_given_one() {
         let output = make_output(Verdict::Reject);
         assert!(output.is_dissenting(Verdict::Approve));
     }
 
     #[test]
-    fn test_agent_output_is_not_dissenting_when_verdict_matches_majority() {
+    fn test_agent_output_is_not_dissenting_when_verdict_matches_the_given_one() {
         let output = make_output(Verdict::Approve);
         assert!(!output.is_dissenting(Verdict::Approve));
     }
 
     #[test]
-    fn test_agent_output_conditional_is_not_dissenting_from_approve_majority() {
+    fn test_agent_output_conditional_is_not_dissenting_from_an_approve_verdict() {
         let output = make_output(Verdict::Conditional);
         assert!(!output.is_dissenting(Verdict::Approve));
     }

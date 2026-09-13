@@ -286,14 +286,15 @@ In degraded mode (2/3 agents), STRONG labels are capped to their regular counter
 ### 5.3 Confidence Formula
 
 ```
-base_confidence = sum(majority_side_confidences) / total_agent_count
+base_confidence = sum(emitted_side_confidences) / total_agent_count
 weight_factor = (|score| + 1) / 2
 confidence = clamp(base_confidence * weight_factor, 0.0, 1.0)
 ```
 
 Key properties:
 
-- **Penalizes non-unanimity**: `base_confidence` divides by total agent count, not majority count. A dissenting agent dilutes confidence even though it's not on the majority side.
+- **Attributed to the emitted verdict**: the "emitted side" is every agent whose effective verdict matches the verdict the score classified to, not the count majority. Two `conditional` votes and one `reject` count 2-1 for approval yet score exactly zero, so the verdict is `HOLD -- TIE` (reject), the emitted side is the one rejecting agent, and both `conditional` agents are listed as dissenting. The same rule fixes `dissent` and `majority_summary`.
+- **Penalizes non-unanimity**: `base_confidence` divides by total agent count, not by the size of the emitted side. A dissenting agent dilutes confidence even though it's not on that side.
 - **Symmetric**: Unanimous reject at 0.9 confidence produces system confidence of 0.9, matching unanimous approve.
 - **Tie-aware**: At `score = 0`, `weight_factor = 0.5`, halving confidence — a tie genuinely represents lower certainty.
 - **Clamped and rounded**: Final confidence is clamped to [0.0, 1.0] and rounded to 2 decimal places.
