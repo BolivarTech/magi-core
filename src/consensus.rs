@@ -63,7 +63,7 @@ pub struct ConsensusResult {
     /// compile-time signal a minor release can give.
     #[deprecated(
         since = "4.1.0",
-        note = "since 4.1.0 this holds the summaries of the EMITTED verdict's side \
+        note = "holds the summaries of the EMITTED verdict's side \
                 (`consensus_verdict`), which is not always the count majority; it is \
                 renamed `emitted_side_summary` in the next major"
     )]
@@ -674,8 +674,8 @@ mod tests {
     #[test]
     fn tie_attribution_does_not_depend_on_the_names() {
         // MUTATION RULE: the LEAST favourable case is running BOTH name
-        // assignments, not one -- an alphabetical tie-break passes one of them
-        // by accident.
+        // assignments, not one -- an implementation that breaks the count tie
+        // by agent name passes one of them by accident.
         for (approver, rejecter) in [
             (AgentName::Balthasar, AgentName::Melchior),
             (AgentName::Melchior, AgentName::Balthasar),

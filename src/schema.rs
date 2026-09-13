@@ -183,8 +183,9 @@ impl fmt::Display for Mode {
 
 /// Identifies one of the three MAGI agents.
 ///
-/// Ordering is alphabetical (`Balthasar < Caspar < Melchior`) for
-/// deterministic tiebreaking in consensus.
+/// Ordering is alphabetical (`Balthasar < Caspar < Melchior`) so that every
+/// `BTreeMap`/`BTreeSet` keyed by agent — `votes`, `retried_agents`,
+/// `failed_agents` — iterates and serializes in a deterministic order.
 /// Serializes as lowercase (`"melchior"`, `"balthasar"`, `"caspar"`).
 /// # Stability — deliberately CLOSED
 ///
@@ -812,8 +813,7 @@ mod tests {
     // -- T04 BDD-18: AgentName Ord is alphabetical-by-display-name --
 
     /// AgentName Ord is alphabetical by display_name (Balthasar < Caspar < Melchior).
-    /// This invariant is load-bearing for BDD-10 (retried_agents JSON ordering)
-    /// and the consensus tie-break logic in src/consensus.rs.
+    /// This invariant is load-bearing for BDD-10 (retried_agents JSON ordering).
     #[test]
     fn test_agent_name_ord_is_alphabetical_by_display_name() {
         use AgentName::*;
