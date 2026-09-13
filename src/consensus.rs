@@ -595,6 +595,17 @@ mod tests {
         HashMap::from([(AgentName::Melchior, 0.23), (AgentName::Balthasar, 0.20)])
     });
 
+    /// The confidence expected when the OTHER agent is `Conditional` rather
+    /// than `Approve`: score = (0.5 - 1.0)/2 = -0.25, weight factor =
+    /// (0.25 + 1)/2 = 0.625. Melchior 0.9/2 * 0.625 = 0.28125 -> 0.28;
+    /// Balthasar 0.8/2 * 0.625 = 0.25. Same rule as [`EXPECTED_CONFIDENCE_OF`]:
+    /// a literal executed once against the real formula, never recomputed
+    /// inside the assertion.
+    static EXPECTED_CONFIDENCE_OF_CONDITIONAL_REJECT: LazyLock<HashMap<AgentName, f64>> =
+        LazyLock::new(|| {
+            HashMap::from([(AgentName::Melchior, 0.28), (AgentName::Balthasar, 0.25)])
+        });
+
     /// An output with the FIXED, known confidence of [`CONFIDENCE_OF`]; without
     /// that fixity the confidence formula cannot be predicted in an assertion.
     fn agent(name: AgentName, verdict: Verdict) -> AgentOutput {
@@ -685,57 +696,73 @@ mod tests {
         assert_eq!(result.confidence, 0.12);
     }
 
-    /// A two-agent tie (one Approve, one Reject) emits HOLD -- TIE (Reject); the
-    /// agent listed as dissenting, the summary and the confidence must follow
-    /// that verdict whichever agent holds which vote.
+    /// A two-agent tie emits HOLD -- TIE / HOLD (Reject) whichever agent holds
+    /// which vote. Covers BOTH two-agent tie shapes the trace table names --
+    /// Approve+Reject (score 0.0) and Conditional+Reject (score -0.25) -- not
+    /// only the first: `effective()` maps `Conditional` to `Approve` just as
+    /// it does `Approve` itself, so the OTHER agent dissents in both shapes
+    /// and the two share this loop instead of duplicating the body.
     // `majority_summary` is deprecated in favour of the rename in the next
     // major; this test asserts its content on purpose until then.
     #[allow(deprecated)]
     #[test]
     fn tie_attribution_does_not_depend_on_the_names() {
         // MUTATION RULE: the LEAST favourable case is running BOTH name
-        // assignments, not one -- an implementation that breaks the count tie
-        // by agent name passes one of them by accident.
-        for (approver, rejecter) in [
-            (AgentName::Balthasar, AgentName::Melchior),
-            (AgentName::Melchior, AgentName::Balthasar),
+        // assignments for BOTH tie shapes, not one of each -- an
+        // implementation that breaks a tie by agent name, or that only
+        // migrated the Approve+Reject shape, passes some of these by
+        // accident.
+        for (dissenting_verdict, expected_confidence) in [
+            (Verdict::Approve, &*EXPECTED_CONFIDENCE_OF),
+            (
+                Verdict::Conditional,
+                &*EXPECTED_CONFIDENCE_OF_CONDITIONAL_REJECT,
+            ),
         ] {
-            let result = engine(ConsensusConfig::default())
-                .determine(&[
-                    agent(approver, Verdict::Approve),
-                    agent(rejecter, Verdict::Reject),
-                ])
-                // `ConsensusConfig::default()` carries `min_agents = 2` -- pinned
-                // by `test_consensus_config_default_values` -- so a degraded run
-                // of two agents clears the quorum and this `expect` cannot fire.
-                .expect("two agents clear min_agents");
-            assert_eq!(result.consensus_verdict, Verdict::Reject);
-            // ONE dissenter only, so order does not intervene here.
-            assert_eq!(
-                result.dissent.iter().map(|d| d.agent).collect::<Vec<_>>(),
-                vec![approver],
-                "only the agent differing from the emitted verdict dissents"
-            );
-            // THREE consumers, not one. Asserting only dissent would leave
-            // summary and confidence free to keep filtering against the old
-            // majority.
-            //
-            // And THERE IS NO FOURTH SITE, verified and not assumed: the
-            // `make_consensus` helper in `reporting.rs` computes its own
-            // `majority_summary` instead of receiving it, so it looked like one
-            // more consumer to migrate. It is NOT -- it already filters by
-            // `a.effective_verdict() == verdict.effective()`, where `verdict` is
-            // the one it emits as `consensus_verdict`. Written here because the
-            // next reader will ask the same question, and "we looked and it was
-            // already right" is information.
-            assert!(result.majority_summary.contains(SUMMARY_OF[&rejecter]));
-            assert!(!result.majority_summary.contains(SUMMARY_OF[&approver]));
-            // A LITERAL by lookup, for the same reason as its sibling above. The
-            // value depends on WHO rejects -- the two agents have different
-            // confidences on purpose -- so the table carries it already computed:
-            // if someone touches the divisor or the weight, both numbers go
-            // wrong and the test turns red.
-            assert_eq!(result.confidence, EXPECTED_CONFIDENCE_OF[&rejecter]);
+            for (dissenter, rejecter) in [
+                (AgentName::Balthasar, AgentName::Melchior),
+                (AgentName::Melchior, AgentName::Balthasar),
+            ] {
+                let result = engine(ConsensusConfig::default())
+                    .determine(&[
+                        agent(dissenter, dissenting_verdict),
+                        agent(rejecter, Verdict::Reject),
+                    ])
+                    // `ConsensusConfig::default()` carries `min_agents = 2` --
+                    // pinned by `test_consensus_config_default_values` -- so a
+                    // degraded run of two agents clears the quorum and this
+                    // `expect` cannot fire.
+                    .expect("two agents clear min_agents");
+                assert_eq!(result.consensus_verdict, Verdict::Reject);
+                // ONE dissenter only, so order does not intervene here.
+                assert_eq!(
+                    result.dissent.iter().map(|d| d.agent).collect::<Vec<_>>(),
+                    vec![dissenter],
+                    "only the agent differing from the emitted verdict dissents"
+                );
+                // THREE consumers, not one. Asserting only dissent would leave
+                // summary and confidence free to keep filtering against the old
+                // majority.
+                //
+                // And THERE IS NO FOURTH SITE, verified and not assumed: the
+                // `make_consensus` helper in `reporting.rs` computes its own
+                // `majority_summary` instead of receiving it, so it looked like
+                // one more consumer to migrate. It is NOT -- it already
+                // filters by `a.effective_verdict() == verdict.effective()`,
+                // where `verdict` is the one it emits as `consensus_verdict`.
+                // Written here because the next reader will ask the same
+                // question, and "we looked and it was already right" is
+                // information.
+                assert!(result.majority_summary.contains(SUMMARY_OF[&rejecter]));
+                assert!(!result.majority_summary.contains(SUMMARY_OF[&dissenter]));
+                // A LITERAL by lookup, for the same reason as its sibling
+                // above. The value depends on WHO rejects, so the table is
+                // keyed by the rejecter; it also depends on the OTHER agent's
+                // verdict, so the table itself is chosen per scenario: if
+                // someone touches the divisor or the weight, both numbers go
+                // wrong and the test turns red.
+                assert_eq!(result.confidence, expected_confidence[&rejecter]);
+            }
         }
     }
 
