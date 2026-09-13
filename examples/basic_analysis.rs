@@ -161,10 +161,12 @@ fn create_provider(
             let base_url = args
                 .base_url
                 .ok_or("--base-url is required when using --provider openai-compat")?;
-            Ok(Arc::new(OpenAiCompatibleProvider::new(
+            Ok(Arc::new(OpenAiCompatibleProvider::with_dialect(
                 base_url,
                 args.model,
                 args.api_key.map(|k| k.to_string()),
+                Dialect::MaxTokens,
+                DEFAULT_CLIENT_TIMEOUT,
             )?))
         }
         #[cfg(not(feature = "openai-compat"))]

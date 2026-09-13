@@ -51,8 +51,9 @@ pub(crate) struct OpenAiRequest {
 /// so the guarantee is the type's, not a discipline at the construction site.
 ///
 /// Externally tagged, so `#[serde(flatten)]` on the owning field emits `{"max_tokens": n}` or
-/// `{"max_completion_tokens": n}` inline. `#[serde(untagged)]` would be wrong here: it emits the
-/// bare number with no key at all.
+/// `{"max_completion_tokens": n}` inline. `#[serde(untagged)]` would be wrong here: an untagged
+/// newtype serializes as the bare number, and a bare number cannot be flattened into a map, so
+/// serialization fails outright (`can only flatten structs and maps`) and no request is sent.
 ///
 /// `PartialEq` is consumed by the request-shape tests, which compare the field directly.
 #[derive(Debug, PartialEq, Serialize)]
@@ -264,17 +265,26 @@ pub enum Dialect {
 /// # Examples
 ///
 /// ```no_run
-/// use magi_core::providers::openai_compat::OpenAiCompatibleProvider;
+/// use magi_core::provider::DEFAULT_CLIENT_TIMEOUT;
+/// use magi_core::providers::openai_compat::{Dialect, OpenAiCompatibleProvider};
 ///
-/// // Local Ollama (no API key)
-/// let local = OpenAiCompatibleProvider::new("http://localhost:11434/v1", "phi4-mini", None)
-///     .expect("valid url");
+/// // Local Ollama (no API key): `max_tokens` is the spelling it honours.
+/// let local = OpenAiCompatibleProvider::with_dialect(
+///     "http://localhost:11434/v1",
+///     "phi4-mini",
+///     None,
+///     Dialect::MaxTokens,
+///     DEFAULT_CLIENT_TIMEOUT,
+/// )
+/// .expect("valid url");
 ///
-/// // OpenAI cloud
-/// let cloud = OpenAiCompatibleProvider::new(
+/// // OpenAI cloud: its current models take `max_completion_tokens`.
+/// let cloud = OpenAiCompatibleProvider::with_dialect(
 ///     "https://api.openai.com/v1",
 ///     "gpt-4o",
 ///     Some("sk-...".into()),
+///     Dialect::MaxCompletionTokens,
+///     DEFAULT_CLIENT_TIMEOUT,
 /// )
 /// .expect("valid url");
 /// ```

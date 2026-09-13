@@ -63,7 +63,7 @@ pub use crate::providers::claude::ClaudeProvider;
 pub use crate::providers::claude_cli::ClaudeCliProvider;
 
 #[cfg(feature = "openai-compat")]
-pub use crate::providers::openai_compat::OpenAiCompatibleProvider;
+pub use crate::providers::openai_compat::{Dialect, OpenAiCompatibleProvider};
 
 #[cfg(feature = "ollama")]
 pub use crate::providers::ollama::OllamaProvider;
@@ -192,11 +192,13 @@ mod tests {
         fn _takes_builder(_b: MagiBuilder) {}
     }
 
-    /// Crate compiles with openai-compat feature; provider reachable via prelude.
+    /// Crate compiles with openai-compat feature; provider and its request dialect
+    /// reachable via prelude.
     #[cfg(feature = "openai-compat")]
     #[test]
     fn test_crate_compiles_with_openai_compat_feature() {
-        use crate::prelude::OpenAiCompatibleProvider;
+        use crate::prelude::{Dialect, OpenAiCompatibleProvider};
         fn _takes_provider(_p: &OpenAiCompatibleProvider) {}
+        let _dialect = Dialect::default();
     }
 }
