@@ -1614,7 +1614,7 @@ mod tests {
 
     /// Banner with long consensus label still fits 52 bytes.
     #[test]
-    fn test_banner_with_long_content_fits_52_chars() {
+    fn test_banner_with_long_content_fits_52_bytes() {
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
         let b = make_agent(
             AgentName::Balthasar,
