@@ -227,8 +227,10 @@ pub struct ReportConfig {
 
 /// Formats consensus results into ASCII banners and markdown reports.
 ///
-/// Generates fixed-width ASCII banners (exactly 52 characters wide per line)
-/// and full markdown reports from agent outputs and consensus results.
+/// Generates fixed-width ASCII banners (exactly 52 **bytes** per line — the unit the
+/// invariant is enforced in; it equals the character count only for ASCII content, which
+/// [`ReportConfig`] documents as the assumption) and full markdown reports from agent
+/// outputs and consensus results.
 /// The reporting module is pure string formatting -- no async, no I/O.
 pub struct ReportFormatter {
     config: ReportConfig,
@@ -859,7 +861,8 @@ impl ReportFormatter {
 
     /// Generates the fixed-width ASCII verdict banner with column-aligned agent labels.
     ///
-    /// Every line is exactly `banner_width` (52) characters. Agent labels are
+    /// Every line is exactly `banner_width` (52) **bytes**; that is also the character
+    /// count only when the content is ASCII, as [`ReportConfig`] requires. Agent labels are
     /// left-justified to the same width (`max_label_len`), so verdict suffixes
     /// start at the same column for all agents. When content overflows the inner
     /// width, the label is ellipsized while the verdict suffix is preserved intact.
@@ -1569,9 +1572,10 @@ mod tests {
 
     // -- BDD Scenario 15: banner width --
 
-    /// All banner lines are exactly 52 characters wide.
+    /// All banner lines are exactly 52 bytes wide — `len()` counts bytes, and bytes are
+    /// what the banner guarantees; the two coincide only because the content is ASCII.
     #[test]
-    fn test_banner_lines_are_exactly_52_chars_wide() {
+    fn test_banner_lines_are_exactly_52_bytes_wide() {
         let m = make_agent(
             AgentName::Melchior,
             Verdict::Approve,
@@ -1603,12 +1607,12 @@ mod tests {
 
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Line is not 52 chars: '{}'", line);
+                assert_eq!(line.len(), 52, "Line is not 52 bytes: '{}'", line);
             }
         }
     }
 
-    /// Banner with long consensus label still fits 52 chars.
+    /// Banner with long consensus label still fits 52 bytes.
     #[test]
     fn test_banner_with_long_content_fits_52_chars() {
         let m = make_agent(AgentName::Melchior, Verdict::Approve, 0.9, "S", "R", "Rec");
@@ -1629,7 +1633,7 @@ mod tests {
 
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Line is not 52 chars: '{}'", line);
+                assert_eq!(line.len(), 52, "Line is not 52 bytes: '{}'", line);
             }
         }
     }
@@ -2001,7 +2005,7 @@ mod tests {
 
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Init banner line not 52 chars: '{}'", line);
+                assert_eq!(line.len(), 52, "Init banner line not 52 bytes: '{}'", line);
             }
         }
     }
@@ -3062,10 +3066,10 @@ mod tests {
 
         let banner = formatter.format_banner(&agents, &consensus);
 
-        // All lines must still be exactly 52 chars
+        // All lines must still be exactly 52 bytes (`len()` counts bytes; ASCII content)
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+                assert_eq!(line.len(), 52, "Line is not 52 bytes: {:?}", line);
             }
         }
 
@@ -3103,10 +3107,10 @@ mod tests {
             "Banner consensus line must include the split count: {banner}"
         );
 
-        // All lines must be exactly 52 chars
+        // All lines must be exactly 52 bytes (`len()` counts bytes; ASCII content)
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+                assert_eq!(line.len(), 52, "Line is not 52 bytes: {:?}", line);
             }
         }
     }
@@ -3147,7 +3151,7 @@ mod tests {
 
         for line in banner.lines() {
             if !line.is_empty() {
-                assert_eq!(line.len(), 52, "Line is not 52 chars: {:?}", line);
+                assert_eq!(line.len(), 52, "Line is not 52 bytes: {:?}", line);
             }
         }
     }
