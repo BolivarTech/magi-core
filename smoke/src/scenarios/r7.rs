@@ -47,11 +47,12 @@
 //!
 //! `S-R7a` needs the model to want MORE than the cap. A model that answers shorter on its own
 //! produces a red that is honest — the property is unknown, so it fails closed — but is not a
-//! defect of the crate. When the verdict row is red the scenario adds the reading beside it:
-//! the finish reason and the token counts. *Finish `stop` with fewer tokens than the cap*
-//! means there was nothing to cut and the cap should be lowered before this is treated as a
-//! finding; *finish `stop` with more tokens than the cap* means the cap never reached the
-//! backend, which is the regression.
+//! defect of the crate. The reading always sits beside the verdict — the cap, the finish
+//! reason and the token counts — and it is what says which red this is: *finish `stop` with
+//! fewer tokens than the cap* means there was nothing to cut and the cap should be lowered
+//! before this is treated as a finding; *finish `stop` with more tokens than the cap* means
+//! the cap never reached the backend, which is the regression. On a pass the same reading is
+//! what makes the pass auditable rather than believed.
 //!
 //! # The seed comes by another path than the mechanism under test
 //!
@@ -80,35 +81,39 @@ const NEVER_HAPPENED: &str = "the run never happened";
 
 /// `S-R7a` — the dialect the backend honours cuts the completion at the cap.
 ///
-/// One row when the property holds; two when it does not, the second carrying the reading
-/// that tells an honest red from a regression. A run that reached no completion skips naming
-/// the error; a run that never happened skips saying so.
+/// Two rows, always: the verdict, and the reading it was made from. On a pass the reading is
+/// what makes the pass auditable — the cap was the one requested and the model ran into it;
+/// on a red it is what tells an honest red from a regression. A run that reached no
+/// completion skips both naming the error; a run that never happened skips both saying so.
 fn s_r7a_default_dialect_is_cut_at_the_cap(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let evidence = match measured(ctx, NAME_DEFAULT_DIALECT_CUTS) {
         Ok(e) => e,
-        Err(skip) => return vec![skip],
+        Err(skip) => {
+            let reading_skip = Assertion {
+                name: NAME_DEFAULT_DIALECT_READING,
+                state: skip.state.clone(),
+            };
+            return vec![skip, reading_skip];
+        }
     };
-    if evidence.telemetry.finish.is_none() {
+    let reading = Assertion {
+        name: NAME_DEFAULT_DIALECT_READING,
+        state: ScenarioState::Observed(render_reading(evidence)),
+    };
+    let verdict = if evidence.telemetry.finish.is_none() {
         // Neither a pass on the count alone nor a red on an absence: the backend did not
         // say why the model stopped, so whether the cap cut it cannot be read.
-        return vec![Assertion::skip(
+        Assertion::skip(
             NAME_DEFAULT_DIALECT_CUTS,
             "the backend reported no finish reason, so whether the cap cut the completion \
              cannot be read",
-        )];
-    }
-    if is_cut_at_the_cap(evidence) {
-        return vec![assert_that(NAME_DEFAULT_DIALECT_CUTS, true)];
-    }
-    // Red, WITH the reading beside it: finish `stop` under the cap is a model that had
-    // nothing to cut, finish `stop` over it is a cap that never reached the backend.
-    vec![
-        assert_that(NAME_DEFAULT_DIALECT_CUTS, false),
-        Assertion {
-            name: NAME_DEFAULT_DIALECT_READING,
-            state: ScenarioState::Observed(render_reading(evidence)),
-        },
-    ]
+        )
+    } else {
+        // Red means finish `stop`: under the cap it is a model that had nothing to cut, over
+        // it a cap that never reached the backend — and the reading beside it says which.
+        assert_that(NAME_DEFAULT_DIALECT_CUTS, is_cut_at_the_cap(evidence))
+    };
+    vec![verdict, reading]
 }
 
 /// `S-R7b` — the modern dialect against this backend: recorded, never verified.
