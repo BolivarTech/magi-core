@@ -210,10 +210,11 @@ const FINDING_SEVERITY_WIDTH: usize = 14;
 ///
 /// The fixed-width banner guarantee (`banner_width` bytes per line) assumes
 /// all displayed content is ASCII. Agent titles, verdict labels, and consensus
-/// strings are ASCII by default. If `agent_titles` contains multi-byte UTF-8
-/// characters, banner lines will have correct byte length but may appear
-/// visually misaligned in terminals because multi-byte characters can occupy
-/// more than one display column.
+/// strings are ASCII by default, and the checked constructors reject a
+/// non-ASCII display name or title with [`ReportError::NonAsciiTitle`], so
+/// the byte count and the display width of a banner line cannot drift apart
+/// through this configuration. The assumption is stated because the width is
+/// measured in bytes: only ASCII makes one byte one display column.
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct ReportConfig {
@@ -2722,9 +2723,10 @@ mod tests {
         }
     }
 
-    /// Severity label column is exactly 14 characters wide (padded with trailing spaces).
+    /// Severity label column is exactly 14 bytes wide (padded with trailing spaces; the
+    /// padding counts characters, so the two agree only for ASCII, which the label is).
     ///
-    /// The severity label token (chars 6..20) must be exactly 14 bytes,
+    /// The severity label token (bytes 6..20) must be exactly 14 bytes,
     /// with the markdown-decorated label left-justified inside that width.
     #[test]
     fn test_findings_line_severity_label_column_is_14_chars_left_justified() {

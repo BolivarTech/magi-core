@@ -3437,6 +3437,15 @@ mod input_threshold_tests {
             !exceeds(estimate_tokens(""), &cfg),
             "and the empty input still does not warn"
         );
+        // The unit is BYTES, not characters: two 2-byte characters are one token and
+        // warn, although a character count would round them down to zero. Pinned so a
+        // switch to `chars().count()` cannot pass unnoticed.
+        let two_chars_four_bytes = "é".repeat(TOKENS_PER_BYTE_DIVISOR / 2);
+        assert_eq!(two_chars_four_bytes.len(), TOKENS_PER_BYTE_DIVISOR);
+        assert!(
+            exceeds(estimate_tokens(&two_chars_four_bytes), &cfg),
+            "the divisor in bytes reached with fewer characters still warns"
+        );
     }
 
     #[test]

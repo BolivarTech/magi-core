@@ -137,7 +137,7 @@ lib.rs (crate root)
 ├── schema.rs         — Verdict, Severity, Mode, AgentName, Finding, AgentOutput
 ├── validate.rs       — Validator with ValidationLimits, zero-width Unicode stripping
 ├── consensus.rs      — ConsensusEngine: weighted scoring, epsilon-aware classification
-├── reporting.rs      — ReportFormatter (52-char ASCII banner), MagiReport
+├── reporting.rs      — ReportFormatter (52-byte ASCII banner), MagiReport
 ├── provider.rs       — LlmProvider async trait (Send+Sync), Completion, RetryProvider
 ├── backoff.rs        — capped exponential backoff, full jitter, Retry-After parsing
 ├── finding_id.rs     — stable SHA-256 finding identity

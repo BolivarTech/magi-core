@@ -3,8 +3,9 @@
 // Date: 2026-09-14
 
 //! Minimal HTTP server over `tokio::net::TcpListener` for integration tests. NOT a general
-//! mock server: it only covers the two scenarios that MS1 needs (`S11` and `S16`). Ephemeral
-//! port to avoid collisions.
+//! mock server: each `spawn_*` below serves exactly one shape the integration tests need
+//! (headers that never get a body, a `429` with `Retry-After`, a capturing server, a `429`
+//! followed by a hang). Ephemeral port to avoid collisions.
 
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -37,9 +38,10 @@ pub async fn spawn_hanging_headers() -> (String, JoinHandle<()>) {
 
 /// Responds with `429` with the given `Retry-After` on the first request and `200` on the
 /// second, so we can observe the intermediate wait.
-// No caller yet: its first use is the S11 test of Task 9 (end-to-end wiring of
-// `Retry-After`). `#[allow(dead_code)]` instead of fabricating a fake caller,
-// which the project's rules forbid.
+// Every integration binary includes this whole module but uses a subset; a binary that
+// does not call this function would see it as dead code (same reason as above).
+// `#[allow(dead_code)]` instead of fabricating a fake caller, which the project's
+// rules forbid.
 #[allow(dead_code)]
 pub async fn spawn_429_with_retry_after(value: &str) -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -74,8 +76,7 @@ pub async fn spawn_429_with_retry_after(value: &str) -> (String, JoinHandle<()>)
 
 /// What a captured request carried: the path it was sent to, and its JSON body.
 ///
-/// Written in English, unlike the two servers above, because §0.2 asks for it in `tests/` too —
-/// they predate the rule and are left alone rather than rewritten in an unrelated task.
+/// Kept minimal on purpose: the path and the body are all the tests assert on.
 #[allow(dead_code)]
 pub struct CapturedRequest {
     pub path: String,

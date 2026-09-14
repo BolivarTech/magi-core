@@ -102,12 +102,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Deprecated
 
 - `schema::ZERO_WIDTH_PATTERN` — deprecated since `0.2.0`, not by this release; what is new
-  here is the date on its removal. It is scheduled for removal in the next major, together
-  with the rename of `majority_summary`, as one decision rather than two. Nothing in this
-  repository reads it — the gate builds with warnings denied, so an internal use could not
-  hide — which leaves a consumer that still does as the only party affected.
-  `validate::clean_title` is the replacement the attribute already names, with the caveat it
-  already states: a different character set, and more normalisation besides (control
+  here is the version its removal is scheduled for: the next major, together with the
+  rename of the consensus summary field, as one decision rather than two. Nothing in this
+  repository reads it — a search finds no reader outside its definition — which leaves a
+  consumer that still does as the only party affected. `validate::clean_title` is the
+  replacement the attribute already names, with the caveat the attribute states (a different
+  character set) and, per `clean_title`'s own contract, more normalisation besides (control
   whitespace becomes spaces, then the result is trimmed), so it is not a piece-for-piece swap.
 
 ## [4.0.0] - 2026-08-24
