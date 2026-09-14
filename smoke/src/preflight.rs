@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
 // Version: 4.1.0
-// Date: 2026-09-11
+// Date: 2026-09-13
 
 //! The fail-closed preflight: everything that must be true BEFORE a single
 //! scenario runs, in R26's fixed order — config, fixtures, workspace, lock,

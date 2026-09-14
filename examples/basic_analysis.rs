@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
-// Version: 1.0.0
-// Date: 2026-04-05
+// Version: 4.1.0
+// Date: 2026-09-13
 
 //! Basic MAGI analysis example.
 //!

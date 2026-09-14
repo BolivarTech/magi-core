@@ -1,6 +1,6 @@
 // Author: Julian Bolivar
 // Version: 4.1.0
-// Date: 2026-09-11
+// Date: 2026-09-13
 
 //! Harness configuration. Fail-closed by construction: an unknown field is an
 //! error and an unreadable file is fatal, because falling back to defaults would
