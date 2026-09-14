@@ -233,7 +233,9 @@ const COMPAT_BACKEND_NAME: &str = "openai-compatible";
 ///
 /// OpenAI documents `max_completion_tokens` as the field its current models take; Ollama's
 /// `/v1` endpoint accepts `max_tokens` and **silently discards** `max_completion_tokens`
-/// (measured: 692 tokens generated against 16 requested, `finish_reason: stop`, no error).
+/// (measured against `qwen2.5vl:7b` during the evidence campaign for this dialect: 692 tokens
+/// generated against 16 requested, `finish_reason: stop`, no error — the smoke harness's own
+/// seat, a different model, measures a different token count for the same discard).
 /// The two spellings cannot be sent together — strict backends reject unknown fields — so the
 /// caller declares which one its backend wants.
 ///
@@ -278,7 +280,7 @@ pub enum Dialect {
 /// )
 /// .expect("valid url");
 ///
-/// // OpenAI cloud: its current models take `max_completion_tokens`.
+/// // OpenAI cloud: its API documents `max_completion_tokens` for its current models.
 /// let cloud = OpenAiCompatibleProvider::with_dialect(
 ///     "https://api.openai.com/v1",
 ///     "gpt-4o",
@@ -295,8 +297,9 @@ pub struct OpenAiCompatibleProvider {
     base_url: ProviderUrl,
     model: String,
     api_key: Option<String>,
-    /// Which field name carries the generation cap on the wire. Read in exactly one place,
-    /// [`Self::build_request_body`]; the rest of the provider does not know a dialect exists.
+    /// Which field name carries the generation cap on the wire. The one place that puts it on
+    /// the wire is [`Self::build_request_body`]; `fmt::Debug` also reads it, but only to print
+    /// it back — the rest of the provider does not know a dialect exists.
     dialect: Dialect,
 }
 
@@ -400,7 +403,7 @@ impl OpenAiCompatibleProvider {
     /// use magi_core::provider::DEFAULT_CLIENT_TIMEOUT;
     /// use magi_core::providers::openai_compat::{Dialect, OpenAiCompatibleProvider};
     ///
-    /// // OpenAI cloud: its current models take `max_completion_tokens`.
+    /// // OpenAI cloud: its API documents `max_completion_tokens` for its current models.
     /// let cloud = OpenAiCompatibleProvider::with_dialect(
     ///     "https://api.openai.com/v1",
     ///     "gpt-5",

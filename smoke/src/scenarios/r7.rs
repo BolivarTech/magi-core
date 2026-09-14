@@ -9,8 +9,10 @@
 //! `OpenAiCompatibleProvider` sends its output cap under one of two spellings: `max_tokens`,
 //! the default, or `max_completion_tokens`, the one OpenAI documents for its current models.
 //! Against Ollama's `/v1` only the first is honoured; the second is **discarded in silence** —
-//! measured: 692 tokens generated against 16 requested, `finish_reason: stop`, no error. The
-//! default rests on that measurement.
+//! measured against `qwen2.5vl:7b` during the crate's evidence campaign: 692 tokens generated
+//! against 16 requested, `finish_reason: stop`, no error. The default rests on that
+//! measurement; `S-R7b` below measures the same discard again, live, on this harness's own
+//! seat, and gets a different token count because it is a different model.
 //!
 //! So a scenario that sent the modern spelling and asserted *"the cap was respected"* could
 //! not fail: it would pass when the crate is right AND when the backend ignores the request.

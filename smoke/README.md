@@ -200,7 +200,9 @@ own — so a pass is auditable and a red says which red it is: finish `stop` und
 model that had nothing to cut, and the cap should be lowered before that is treated as a
 finding; finish `stop` over the cap is a cap that never reached the backend, which is the
 regression. Under `max_completion_tokens` Ollama's `/v1` discards the field and the model runs
-to its own end — measured at 3 504 completion tokens against the 16 requested — and `S-R7b`
+to its own end — measured live on this harness's own seat at 3 504 completion tokens against
+the 16 requested, a different figure from the 692 the crate's rustdoc cites, because that one
+came from a different model during the original evidence campaign — and `S-R7b`
 **records** that as an `OBSERVED` row rather than judging it (§1). Neither run goes through
 `analyze()`: the builder always dispatches three mages, a cap
 that cuts every answer leaves no verdict for any of them, and the run would end in
