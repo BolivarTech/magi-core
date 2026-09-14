@@ -1298,9 +1298,15 @@ fn completions_for(cfg: &Config, run: RunId) -> usize {
 ///
 /// The run sending the cap under the spelling the backend honours is priced at that cap. The
 /// run sending it under the spelling the measured backend DISCARDS is priced at the crate's
-/// default: its own cap bounds nothing there, and the default is the same coarse upper bound
-/// every trio run is already priced at. Pricing it at the sixteen it sends would understate
-/// the one run whose whole point is that the number it sends is not what it gets.
+/// default, same as every trio run: its own cap bounds nothing there, and the default is the
+/// same coarse upper bound the rest of the announcement already uses. Pricing it at the
+/// sixteen it sends would understate the one run whose whole point is that the number it
+/// sends is not what it gets.
+///
+/// An exhaustive `match`, no `_`, mirroring [`is_single_completion`] and
+/// [`RunId::uses_backend`]: a run added later stops the compilation here and its price gets
+/// decided, instead of silently inheriting the default from a wildcard arm nobody wrote for
+/// it.
 ///
 /// # Parameters
 ///
@@ -1308,20 +1314,48 @@ fn completions_for(cfg: &Config, run: RunId) -> usize {
 fn output_cap_for(run: RunId) -> usize {
     match run {
         RunId::DialectMaxTokens => DIALECT_PROBE_CAP as usize,
-        _ => CompletionConfig::default().max_tokens as usize,
+        RunId::DialectMaxCompletionTokens
+        | RunId::HappySmall
+        | RunId::Large62k
+        | RunId::Rotation
+        | RunId::Degradation
+        | RunId::CrateDefect
+        | RunId::MixedTrio
+        | RunId::Large62kNoReasoning
+        | RunId::PoolEligibility
+        | RunId::EndpointBlip
+        | RunId::EndpointDown
+        | RunId::NoBackend => CompletionConfig::default().max_tokens as usize,
     }
 }
 
 /// Whether a run asks a single provider for a single completion instead of running a trio.
 ///
+/// An exhaustive `match`, no `_`, for the same reason as [`RunId::uses_backend`]: a run added
+/// later stops the compilation here and its answer gets decided, instead of being inherited
+/// from whichever side a wildcard arm would have sent it to. [`output_cap_for`] enumerates the
+/// same variants for the same reason, and
+/// `the_single_completion_predicate_agrees_with_run_spec` pins the two sources — this
+/// function's answer and `RunSpec::providers`'s `SingleCompletion` variant — together.
+///
 /// # Parameters
 ///
 /// * `run` — the run in question.
 fn is_single_completion(run: RunId) -> bool {
-    matches!(
-        run,
-        RunId::DialectMaxTokens | RunId::DialectMaxCompletionTokens
-    )
+    match run {
+        RunId::DialectMaxTokens | RunId::DialectMaxCompletionTokens => true,
+        RunId::HappySmall
+        | RunId::Large62k
+        | RunId::Rotation
+        | RunId::Degradation
+        | RunId::CrateDefect
+        | RunId::MixedTrio
+        | RunId::Large62kNoReasoning
+        | RunId::PoolEligibility
+        | RunId::EndpointBlip
+        | RunId::EndpointDown
+        | RunId::NoBackend => false,
+    }
 }
 
 /// R31, both halves: the estimate printed BEFORE the runs, and the real cost
@@ -1935,6 +1969,36 @@ mod tests {
              bounds nothing"
         );
         assert_eq!(output_cap_for(RunId::HappySmall), default_cap);
+    }
+
+    /// `is_single_completion` and `RunSpec::providers` are two independent sources for the
+    /// same fact — one an exhaustive `match` over `RunId`, the other the `ProviderKind` each
+    /// spec is actually built with — and nothing forces them to agree. This is a PIN, not a
+    /// regression test: today the two already agree, so it cannot be made red without
+    /// mutating one side by hand (verified that way, not left to inspection). What it buys is
+    /// that a run added to one side without the other fails HERE instead of pricing a trio's
+    /// completions as one, or one completion's as three.
+    #[test]
+    fn the_single_completion_predicate_agrees_with_run_spec() {
+        let cfg = Config::default();
+        let specs =
+            crate::runner::RunSpec::all(&cfg, &repo_root(), false).expect("payload generation");
+        assert!(
+            !specs.is_empty(),
+            "the fixture must exercise at least one run"
+        );
+        for spec in &specs {
+            let by_predicate = is_single_completion(spec.id);
+            let by_provider_kind = matches!(
+                spec.providers,
+                crate::runner::ProviderKind::SingleCompletion(_)
+            );
+            assert_eq!(
+                by_predicate, by_provider_kind,
+                "{:?}: is_single_completion says {by_predicate}, but its ProviderKind is {:?}",
+                spec.id, spec.providers
+            );
+        }
     }
 
     #[allow(non_snake_case)]

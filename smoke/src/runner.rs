@@ -1446,9 +1446,23 @@ impl Runner {
     /// classification carries the whole telemetry precisely so a cut to nothing is still a
     /// measured cut — a reasoning model given sixteen tokens spends them in its reasoning
     /// channel and returns no content, and that is the cut this run is looking for. Any
-    /// other failure — transport, contract — is a reading not made: it travels as the error,
-    /// classed as the environment's, and the scenario skips naming it. The crate's own
-    /// classification of such failures is exercised by the trio runs, not here.
+    /// other failure — transport, contract, `ResponseTooLarge`, or anything else
+    /// `complete()` can return — is a reading not made: it travels as the error, and the
+    /// scenario skips naming it rather than guessing at the dialect from no evidence.
+    ///
+    /// # `ErrorClass::Environment` here does NOT mean "the backend died"
+    ///
+    /// Every such failure is labelled `Environment`, and that label is doing a NARROWER job
+    /// here than it does for the trio runs. There, [`classify_error`] splits `analyze()`'s
+    /// two failure modes for real: `Environment` means the crate correctly reported the
+    /// world around it failing, `CrateFailure` means the crate broke. Here there is no such
+    /// split — a genuine crate defect surfacing as, say, `ResponseContract` gets the SAME
+    /// label as a transport error, because the only question this run asks is "did the
+    /// dialect's cap reach the backend", and neither kind of failure answers it. The label
+    /// says "not this run's subject", not "not the crate's fault". The crate's own
+    /// CrateFailure/Environment split for a single completion's failures is exercised by the
+    /// trio runs, not here — reproducing it would duplicate `classify_error`'s judgment over
+    /// a different error type for a distinction none of `S-R7a`/`S-R7b`'s assertions reads.
     ///
     /// # Parameters
     ///
@@ -1498,6 +1512,9 @@ impl Runner {
             Err(ProviderError::EmptyCompletion { telemetry, cap, .. }) => {
                 (Some(CompletionEvidence { cap, telemetry }), None, None)
             }
+            // `Environment` here means "not this run's subject", not "the backend is
+            // down" — see the doc comment above. A crate defect surfacing through this
+            // one completion is not distinguished from a transport failure, on purpose.
             Err(e) => (None, Some(e.to_string()), Some(ErrorClass::Environment)),
         };
         RunResult {

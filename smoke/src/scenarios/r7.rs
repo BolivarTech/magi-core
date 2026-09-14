@@ -120,25 +120,45 @@ fn s_r7a_default_dialect_is_cut_at_the_cap(ctx: &RunContext<'_>) -> Vec<Assertio
 
 /// `S-R7b` — the modern dialect against this backend: recorded, never verified.
 ///
-/// One row. `Observed`, with the reading, when the backend discarded the cap; `Fail` when it
-/// honoured it — the measurement the default rests on has changed; a skip when the completion
-/// could not be measured.
+/// One row. `Observed`, with the reading, when the backend discarded the cap or the model
+/// merely had nothing to cut; `Fail` when the cap was honoured — the measurement the default
+/// rests on has changed; a skip when the completion could not be measured, or when the finish
+/// reason went unreported and so cannot say which of the three this is.
 fn s_r7b_modern_dialect_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
     let evidence = match measured(ctx, NAME_MODERN_DIALECT_RECORDED) {
         Ok(e) => e,
         Err(skip) => return vec![skip],
     };
+    if evidence.telemetry.finish.is_none() {
+        // Mirrors S-R7a: without a finish reason, whether the field was discarded, honoured,
+        // or simply never exercised cannot be read — guessing would say more than the
+        // evidence supports.
+        return vec![Assertion::skip(
+            NAME_MODERN_DIALECT_RECORDED,
+            "the backend reported no finish reason, so whether it discarded the cap cannot \
+             be read",
+        )];
+    }
     if is_cut_at_the_cap(evidence) {
         // The one day this row is red: the backend honoured a field it used to discard, and
         // the measurement the default dialect rests on no longer holds.
         return vec![assert_that(NAME_MODERN_DIALECT_RECORDED, false)];
     }
+    // Not cut, and a finish reason is present. Over the cap (or the backend never counted),
+    // the field really was discarded; at or under the cap the model may simply have had
+    // nothing to cut, which is not evidence of a discard and must not be worded as one.
+    let discarded = evidence
+        .telemetry
+        .completion_tokens
+        .is_none_or(|n| n > evidence.cap);
+    let prefix = if discarded {
+        "the backend discarded the cap"
+    } else {
+        "not cut at the cap — the model may have had nothing to cut"
+    };
     vec![Assertion {
         name: NAME_MODERN_DIALECT_RECORDED,
-        state: ScenarioState::Observed(format!(
-            "the backend discarded the cap — {}",
-            render_reading(evidence)
-        )),
+        state: ScenarioState::Observed(format!("{prefix} — {}", render_reading(evidence))),
     }]
 }
 
