@@ -99,6 +99,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   platform or fail to protect the other. The three embedded prompts are well inside both,
   and a test pins their sizes against the figures the documentation publishes.
 
+### Deprecated
+
+- `schema::ZERO_WIDTH_PATTERN` — deprecated since `0.2.0`, not by this release; what is new
+  here is the date on its removal. It is scheduled for removal in the next major, together
+  with the rename of `majority_summary`, as one decision rather than two. Nothing in this
+  repository reads it — the gate builds with warnings denied, so an internal use could not
+  hide — which leaves a consumer that still does as the only party affected.
+  `validate::clean_title` is the replacement the attribute already names, with the caveat it
+  already states: a different character set, and more normalisation besides (control
+  whitespace becomes spaces, then the result is trimmed), so it is not a piece-for-piece swap.
+
 ## [4.0.0] - 2026-08-24
 
 ### One story, not two: the completion budget and the time budget
