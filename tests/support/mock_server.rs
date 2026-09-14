@@ -2,19 +2,19 @@
 // Version: 4.0.0
 // Date: 2026-08-23
 
-//! Servidor HTTP minimo sobre `tokio::net::TcpListener` para tests de
-//! integracion. NO es un mock server general: solo cubre los dos escenarios
-//! que MS1 necesita (S11 y S16). Puerto efimero para evitar colisiones.
+//! Minimal HTTP server over `tokio::net::TcpListener` for integration tests. NOT a general
+//! mock server: it only covers the two scenarios that MS1 needs (`S11` and `S16`). Ephemeral
+//! port to avoid collisions.
 
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-/// Acepta una conexion, escribe status + headers validos y **nunca** el cuerpo.
-/// Fuerza el camino de timeout TOTAL (un connect-timeout no disparia).
-// Cada test de integracion incluye TODO este modulo pero usa un subconjunto; el
-// binario que no usa esta funcion la veria como dead code (mismo motivo que
+/// Accepts a connection, writes valid status + headers and **never** the body.
+/// Forces the TOTAL timeout path (a connect-timeout would not trigger it).
+// Each integration test includes ALL this module but uses a subset; the binary that
+// does not use this function would see it as dead code (same reason as
 // `spawn_429_with_retry_after`).
 #[allow(dead_code)]
 pub async fn spawn_hanging_headers() -> (String, JoinHandle<()>) {
@@ -35,11 +35,11 @@ pub async fn spawn_hanging_headers() -> (String, JoinHandle<()>) {
     (format!("http://{addr}"), handle)
 }
 
-/// Responde `429` con el `Retry-After` dado en la primera peticion y `200` en
-/// la segunda, para poder observar la espera intermedia.
-// Sin caller todavia: su primer uso es el test S11 de la Tarea 9 (cableado
-// end-to-end de `Retry-After`). `#[allow(dead_code)]` en vez de fabricar un
-// caller falso, prohibido por CLAUDE.local.md §6.1.8 / spec R8.
+/// Responds with `429` with the given `Retry-After` on the first request and `200` on the
+/// second, so we can observe the intermediate wait.
+// No caller yet: its first use is the S11 test of Task 9 (end-to-end wiring of
+// `Retry-After`). `#[allow(dead_code)]` instead of fabricating a fake caller,
+// which the project's rules forbid.
 #[allow(dead_code)]
 pub async fn spawn_429_with_retry_after(value: &str) -> (String, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")

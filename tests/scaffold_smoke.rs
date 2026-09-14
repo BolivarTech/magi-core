@@ -12,11 +12,11 @@ async fn hanging_server_does_not_send_body() {
         .timeout(std::time::Duration::from_millis(300))
         .build()
         .expect("client");
-    // `.send()` resuelve apenas llegan las CABECERAS — el mock las manda al
-    // instante y despues cuelga el cuerpo. Para observar el timeout TOTAL (el
-    // modo de fallo que S16 persigue: headers OK, cuerpo que nunca termina) hay
-    // que **consumir el cuerpo**, que es lo que hace el `complete()` real via
-    // `.text()`. Sin leer el cuerpo, `.send()` retorna `Ok(200)` sin timeout.
+    // `.send()` resolves as soon as the HEADERS arrive — the mock sends them immediately and
+    // then hangs the body. To observe the TOTAL timeout (the failure mode that S16 pursues:
+    // headers OK, body that never ends) you must **consume the body**, which is what the real
+    // `complete()` does via `.text()`. Without reading the body, `.send()` returns
+    // `Ok(200)` without a timeout.
     let err = client
         .get(&url)
         .send()

@@ -398,8 +398,8 @@ fn s2_happy_path_against_real_backend(ctx: &RunContext<'_>) -> Vec<Assertion> {
 /// even at `temperature: 0` and would make "equivalent" meaningless.
 ///
 /// **Three assertions, because the spec's transparency claim has three parts**:
-/// *"los bytes del cuerpo de la respuesta son IDENTICOS **y el status
-/// coincide**"*, plus the request body. The status comparison was specified and
+/// *"the response body bytes are IDENTICAL **and the status
+/// matches**"*, plus the request body. The status comparison was specified and
 /// missing: a proxy that relayed the right bytes under a different status — a
 /// `200` turned into a `500`, or the reverse — satisfied both checksums while
 /// changing exactly what the crate classifies on, which is the one thing the
