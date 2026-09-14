@@ -302,8 +302,8 @@ mod tests {
             s_r7a_default_dialect_is_cut_at_the_cap(&RunContext::blank(RunId::DialectMaxTokens));
         assert_eq!(
             a.len(),
-            1,
-            "S-R7a has one row when there is nothing to read"
+            2,
+            "S-R7a has two rows: the verdict and its reading"
         );
         let b =
             s_r7b_modern_dialect_is_recorded(&RunContext::blank(RunId::DialectMaxCompletionTokens));
@@ -327,39 +327,47 @@ mod tests {
                 error_class: Some(ErrorClass::Environment),
                 ..RunContext::blank(run)
             };
-            let rows = if run == RunId::DialectMaxTokens {
-                s_r7a_default_dialect_is_cut_at_the_cap(&ctx)
+            let (rows, expected) = if run == RunId::DialectMaxTokens {
+                (s_r7a_default_dialect_is_cut_at_the_cap(&ctx), 2)
             } else {
-                s_r7b_modern_dialect_is_recorded(&ctx)
+                (s_r7b_modern_dialect_is_recorded(&ctx), 1)
             };
-            assert_eq!(rows.len(), 1);
-            match &rows[0].state {
-                ScenarioState::Skip(reason) => assert!(
-                    reason.contains("connection refused"),
-                    "the skip must carry the error the completion failed with: {reason}"
-                ),
-                other => panic!("an unmeasured completion cannot be judged: {other:?}"),
+            assert_eq!(rows.len(), expected, "{}", run.as_str());
+            for row in rows {
+                match &row.state {
+                    ScenarioState::Skip(reason) => assert!(
+                        reason.contains("connection refused"),
+                        "the skip must carry the error the completion failed with: {reason}"
+                    ),
+                    other => panic!("an unmeasured completion cannot be judged: {other:?}"),
+                }
             }
         }
     }
 
-    /// `S-R7a` is green — one row, a pass — when the crate read the completion as cut at
-    /// the cap.
+    /// `S-R7a` is green when the crate read the completion as cut at the cap — and the
+    /// reading sits beside the pass, so the pass is auditable: the row shows the cap was the
+    /// one requested and the model ran into it, rather than asking to be believed.
     #[test]
-    fn s_r7a_passes_on_a_completion_cut_at_the_cap() {
+    fn s_r7a_passes_on_a_completion_cut_at_the_cap_with_the_reading_beside_it() {
         let ev = cut_at_the_cap();
         let ctx = RunContext {
             completion: Some(&ev),
             ..RunContext::blank(RunId::DialectMaxTokens)
         };
         let rows = s_r7a_default_dialect_is_cut_at_the_cap(&ctx);
-        assert_eq!(
-            rows.len(),
-            1,
-            "a pass carries no reading beside it: {rows:?}"
-        );
+        assert_eq!(rows.len(), 2, "the verdict and its reading: {rows:?}");
         assert_eq!(rows[0].name, NAME_DEFAULT_DIALECT_CUTS);
         assert_eq!(rows[0].state, ScenarioState::Pass, "{:?}", rows[0]);
+        assert_eq!(rows[1].name, NAME_DEFAULT_DIALECT_READING);
+        assert_eq!(
+            rows[1].state,
+            ScenarioState::Observed(
+                "cap 16: finish length, 16 completion tokens, 2811 prompt tokens".into()
+            ),
+            "{:?}",
+            rows[1]
+        );
     }
 
     /// A cut whose token count the backend did not report is still a cut: the finish reason
@@ -372,8 +380,13 @@ mod tests {
             ..RunContext::blank(RunId::DialectMaxTokens)
         };
         let rows = s_r7a_default_dialect_is_cut_at_the_cap(&ctx);
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].state, ScenarioState::Pass, "{:?}", rows[0]);
+        assert!(
+            matches!(&rows[1].state, ScenarioState::Observed(r) if r.contains("not counted")),
+            "the reading says the count was not reported: {:?}",
+            rows[1]
+        );
     }
 
     /// `S-R7a` goes RED on a completion that ran to its own end — the reading the crate
@@ -444,7 +457,8 @@ mod tests {
     }
 
     /// A completion whose finish reason the backend never reported cannot be judged either
-    /// way: skip, saying so — not a pass on a count alone, not a red on an absence.
+    /// way: skip, saying so — not a pass on a count alone, not a red on an absence. The
+    /// reading still sits beside it, and says the finish went unreported.
     #[test]
     fn s_r7a_skips_when_the_backend_reported_no_finish_reason() {
         let ev = evidence(None, Some(DIALECT_PROBE_CAP));
@@ -453,7 +467,7 @@ mod tests {
             ..RunContext::blank(RunId::DialectMaxTokens)
         };
         let rows = s_r7a_default_dialect_is_cut_at_the_cap(&ctx);
-        assert_eq!(rows.len(), 1);
+        assert_eq!(rows.len(), 2);
         match &rows[0].state {
             ScenarioState::Skip(reason) => assert!(
                 reason.contains("finish reason"),
@@ -461,6 +475,11 @@ mod tests {
             ),
             other => panic!("an unreported finish cannot be judged: {other:?}"),
         }
+        assert!(
+            matches!(&rows[1].state, ScenarioState::Observed(r) if r.contains("finish unreported")),
+            "{:?}",
+            rows[1]
+        );
     }
 
     /// `S-R7b` RECORDS a completion the backend ran to its own end: an observation with the
