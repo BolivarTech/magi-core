@@ -512,6 +512,55 @@ mod tests {
         }
     }
 
+    /// A completion whose finish reason the backend never reported cannot say whether the
+    /// field was discarded: skip, the same way `S-R7a` does, rather than guessing.
+    #[test]
+    fn s_r7b_skips_when_the_backend_reported_no_finish_reason() {
+        let ev = evidence(None, Some(692));
+        let ctx = RunContext {
+            completion: Some(&ev),
+            ..RunContext::blank(RunId::DialectMaxCompletionTokens)
+        };
+        let rows = s_r7b_modern_dialect_is_recorded(&ctx);
+        assert_eq!(rows.len(), 1);
+        match &rows[0].state {
+            ScenarioState::Skip(reason) => assert!(
+                reason.contains("finish reason"),
+                "the skip must say what could not be read: {reason}"
+            ),
+            other => {
+                panic!("an unreported finish cannot say whether the field was discarded: {other:?}")
+            }
+        }
+    }
+
+    /// A model that stopped on its own, within the cap, is not evidence that the backend
+    /// discarded the field — it may simply have had nothing to cut. The wording says that,
+    /// rather than claiming a discard the reading cannot support.
+    #[test]
+    fn s_r7b_uses_neutral_wording_when_the_model_stopped_within_the_cap() {
+        let ev = evidence(Some(FinishReason::Stop), Some(9));
+        let ctx = RunContext {
+            completion: Some(&ev),
+            ..RunContext::blank(RunId::DialectMaxCompletionTokens)
+        };
+        let rows = s_r7b_modern_dialect_is_recorded(&ctx);
+        assert_eq!(rows.len(), 1);
+        match &rows[0].state {
+            ScenarioState::Observed(reading) => {
+                assert!(
+                    reading.contains("not cut at the cap"),
+                    "a within-cap stop must not be worded as a discard: {reading}"
+                );
+                assert!(
+                    !reading.contains("discarded"),
+                    "a within-cap stop must not be worded as a discard: {reading}"
+                );
+            }
+            other => panic!("a backend property is recorded, never judged: {other:?}"),
+        }
+    }
+
     /// `S-R7b` goes RED the day the backend honours the field: the measurement the default
     /// rests on has changed, and that is the moment to be told.
     #[test]
