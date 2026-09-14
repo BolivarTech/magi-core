@@ -122,7 +122,7 @@
       "file_type": "code",
       "norm_label": "main()",
       "source_file": "ci/check_fixture_redaction.py",
-      "source_location": "L357"
+      "source_location": "L370"
     },
     {
       "id": "ci_check_fixture_redaction_scan_file",
@@ -44314,7 +44314,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "ci/check_fixture_redaction.py",
-      "source_location": "L359",
+      "source_location": "L372",
       "weight": 1.0
     },
     {
@@ -44326,7 +44326,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "ci/check_fixture_redaction.py",
-      "source_location": "L360",
+      "source_location": "L373",
       "weight": 1.0
     },
     {
@@ -116722,7 +116722,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "ci/check_fixture_redaction.py",
-      "source_location": "L357",
+      "source_location": "L370",
       "weight": 1.0
     },
     {
@@ -153182,5 +153182,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "514c0b887648bf8d8694d6af2df393a856bff53c"
+  "built_at_commit": "25e6bf75d4b3b516bee9b18a6284f4cda7cbadd5"
 }

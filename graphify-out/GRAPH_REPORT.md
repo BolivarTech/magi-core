@@ -1,7 +1,7 @@
 # Graph Report - MAGI-Core  (2026-09-14)
 
 ## Corpus Check
-- 203 files · ~457,629 words
+- 203 files · ~457,870 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `514c0b88`
+- Built from commit: `25e6bf75`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -978,20 +978,20 @@ Cohesion: 0.12
 Nodes (16): 1. `complete()` returns `Completion`, not `String`, 2. `RotationKind` gains four variants and becomes `#[non_exhaustive]`, 3. `ProviderError::Http { status: 0 }` no longer exists, 4. `OllamaProvider` completes on `/api/chat`, 5. `CompletionConfig::max_tokens` defaults to `16_384`, 6. `MagiReport` gains `completions`, 7. The vendor termination vocabularies are fully translated, 8. `ClaudeProvider::parse_response` is gone (+8 more)
 
 ## Knowledge Gaps
-- **227 isolated node(s):** `Added`, `Changed`, `Deprecated`, `One story, not two: the completion budget and the time budget`, `The defect this release exists for` (+222 more)
+- **227 isolated node(s):** `X`, `ProviderUrl`, `check_r0.sh script`, `ProviderUrl`, `1.1 Context in the Series` (+222 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **82 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AgentName` connect `AgentName` to `MagiError`, `consensus.rs`, `prompts/mod.rs`, `config.rs`, `RunResult`, `runner.rs`, `rotation.rs`, `String`, `schema.rs`, `Severity`, `AgentOutput`, `LlmProvider`, `test_support.rs`, `digest_case`, `.new`, `balthasar_prompt`, `RunContext`?**
-  _High betweenness centrality (0.041) - this node is a cross-community bridge._
 - **Why does `MagiReport` connect `MagiReport` to `r5.rs`, `runner.rs`, `RunResult`, `e1.rs`, `CompletionRecord`, `e2.rs`, `reporting.rs`, `test_support.rs`, `common/mod.rs`, `RunContext`, `Scenario`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **Why does `Completion` connect `Completion` to `provider.rs`, `rotation.rs`, `ollama_wire.rs`, `.new`, `String`, `MockProvider`, `Option`, `Self`, `claude_cli.rs`, `HostedModel`, `openai_compat.rs`, `complete_against_stub`, `.new`, `claude.rs`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
-- **What connects `Added`, `Changed`, `Deprecated` to the rest of the system?**
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `Config` connect `config.rs` to `runner.rs`, `RunResult`, `.new`, `String`, `RunId`, `preflight.rs`, `run`?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._
+- **Why does `AgentName` connect `AgentName` to `MagiError`, `consensus.rs`, `prompts/mod.rs`, `config.rs`, `RunResult`, `runner.rs`, `rotation.rs`, `String`, `schema.rs`, `Severity`, `AgentOutput`, `LlmProvider`, `test_support.rs`, `digest_case`, `.new`, `balthasar_prompt`, `RunContext`?**
+  _High betweenness centrality (0.028) - this node is a cross-community bridge._
+- **What connects `X`, `ProviderUrl`, `check_r0.sh script` to the rest of the system?**
   _227 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `rotation_integration.rs` be split into smaller, more focused modules?**
   _Cohesion score 0.11956521739130435 - nodes in this community are weakly interconnected._

@@ -1152,9 +1152,9 @@
     "semantic_hash": ""
   },
   "ci/check_fixture_redaction.py": {
-    "mtime": 1788690586.9479773,
-    "seen": 1788690606.6105845,
-    "ast_hash": "7629a874504c7e42ac98be468875da75",
+    "mtime": 1789391685.1324584,
+    "seen": 1789391699.8365204,
+    "ast_hash": "65bd49221065b58a204a6a1e7a0f060a",
     "semantic_hash": ""
   },
   "ci/check_header_sync.py": {
