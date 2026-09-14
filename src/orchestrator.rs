@@ -3439,7 +3439,9 @@ mod input_threshold_tests {
         );
         // The unit is BYTES, not characters: two 2-byte characters are one token and
         // warn, although a character count would round them down to zero. Pinned so a
-        // switch to `chars().count()` cannot pass unnoticed.
+        // switch to `chars().count()` cannot pass unnoticed. The probe is two 2-byte
+        // characters, so it assumes an even divisor; an odd one fails the length
+        // assertion loudly rather than passing by accident.
         let two_chars_four_bytes = "é".repeat(TOKENS_PER_BYTE_DIVISOR / 2);
         assert_eq!(two_chars_four_bytes.len(), TOKENS_PER_BYTE_DIVISOR);
         assert!(
