@@ -369,7 +369,7 @@ impl OpenAiCompatibleProvider {
         api_key: Option<String>,
         timeout: Duration,
     ) -> Result<Self, ProviderError> {
-        Self::with_dialect(base_url, model, api_key, Dialect::default(), timeout)
+        Self::with_dialect(base_url, model, api_key, Dialect::MaxTokens, timeout)
     }
 
     /// Creates a provider that speaks the given request [`Dialect`], with an explicit
@@ -377,8 +377,10 @@ impl OpenAiCompatibleProvider {
     ///
     /// This is the one constructor that states every choice: which field carries the
     /// generation cap and how long a request may take. The deprecated [`Self::new`] and
-    /// [`Self::with_timeout`] are the same call with `Dialect::default()`, and `new` also
-    /// fills in [`DEFAULT_CLIENT_TIMEOUT`].
+    /// [`Self::with_timeout`] are the same call with `Dialect::MaxTokens` passed explicitly —
+    /// not `Dialect::default()` — so their promise to keep speaking that dialect holds by
+    /// construction even if the type's default ever changed; `new` also fills in
+    /// [`DEFAULT_CLIENT_TIMEOUT`].
     ///
     /// # Parameters
     /// - `base_url`: validated eagerly (scheme restricted to http/https) and normalized
