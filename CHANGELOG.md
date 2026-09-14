@@ -4,7 +4,34 @@ All notable changes to `magi-core` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.1.0] - Unreleased
+## [4.1.0] - 2026-09-14
+
+### Added
+
+- **`OpenAiCompatibleProvider::with_dialect`** and the `Dialect` enum (`MaxTokens`,
+  `MaxCompletionTokens`, `#[non_exhaustive]`), so the request's generation cap can be sent under
+  the spelling the backend requires. The default stays `max_tokens`, and it was chosen by
+  measurement, not by age: Ollama's `/v1` layer accepts `max_completion_tokens` with `200` and
+  ignores it, generating past the cap with no error and no signal, while OpenRouter honours both
+  spellings. With the default configuration the serialized request body is byte-identical to
+  `4.0.0`, and a test pins it against a baseline captured on the untouched tree. Exactly one of
+  the two keys is ever emitted; the shape test counts keys exactly. `Dialect` is re-exported from
+  the prelude under the `openai-compat` feature.
+- **`ExtractionFailureCause::MalformedObject`**, serialized as `malformed-object`. A verdict block
+  that parses as JSON but is not a valid agent output (a missing key, a wrong value type) used to
+  be reported as `InvalidJson`, and the corrective retry told a model whose JSON was well formed
+  that it had sent unparseable text. The new cause reaches the retry template that enumerates the
+  seven required keys, routes to `MagiError::Deserialization` (the parser never obtained an agent
+  output, so the validation family is the wrong side of that line), and is recorded in
+  `extraction_failures` against the model that produced it. Broken syntax and a JSON value that
+  ends early both stay `InvalidJson`; the latter is deliberately not `Unterminated`, which means
+  the closing marker itself was missing.
+- **A test that pins the real boundary of `input_warn_tokens = 0`.** The estimate divides the
+  input's byte length by four with integer division, so at threshold zero an input of one to
+  three bytes does not warn and four bytes does. The rustdoc used to say any non-empty input
+  warned; it now names the boundary, and the test would go red under either a `>=` comparison or
+  a switch from bytes to characters. The semantics are unchanged: zero warns always, there is no
+  sentinel and no off switch.
 
 ### Changed
 
@@ -99,8 +126,78 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   platform or fail to protect the other. The three embedded prompts are well inside both,
   and a test pins their sizes against the figures the documentation publishes.
 
+- **`EndpointDown` no longer aborts a run that has already recovered.** Two connection failures
+  on distinct lineages still set the endpoint-down latch, but the run is aborted only when the
+  seats that already succeeded plus the seats still in flight can no longer reach `min_agents`.
+  A run whose failed seats rotated and produced three verdicts now completes, with the blip
+  recorded in the rotation telemetry; before, it was cancelled after the first successful join
+  and the other two seats were aborted mid-rotation. A genuinely dead endpoint still aborts as
+  soon as the quorum is unreachable, without waiting for the remaining seats, and a quorum lost
+  for any other reason (two seats failing on schema, say) still surfaces as `InsufficientAgents`
+  rather than as a diagnosis nobody observed. The panic path applies the same rule.
+- **`run_preflight` keeps a measurement it already paid for.** The context-window and digest
+  probes of a candidate used to run in sequence under one timeout, and a slow digest discarded
+  a window that had already been measured, so with `strict_context_guard` on, a slow `/api/tags`
+  silently disabled rotation for candidates whose window was known. The two probes now run
+  concurrently under a shared deadline (the worst case per candidate stays the same), each
+  keeping its own result, and a candidate with a measured window and no digest is eligible:
+  the digest check is fail-open by design, and a digest that timed out is an unresolvable one.
+  Candidates the strict guard used to filter out over `window: None` now pass.
+- **`with_provider` clears a probe declared earlier for the same seat.** After
+  `.with_probing_agent(seat, a, ...)` followed by `.with_provider(seat, b)`, the preflight used to
+  pair the old probe with the new model and file the window and digest under the wrong key, so
+  the eligibility filter judged the seat by another model's numbers. No probe target is emitted
+  for that seat any more, and the three maps behind the builder are written by a single private
+  method so a future setter cannot desynchronise them. The pool eligibility of such a seat
+  therefore changes.
+- **Consensus attribution follows the verdict that was emitted, not the count majority.** The
+  count treats a conditional vote as an approval while the score weighs it at one half, so the
+  two can disagree without any tie: two conditionals and one reject count 2-1 for approval yet
+  score exactly zero, and the emitted verdict is `HOLD -- TIE`. `majority_summary` now holds the
+  summaries of the emitted side, `ConsensusResult::confidence` sums the confidences of that side
+  (so the number changes for the same votes), and `ConsensusResult::dissent` lists the agents
+  whose effective verdict differs from the emitted one, which in that case is the two
+  conditionals rather than the reject. The alphabetical tie-break that produced the old
+  attribution is gone. `AgentOutput::is_dissenting` now takes the verdict to compare against and
+  is what the engine uses; its parameter no longer claims to be a majority.
+- **`DedupFinding::sources` lists each agent at most once.** An agent whose two findings merged
+  into one entry used to appear twice, so `sources.len()` overstated how many mages agreed. The
+  order of first appearance is preserved; the field is still a `Vec`, and nothing about its
+  ordering changed.
+- **The score exactly equal to `epsilon` is a decision, written down.** The classification keeps
+  its strict `>`, so that score is `HOLD`; the choice is now stated beside the comparison and
+  pinned by a test whose `epsilon` reaches it (the default `1e-9` cannot be hit by any vote
+  combination, so a test on the default would prove nothing). Nothing observable changed.
+- **Two warnings that repeated on every run are now emitted once per builder**, through one
+  shared gate: the shared-digest warning between two primaries, and a new one for a fallback
+  pool in which every candidate was rejected by a proven digest collision (a backend that
+  answers one digest for every model leaves rotation inert, and the operator is now told).
+  Both are `tracing` output, not API; a gate rejects a direct `warn!` in the modules that use
+  the gate so the next warning cannot bypass it.
+- **The package no longer carries `tests/*.rs`, `tests/common/`, `tests/support/`, `.github/`
+  or `ci/`**; see `exclude = [` in `Cargo.toml`, which now lists what leaves and why.
+  `tests/fixtures/` stays, because four shipped modules read it from inside `#[cfg(test)]` and
+  excluding it made `cargo test` on the published source fail to compile. A consumer who
+  vendors the tarball and runs its tests sees fewer files; `cargo` users see nothing.
+- **Documentation corrections found while auditing the code they describe.** The banner
+  invariant is stated in bytes, the unit its constants define (the two agree only for ASCII,
+  which `ReportConfig` requires); the retry-feedback parameter is documented as serving two
+  causes, not one; the `retried_agents` cohorts are documented as predating rotation, so
+  "retried and not failed" does not prove the retry recovered anything; and the remaining
+  comments written in another language in shipped and tracked test files are in English.
+
 ### Deprecated
 
+- **`OpenAiCompatibleProvider::new`** and **`OpenAiCompatibleProvider::with_timeout`** (since
+  `4.1.0`): both still work and speak the `max_tokens` dialect, and both are removed in the next
+  major; migrate to `with_dialect`, which takes the dialect and the timeout explicitly. Every
+  call site in this repository was migrated, so the old constructors ship without a caller.
+  A consumer building with warnings denied gets a build error rather than a warning.
+- **`ConsensusResult::majority_summary`** (since `4.1.0`): its content changed in this release
+  to the summaries of the emitted verdict's side, which is not always the count majority, so
+  the name is now false. It is renamed `emitted_side_summary` in the next major; until then the
+  crate keeps filling it and reads it under `#[allow(deprecated)]` with the reason stated at
+  every site.
 - `schema::ZERO_WIDTH_PATTERN`: deprecated since `0.2.0`, not by this release. What is new
   here is the version its removal is scheduled for: the next major, together with the
   rename of the consensus summary field, as one decision rather than two. Nothing in this
