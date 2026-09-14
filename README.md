@@ -24,14 +24,14 @@ consensus engine synthesizes their verdicts into a unified report.
 
 ## Features
 
-- **LLM-agnostic** — bring your own provider via the `LlmProvider` trait
-- **Parallel execution** — agents run concurrently via `tokio::spawn` with `AbortGuard` cancellation
-- **Graceful degradation** — if one agent fails, the remaining two still produce a result
-- **Weighted consensus** — approve (+1), conditional (+0.5), reject (-1) scoring with epsilon-aware classification
-- **Structured findings** *(v1.0)* — `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified** — validate against your own diff
-- **Finding deduplication** — co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
-- **Retry on schema errors** *(v0.4)* — single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
-- **Retry with backoff** *(2.0)* — opt-in `RetryProvider` wrapper: capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via `RetryConfig`, whose fields are public: build one from `default()` and set what you need.
+- **LLM-agnostic**: bring your own provider via the `LlmProvider` trait
+- **Parallel execution**: agents run concurrently via `tokio::spawn`, with `AbortGuard` cancellation
+- **Graceful degradation**: if one agent fails, the remaining two still produce a result
+- **Weighted consensus**: approve (+1), conditional (+0.5), reject (-1) scoring with epsilon-aware classification
+- **Structured findings** *(v1.0)*: `Finding` carries optional `file`/`line`/`category` (typed `Category` enum: 15 slugs + `Other`); the `finding_id` module exposes a stable SHA-256 dedup key with verified cross-language parity. Locations are agent-reported and **unverified**, so validate them against your own diff
+- **Finding deduplication**: co-located findings (`file` + `line`) merge by a stable `finding_id`; unlocated findings merge by NFKC + full Unicode case-folded title. Severity is promoted to the highest seen across agents
+- **Retry on schema errors** *(v0.4)*: single-shot retry with feedback prompt when an agent returns malformed JSON or fails schema validation. Opt-out via `with_retry_disabled()`. Telemetry surfaces via `MagiReport.retried_agents`.
+- **Retry with backoff** *(2.0)*: opt-in `RetryProvider` wrapper with capped exponential backoff with full jitter, flat backoff for network/timeout classes, `Retry-After` honoring (with abandonment when the server asks for more than the cap), and a total `operation_budget`. Configured via `RetryConfig`, whose fields are public: build one from `default()` and set what you need.
 
 > ⚠️ **How long a call can take.** The HTTP providers apply a **300 s total request
 > timeout** (`with_timeout(...)` to change it), and since `4.0.0` the retry chain is
@@ -39,22 +39,22 @@ consensus engine synthesizes their verdicts into a unified report.
 > each burn a whole client timeout get two attempts, so the worst case per call is
 > `(1 + limited_max_retries) × client_timeout + backoffs` ≈ **601 s**, against an
 > agent ceiling of 660 s. **That bound is for a HOMOGENEOUS chain** of attempt-limited
-> failures. A mixed one — a `429`, which keeps the general count, followed by a hang —
+> failures. A mixed one (a `429`, which keeps the general count, followed by a hang)
 > is bounded by `operation_budget + max(client_timeout, retry_after_cap + jitter)`
 > ≈ **751 s**, which is ABOVE the ceiling: there the cut is an opaque timeout rather
 > than a typed abandonment. `docs/migration-v4.0.md` §9 has the full table.
 >
 > **Do not compute it as `operation_budget + client_timeout`.** That relation held
-> before `4.0.0` and is now deliberately unsatisfied — the budget became a backstop
+> before `4.0.0` and is now deliberately unsatisfied: the budget became a backstop
 > rather than the operating limit. `Magi::worst_case_per_seat()` derives the number
 > from the configuration you actually built, which is what to read instead of any
 > figure written here. Full table and the reasoning: `docs/migration-v4.0.md` §9.
-- **Cost control via complexity gate** *(v0.5)* — caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
-- **Prompt-injection hardening** — 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
-- **Byte-for-byte parity with MAGI Python reference** — 3 mode-agnostic prompts pinned to the reference implementation's verdict-sentinel release, applied verbatim with no local divergence, verified via SHA-256 fixture in CI
-- **Feature-gated providers** — `claude-api` (HTTP), `claude-cli` (subprocess), `openai-compat` (OpenAI Chat Completions — OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server) and `ollama` (the native `/api/chat` path, since `4.0.0`) ship as optional features
-- **Optional test helpers** — `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
-- **No `unsafe` in production library code** — the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
+- **Cost control via complexity gate** *(v0.5)*: a caller-supplied predicate (`Fn(&str, &Mode) -> bool`) short-circuits `analyze` before any LLM dispatch. Composable patterns include length thresholds, rate limiters via atomic counters, and pre-flight cheap-model triage. See [Cost control](#cost-control-with-complexity-gate).
+- **Prompt-injection hardening**: 3-layer sanitization pipeline (normalize newlines → strip invisibles → neutralize headers) + 128-bit per-request nonce with fail-closed collision detection. Retry-feedback envelope has a parallel 4-layer defense covering Unicode-confusable dash variants.
+- **Byte-for-byte parity with MAGI Python reference**: 3 mode-agnostic prompts pinned to the reference implementation's verdict-sentinel release, applied verbatim with no local divergence, verified via SHA-256 fixture in CI
+- **Feature-gated providers**: `claude-api` (HTTP), `claude-cli` (subprocess), `openai-compat` (OpenAI Chat Completions: OpenAI cloud + LocalAI/vLLM/LM Studio/llama.cpp-server) and `ollama` (the native `/api/chat` path, since `4.0.0`) ship as optional features
+- **Optional test helpers**: the `test-utils` feature exposes `RoutingMockProvider` for downstream integration tests
+- **No `unsafe` in production library code**: the only `unsafe` is in `#[cfg(test)]` env-var helpers and the `basic_analysis` example (edition-2024 `set_var` / Windows console APIs)
 
 ## Quick Start
 
@@ -163,14 +163,14 @@ its own line, exactly once:
 </MAGI_VERDICT>
 ```
 
-Nothing outside that block is ever read — not the model's reasoning, not a restated
+Nothing outside that block is ever read: not the model's reasoning, not a restated
 schema, not an echoed example. That is what closes the case where a model reproduces the
 worked example from its own instructions and fabricates a verdict nobody formed. It is
-also what lets "thinking" models reason freely: their reasoning sits outside the markers,
-so it cannot compete with their verdict.
+also what lets "thinking" models reason freely, since their reasoning sits outside the
+markers and cannot compete with their verdict.
 
-**`MagiBuilder::build()` enforces this on every resolvable prompt** — built-in and custom
-alike, including prompts loaded via `with_prompts_dir` — and it does so **before any
+**`MagiBuilder::build()` enforces this on every resolvable prompt**, built-in and custom
+alike, including prompts loaded via `with_prompts_dir`, and it does so **before any
 provider is contacted**. A prompt without the marker block, or one whose delimited content
 would itself deserialize as a valid verdict (a fabrication template), fails `build()` with
 `MagiError::PromptContract`, and no request is sent.
@@ -190,26 +190,25 @@ assert!(prompts::validate_prompt(&template).is_ok());
 
 There is deliberately **no automatic fixer**. A pre-3.0 prompt almost certainly already
 says something like *"respond with only a JSON object, no text outside it"*; appending the
-sentinel's instructions on top yields a prompt that contradicts itself — half forbidding
-text outside the JSON, half inviting the model to reason before the markers. That prompt
+sentinel's instructions on top yields a prompt that contradicts itself, half forbidding
+text outside the JSON and half inviting the model to reason before the markers. That prompt
 passes the check and performs *worse* than either half alone. Migrating means **removing**
 the old instruction, not layering a new one over it.
 
 One combination has no prompt-side fix: a provider forced into
 `response_format`/structured JSON output makes the model emit raw JSON, which cannot be
-wrapped in markers. That is incompatible with the output contract, and staying on `2.x` is
-not the remedy — that is the version with the fabrication path still open. Stop forcing
-structured output on that provider.
+wrapped in markers. That is incompatible with the output contract. Staying on `2.x` is not
+the remedy either, because that is the version with the fabrication path still open. Stop
+forcing structured output on that provider.
 
 ### Cost Control with Complexity Gate
 
 *(v0.5+)* `analyze` dispatches one call per mage, and more when a mage has to be
 recovered: a corrective retry doubles a seat's calls and each rotation adds another
-model, so the ceiling with the defaults and a fallback pool is 18 rather than 3 — and that
-counts orchestrator dispatches, not billed requests: wrap a provider in `RetryProvider` and
-each dispatch can become up to four HTTP calls for the classes that keep the general count. To
-avoid spending on
-trivial inputs, install a caller-supplied predicate via
+model, so the ceiling with the defaults and a fallback pool is 18 rather than 3. That
+counts orchestrator dispatches, not billed requests. Wrap a provider in `RetryProvider` and
+each dispatch can become up to four HTTP calls for the classes that keep the general count.
+To avoid spending on trivial inputs, install a caller-supplied predicate via
 `MagiBuilder::with_complexity_gate`. When it returns `false`, `analyze`
 returns `MagiError::SkippedByComplexityGate` with **zero LLM dispatch**.
 
@@ -248,16 +247,16 @@ fire on oversize inputs.
 Must be cheap (microseconds, not milliseconds) because it runs
 synchronously on the calling task's executor. Long-running classification
 should be offloaded to a separate task. Predicate panics propagate
-uncaught — wrap your predicate body in defensive code if its inputs are
+uncaught, so wrap your predicate body in defensive code if its inputs are
 not under your control.
 
 Composable patterns: length thresholds per mode, rate limiters via
 `Arc<AtomicUsize>`, pre-flight cheap-LLM triage via `pollster::block_on`,
 or a stateful classifier shared across `Magi` instances.
 
-**Disabling the gate (v0.4-equivalent behavior):** simply don't call
-`with_complexity_gate`. The default state is "no gate set" and `analyze`
-proceeds to dispatch unconditionally — byte-equivalent to v0.4.x.
+**Disabling the gate (v0.4-equivalent behavior):** don't call
+`with_complexity_gate`. The default state is "no gate set", and `analyze`
+proceeds to dispatch unconditionally, byte-equivalent to v0.4.x.
 
 ```rust
 use magi_core::prelude::*;
@@ -368,19 +367,19 @@ MODE: <mode>
 
 The sanitization pipeline runs in a fixed order:
 
-1. `normalize_newlines` — converts Unicode line terminators (`\r\n`, `\r`,
+1. `normalize_newlines` converts Unicode line terminators (`\r\n`, `\r`,
    U+0085, U+000B, U+000C, U+2028, U+2029) to `\n`.
-2. `strip_invisibles` — removes the whole `Cf` category plus four explicit code points.
+2. `strip_invisibles` removes the whole `Cf` category plus four explicit code points.
    One of those, `U+202F` NARROW NO-BREAK SPACE, is `Zs` and **renders visibly**, so
    French-typography input loses it before dispatch. Stated as a category rather than a
    list because an enumerated list here drifted out of sync with the code once already.
-3. `neutralize_headers` — prefixes any line starting with `MODE`, `CONTEXT`,
+3. `neutralize_headers` prefixes any line starting with `MODE`, `CONTEXT`,
    `---BEGIN`, or `---END` with two spaces so it cannot be parsed as a
    delimiter. Both flanks of the keyword are matched by a **non-letter** rule,
    so no character can shield it: a bypass would need something that renders as
-   nothing *and* is an ASCII letter. The rule deliberately over-neutralizes —
-   `- MODE: x`, `| MODE |`, `"MODE":` and `MODE_SELECT` in ordinary content are
-   also prefixed — which is cosmetic, and preferred over a sanitizer that can be
+   nothing *and* is an ASCII letter. The rule deliberately over-neutralizes
+   (`- MODE: x`, `| MODE |`, `"MODE":` and `MODE_SELECT` in ordinary content are
+   also prefixed), which is cosmetic, and preferred over a sanitizer that can be
    walked past.
 
 Each request uses a fresh 128-bit nonce. If the sanitized content happens
@@ -455,18 +454,18 @@ The agent expects a JSON response matching the `AgentOutput` schema:
 code-review). Omit them or use `null` in design/analysis. Unknown `category`
 values fall back to `"other"`; a malformed `file`/`line` fails soft to absent
 (never a deserialization error). These locations are agent-reported and
-**unverified** — validate against your own diff.
+**unverified**, so validate them against your own diff.
 
 ## Model Rotation
 
 When a mage's model goes dead during a run, the crate rotates that single agent to a fallback lineage instead of letting the whole run degrade. The feature is fully additive: if you declare no fallback pool, behavior is byte-identical to the pre-rotation path.
 
 > ⚠️
-> - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages set the endpoint-down latch, and the run aborts before consensus once the seats already successful plus the seats still in flight can no longer reach `min_agents` — a run whose failed seats rotated and recovered continues, and its report carries the blip in the rotation telemetry. A genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could still over-abort when that quorum is genuinely lost — accepted (YAGNI).
+> - **Endpoint-down assumes a shared destination.** Two connection failures on DISTINCT lineages set the endpoint-down latch, and the run aborts before consensus once the seats already successful plus the seats still in flight can no longer reach `min_agents`. A run whose failed seats rotated and recovered continues, and its report carries the blip in the rotation telemetry. A genuine multi-host deployment (e.g. Claude direct + a separate Ollama host) could still over-abort when that quorum is genuinely lost; accepted (YAGNI).
 > - **A hanging/slow endpoint is NOT fast-failed.** A hung endpoint surfaces as `Timeout`/`RetryAbandoned`, which by design does NOT count toward endpoint-down (only connection-refused `Network` does); it is condemned and rotated, not aborted.
-> - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected — so your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
+> - **The digest verify is fail-OPEN.** When a model's digest can't be read (probe down, or a provider has no probe) rotation proceeds trusting the DECLARED lineage; only two lineages resolving to the SAME digest are rejected. So your lineage labels are load-bearing, and a provider WITHOUT a probe (Claude API / OpenAI-compat) gets ZERO ensemble-collapse protection.
 > - **No built-in hard cap on total run time.** Ask the crate rather than deriving it: `Magi::worst_case_per_seat()` returns `timeout × calls_per_model × (1 + max_rotations)` read off the configuration you actually built. The defaults give **22 minutes per seat only when you declared neither a pool nor a probe**; declaring **either** engages rotation and makes it 66, because a probing agent without a pool gets an empty one seeded with the default rotation count. Whether the run costs that once or three times over depends on whether your backend serves the three mages in parallel, which the crate cannot know. Wrap `analyze()` in `tokio::time::timeout(..)` for a hard ceiling.
-> - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down — the same boundary as the hanging-endpoint note.
+> - **Slow DNS may surface as `Timeout`, not `Network`.** So it does not count toward endpoint-down, the same boundary as the hanging-endpoint note.
 
 ### Declaring fallbacks
 
@@ -484,7 +483,7 @@ let builder = MagiBuilder::new(default_provider)
     .with_strict_context_guard(true);
 ```
 
-**If your completions provider cannot probe**, declare the probe separately instead —
+**If your completions provider cannot probe**, declare the probe separately instead:
 `push_with_probe(provider, lineage, probe)` on the pool builder and
 `with_agent_and_probe(agent, provider, lineage, probe)` on the `MagiBuilder`. They take the two
 roles as independent `Arc`s, so measuring a candidate's context window no longer forces you to
@@ -499,16 +498,16 @@ FallbackPool::builder()
 A complete, compiling version is `examples/decoupled_probe.rs`.
 
 One rule comes with that freedom: **the probe must measure the model the completions provider
-reports.** The measured window is filed under the provider's model name and that same key drives
+reports.** The measured window is filed under the provider's model name, and that same key drives
 the digest collision check, so a probe pointed at a different model can reject a healthy candidate
-over a collision that does not exist. When one object plays both roles — `push_probing` — it cannot
+over a collision that does not exist. When one object plays both roles (`push_probing`) it cannot
 disagree with itself, which is why that remains the recommended door.
 
 Note also that `with_strict_context_guard(true)` rejects every **unmeasured** candidate. If nothing
 in your pool is probed, the guard filters out all of it and rotation cannot fire; the crate warns
 when it detects exactly that state.
 
-`max_rotations` is a per-mage cap. A value of `2` allows up to two rotations, meaning up to three models may be tried for that mage. It is a ceiling, not a target: a mage rotates only if it fails and an eligible fallback candidate exists. Diversity is not imposed — you may point every candidate at the same provider and model, and duplicate primary lineages only emit a warning. Only a proven digest collision during rotation is rejected.
+`max_rotations` is a per-mage cap. A value of `2` allows up to two rotations, meaning up to three models may be tried for that mage. It is a ceiling, not a target: a mage rotates only if it fails and an eligible fallback candidate exists. Diversity is not imposed. You may point every candidate at the same provider and model, and duplicate primary lineages only emit a warning. Only a proven digest collision during rotation is rejected.
 
 ### What a rotation looks like
 
@@ -536,21 +535,21 @@ completions and probes speak the native `/api/*` API, and nothing addresses `/v1
 still accepted so an existing configuration keeps working. A reverse-proxy prefix is preserved
 either way: `https://gw.example.com/ollama/v1` reaches `https://gw.example.com/ollama/api/*`.
 
-If you route or log by path, that is the one thing to repoint — `docs/migration-v4.0.md` §4 has
+If you route or log by path, that is the one thing to repoint; `docs/migration-v4.0.md` §4 has
 the checklist.
 
-The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe — such as the Claude API or a generic OpenAI-compatible endpoint — simply have no window or digest measurement and are trusted by their declared `Lineage`.
+The probe reads the context window from `POST /api/show` and the weights digest from `GET /api/tags`. Providers without a probe, such as the Claude API or a generic OpenAI-compatible endpoint, have no window or digest measurement and are trusted by their declared `Lineage`.
 
 ## Credentials in a provider URL
 
 A `base_url` may carry credentials as userinfo (`https://user:pass@host/v1`) or as a query
 parameter (`https://host/v1?key=…`). Both are supported, and both are redacted anywhere this crate
-prints a URL — `Debug`, error messages, and therefore the serialized report, which is the copy
+prints a URL: `Debug`, error messages, and therefore the serialized report, which is the copy
 people paste into tickets. Parameter **names** are kept and their **values** replaced, so a
 redacted URL still tells you which endpoint failed and how it was called.
 
 Every HTTP client this crate builds also disables the `Referer` header. The default sends the
-original URL — query string included — to the target of a redirect, which would hand a
+original URL, query string included, to the target of a redirect, which would hand a
 query-carried credential to a third origin.
 
 **What redaction does not cover**, said plainly because it is the boundary and not an oversight:
@@ -559,7 +558,7 @@ that echoes your credential back to you. Both are size-capped; neither is redact
 recognising a secret inside arbitrary prose is not something a library can do. Do not put secrets in
 either.
 
-Values are redacted **whether or not they look secret** — an `api-version` reads as redacted too.
+Values are redacted **whether or not they look secret**; an `api-version` reads as redacted too.
 That is deliberate: a list of secret-looking parameter names ages, and the next name nobody thought
 to enumerate is the one that leaks.
 
@@ -574,7 +573,7 @@ use magi_core::prelude::*;
 Err(ProviderError::external("backend unreachable", ExternalErrorKind::Network))
 ```
 
-That constructor is the only way to build a **struct-like** `ProviderError` variant from outside this crate (`NestedSession` is a bare unit variant and is constructible, which helps nobody: it names a condition only this crate detects) — the
+That constructor is the only way to build a **struct-like** `ProviderError` variant from outside this crate (`NestedSession` is a bare unit variant and is constructible, which helps nobody: it names a condition only this crate detects). The
 transport variants stay closed, because their fields drive which model lineages get condemned. The
 `kind` you pass names the **shape** of the failure; this crate decides the consequences (whether it
 is retried, and how far the condemnation reaches). A complete implementation is in

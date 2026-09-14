@@ -10,20 +10,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A retry that gives up no longer condemns a lineage **run-wide** when the failure was
   mage-local. `RetryProvider` used to wrap every abandonment in `RetryAbandoned`, which the
-  core routes to a transport outcome — so a seat that exhausted its budget against, say, a
+  core routes to a transport outcome, so a seat that exhausted its budget against, say, a
   third-party backend's timeout took that lineage away from the other two mages over what one
   mage had seen. The two classes that were laundered this way, `External` and a
   `ResponseContract` the reader could not read, now come back **as themselves**: the consumer
   receives the original error where it previously received `RetryAbandoned`, and the failure
   condemns one seat instead of the run. Every other class keeps the typed abandonment, where
-  the reason is the diagnosis. This is not new behaviour so much as a symmetry — the loop's
+  the reason is the diagnosis. This is not new behaviour so much as a symmetry: the loop's
   retries-exhausted exit already returned the original error.
   - **A text channel widens with it.** `External.message` is written by an outside provider
     implementation and now reaches the report, where before it was discarded with the wrapper.
     It is capped at construction and nothing unwraps it past that cap; `ResponseContract.detail`
     is not a second such channel, since this crate authors it, redacts it and caps it.
   - **And one release-only hole is stated rather than left to be found.** Abandoning with no
-    original error is unreachable by construction — every failure records one — but if it were
+    original error is unreachable by construction (every failure records one), but if it were
     ever reached, debug builds assert loudly while release builds fall back to the run-wide
     wrapper with only a `tracing` warning as the signal. The fallback points in the dangerous
     direction on purpose: it is the conservative outcome, not the correct one.
@@ -57,10 +57,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   identical condition over HTTP became `ProviderError::Http` and was retried. A rate
   limit was therefore retried on one path and abandoned on the other, with nothing
   saying so. Those failures now become `ProviderError::Http` and go through the same
-  table, so a consumer matching on `ProviderError::Process` for them stops matching —
-  **the compiler cannot warn about this**, and the behaviour changes with it: a CLI
+  table, so a consumer matching on `ProviderError::Process` for them stops matching, and
+  **the compiler cannot warn about this**. The behaviour changes with it: a CLI
   `429` can now cost a seat up to four `claude` subprocesses where it previously cost
-  one -- but only where the consumer wrapped the provider in `RetryProvider`, which
+  one, but only where the consumer wrapped the provider in `RetryProvider`, which
   this crate never does on their behalf. Unwrapped, it is still one subprocess and what
   changed is only which variant reports the failure. A status outside `100..=599`, or one that is not an integer, stays `Process`:
   `Http.status` governs lineage condemnation, so a value no server could have returned
@@ -76,7 +76,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The CLI provider reports what the backend said about stopping and about output
   size.** Two rustdoc blocks stated the envelope carried no `stop_reason`-equivalent
-  field and no output count, each saying "verified" — and both had been checked against
+  field and no output count, each saying "verified", and both had been checked against
   the crate's own view of the wire rather than against a captured envelope, so the check
   confirmed itself. `FinishReason` and `completion_tokens` now arrive populated where
   they previously stayed `None`, so a consumer branching on `None` takes the other
@@ -86,7 +86,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`complete()` no longer deadlocks against its own child.** The whole prompt was
   written to the child's stdin before the child was reaped, so a `claude` that filled
   its stderr pipe before reading stdin blocked the pair until the per-agent timeout cut
-  it — and the operator was told "timeout", which sent them to look at the network. Both
+  it, and the operator was told "timeout", which sent them to look at the network. Both
   sides now proceed concurrently. Two consequences a consumer can observe: a prompt that
   did not reach the child is never reported as success whatever the exit code, because
   the child may have answered on a truncated prompt; and when the child dies mid-write
@@ -101,10 +101,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Deprecated
 
-- `schema::ZERO_WIDTH_PATTERN` — deprecated since `0.2.0`, not by this release; what is new
+- `schema::ZERO_WIDTH_PATTERN`: deprecated since `0.2.0`, not by this release. What is new
   here is the version its removal is scheduled for: the next major, together with the
   rename of the consensus summary field, as one decision rather than two. Nothing in this
-  repository reads it — a search finds no reader outside its definition — which leaves a
+  repository reads it (a search finds no reader outside its definition), which leaves a
   consumer that still does as the only party affected. `validate::clean_title` is the
   replacement the attribute already names, with the caveat the attribute states (a different
   character set) and, per `clean_title`'s own contract, more normalisation besides (control

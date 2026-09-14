@@ -4,7 +4,7 @@
 
 The short version: a reasoning model would spend its entire output budget thinking, return
 `content: ""` with `finish_reason: "length"`, and the crate would turn that into a synthetic
-HTTP error — which then condemned the model's lineage **run-wide**, taking it away from the other
+HTTP error, which then condemned the model's lineage **run-wide**, taking it away from the other
 two mages over what one mage had seen. The operator was told "transport", and went to look at a
 network that had answered `HTTP 200` perfectly.
 
@@ -19,7 +19,7 @@ spent all at once rather than saved up.
 ## 1. `complete()` returns `Completion`, not `String`
 
 In one line: complete() returns Completion where it used to return String. That is **two edits
-per implementation**, not one — the signature and the returned value — spelled out below.
+per implementation**, not one (the signature and the returned value), spelled out below.
 
 **Before**
 
@@ -45,13 +45,13 @@ async fn complete(&self, system: &str, user: &str, config: &CompletionConfig)
 implementation, plus any helper of your own that returns the old type.
 
 `Completion` carries the text plus whatever the provider could measure about producing it. A
-provider that measures nothing reports **not measured** — never zeros, which would claim a
+provider that measures nothing reports **not measured**, never zeros, which would claim a
 measurement that never happened. That is what `String::into()` gives you.
 
 **Why the trait had to change.** The report now records every completion attempt with its
 termination reason, its token counts, and its reasoning state. None of that fits in a `String`. A
 new trait method with a default body was considered and rejected: it would leave two completion
-paths that can drift, and an implementor who never overrode it would be silently mute — the quiet
+paths that can drift, and an implementor who never overrode it would be silently mute: the quiet
 no-op this release exists to remove.
 
 **Reporting more than the minimum**, if your backend does measure:
@@ -67,14 +67,14 @@ Ok(Completion::new(text).with_telemetry(telemetry))
 ```
 
 Both types are `#[non_exhaustive]`, so they are built with a constructor plus `with_*` rather
-than a struct literal — `Completion::new(text)` and `CompletionTelemetry::unmeasured()`, as the
+than a struct literal: `Completion::new(text)` and `CompletionTelemetry::unmeasured()`, as the
 snippet above shows. A field added later costs one more method and breaks nobody.
 
 ---
 
 ## 2. `RotationKind` gains four variants and becomes `#[non_exhaustive]`
 
-**Before** — three causes shared `Transport`, which everywhere else means *the run was condemned*:
+**Before:** three causes shared `Transport`, which everywhere else means *the run was condemned*:
 
 ```rust
 match hop.kind() {
@@ -100,7 +100,7 @@ that is precisely where the next cause would be classified into the wrong scope 
 failing.
 
 The new variants are `OversizedResponse`, `ExternalFailure`, `EmptyCompletion` and
-`ResponseContract`. The first two **already behaved** mage-local — they simply could not say so
+`ResponseContract`. The first two **already behaved** mage-local; they could not say so
 while the enum was frozen, so the precision rode in the `detail` text behind a `mage-local: `
 prefix.
 
@@ -113,7 +113,7 @@ scope in prose can only ever contradict the type that carries it.
 
 The sentinel it used was `PARSE_FAILURE_STATUS`, and it is gone from the crate entirely.
 
-**Before** — a parse or contract failure arrived as an HTTP error with a status that is not one:
+**Before:** a parse or contract failure arrived as an HTTP error with a status that is not one:
 
 ```rust
 if let ProviderError::Http { status: 0, .. } = err { /* unusable response */ }
@@ -135,20 +135,20 @@ match err {
 ```
 
 The three causes, since the prose further down names them: `Unreadable` is a body that could not
-be read at all — unparseable, or not valid UTF-8; `NoMessage` is a well-formed body that does not
+be read at all (unparseable, or not valid UTF-8); `NoMessage` is a well-formed body that does not
 carry the message the contract promises; `RedirectRefused` is a redirect chain this crate declines
 to follow. `ResponseContractCause` is `#[non_exhaustive]`, so match it with a `_` arm.
 
 `EmptyCompletion` carries a `CompletionTelemetry`, not a bare termination reason: the
 termination is `telemetry.finish`, and alongside it travel the token counts and the reasoning
-measurement. That is deliberate — an empty completion is usually a model that spent its whole
+measurement. That is deliberate: an empty completion is usually a model that spent its whole
 budget reasoning, and reporting the cut without the number that explains it is the blindness
 this release exists to end.
 
 **One behaviour change inside this one, if you use the Anthropic provider with extended
 thinking.** A response that exhausts `max_tokens` comes back carrying a thinking block and no
 text block. In `3.2.0` that surfaced as `Http { status: 0, body: "no text content block in
-response" }` — the synthetic status this section is about — and it now surfaces as
+response" }`, the synthetic status this section is about, and it now surfaces as
 `EmptyCompletion`, naming the budget that cut it. A genuinely empty `content` array becomes
 `ResponseContract { NoMessage }`, a variant new in `4.0.0`: nothing was sent at all, and no
 termination reason makes that legitimate.
@@ -157,7 +157,7 @@ termination reason makes that legitimate.
 prelude; its own variants are plain unit variants, and it is the enum that carries
 `#[non_exhaustive]`. The `..` in the example above belongs to `ProviderError`'s struct-like variants (the unit
 variant `NestedSession` is not `#[non_exhaustive]` and needs no `..`), which
-are each `#[non_exhaustive]` — so match those with `..` and keep a `_` arm for causes added
+are each `#[non_exhaustive]`, so match those with `..` and keep a `_` arm for causes added
 later.
 
 **One of them is now retried where the old sentinel was not.** `Http { status: 0 }` was
@@ -171,7 +171,7 @@ changes on a second try.
 honest **by construction** rather than by comment: the synthetic zero is how a contract failure
 inherited run-wide semantics it was never entitled to.
 
-`EmptyCompletion` carries the budget in force, and its message says so — the error names its own
+`EmptyCompletion` carries the budget in force, and its message says so: the error names its own
 fix instead of sending you to inspect a healthy network.
 
 **The message names the cap as the fix only where the cap can be the fix**, and that distinction
@@ -185,12 +185,12 @@ observation. What is conditional is the advice, on three cases:
 | a reason this crate does not interpret | says whether the budget was reached **cannot be told** from it |
 
 **The wording is diagnostic, not a contract.** It is written for a person reading a failure,
-and it will be reworded when a clearer sentence is found. Do not branch on the text — branch on
+and it will be reworded when a clearer sentence is found. Do not branch on the text. Branch on
 `FinishReason`, which is typed, `#[non_exhaustive]`, and the thing the wording is derived from.
 
 The third case exists because asserting the other way would be inventing evidence. Its example
 used to be `model_context_window_exceeded`, and that is no longer true: since it is translated to
-`FinishReason::Length` it now reaches the FIRST row instead — see §7. What the third case still
+`FinishReason::Length` it now reaches the FIRST row instead (see §7). What the third case still
 covers is a reason this crate does not recognise at all, where telling an operator to raise
 `max_tokens` because the model refused would be the same misdiagnosis as the `http error 0` this
 release removed, one layer in.
@@ -210,7 +210,7 @@ request against every seat in turn. Its message keeps what was **observed** apar
 **After:** always `POST {base}/api/chat`, Ollama's native API. There is no conditional route and
 no compatibility mode.
 
-**What you do:** nothing, unless something between you and the backend has per-path rules —
+**What you do:** nothing, unless something between you and the backend has per-path rules:
 a reverse proxy allow-list, a gateway route, a firewall rule, or request logging keyed on the old
 path. Point those at `/api/chat`.
 
@@ -218,11 +218,11 @@ path. Point those at `/api/chat`.
 `/v1` layer, and effective natively: the same model, the same 62k payload, `602` tokens and a
 valid verdict in 7.7 s natively, against 32 768 tokens and nothing on `/v1`. A conditional route
 would have shipped a second mode into a public surface, and a second mode costs another major to
-remove — so it does not get removed.
+remove, so it does not get removed.
 
 `OpenAiCompatibleProvider` keeps this wire. It gained the `Completion` return like every
-provider, and the termination and reasoning fields like the other HTTP ones — `ClaudeCliProvider`
-is a subprocess with no wire fields to read, so it leaves `finish` at `None` — but it did not
+provider, and the termination and reasoning fields like the other HTTP ones (`ClaudeCliProvider`
+is a subprocess with no wire fields to read, so it leaves `finish` at `None`), but it did not
 gain native routing. It remains the documented path for OpenAI cloud,
 LocalAI, vLLM, LM Studio and llama.cpp-server.
 
@@ -232,13 +232,13 @@ LocalAI, vLLM, LM Studio and llama.cpp-server.
 
 **Before:** `4096`. **After:** `16_384`.
 
-**What you do:** nothing for most deployments — but read the Anthropic note below if you pin a
+**What you do:** nothing for most deployments, but read the Anthropic note below if you pin a
 literal model id.
 
 **Why.** With the real system prompt on a 62k bundle, `glm-5.2` demanded **10 686** completion
 tokens. The old default truncated a legitimate verdict from a model that converges, not merely
 from a pathological one. In one captured degraded run, the second candidate in a seat's rotation
-chain is measured converging at this budget — that `degraded 2/3` would have been `3/3`.
+chain is measured converging at this budget; that `degraded 2/3` would have been `3/3`.
 
 **What the raise does NOT buy.** A model that spends its whole budget in a reasoning channel is
 not rescued by a bigger budget: one was measured returning nothing at `16_384` **and** at
@@ -258,8 +258,8 @@ The memory bound does not move: the response body cap stays at its 1 MiB floor u
 > elsewhere.
 >
 > **Who is affected:** only a consumer that pins a **literal pre-4.x model id** through the
-> passthrough and never sets `max_tokens`. The three aliases this crate resolves — `sonnet`,
-> `opus`, `haiku` — are all 4.x models whose ceilings are far above `16_384`, and
+> passthrough and never sets `max_tokens`. The three aliases this crate resolves (`sonnet`,
+> `opus`, `haiku`) are all 4.x models whose ceilings are far above `16_384`, and
 > `default_model_for_mode` returns `opus` for every mode, so a consumer on the default
 > configuration cannot hit this.
 >
@@ -278,7 +278,7 @@ each attempt actually spent.
 pub completions: BTreeMap<AgentName, Vec<CompletionRecord>>,
 ```
 
-One entry per completion **attempt** — all of them, not only the ones that were cut. Each carries
+One entry per completion **attempt**, all of them, not only the ones that were cut. Each carries
 the model, the budget in force, the termination reason, the token counts and the reasoning state.
 
 ### One field inside it is an `Option`, and the reason is the release's own thesis
@@ -288,12 +288,12 @@ that report this state can reach it with nothing to count: a wire with no separa
 channel has nothing to read, a compatibility body can omit the field, and an Anthropic response
 can carry a `redacted_thinking` block that proves the channel FIRED while carrying nothing
 countable. They all used to report `0`, and on this variant a zero reads as "no reasoning came
-back" — which suggests the control worked, on the variant that exists to declare it did not.
+back", which suggests the control worked, on the variant that exists to declare it did not.
 
 `Some(0)` keeps its meaning and is worth having: the channel was read and was empty. `None` means
 nobody could measure it. If you match on this field, add the `Option`.
 
-**What you do:** nothing to keep compiling for `completions` itself — the field is additive and
+**What you do:** nothing to keep compiling for `completions` itself; the field is additive and
 `MagiReport` is `#[non_exhaustive]`. But if you **deserialize** reports with a stricter reader (a schema
 validator, another language's model, a `deny_unknown_fields` struct), a `4.0.0` report will not
 load until that reader tolerates the new key. Additive is not the same as invisible.
@@ -302,19 +302,19 @@ load until that reader tolerates the new key. Additive is not the same as invisi
 > `skip_serializing_if`, but that attribute **never fires on a report this crate returns**: a
 > completed seat leaves at least one record, success or failure, and below `min_agents` you get
 > `InsufficientAgents` rather than a report. Do not read the attribute as "you might never see
-> this key" — you will see it on every report. **Per-seat is another matter:** a seat whose task
+> this key": you will see it on every report. **Per-seat is another matter:** a seat whose task
 > panicked has no key here at all, so index this map by what it contains, not by `failed_agents`. **`pool_eligibility` carries no
-> such attribute at all** — it is emitted on every report, empty map
+> such attribute at all.** It is emitted on every report, empty map
 > included, deliberately, because an absent key and an empty one answer different questions (no
 > snapshot was taken, versus the seats had no candidates). **Do not read an empty vector as
-> "everything was eligible"** — the snapshot emits one row per candidate with `causes` empty when
+> "everything was eligible"**: the snapshot emits one row per candidate with `causes` empty when
 > it is eligible, so that case is a non-empty vector; an empty one means there were no candidates,
 > which is every seat when you declare no pool. So a strict reader that tolerates
 > `completions` and stops there **still fails to load every single `4.0.0` report**. Tolerate
-> both. Its values are `CandidateEligibility`, each carrying a `Vec<IneligibilityCause>` — EVERY
+> both. Its values are `CandidateEligibility`, each carrying a `Vec<IneligibilityCause>` with EVERY
 > failing condition, not the first; both types
 > are in the prelude, and the field's own rustdoc states that the snapshot is **pre-dispatch** and
-> does not see lineages that fail mid-run — that is what `rotations` is for.
+> does not see lineages that fail mid-run, which is what `rotations` is for.
 
 **Why all of them.** Recording only the notable attempts leaves you blind until the first cut,
 which is the blindness this whole release is about: `4096` did not fail all at once, it had been
@@ -325,8 +325,8 @@ a reaction.
 to **~18 (~2.5 KB)** when every seat rotates and takes its corrective retry.
 
 **It is not an extraction failure.** `completions` and `extraction_failures` are **disjoint**. An
-attempt that was cut and still produced a valid verdict belongs in the first and nowhere else —
-filing it in the second would assert a failure that did not happen, and a consumer counting that
+attempt that was cut and still produced a valid verdict belongs in the first and nowhere else.
+Filing it in the second would assert a failure that did not happen, and a consumer counting that
 list to gate a run would start seeing failures where extraction went perfectly.
 
 ### `ReasoningState`'s `Debug` withholds the trace text
@@ -337,7 +337,7 @@ it. Recorded because the behaviour is not the derived one a reader would assume.
 **What it does:** a hand-written `Debug` renders `text: "<N chars withheld>"` rather than the
 trace itself.
 
-**What you do:** nothing, unless you plan to parse `Debug` output — which you should not. The
+**What you do:** nothing, unless you plan to parse `Debug` output, which you should not. The
 reason it changed is that the trace is model-authored text that never passes the `Validator` and
 is never redacted, and `ProviderError` derives `Debug` and can hold this type, so a consumer
 logging an error with `{:?}` was carrying it into their logs. The elision is announced rather
@@ -351,7 +351,7 @@ trace's **length**; with `true` it carries the length **and** the text. The flag
 substitutes.
 
 Turning it on accepts: the text is the **model's**, not this crate's; it does **not** pass the
-`Validator`; it is **not redacted**; and it has **no cap** — worst case
+`Validator`; it is **not redacted**; and it has **no cap**. The worst case is
 `(1 + max_rotations) × calls_per_model` traces per agent, times three agents, which is up to
 **18 per run** once a fallback pool **or a probe** is declared (with neither, rotation does not
 engage and it is 6), and traces of ~141 000 characters per agent have been
@@ -362,7 +362,7 @@ measured. That figure is a measured reference, not a ceiling.
 ## 7. The vendor termination vocabularies are fully translated
 
 **Before:** nothing was translated, because nothing was read. `3.2.0`'s `ClaudeResponse`
-deserializes `content` and nothing else — no `stop_reason`, and no `FinishReason` type to put it
+deserializes `content` and nothing else: no `stop_reason`, and no `FinishReason` type to put it
 in. That is the premise this whole guide opens with.
 
 **After:** `refusal` and `pause_turn` also read as `FinishReason::Stop`, and
@@ -376,7 +376,7 @@ told"; a *documented* one left untranslated by oversight turned a knowable case 
 unknowable one, and filed Anthropic's own out-of-room response as a broken contract. `Other` now
 means a value neither vendor has published.
 
-`FinishReason::Stop` is correspondingly wider than "the model finished its answer" — it always
+`FinishReason::Stop` is correspondingly wider than "the model finished its answer". It always
 was, since `tool_use` mapped there and a turn that stops to call a tool has finished nothing.
 What its members share is the only property anything downstream asks of them: the reply is not
 short because it ran out of room.
@@ -385,8 +385,8 @@ short because it ran out of room.
 
 **Before:** `pub fn parse_response(body: &str) -> Result<String, ProviderError>`.
 
-**After:** removed. Nothing replaces it. It **was** the live parse path in `3.2.0` — the final
-statement of `ClaudeProvider::complete` — which is why the paragraph below can say its behaviour
+**After:** removed. Nothing replaces it. It **was** the live parse path in `3.2.0`, the final
+statement of `ClaudeProvider::complete`, which is why the paragraph below can say its behaviour
 changed on the way out; an earlier draft of this line called it uncalled, and that was wrong about
 the very version you are migrating from.
 
@@ -394,20 +394,20 @@ the very version you are migrating from.
 is no replacement, and the reason it went is worth stating: it and `complete()` gave **opposite
 answers for the identical body**. A reply whose only text block is empty is `Ok("")` through
 `parse_response` and `EmptyCompletion` through `complete()`. One of those says the call
-succeeded and the other says the model produced nothing — and a release whose entire subject is
+succeeded and the other says the model produced nothing, and a release whose entire subject is
 telling those two apart cannot ship both as public answers. The one with no telemetry to answer
 with is the one that went.
 
 Its behaviour also changed on the way out, which matters only if you vendored it: it joins
 **every** text block instead of returning the first. Anthropic interleaves text with `thinking`
 and `tool_use` blocks, so a reply split across two text blocks used to come back cut at the
-first, and a first block carrying `null` used to discard the rest entirely — which the
+first, and a first block carrying `null` used to discard the rest entirely, which the
 completion path then reported as an exhausted output budget.
 
 ## 9. The time defaults change
 
 > **Read this first: most of this section applies only if you opted into the retry layer.**
-> `MagiBuilder::build` does **not** wrap your providers in a `RetryProvider` — you do, with
+> `MagiBuilder::build` does **not** wrap your providers in a `RetryProvider`; you do, with
 > `RetryProvider::with_config`. If you never did, every `RetryConfig` value below is inert for
 > you and the only change you will observe is `MagiConfig::timeout`.
 >
@@ -415,8 +415,8 @@ completion path then reported as an exhausted output budget.
 > `RetryProvider` there is nothing between your provider and the agent ceiling, so a seat that
 > would have failed at 300 s now occupies its slot for up to **660 s** before the run gives up on
 > it. Nothing retries in that time; the wait simply got longer. If your deployment sized anything
-> around the old 300 s — an outer request budget, a job timeout, an operator's expectation of how
-> long a degraded run takes — set `MagiConfig::timeout` back to a value that suits you. It is
+> around the old 300 s (an outer request budget, a job timeout, an operator's expectation of how
+> long a degraded run takes), set `MagiConfig::timeout` back to a value that suits you. It is
 > configuration, and this crate imposes no ceiling of its own.
 
 `MagiConfig::timeout` rises and `RetryConfig::operation_budget` falls, so that the agent's ceiling
@@ -425,8 +425,8 @@ rather than an opaque timeout cut. Waiting times change for a consumer who never
 which is why this is a contract change and not an internal adjustment.
 
 **One limit of that "covers the worst case", stated here rather than found later:** it holds for a
-homogeneous chain of attempt-limited failures. A **mixed** chain — a `429`, which is not
-attempt-limited, followed by a hang — is bounded by
+homogeneous chain of attempt-limited failures. A **mixed** chain (a `429`, which is not
+attempt-limited, followed by a hang) is bounded by
 
 ```text
 operation_budget + max(client_timeout, retry_after_cap + jitter)
@@ -434,7 +434,7 @@ operation_budget + max(client_timeout, retry_after_cap + jitter)
 
 = `751 s` with the shipped values, above the `660 s` ceiling. There the outer timeout cuts first
 and you get an opaque timeout rather than the typed abandonment. Raise `MagiConfig::timeout` past
-that sum if you need the typed form in that case too — and note **the binding term is whichever
+that sum if you need the typed form in that case too, and note **the binding term is whichever
 wait is longer**: both ship at 300 s, so if you raise only `retry_after_cap`, it is the one that
 moves the bound.
 
@@ -445,59 +445,59 @@ has no way to tell "left alone" from "moved and not mentioned".
 
 | value | before | after | what you do |
 |---|---|---|---|
-| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it at or above the floor its rustdoc documents, or you lose the deterministic second attempt of a hang — silently. The crate warns below the floor only, and computes that floor from the SHIPPED 300 s client timeout: **if you raised your own, your real floor is higher and the guard cannot see it.** |
+| `RetryConfig::operation_budget` | 600 s | **450 s** | Nothing, unless you set it yourself. If you did, keep it at or above the floor its rustdoc documents, or you lose the deterministic second attempt of a hang, silently. The crate warns below the floor only, and computes that floor from the SHIPPED 300 s client timeout: **if you raised your own, your real floor is higher and the guard cannot see it.** |
 | `MagiConfig::timeout` | 300 s | **660 s** | Read the Infrastructure Timeout Checklist below **before** upgrading. If you set it yourself, it should cover `(1 + limited_max_retries) * client_timeout + backoffs`. |
-| `RetryConfig::limited_retry_classes` | *(did not exist)* | **`[Timeout, Network]`** | See below — this is new behaviour, not a renamed value. |
+| `RetryConfig::limited_retry_classes` | *(did not exist)* | **`[Timeout, Network]`** | See below: this is new behaviour, not a renamed value. |
 | `RetryConfig::limited_max_retries` | *(did not exist)* | **1** (two attempts) | See below. |
-| `DEFAULT_CLIENT_TIMEOUT` | 300 s | **300 s** — unchanged | Nothing. |
-| `RetryConfig::retry_after_cap` | 300 s | **300 s** — unchanged | Nothing. Lowering it would turn honoured waits into abandonments; what bounds a chain of them is the budget. |
-| `RetryConfig::max_retries` | 3 | **3** — unchanged | Nothing. It still governs every class NOT in `limited_retry_classes`. |
+| `DEFAULT_CLIENT_TIMEOUT` | 300 s | **300 s**, unchanged | Nothing. |
+| `RetryConfig::retry_after_cap` | 300 s | **300 s**, unchanged | Nothing. Lowering it would turn honoured waits into abandonments; what bounds a chain of them is the budget. |
+| `RetryConfig::max_retries` | 3 | **3**, unchanged | Nothing. It still governs every class NOT in `limited_retry_classes`. |
 
 ### The two new fields change how long your chain runs, so read this row even if you set nothing
 
 `max_retries` is no longer the only attempt limit. Classes listed in `limited_retry_classes` use
 `limited_max_retries` instead, and the cap is resolved from the class of the error that **just**
-happened — a chain can open with a `429` (four attempts) and meet a hang on the second, and the
+happened: a chain can open with a `429` (four attempts) and meet a hang on the second, and the
 cap that governs is the one for what is happening.
 
 **Why `[Timeout, Network]` and not others:** they are the two classes that can each consume a
-whole `client_timeout`. `Timeout` does so by definition — the model accepted the connection and
+whole `client_timeout`. `Timeout` does so by definition: the model accepted the connection and
 kept generating. `Network` does so in its pathological case, a packet dropped in silence, as
 opposed to the immediate refusal. Everything else fails fast, so four attempts of it cost seconds.
 
 **Observable change:** a hang that used to produce four requests now produces two. If you counted
-on four, set `limited_max_retries` to match `max_retries` — note it cannot usefully go *above* it,
+on four, set `limited_max_retries` to match `max_retries`. Note it cannot usefully go *above* it,
 because the retry loop is bounded by `max_retries`; the crate now warns if you try.
 
 **And one consequence worth stating, because it is not obvious from the number.** `Network` is one
 of the two limited classes, and `Network` is the only class that feeds the endpoint-down latch. So
-a seat now reaches its verdict on an unreachable endpoint in two attempts rather than four —
+a seat now reaches its verdict on an unreachable endpoint in two attempts rather than four:
 **`MagiError::EndpointDown` becomes reachable sooner in wall-clock terms** for consumers who have
 rotation engaged. The threshold is unchanged (still two distinct lineages); what changed is how
 quickly a lineage gets there. If you relied on the longer chain to ride out transient network
 blips, raise `limited_max_retries`.
 
-**`0` is legitimate** — "do not retry, rotate straight away" — and is not rejected. Note that a
+**`0` is legitimate** ("do not retry, rotate straight away") and is not rejected. Note that a
 `Timeout` condemns the lineage run-wide, so rotating on the first hang takes that lineage from the
 other two mages over what may be a transient spike; the default of `1` buys that second chance.
 
 **Reading back what you bought:** `Magi::worst_case_per_seat()` returns
 `timeout * calls_per_model * (1 + max_rotations)` from your effective configuration. It is a
-ceiling, not a prediction, and it is **per seat** — whether your backend serves the three mages in
+ceiling, not a prediction, and it is **per seat**: whether your backend serves the three mages in
 parallel or serialises them is something this crate does not know.
 
-> ### ⚠ Infrastructure Timeout Checklist — run this BEFORE you upgrade
+> ### ⚠ Infrastructure Timeout Checklist: run this BEFORE you upgrade
 >
 > The agent ceiling rises past **600 seconds**, which crosses the range where infrastructure
 > timeouts live. A proxy that cuts the connection reaches this crate as `ProviderError::Network`,
 > the one class that feeds the endpoint-down latch. What happens next depends on your
 > configuration, and the two outcomes look nothing alike:
 >
-> - **With rotation engaged** — you declared a fallback pool or primary probes — cuts on **two
+> - **With rotation engaged** (you declared a fallback pool or primary probes), cuts on **two
 >   distinct lineages** abort the run with `MagiError::EndpointDown` (since 4.1.0, only once the
 >   seats already successful plus those still in flight can no longer reach `min_agents`; a run
 >   whose cut seats rotated and recovered completes), an error that does not mention your proxy.
-> - **Without rotation** — the default — there is no registry and no latch at all, so the seat
+> - **Without rotation**, the default, there is no registry and no latch at all, so the seat
 >   simply fails and the run **degrades**. You see a missing mage, or `InsufficientAgents`, not
 >   `EndpointDown`.
 >
@@ -515,7 +515,7 @@ parallel or serialises them is something this crate does not know.
 > - [ ] any service mesh or sidecar timeout **above** it
 >
 > **If the symptom is `EndpointDown` (with rotation) or a degraded run (without it), and your
-> backend was answering, look at these first** — the
+> backend was answering, look at these first**; the
 > crate will not name them for you. The timeout error carries the configured ceiling so you can
 > compare it against where the cut actually happened, but a proxy reset does not arrive as a
 > timeout, so that message will not appear on this path.

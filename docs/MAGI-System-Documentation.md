@@ -1,4 +1,4 @@
-# MAGI System — Complete Technical Documentation
+# MAGI System: Complete Technical Documentation
 
 ## Multi-Perspective Analysis Library for Rust
 
@@ -8,7 +8,7 @@
 
 ### 1.1 Context in the Series
 
-In *Neon Genesis Evangelion* (1995), created by Hideaki Anno and produced by Gainax, **NERV** — the paramilitary organization tasked with defending humanity against the Angels — operates with a system of three supercomputers known as the **MAGI**.
+In *Neon Genesis Evangelion* (1995), created by Hideaki Anno and produced by Gainax, **NERV**, the paramilitary organization tasked with defending humanity against the Angels, operates with a system of three supercomputers known as the **MAGI**.
 
 The MAGI were designed and built by **Dr. Naoko Akagi**, NERV's chief scientist and mother of Ritsuko Akagi. The system takes its name from the three Magi of the biblical account: Melchior, Balthasar, and Caspar (the wise men who traveled to Bethlehem guided by a star). The naming is deliberate: just as the three wise men brought distinct perspectives and offerings, the three computers contribute complementary facets to the decision-making process.
 
@@ -26,7 +26,7 @@ Each supercomputer contains a copy of Naoko Akagi's personality, but filtered th
 
 The MAGI operate by **majority vote**: each unit issues an independent verdict on NERV's critical decisions, and the outcome is determined by consensus of at least two out of three. This mechanism appears at crucial moments in the series, such as when NERV must decide whether to self-destruct the base during the Angel Iruel's invasion (episode 13), or during SEELE's hacking attempt on the MAGI in *The End of Evangelion*.
 
-The narrative brilliance of the system is that the three units can reach **different conclusions** from the same input, because each processes information through a distinct cognitive filter. The conflict between the three is not a bug: it is the mechanism that produces more robust decisions than any single perspective.
+The narrative brilliance of the system is that the three units can reach **different conclusions** from the same input, because each processes information through a distinct cognitive filter. The conflict between the three is the mechanism that produces more robust decisions than any single perspective, not a bug.
 
 ### 1.4 The Philosophical Principle
 
@@ -38,13 +38,13 @@ This principle has roots in real decision theory concepts: Surowiecki's *Wisdom 
 
 The effectiveness of multi-perspective systems rests on three conditions identified by decision theory research:
 
-1. **Diversity of perspective** — Each evaluator must genuinely see the problem differently, not just apply the same analysis with different labels. MAGI achieves this through radically different system prompts that define what each agent prioritizes and ignores.
+1. **Diversity of perspective.** Each evaluator must genuinely see the problem differently, not just apply the same analysis with different labels. MAGI achieves this through radically different system prompts that define what each agent prioritizes and ignores.
 
-2. **Independence of judgment** — Evaluators must form opinions without knowing what the others concluded. Anchoring (adjusting your opinion toward what others already said) is the primary destroyer of multi-perspective value. MAGI enforces this by running agents in parallel with no shared context.
+2. **Independence of judgment.** Evaluators must form opinions without knowing what the others concluded. Anchoring (adjusting your opinion toward what others already said) is the primary destroyer of multi-perspective value. MAGI enforces this by running agents in parallel with no shared context.
 
-3. **Structured aggregation** — Raw disagreement is noise. Value comes from a synthesis mechanism that weights votes, preserves dissent, and surfaces the *reasons* behind disagreement. MAGI's weight-based scoring and findings deduplication serve this role.
+3. **Structured aggregation.** Raw disagreement is noise. Value comes from a synthesis mechanism that weights votes, preserves dissent, and surfaces the *reasons* behind disagreement. MAGI's weight-based scoring and findings deduplication serve this role.
 
-When these conditions hold, the system consistently outperforms any individual evaluator — not because it is smarter, but because it is more complete.
+When these conditions hold, the system consistently outperforms any individual evaluator, because it is more complete rather than smarter.
 
 ---
 
@@ -83,11 +83,11 @@ The adversarial multi-perspective model addresses well-documented cognitive bias
 
 ## 3. The Three Agents in Detail
 
-### 3.1 Melchior — The Scientist
+### 3.1 Melchior, the Scientist
 
 **Philosophy:** "Is this correct? Is this optimal?"
 
-Melchior embodies the rigor of a principal engineer or research scientist who prioritizes technical truth above all else. It doesn't care if the solution is easy to implement or if the team understands it — it cares if it is *correct*.
+Melchior embodies the rigor of a principal engineer or research scientist who prioritizes technical truth above all else. It doesn't care if the solution is easy to implement or if the team understands it; it cares if it is *correct*.
 
 **In code review** it analyzes: logical errors, algorithmic complexity (O(n) vs O(n^2)), type safety, correct use of ownership/lifetimes in Rust, test coverage.
 
@@ -97,7 +97,7 @@ Melchior embodies the rigor of a principal engineer or research scientist who pr
 
 **Personality:** Precise, cites specific evidence (line numbers, data, specs). If uncertain, it says so explicitly and explains what information would resolve the uncertainty. Prefers proven solutions over clever ones.
 
-### 3.2 Balthasar — The Pragmatist
+### 3.2 Balthasar, the Pragmatist
 
 **Philosophy:** "Does this work in practice? Can we live with this?"
 
@@ -111,11 +111,11 @@ Balthasar is the experienced tech lead who has seen enough projects die from ove
 
 **Personality:** Grounded, trade-off oriented. Asks "what's the simplest thing that could work?" before reaching for complexity. Detects over-engineering and yak-shaving with ease.
 
-### 3.3 Caspar — The Critic
+### 3.3 Caspar, the Critic
 
 **Philosophy:** "How does this break? What aren't we seeing?"
 
-Caspar is the system's deliberate adversary. It functions as an internal red team: its job is to try to break everything the other two approved. It is not negative for sport — it is negative by design, because someone has to be.
+Caspar is the system's deliberate adversary. It functions as an internal red team: its job is to try to break everything the other two approved. It is negative by design rather than for sport, because someone has to be.
 
 **In code review** it analyzes: unconsidered edge cases (null, empty, overflow, unicode, concurrency, power loss mid-operation), security vulnerabilities (injection, buffer overflow, TOCTOU, privilege escalation), failure modes (what happens when this fails? is it graceful?), implicit assumptions, regression risk.
 
@@ -123,7 +123,7 @@ Caspar is the system's deliberate adversary. It functions as an internal red tea
 
 **In general analysis** it seeks: blind spots, adversarial thinking ("if someone wanted this to fail, how would they do it?"), historical parallels of similar failures, second-order effects, audit of fragile assumptions.
 
-**Personality:** Direct, doesn't sugarcoat. Distinguishes between theoretical risks and likely risks (labels both honestly). It is the agent most likely to vote "reject" — and that is a feature, not a bug. When it genuinely cannot find serious issues, it says so with confidence.
+**Personality:** Direct, doesn't sugarcoat. Distinguishes between theoretical risks and likely risks (labels both honestly). It is the agent most likely to vote "reject", and that is a feature rather than a bug. When it genuinely cannot find serious issues, it says so with confidence.
 
 ---
 
@@ -216,7 +216,7 @@ MagiReport { agents, consensus, banner, report, degraded, failed_agents,
 
 ### 4.4 Concurrency Model
 
-Agents are launched as independent `tokio::spawn` tasks with per-agent timeout via `tokio::time::timeout`. An `AbortGuard` RAII struct holds `AbortHandle`s for all spawned tasks — if the `analyze()` future is dropped (e.g., caller timeout), the guard aborts every running task, preventing wasted LLM API quota.
+Agents are launched as independent `tokio::spawn` tasks with per-agent timeout via `tokio::time::timeout`. An `AbortGuard` RAII struct holds `AbortHandle`s for all spawned tasks: if the `analyze()` future is dropped (e.g., caller timeout), the guard aborts every running task, preventing wasted LLM API quota.
 
 Key properties:
 
@@ -258,7 +258,7 @@ Key fields:
 
 - **verdict**: The binary vote (`conditional` counts as approve for majority but generates conditions in the report).
 - **confidence**: Agent certainty in its own verdict (0.0-1.0). Validated to reject NaN/Infinity.
-- **findings**: Atomic units of analysis — the consensus engine deduplicates by stable id when a finding carries a file and a positive line, and by case-insensitive title otherwise. See §5.4.
+- **findings**: Atomic units of analysis. The consensus engine deduplicates by stable id when a finding carries a file and a positive line, and by case-insensitive title otherwise. See §5.4.
 
 ### 5.2 Voting Rules
 
@@ -296,7 +296,7 @@ Key properties:
 - **Attributed to the emitted verdict**: the "emitted side" is every agent whose effective verdict matches the verdict the score classified to, not the count majority. Two `conditional` votes and one `reject` count 2-1 for approval yet score exactly zero, so the verdict is `HOLD -- TIE` (reject), the emitted side is the one rejecting agent, and both `conditional` agents are listed as dissenting. The same rule governs `dissent` and `majority_summary`.
 - **Penalizes non-unanimity**: `base_confidence` divides by total agent count, not by the size of the emitted side. A dissenting agent dilutes confidence even though it's not on that side.
 - **Symmetric**: Unanimous reject at 0.9 confidence produces system confidence of 0.9, matching unanimous approve.
-- **Tie-aware**: At `score = 0`, `weight_factor = 0.5`, halving confidence — a tie genuinely represents lower certainty.
+- **Tie-aware**: At `score = 0`, `weight_factor = 0.5`, halving confidence; a tie genuinely represents lower certainty.
 - **Clamped and rounded**: Final confidence is clamped to [0.0, 1.0] and rounded to 2 decimal places.
 
 ### 5.4 Findings Deduplication
@@ -338,13 +338,13 @@ The consensus engine merges findings from all agents:
 
 ### 7.1 Dissent is a Feature
 
-The system is designed so that agents **disagree**. If all three always agree, the system is failing — probably the system prompts are not sufficiently differentiated, or the problem is trivial and doesn't need MAGI.
+The system is designed so that agents **disagree**. If all three always agree, the system is failing: probably the system prompts are not sufficiently differentiated, or the problem is trivial and doesn't need MAGI.
 
 The system's value emerges precisely when Caspar rejects something that Melchior and Balthasar approved. That rejection forces the user to consider risks they would otherwise ignore.
 
 ### 7.2 Adversarial by Design
 
-Caspar exists to be adversarial. Its system prompt explicitly instructs it to find flaws. This is not a weakness of the system — it is the mechanism that prevents groupthink. In the series, when all three MAGI vote the same way, it is usually a sign that something is very wrong (like an external hack forcing unanimity).
+Caspar exists to be adversarial. Its system prompt explicitly instructs it to find flaws. This is the mechanism that prevents groupthink, not a weakness of the system. In the series, when all three MAGI vote the same way, it is usually a sign that something is very wrong (like an external hack forcing unanimity).
 
 ### 7.3 Proportionality
 
@@ -357,9 +357,9 @@ Not everything needs MAGI. A trivial bug, a typo, or a question with an obvious 
 
 ### 7.4 LLM-Agnostic Design
 
-magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API — Claude, OpenAI, Ollama and other local runtimes already ship as feature-gated providers, and Gemini would be additive. All of them are optional.
+magi-core's `LlmProvider` trait abstracts over any LLM backend. The library does not depend on any specific model or API. Claude, OpenAI, Ollama and other local runtimes already ship as feature-gated providers, and Gemini would be additive. All of them are optional.
 
-This means the same consensus engine, validation, and reporting pipeline works regardless of which LLM powers the agents — or even if different agents use different models.
+This means the same consensus engine, validation, and reporting pipeline works regardless of which LLM powers the agents, or even if different agents use different models.
 
 ---
 
