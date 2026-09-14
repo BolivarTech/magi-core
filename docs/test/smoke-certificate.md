@@ -1,14 +1,14 @@
 # Smoke Certificate
 
-- version: 4.0.0
-- commit: 36488a9
-- date: 2026-08-24 (UTC)
+- version: 4.1.0
+- commit: d6aafdc
+- date: 2026-09-14 (UTC)
 - dependency mode: tree
-- real cost: 8 backend run(s) in 295.7s
-- rounds needed: 1
-- invocation: --smoke-2
+- real cost: 12 backend run(s) in 882.9s
+- rounds needed: 3
+- invocation: --smoke-2 --build-matrix --round 3
 - fixtures: 0 declared, 0 verified by a live scenario, 0 unverified
-- result: 50 passed, 8 not passed, 58 total
+- result: 55 passed, 2 observed, 7 not passed, 64 total
 
 > NOTE: this certificate covers the ONE invocation named above. A green release is the      union of several — the preflight stops at its first failure, so the scenarios that need      it to stop at different steps cannot share a command line.
 
@@ -44,7 +44,7 @@
 [PASS] S15 run=degradation — no STRONG label survives a 2/3 consensus
 [PASS] S16 run=(no run) — the harness added nothing to the tree outside the certificate path
 [OUT_OF_SCOPE] S20 run=(no run) — a proxy that cannot start is a harness fault, never a crate verdict, and fails no scenario
-[OUT_OF_SCOPE] S21 run=(no run) — the two dependency modes cannot be confused
+[PASS] S21 run=(no run) — the two dependency modes cannot be confused
 [PASS] S8 run=happy_small — every completion request goes to the native endpoint
 [PASS] S8 run=happy_small — no request reaches the OpenAI-compatible completions path
 [PASS] S8b run=large_62k_no_reasoning — every seat produced a verdict on the large payload
@@ -70,3 +70,9 @@
 [PASS] S-F5 run=(no run) — no time value makes construction fail
 [PASS] S-E2 run=pool_eligibility — a seat that never rotated still reports which candidates were not eligible, and why
 [PASS] S-E3 run=pool_eligibility — every failing condition is reported, not only the first
+[PASS] S-R5a run=endpoint_blip — a run whose seats rotated past a connection blip completes with three verdicts
+[PASS] S-R5a run=endpoint_blip — every cut seat rotated away from its connection
+[PASS] S-R5b run=endpoint_down — a dead endpoint aborts the run with a typed EndpointDown
+[PASS] S-R7a run=dialect_max_tokens — the default dialect's cap reaches the backend: the completion comes back cut at the cap
+[OBSERVED] S-R7a run=dialect_max_tokens — what the backend reported for the capped completion, beside the verdict (observed: cap 16: finish length, 16 completion tokens, 2692 prompt tokens)
+[OBSERVED] S-R7b run=dialect_max_completion_tokens — the modern dialect's cap against this backend is recorded, not verified: a cut here means the backend now honours the field and the default's justification has changed (observed: the backend discarded the cap — cap 16: finish stop, 2184 completion tokens, 2692 prompt tokens)
