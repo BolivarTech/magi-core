@@ -37,6 +37,16 @@ is green" could not be shown by running it. They are `OUT_OF_SCOPE` instead.
 preflight that cut before any run, and a `--build-matrix` whose `cargo` could not be spawned,
 are both still `SKIP`.
 
+There is a fifth row state, `OBSERVED`, and like `OUT_OF_SCOPE` it contributes to no exit
+code — for the opposite reason. The question was asked and answered; what was answered is a
+fact about the **backend**, not about the crate, so it is recorded with its numbers and is not
+a verdict. It exists for the two request-dialect runs (§6): the same sixteen-token cap sent to
+Ollama under `max_tokens` comes back cut, which is a pass about the crate, and sent under
+`max_completion_tokens` comes back **not** cut, because Ollama's `/v1` discards that field in
+silence. Reporting the second as `PASS` would certify a backend limitation as a property of the
+product; reporting it as `SKIP` would make every healthy run exit `2` over a reading that was
+made. The certificate counts observations on their own line item, apart from the passes.
+
 ## 2. Two dependency modes
 
 The harness links `magi-core` from one of two sources, chosen at **build** time:
@@ -174,10 +184,33 @@ The order is enforced rather than conventional: the ledger refuses to produce a 
 estimate was announced first. Before the spend the number is a decision the operator can still
 make; after it, the same number is only a receipt.
 
-The default invocation runs **ten** backend runs: eight over a small payload — happy path,
-rotation, degradation, mixed trio, the crate-defect replay, the pool-eligibility one, the
-endpoint blip and the dead endpoint — plus **two** over the large one, and one run with no
-backend at all.
+The default invocation runs **twelve** backend runs: eight trio runs over a small payload —
+happy path, rotation, degradation, mixed trio, the crate-defect replay, the pool-eligibility
+one, the endpoint blip and the dead endpoint — plus **two** over the large one, plus the
+**two request-dialect runs**, which are not trios at all, and one run with no backend.
+
+**The two dialect runs are one direct completion each, and the cheapest thing here after the
+dead endpoint.** Both send the small payload through one `OpenAiCompatibleProvider` on the last
+configured seat — the seat the mixed trio already hands to that provider — with the seat's own
+system prompt and an output cap of **sixteen tokens**, and differ in nothing but the spelling of
+that cap. Under `max_tokens` the completion comes back cut at sixteen, and `S-R7a` asserts that
+it did: the crate sent the spelling this backend honours. Its verdict carries the reading it was
+made from beside it — the cap, the finish reason and both token counts, an `OBSERVED` row of its
+own — so a pass is auditable and a red says which red it is: finish `stop` under the cap is a
+model that had nothing to cut, and the cap should be lowered before that is treated as a
+finding; finish `stop` over the cap is a cap that never reached the backend, which is the
+regression. Under `max_completion_tokens` Ollama's `/v1` discards the field and the model runs
+to its own end — measured at 3 504 completion tokens against the 16 requested — and `S-R7b`
+**records** that as an `OBSERVED` row rather than judging it (§1). Neither run goes through
+`analyze()`: the builder always dispatches three mages, a cap
+that cuts every answer leaves no verdict for any of them, and the run would end in
+`InsufficientAgents` with the completion telemetry gone. One direct `complete()` keeps the
+crate's own reading of the answer, which is what both rows are made from — never the wire.
+
+The cost announcement prices them as what they are: one completion each, the honoured spelling
+at its sixteen-token cap and the discarded one at the crate's default output budget, since the
+number that run sends is not what bounds its generation. On the seat the cheap profile uses,
+the pair adds about twenty seconds to the main invocation.
 
 **The two endpoint runs cost almost nothing beyond their completions, and only one of them
 completes at all.** Both inject a CUT CONNECTION rather than a status: the blip run cuts the
@@ -310,6 +343,14 @@ Anyone reading a certificate needs to know what was **not** verified.
   prove the backend still answers that way. Only a live scenario proves currency, and entries
   marked `unverified:` have not had one.
 - **The probe does not see contention that starts after the preflight** (§4).
+- **The modern request dialect is recorded against Ollama, never verified.** `S-R7b` sends
+  `max_completion_tokens` to a backend measured to discard it, so the row can only say what the
+  backend did with the field; the property the dialect exists for — a backend that *requires*
+  that spelling completes at all — is not exercised, because no such backend is reachable from
+  here. The row goes red on the day Ollama starts honouring the field, which is the day the
+  default dialect's justification needs revisiting. The pair contributes **one verified
+  property** to the certificate — `S-R7a`'s pass — and observations for the rest: `S-R7b`'s
+  reading of the backend, and the reading `S-R7a`'s own verdict was made from. Never two passes.
 - **A panic in a dependency the crate ALSO uses** — `reqwest`, `tokio`, `sha2` — is ambiguous by
   nature and is attributed to the crate (`FAIL`). Attributing it to the harness would bury a
   real defect; the reverse costs one investigation that finds nothing, which is the cheaper
@@ -332,7 +373,7 @@ invocation: putting two together leaves the second one unrun, which is green by 
 
 | invocation | what it covers |
 |---|---|
-| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, the endpoint blip, the dead endpoint, and both large-payload runs |
+| `cargo run` | the live path: the outside provider, the happy run, proxy transparency, rotation, degradation, the mixed trio, the crate-defect abort, the pool-eligibility snapshot, the endpoint blip, the dead endpoint, the two request-dialect completions, and both large-payload runs |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:1 cargo run` | an unreachable backend |
 | `cargo run -- --break-proxy` | a proxy that refuses to start |
 | `MAGI_SMOKE_ENDPOINT=http://127.0.0.1:8099 MAGI_SMOKE_PROBE_TIMEOUT_SECS=1 cargo run` | a saturated endpoint — needs the stub below |
