@@ -212,10 +212,14 @@ pub struct MagiConfig {
     ///
     /// # `0` warns always — it does not disable
     ///
-    /// Zero is literally zero, so any non-empty input exceeds it. There is no sentinel value and
-    /// no off switch: the report field is always computed, and only *when it warns* is
-    /// configurable. To silence the warning, set it high — `build()` will then tell you once
-    /// that your threshold can never fire, which is precisely what you asked for.
+    /// Zero is literally zero, so any input that estimates to at least one token exceeds it —
+    /// that is [`TOKENS_PER_BYTE_DIVISOR`] bytes or more, because the estimate is integer
+    /// division over bytes and anything shorter rounds down to zero tokens (so it is the
+    /// inputs of fewer than [`TOKENS_PER_BYTE_DIVISOR`] bytes that never warn, not only the
+    /// empty one). There is no sentinel value and no off switch: the report field is always
+    /// computed, and only *when it warns* is configurable. To silence the warning, set it high —
+    /// `build()` will then tell you once that your threshold can never fire, which is precisely
+    /// what you asked for.
     ///
     /// # Calibrating it
     ///
@@ -236,8 +240,10 @@ pub struct MagiConfig {
 /// - `estimated_tokens`: a count from [`estimate_tokens`].
 /// - `cfg`: the configuration whose `input_warn_tokens` applies.
 fn exceeds(estimated_tokens: usize, cfg: &MagiConfig) -> bool {
-    // Strictly greater: at exactly the threshold nothing is wrong yet. It also means an empty
-    // input never warns, not even against a threshold of 0.
+    // Strictly greater: at exactly the threshold nothing is wrong yet. It also means an input
+    // that estimates to 0 tokens never warns, not even against a threshold of 0 — and since
+    // `estimate_tokens` is integer division over bytes, that is every input shorter than
+    // `TOKENS_PER_BYTE_DIVISOR` bytes, not only the empty one.
     estimated_tokens > cfg.input_warn_tokens
 }
 
@@ -693,8 +699,9 @@ impl MagiBuilder {
     /// Sets the estimated-token count above which `analyze` warns.
     ///
     /// # Parameters
-    /// - `tokens`: the threshold, in **tokens** (not bytes). `0` warns on every non-empty
-    ///   input; it does not disable the warning.
+    /// - `tokens`: the threshold, in **tokens** (not bytes). `0` warns on every input of at
+    ///   least [`TOKENS_PER_BYTE_DIVISOR`] bytes — anything shorter estimates to zero tokens
+    ///   and stays silent; it does not disable the warning.
     ///
     /// This never causes an input to be rejected — see [`MagiConfig::input_warn_tokens`].
     pub fn with_input_warn_tokens(mut self, tokens: usize) -> Self {
@@ -3371,8 +3378,10 @@ mod input_threshold_tests {
 
     #[test]
     fn a_zero_threshold_warns_always_and_does_not_disable() {
-        // No sentinel values: 0 is literally zero, so any non-empty input exceeds it. A value
-        // that flips the meaning of a knob is a hidden rule.
+        // No sentinel values: 0 is literally zero, so any input of at least
+        // `TOKENS_PER_BYTE_DIVISOR` bytes exceeds it (shorter ones estimate to zero tokens; see
+        // `the_real_boundary_of_a_zero_threshold`). A value that flips the meaning of a knob
+        // is a hidden rule.
         let cfg = MagiConfig {
             input_warn_tokens: 0,
             ..Default::default()
@@ -3385,13 +3394,49 @@ mod input_threshold_tests {
 
     #[test]
     fn an_empty_input_never_exceeds_even_a_zero_threshold() {
-        // The one input a zero threshold does not catch, because `>` is strict. Pinned so the
-        // boundary is a decision rather than an accident.
+        // The shortest of the inputs a zero threshold does not catch — every input under
+        // `TOKENS_PER_BYTE_DIVISOR` bytes estimates to 0 tokens, and `>` is strict. Pinned so
+        // the boundary is a decision rather than an accident; the full boundary is pinned in
+        // `the_real_boundary_of_a_zero_threshold`.
         let cfg = MagiConfig {
             input_warn_tokens: 0,
             ..Default::default()
         };
         assert!(!measure_input("", &cfg).exceeded);
+    }
+
+    #[test]
+    fn the_real_boundary_of_a_zero_threshold() {
+        // Not "empty versus non-empty": the estimate is integer division over BYTES, so
+        // the boundary sits at `TOKENS_PER_BYTE_DIVISOR` bytes, and every shorter input
+        // rounds down to zero tokens. Pinned so the boundary is a decision, not an accident
+        // of the divisor.
+        //
+        // The division under test lives in `estimate_tokens`, so the test goes THROUGH it:
+        // passing pre-computed token counts would skip the very thing being pinned. The
+        // sizes are derived from the constant, never transcribed, so a different divisor
+        // moves the test with it.
+        //
+        // `exceeds` reads exactly one config field, so no other default can interfere here;
+        // if it ever reads a second one, that field must be set explicitly below.
+        let cfg = MagiConfig {
+            input_warn_tokens: 0,
+            ..Default::default()
+        };
+        let one_byte_short = "x".repeat(TOKENS_PER_BYTE_DIVISOR - 1);
+        let exactly_one_token = "x".repeat(TOKENS_PER_BYTE_DIVISOR);
+        assert!(
+            !exceeds(estimate_tokens(&one_byte_short), &cfg),
+            "one byte short of the divisor rounds down to 0 tokens and must not warn"
+        );
+        assert!(
+            exceeds(estimate_tokens(&exactly_one_token), &cfg),
+            "exactly the divisor is 1 token and must warn"
+        );
+        assert!(
+            !exceeds(estimate_tokens(""), &cfg),
+            "and the empty input still does not warn"
+        );
     }
 
     #[test]
