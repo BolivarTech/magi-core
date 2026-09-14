@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Author: Julian Bolivar
-# Version: 1.0.0
-# Date: 2026-09-05
+# Version: 1.0.1
+# Date: 2026-09-14
 #
 # Identifying field names must not reach a tracked fixture.
 #
@@ -301,13 +301,26 @@ def self_test():
         cwd = os.getcwd()
         try:
             os.chdir(tmp)
+            # Auto-maintenance is switched off for this throwaway repo: a git that
+            # runs it in the background leaves `.git/objects/maintenance.lock` for
+            # a moment, and the rmtree below raced against it on a CI runner --
+            # the lock vanished between the directory listing and the unlink, and
+            # the self-test died on a file that was never the subject.
             subprocess.run(["git", "init", "-q"], check=False, capture_output=True)
+            subprocess.run(["git", "config", "maintenance.auto", "false"],
+                           check=False, capture_output=True)
+            subprocess.run(["git", "config", "gc.auto", "0"],
+                           check=False, capture_output=True)
             Path("f.txt").write_text("x", encoding="utf-8")
             subprocess.run(["git", "add", "-A"], check=False, capture_output=True)
             subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
                             "commit", "-qm", "c"], check=False, capture_output=True)
             # HEAD resolves, then the object graph is emptied so `ls-tree` fails.
             def _force(func, path, _exc):
+                # A path that disappeared on its own is already what rmtree wanted;
+                # anything else is retried once with the read-only bit cleared.
+                if not os.path.lexists(path):
+                    return
                 os.chmod(path, stat.S_IWRITE)
                 func(path)
             shutil.rmtree(Path(".git") / "objects", onerror=_force)
