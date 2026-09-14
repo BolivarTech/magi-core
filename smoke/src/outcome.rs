@@ -4,10 +4,11 @@
 
 //! Result model and exit codes.
 //!
-//! Three exit codes, five scenario states. The asymmetry is deliberate: a
+//! Three exit codes, six scenario states. The asymmetry is deliberate: a
 //! scenario deliberately excluded from a run is not the same as one that could
 //! not run, and collapsing them breaks "never green by omission" in both
-//! directions.
+//! directions. The sixth, [`ScenarioState::Observed`], is a reading that is
+//! not a verdict, and it contributes to no exit code for the same reason.
 
 use std::path::Path;
 
@@ -46,6 +47,25 @@ pub enum ScenarioState {
     /// `--no-backend`, for instance. Not a failure, and not an unanswered
     /// question either.
     OutOfScope,
+    /// The scenario ran, read what it came to read, and **records** it: a
+    /// measurement that is not a verdict about the crate, because what it
+    /// measures is decided by the backend, not by the product.
+    ///
+    /// **Carries what was measured**, the way `Skip` carries its reason: an
+    /// observation whose numbers are not in the row is a row nobody can act
+    /// on. It never contributes to the exit code — a gate cannot go red for a
+    /// property the product does not control — and the certificate counts it
+    /// apart from the passes, so a recorded reading is never read as a
+    /// verified one.
+    ///
+    /// The line between this and [`Pass`](Self::Pass): a pass says *the crate
+    /// did what it promised*; an observation says *this is what the backend
+    /// did with what the crate sent*. The scenario that compares two request
+    /// dialects against Ollama needs both — one for the dialect the backend
+    /// honours, one for the dialect it silently discards — and reporting the
+    /// second as a pass would have certified a backend limitation as a
+    /// property of the product.
+    Observed(String),
 }
 
 /// Result of one REAL run. Several scenarios read the same run, so the mapping
@@ -114,7 +134,10 @@ impl RunOutcome {
 /// Precedence is `Fail` over inconclusive over clean, because a contradiction is
 /// the strongest thing the run learned. `OutOfScope` never contributes: a
 /// scenario deliberately excluded from this run must not make the automatic job
-/// fail forever, which would train everyone to ignore it.
+/// fail forever, which would train everyone to ignore it. `Observed` never
+/// contributes either: it records what a backend did, and a gate that went red
+/// over a backend property would be a verdict about something the crate does
+/// not control.
 ///
 /// # Parameters
 ///
@@ -479,6 +502,22 @@ mod tests {
         assert_eq!(
             exit_code(&[ScenarioState::Pass, ScenarioState::OutOfScope]),
             0
+        );
+    }
+
+    #[test]
+    fn an_observation_does_not_affect_the_exit_code() {
+        // A recorded reading is not a verdict: what it measures is the backend's
+        // doing, and a gate cannot go red for something the product does not
+        // control. Inert in every direction, like `OutOfScope` -- against a
+        // clean run AND against one that already has an answer.
+        let observed = || ScenarioState::Observed("cap 16 ignored: 692 tokens".into());
+        assert_eq!(exit_code(&[ScenarioState::Pass, observed()]), 0);
+        assert_eq!(exit_code(&[ScenarioState::Fail, observed()]), 1);
+        assert_eq!(exit_code(&[ScenarioState::Timeout, observed()]), 2);
+        assert_eq!(
+            exit_code(&[ScenarioState::Skip("no backend".into()), observed()]),
+            2
         );
     }
 

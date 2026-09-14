@@ -21,6 +21,10 @@
 //! - `r5` — the two endpoint-down scenarios of MS3 (`S-R5a`, `S-R5b`), the only ones that
 //!   milestone declares non-waivable: the abort criterion lives in the join loop's interaction
 //!   with the abort guard, which a unit test approximates and only a run exercises.
+//! - `r7` — the two request-dialect scenarios (`S-R7a`, `S-R7b`): the same low output cap sent
+//!   under each spelling to a backend that honours one and discards the other. One verifies,
+//!   one records — a mock respects the field by construction, so only a run can show that a
+//!   backend does not.
 //!
 //! Split per milestone rather than living directly here, so each has a sibling to land in
 //! without reshaping this file.
@@ -30,12 +34,14 @@ mod e1;
 mod e2;
 mod f;
 mod r5;
+mod r7;
 
 pub use e::e_scenarios;
 pub use e1::e1_scenarios;
 pub use e2::e2_scenarios;
 pub use f::f_scenarios;
 pub use r5::r5_scenarios;
+pub use r7::r7_scenarios;
 
 #[cfg(test)]
 mod tests {

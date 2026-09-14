@@ -27,10 +27,11 @@ use std::time::Duration;
 use crate::alias::magi_core::error::MagiError;
 use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder, MagiConfig};
 use crate::alias::magi_core::provider::{
-    CompletionConfig, LlmProvider, ReasoningControl, RetryConfig, DEFAULT_CLIENT_TIMEOUT,
+    CompletionConfig, CompletionTelemetry, LlmProvider, ReasoningControl, RetryConfig,
+    DEFAULT_CLIENT_TIMEOUT,
 };
 use crate::alias::magi_core::providers::ollama::OllamaProvider;
-use crate::alias::magi_core::providers::openai_compat::OpenAiCompatibleProvider;
+use crate::alias::magi_core::providers::openai_compat::{Dialect, OpenAiCompatibleProvider};
 use crate::alias::magi_core::reporting::MagiReport;
 use crate::alias::magi_core::rotation::{FallbackPool, Lineage};
 use crate::alias::magi_core::schema::{AgentName, Mode};
@@ -178,6 +179,24 @@ pub struct Timings {
     pub retry_base_delay: Duration,
 }
 
+/// What ONE direct completion left behind: the cap the request carried and the
+/// crate's own reading of what came back.
+///
+/// Read from the product's telemetry, never from the wire. A run that asks one
+/// provider for one completion cannot leave a `MagiReport` — a report is what
+/// `analyze()` builds from a trio — so the telemetry travels here instead,
+/// **the same type** `MagiReport.completions` records per attempt. It is filled
+/// from a successful completion and from the crate's own empty-completion
+/// classification alike: a completion cut to nothing is still a measured cut,
+/// and the classification carries the whole telemetry precisely so that it is.
+#[derive(Debug, Clone)]
+pub struct CompletionEvidence {
+    /// The output budget the request carried — what the run asked for.
+    pub cap: u32,
+    /// What the crate measured about the answer.
+    pub telemetry: CompletionTelemetry,
+}
+
 /// What a scenario gets to look at: everything a run produced, and NOTHING it
 /// did not.
 ///
@@ -294,6 +313,11 @@ pub struct RunContext<'a> {
     /// to read these off it, so the axis-F scenarios, which are all construction properties, do
     /// run there. A scenario reading `None` SKIPS: with no trio there is nothing to read.
     pub timings: Option<Timings>,
+    /// What a single-completion run measured. `Some` only for the runs that ask one provider
+    /// for one completion instead of running a trio; `None` beside a `report` for every
+    /// other run, and `None` beside an `error` when the completion failed before anything
+    /// could be measured.
+    pub completion: Option<&'a CompletionEvidence>,
 }
 
 impl RunContext<'static> {
@@ -329,6 +353,7 @@ impl RunContext<'static> {
             build_matrix: None,
             repo_status_before: None,
             timings: None,
+            completion: None,
         }
     }
 }
@@ -416,6 +441,16 @@ pub enum ProviderKind {
     /// — so a homogeneous trio can only ever show one half of the contract. Two runs would not
     /// do either: what must hold is that the two coexist in the SAME run without breaking it.
     Mixed,
+    /// No trio at all: ONE `OpenAiCompatibleProvider` speaking the given dialect, asked for ONE
+    /// completion directly through the crate's public `complete()`.
+    ///
+    /// The property it exists for is per completion, not per trio — which spelling of the
+    /// output cap the request carries, and what the backend does with it — and a trio cannot
+    /// carry it: the builder always dispatches three mages, a cap low enough to cut every
+    /// answer leaves no verdict for any of them, and `analyze()` then returns
+    /// `InsufficientAgents` with the completion telemetry gone. One direct completion keeps
+    /// the telemetry, costs a third of the prompt and none of the corrective retries.
+    SingleCompletion(Dialect),
 }
 
 /// One shared run's configuration.
@@ -496,6 +531,8 @@ pub struct RunResult {
     /// the two cannot disagree: a scenario asserting that the injected seat
     /// failed needs the seat, and the injection only names a model.
     pub injected_agent: Option<AgentName>,
+    /// What a single-completion run measured — see [`RunContext::completion`].
+    pub completion: Option<CompletionEvidence>,
 }
 
 impl RunResult {
@@ -525,6 +562,7 @@ impl RunResult {
             attempts: 1,
             budget_exceeded: None,
             injected_agent: None,
+            completion: None,
         }
     }
 }
@@ -681,6 +719,16 @@ pub fn build_magi_against(
             }
             builder.build().map_err(|e| e.to_string())
         }
+        // Not a configuration fault of the run but a routing fault of the CALLER: this kind
+        // builds no trio by definition, and `Runner::run_once` dispatches it before reaching
+        // here. Refused rather than given a trio it never asked for, so a caller that
+        // misroutes it reads "could not test" with the reason instead of a run that
+        // measured the wrong thing.
+        ProviderKind::SingleCompletion(_) => Err(
+            "a single-completion run builds no trio; it is dispatched to one direct \
+             completion, never to the builder"
+                .to_string(),
+        ),
     }
 }
 
@@ -1010,6 +1058,20 @@ impl RunSpec {
 /// one moved.
 pub(crate) const BLIP_SEATS: usize = 2;
 
+/// The output cap the two dialect runs carry.
+///
+/// Low enough that any verdict-shaped answer exceeds it — the JSON envelope alone is longer —
+/// so the dialect the backend honours MUST come back cut, and a completion that is not cut can
+/// only mean the cap never reached the backend or the backend discarded it. It is the value the
+/// evidence campaign measured with: 16 requested, 692 generated when the field was ignored.
+/// Not lower, because a cap of one token leaves nothing for the backend to count as
+/// generation; not higher, because every token above it is paid for and buys nothing.
+///
+/// `pub(crate)` for the same reason as [`BLIP_SEATS`]: the scenario reads the cap back from
+/// the evidence, and the cost announcement prices the run by it — one number, not a copy in
+/// each that keeps agreeing with itself after this one moves.
+pub(crate) const DIALECT_PROBE_CAP: u32 = 16;
+
 /// The status the proxy injects when a run wants a model to fail.
 ///
 /// A server error rather than a client one: the crate must read it as the
@@ -1265,6 +1327,7 @@ impl Runner {
                 attempts: 1,
                 budget_exceeded: None,
                 injected_agent: injected_agent(spec),
+                completion: None,
             },
             // It ran out of time. A TIME failure is NOT a verdict about the
             // crate: it says the deployment is slower than the cap someone chose.
@@ -1324,6 +1387,7 @@ impl Runner {
             attempts: 1,
             budget_exceeded: None,
             injected_agent: injected_agent(spec),
+            completion: None,
         }
     }
 }
@@ -1459,6 +1523,7 @@ fn timed_out(run: RunId, cap: Duration, injected_agent: Option<AgentName>) -> Ru
         proxy_degraded: false,
         attempts: 1,
         injected_agent,
+        completion: None,
     }
 }
 
@@ -1985,6 +2050,59 @@ mod tests {
                 None,
                 "{} injects several models, so no one seat is the injected one",
                 id.as_str()
+            );
+        }
+    }
+
+    /// The two dialect runs are launched, one direct completion each, over the small payload,
+    /// with nothing injected and nowhere to rotate — and each names its dialect.
+    ///
+    /// Read back from the specs rather than from the announcement: the announced list and
+    /// the launched one are compared by their own test, so this one only has to pin what the
+    /// launched runs ARE. A dialect run given a pool or an injection would be a different
+    /// run — the property is what one request carries, and nothing else may vary between
+    /// the two.
+    #[test]
+    fn the_dialect_runs_are_one_direct_completion_each_and_differ_only_in_dialect() {
+        let cfg = Config::default();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the manifest dir always has a parent");
+        let specs = RunSpec::all(&cfg, root, false).expect("payload generation");
+        let spec_of = |id: RunId| {
+            specs
+                .iter()
+                .find(|s| s.id == id)
+                .unwrap_or_else(|| panic!("{} is launched", id.as_str()))
+        };
+        let legacy = spec_of(RunId::DialectMaxTokens);
+        let modern = spec_of(RunId::DialectMaxCompletionTokens);
+        assert_eq!(
+            legacy.providers,
+            ProviderKind::SingleCompletion(Dialect::MaxTokens)
+        );
+        assert_eq!(
+            modern.providers,
+            ProviderKind::SingleCompletion(Dialect::MaxCompletionTokens)
+        );
+        for spec in [legacy, modern] {
+            assert!(
+                spec.injection.is_none(),
+                "{} measures a request, not a failure",
+                spec.id.as_str()
+            );
+            assert!(
+                spec.fallbacks.is_empty(),
+                "{} has one provider and nowhere to rotate",
+                spec.id.as_str()
+            );
+            assert_eq!(
+                spec.payload.bytes, legacy.payload.bytes,
+                "both runs send the same payload, or the comparison is not like with like"
+            );
+            assert!(
+                !crate::preflight::is_large_payload(spec.id),
+                "the small payload: the property is per completion and the size buys nothing"
             );
         }
     }

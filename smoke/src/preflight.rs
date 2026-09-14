@@ -1271,6 +1271,28 @@ pub(crate) fn is_large_payload(run: RunId) -> bool {
     matches!(run, RunId::Large62k | RunId::Large62kNoReasoning)
 }
 
+/// How many completions a run pays for at once: one per seat for a trio, one for a run that
+/// asks a single provider for a single completion.
+///
+/// # Parameters
+///
+/// * `cfg` — the loaded configuration, for the seat count.
+/// * `run` — the run being priced.
+fn completions_for(cfg: &Config, run: RunId) -> usize {
+    let _ = run;
+    cfg.seats.len()
+}
+
+/// The output cap each of a run's completions carries, in tokens.
+///
+/// # Parameters
+///
+/// * `run` — the run being priced.
+fn output_cap_for(run: RunId) -> usize {
+    let _ = run;
+    CompletionConfig::default().max_tokens as usize
+}
+
 /// R31, both halves: the estimate printed BEFORE the runs, and the real cost
 /// recorded AFTER them.
 ///
@@ -1777,32 +1799,35 @@ mod tests {
         // runs would have been arithmetic that looked right and was wrong by two orders of
         // magnitude for the member that dominates the bill.
         let seats = cfg.seats.len();
-        let small = (cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
-        let large = (cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR) * seats;
+        let small = cfg.run_payload_bytes / TOKEN_ESTIMATE_DIVISOR;
+        let large = cfg.payload_target_bytes / TOKEN_ESTIMATE_DIVISOR;
         // Counted, not written down, and counted SEPARATELY per size: there are two
         // large-payload runs now, and a formula that assumed one would price the second as a
         // small run — understating the bill by two orders of magnitude for the member that
-        // dominates it.
+        // dominates it. And per run's own completion count, because two runs pay for ONE
+        // completion where a trio pays for three.
         let backend_runs: Vec<RunId> = stage_e1_run_ids(false)
             .into_iter()
             .filter(|r| r.uses_backend())
             .collect();
-        let large_runs = backend_runs
+        let expected_input: usize = backend_runs
             .iter()
-            .filter(|r| is_large_payload(**r))
-            .count();
-        let small_runs = backend_runs.len() - large_runs;
+            .map(|r| {
+                let per_completion = if is_large_payload(*r) { large } else { small };
+                per_completion * completions_for(&cfg, *r)
+            })
+            .sum();
         assert!(
-            announced.contains(&format!(
-                "~{} input tokens",
-                small * small_runs + large * large_runs
-            )),
-            "each run priced from its own payload: {announced}"
+            announced.contains(&format!("~{expected_input} input tokens")),
+            "each run priced from its own payload and its own completion count: {announced}"
         );
         assert!(
-            !announced.contains(&format!("~{} input tokens", small * backend_runs.len())),
-            "and never all of them small, which is what one figure multiplied out would say: \
-             {announced}"
+            !announced.contains(&format!(
+                "~{} input tokens",
+                small * seats * backend_runs.len()
+            )),
+            "and never all of them small trios, which is what one figure multiplied out would \
+             say: {announced}"
         );
     }
 
@@ -1818,20 +1843,22 @@ mod tests {
         let announced = announce_cost(&cfg, false);
 
         let seats = cfg.seats.len();
-        let runs = backend_runs_of(&cfg);
-        let input: usize = stage_e1_run_ids(false)
+        let backend_runs: Vec<RunId> = stage_e1_run_ids(false)
             .into_iter()
             .filter(|r| r.uses_backend())
-            .fold(0usize, |acc, r| {
-                acc + (payload_bytes_for(&cfg, r) / TOKEN_ESTIMATE_DIVISOR) * seats
-            });
-        let cap =
-            crate::alias::magi_core::provider::CompletionConfig::default().max_tokens as usize;
-        let output = cap * seats * runs;
+            .collect();
+        assert_eq!(backend_runs.len(), backend_runs_of(&cfg));
+        let input: usize = backend_runs.iter().fold(0usize, |acc, r| {
+            acc + (payload_bytes_for(&cfg, *r) / TOKEN_ESTIMATE_DIVISOR) * completions_for(&cfg, *r)
+        });
+        let output: usize = backend_runs
+            .iter()
+            .map(|r| output_cap_for(*r) * completions_for(&cfg, *r))
+            .sum();
 
         assert!(
             announced.contains(&format!("~{input} input tokens")),
-            "the input estimate must count all {seats} seats of every run, not one: \
+            "the input estimate must count all {seats} seats of every trio run, not one: \
              {announced}"
         );
         assert!(
@@ -1843,6 +1870,40 @@ mod tests {
             announced.contains(&format!("~{} tokens in all", input + output)),
             "R31's example states a total, and a reader should not have to add: {announced}"
         );
+    }
+
+    /// The two dialect runs are priced as what they are: ONE completion each, and the one
+    /// sending the honoured spelling at ITS cap, not the trio's default.
+    ///
+    /// Pricing them as trios would overstate two runs by a factor of three on the input side
+    /// and by a thousand on the output side of the honoured one — the harmless direction,
+    /// and still a number that looks measured and is not. The run sending the spelling the
+    /// measured backend discards is priced at the crate's default cap: the request's own cap
+    /// is not what bounds that generation, and the default is the coarse bound the rest of
+    /// the announcement already uses.
+    #[test]
+    fn the_dialect_runs_are_priced_as_one_completion_each() {
+        let cfg = Config::default();
+        assert_eq!(completions_for(&cfg, RunId::DialectMaxTokens), 1);
+        assert_eq!(completions_for(&cfg, RunId::DialectMaxCompletionTokens), 1);
+        assert_eq!(
+            completions_for(&cfg, RunId::HappySmall),
+            cfg.seats.len(),
+            "a trio run still pays once per seat"
+        );
+        assert_eq!(
+            output_cap_for(RunId::DialectMaxTokens),
+            crate::runner::DIALECT_PROBE_CAP as usize,
+            "the honoured spelling is priced at the cap the run actually sends"
+        );
+        let default_cap = CompletionConfig::default().max_tokens as usize;
+        assert_eq!(
+            output_cap_for(RunId::DialectMaxCompletionTokens),
+            default_cap,
+            "the discarded spelling is priced at the crate's default, since its own cap \
+             bounds nothing"
+        );
+        assert_eq!(output_cap_for(RunId::HappySmall), default_cap);
     }
 
     #[allow(non_snake_case)]
@@ -2105,6 +2166,8 @@ mod tests {
             RunId::PoolEligibility,
             RunId::EndpointBlip,
             RunId::EndpointDown,
+            RunId::DialectMaxTokens,
+            RunId::DialectMaxCompletionTokens,
             RunId::NoBackend,
         ];
         for id in all {
@@ -2119,6 +2182,8 @@ mod tests {
                 | RunId::PoolEligibility
                 | RunId::EndpointBlip
                 | RunId::EndpointDown
+                | RunId::DialectMaxTokens
+                | RunId::DialectMaxCompletionTokens
                 | RunId::NoBackend => {}
             }
         }

@@ -284,6 +284,16 @@ pub enum RunId {
     /// unreachable, and the run must abort with `EndpointDown` rather than wait
     /// for seats that cannot succeed.
     EndpointDown,
+    /// ONE completion through an `OpenAiCompatibleProvider` that sends its
+    /// output cap as `max_tokens` — the default dialect — with a cap low
+    /// enough that any answer exceeds it. The backend honours this spelling,
+    /// so the completion must come back cut at the cap.
+    DialectMaxTokens,
+    /// The same single completion, same cap, sent as `max_completion_tokens`.
+    /// The measured backend discards that field in silence, so what comes
+    /// back is recorded rather than judged: a cut here would mean the backend
+    /// started honouring the field, which is news about the backend.
+    DialectMaxCompletionTokens,
     NoBackend,
 }
 
@@ -302,6 +312,8 @@ impl RunId {
             Self::PoolEligibility => "pool_eligibility",
             Self::EndpointBlip => "endpoint_blip",
             Self::EndpointDown => "endpoint_down",
+            Self::DialectMaxTokens => "dialect_max_tokens",
+            Self::DialectMaxCompletionTokens => "dialect_max_completion_tokens",
             Self::NoBackend => "no_backend",
         }
     }
@@ -322,7 +334,9 @@ impl RunId {
             | Self::Large62kNoReasoning
             | Self::PoolEligibility
             | Self::EndpointBlip
-            | Self::EndpointDown => true,
+            | Self::EndpointDown
+            | Self::DialectMaxTokens
+            | Self::DialectMaxCompletionTokens => true,
             Self::NoBackend => false,
         }
     }
@@ -506,6 +520,9 @@ impl Config {
             // The same shape of run as the happy one — small payload, nothing injected —
             // so it borrows that budget rather than inventing a knob nobody would tune.
             RunId::PoolEligibility => self.budgets.happy_secs,
+            // ONE small completion each, nothing injected: a strict subset of what the
+            // happy run pays for, so its budget is a generous cap here too.
+            RunId::DialectMaxTokens | RunId::DialectMaxCompletionTokens => self.budgets.happy_secs,
             RunId::NoBackend => self.budgets.no_backend_secs,
         };
         Duration::from_secs(secs)

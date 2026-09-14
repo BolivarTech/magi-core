@@ -738,6 +738,7 @@ fn absent_context<'a>(run: config::RunId) -> runner::RunContext<'a> {
         build_matrix: None,
         repo_status_before: None,
         timings: None,
+        completion: None,
     }
 }
 
@@ -1749,6 +1750,7 @@ mod tests {
             attempts: 1,
             budget_exceeded: None,
             injected_agent: None,
+            completion: None,
         }
     }
 

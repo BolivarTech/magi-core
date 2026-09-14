@@ -713,6 +713,7 @@ fn state_marker(state: &ScenarioState) -> &'static str {
         ScenarioState::Timeout => TIMEOUT_MARKER,
         ScenarioState::Skip(_) => SKIP_MARKER,
         ScenarioState::OutOfScope => OUT_OF_SCOPE_MARKER,
+        ScenarioState::Observed(_) => OUT_OF_SCOPE_MARKER,
     }
 }
 
@@ -763,6 +764,7 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
         ScenarioState::Timeout => ("timeout", None),
         ScenarioState::Skip(reason) => ("skip", Some(reason.clone())),
         ScenarioState::OutOfScope => ("out_of_scope", None),
+        ScenarioState::Observed(_) => ("out_of_scope", None),
     };
     serde_json::json!({
         "scenario_id": row.scenario_id,
@@ -1518,6 +1520,69 @@ mod tests {
         assert!(
             body.contains(&format!("- result: {passed} passed,")),
             "the document must say what it found: {body}"
+        );
+    }
+
+    /// An observation renders with its OWN marker and its measurement, in every form.
+    ///
+    /// Not `PASS`: a pass is a verdict, and a reading of what the backend did with a field
+    /// is not one. Not `OUT_OF_SCOPE` either: that marker says the question was never asked,
+    /// and this one was asked and answered. The measurement travels the way a skip's reason
+    /// does, because a row that says "observed" without saying what is a row nobody can
+    /// act on the day the observation changes.
+    #[test]
+    fn an_observation_renders_its_marker_and_its_measurement() {
+        let row = AssertionRow {
+            scenario_id: "S-test",
+            run_id: Some(RunId::HappySmall),
+            scenario: "what the backend did with the cap",
+            state: ScenarioState::Observed("cap 16 ignored: finish stop, 692 tokens".into()),
+            budget_exceeded: None,
+        };
+        let line = format_row(&row);
+        assert!(line.starts_with("[OBSERVED] "), "{line}");
+        assert!(
+            line.ends_with("(observed: cap 16 ignored: finish stop, 692 tokens)"),
+            "the measurement must be in the row: {line}"
+        );
+        let json = row_to_json(&row);
+        assert_eq!(json["state"], "observed");
+        assert_eq!(json["detail"], "cap 16 ignored: finish stop, 692 tokens");
+    }
+
+    /// The certificate counts observations APART from passes, and apart from the rest.
+    ///
+    /// "N passed" is the claim a certificate makes; an observation folded into it would
+    /// certify a backend limitation as a verified property, and folded into "not passed" it
+    /// would read as a shortfall when it is a reading that was made.
+    #[test]
+    fn the_certificate_tallies_observations_apart_from_passes() {
+        let mut rows = sample_results();
+        rows.push(AssertionRow {
+            scenario_id: "S-test",
+            scenario: "what the backend did with the cap",
+            run_id: Some(RunId::HappySmall),
+            state: ScenarioState::Observed("cap 16 ignored: 692 tokens".into()),
+            budget_exceeded: None,
+        });
+        let total = rows.len();
+        let passed = rows
+            .iter()
+            .filter(|r| r.state == ScenarioState::Pass)
+            .count();
+        let report = Report {
+            rows,
+            run: CycleRun::Second,
+        };
+        let body = report
+            .render_certificate(&sample_facts())
+            .expect("this fixture certifies");
+        assert!(
+            body.contains(&format!(
+                "- result: {passed} passed, 1 observed, {} not passed, {total} total",
+                total - passed - 1
+            )),
+            "observations are counted on their own line item: {body}"
         );
     }
 
