@@ -76,7 +76,9 @@ pub async fn spawn_429_with_retry_after(value: &str) -> (String, JoinHandle<()>)
 
 /// What a captured request carried: the path it was sent to, and its JSON body.
 ///
-/// Kept minimal on purpose: the path and the body are all the tests assert on.
+/// Kept minimal on purpose: the path and the body are all the tests assert on. Written in
+/// English from the start; the two servers above were translated later, once the rule that
+/// test comments are English from the first moment was enforced retroactively.
 #[allow(dead_code)]
 pub struct CapturedRequest {
     pub path: String,

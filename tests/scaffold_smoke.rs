@@ -13,7 +13,7 @@ async fn hanging_server_does_not_send_body() {
         .build()
         .expect("client");
     // `.send()` resolves as soon as the HEADERS arrive — the mock sends them immediately and
-    // then hangs the body. To observe the TOTAL timeout (the failure mode that S16 pursues:
+    // then hangs the body. To observe the TOTAL timeout (the failure mode this test pursues:
     // headers OK, body that never ends) you must **consume the body**, which is what the real
     // `complete()` does via `.text()`. Without reading the body, `.send()` returns
     // `Ok(200)` without a timeout.
