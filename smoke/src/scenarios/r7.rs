@@ -20,11 +20,12 @@
 //! # Two runs, one direct completion each
 //!
 //! Both runs send the small payload through one `OpenAiCompatibleProvider` with a cap low
-//! enough that any answer exceeds it ([`DIALECT_PROBE_CAP`]), and differ in nothing but the
-//! dialect. Neither runs a trio: the builder always dispatches three mages, a cap that cuts
-//! every answer leaves no verdict for any of them, and `analyze()` then returns
-//! `InsufficientAgents` with the completion telemetry gone. One direct `complete()` keeps the
-//! crate's own reading of the answer, which is what both scenarios read — never the wire.
+//! enough that any answer exceeds it — [`DIALECT_PROBE_CAP`](crate::runner::DIALECT_PROBE_CAP)
+//! — and differ in nothing but the dialect. Neither runs a trio: the builder always dispatches
+//! three mages, a cap that cuts every answer leaves no verdict for any of them, and
+//! `analyze()` then returns `InsufficientAgents` with the completion telemetry gone. One
+//! direct `complete()` keeps the crate's own reading of the answer, which is what both
+//! scenarios read — never the wire.
 //!
 //! # What each row is
 //!
@@ -61,9 +62,9 @@
 
 use crate::alias::magi_core::provider::FinishReason;
 use crate::config::RunId;
+use crate::outcome::ScenarioState;
 use crate::runner::{
     assert_that, Assertion, BackendNeed, CompletionEvidence, RunContext, Scenario, Source,
-    DIALECT_PROBE_CAP,
 };
 
 const NAME_DEFAULT_DIALECT_CUTS: &str =
@@ -83,8 +84,31 @@ const NEVER_HAPPENED: &str = "the run never happened";
 /// that tells an honest red from a regression. A run that reached no completion skips naming
 /// the error; a run that never happened skips saying so.
 fn s_r7a_default_dialect_is_cut_at_the_cap(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    let _ = ctx;
-    Vec::new()
+    let evidence = match measured(ctx, NAME_DEFAULT_DIALECT_CUTS) {
+        Ok(e) => e,
+        Err(skip) => return vec![skip],
+    };
+    if evidence.telemetry.finish.is_none() {
+        // Neither a pass on the count alone nor a red on an absence: the backend did not
+        // say why the model stopped, so whether the cap cut it cannot be read.
+        return vec![Assertion::skip(
+            NAME_DEFAULT_DIALECT_CUTS,
+            "the backend reported no finish reason, so whether the cap cut the completion \
+             cannot be read",
+        )];
+    }
+    if is_cut_at_the_cap(evidence) {
+        return vec![assert_that(NAME_DEFAULT_DIALECT_CUTS, true)];
+    }
+    // Red, WITH the reading beside it: finish `stop` under the cap is a model that had
+    // nothing to cut, finish `stop` over it is a cap that never reached the backend.
+    vec![
+        assert_that(NAME_DEFAULT_DIALECT_CUTS, false),
+        Assertion {
+            name: NAME_DEFAULT_DIALECT_READING,
+            state: ScenarioState::Observed(render_reading(evidence)),
+        },
+    ]
 }
 
 /// `S-R7b` — the modern dialect against this backend: recorded, never verified.
@@ -93,8 +117,50 @@ fn s_r7a_default_dialect_is_cut_at_the_cap(ctx: &RunContext<'_>) -> Vec<Assertio
 /// honoured it — the measurement the default rests on has changed; a skip when the completion
 /// could not be measured.
 fn s_r7b_modern_dialect_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
-    let _ = ctx;
-    Vec::new()
+    let evidence = match measured(ctx, NAME_MODERN_DIALECT_RECORDED) {
+        Ok(e) => e,
+        Err(skip) => return vec![skip],
+    };
+    if is_cut_at_the_cap(evidence) {
+        // The one day this row is red: the backend honoured a field it used to discard, and
+        // the measurement the default dialect rests on no longer holds.
+        return vec![assert_that(NAME_MODERN_DIALECT_RECORDED, false)];
+    }
+    vec![Assertion {
+        name: NAME_MODERN_DIALECT_RECORDED,
+        state: ScenarioState::Observed(format!(
+            "the backend discarded the cap — {}",
+            render_reading(evidence)
+        )),
+    }]
+}
+
+/// The evidence a single-completion run left, or the skip that says why there is none.
+///
+/// Two absences, told apart: a completion that failed before anything was measured skips
+/// naming the failure, and a run that never happened skips saying so. Neither is a verdict —
+/// a transport or contract failure says nothing about which spelling the request carried.
+///
+/// # Parameters
+///
+/// * `ctx` — the run context.
+/// * `name` — the property the skip is about, when there is one.
+///
+/// # Errors
+///
+/// The skip row to emit in place of a reading.
+fn measured<'a>(
+    ctx: &RunContext<'a>,
+    name: &'static str,
+) -> Result<&'a CompletionEvidence, Assertion> {
+    match (ctx.completion, ctx.error) {
+        (Some(e), _) => Ok(e),
+        (None, Some(error)) => Err(Assertion::skip(
+            name,
+            format!("the completion failed before anything could be measured: {error}"),
+        )),
+        (None, None) => Err(Assertion::skip(name, NEVER_HAPPENED)),
+    }
 }
 
 /// Whether the crate read the completion as cut by its output budget.
@@ -106,41 +172,76 @@ fn s_r7b_modern_dialect_is_recorded(ctx: &RunContext<'_>) -> Vec<Assertion> {
 ///
 /// * `evidence` — what the run measured.
 fn is_cut_at_the_cap(evidence: &CompletionEvidence) -> bool {
-    let _ = evidence;
-    false
+    let t = &evidence.telemetry;
+    t.finish == Some(FinishReason::Length) && t.completion_tokens.is_none_or(|n| n <= evidence.cap)
 }
 
 /// The reading, rendered for a row: the cap, the finish reason and the token counts.
+///
+/// A count the backend did not report says so, rather than rendering as zero — zero is a
+/// measurement, and one that would read as "nothing was generated".
 ///
 /// # Parameters
 ///
 /// * `evidence` — what the run measured.
 fn render_reading(evidence: &CompletionEvidence) -> String {
-    let _ = evidence;
-    String::new()
+    let t = &evidence.telemetry;
+    let count = |n: Option<u32>, what: &str| match n {
+        Some(n) => format!("{n} {what} tokens"),
+        None => format!("{what} tokens not counted"),
+    };
+    format!(
+        "cap {}: finish {}, {}, {}",
+        evidence.cap,
+        finish_label(t.finish.as_ref()),
+        count(t.completion_tokens, "completion"),
+        count(t.prompt_tokens, "prompt"),
+    )
 }
 
 /// The finish reason as a word, or `unreported` when the backend gave none.
+///
+/// The words are the wire's own, so a reading matches what a capture of the same completion
+/// would show. The enum is `#[non_exhaustive]`, so a variant added later renders through its
+/// debug form rather than stopping the harness from compiling.
 ///
 /// # Parameters
 ///
 /// * `finish` — the crate's reading of why the model stopped.
 fn finish_label(finish: Option<&FinishReason>) -> String {
-    let _ = finish;
-    String::new()
+    match finish {
+        None => "unreported".to_string(),
+        Some(FinishReason::Stop) => "stop".to_string(),
+        Some(FinishReason::Length) => "length".to_string(),
+        Some(FinishReason::Load) => "load".to_string(),
+        Some(FinishReason::Other(word)) => word.clone(),
+        Some(other) => format!("{other:?}"),
+    }
 }
 
 /// The two dialect scenarios, each over the run that exists for it.
 pub fn r7_scenarios() -> Vec<Scenario> {
-    Vec::new()
+    vec![
+        Scenario {
+            id: "S-R7a",
+            source: Source::Run(RunId::DialectMaxTokens),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s_r7a_default_dialect_is_cut_at_the_cap,
+        },
+        Scenario {
+            id: "S-R7b",
+            source: Source::Run(RunId::DialectMaxCompletionTokens),
+            backend_tag: BackendNeed::Required,
+            assert_fn: s_r7b_modern_dialect_is_recorded,
+        },
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::alias::magi_core::provider::CompletionTelemetry;
-    use crate::outcome::ScenarioState;
-    use crate::runner::ErrorClass;
+    use crate::runner::{ErrorClass, DIALECT_PROBE_CAP};
 
     /// Evidence with the probe cap, a finish reason and a completion count.
     fn evidence(

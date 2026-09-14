@@ -249,6 +249,7 @@ async fn main() -> std::process::ExitCode {
     scenarios.extend(scenarios::f_scenarios());
     scenarios.extend(scenarios::e_scenarios());
     scenarios.extend(scenarios::r5_scenarios());
+    scenarios.extend(scenarios::r7_scenarios());
 
     // 1. Config, printed BEFORE anything runs: a run whose configuration is
     //    unstated cannot be read afterwards.
@@ -645,6 +646,7 @@ fn evaluate(
                         ctx.erosion_probe_body = erosion.response.as_deref();
                         ctx.erosion_probe_status = erosion.status;
                         ctx.injected_agent = r.injected_agent;
+                        ctx.completion = r.completion.as_ref();
                         budget_exceeded = r.budget_exceeded;
                     }
                     // The run this scenario reads did not happen. Its assertions

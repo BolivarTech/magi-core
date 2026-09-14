@@ -350,10 +350,17 @@ pub fn render_certificate(rows: &[AssertionRow], facts: &CertificateFacts) -> St
         .iter()
         .filter(|r| r.state == ScenarioState::Pass)
         .count();
-    let not_passed = rows.len() - passed;
+    // Observations are counted APART from the passes and apart from the rest: folded into
+    // the passes they would certify a backend limitation as a verified property, and folded
+    // into "not passed" a reading that was made would read as a shortfall.
+    let observed = rows
+        .iter()
+        .filter(|r| matches!(r.state, ScenarioState::Observed(_)))
+        .count();
+    let not_passed = rows.len() - passed - observed;
     let _ = writeln!(
         out,
-        "- result: {passed} passed, {not_passed} not passed, {} total",
+        "- result: {passed} passed, {observed} observed, {not_passed} not passed, {} total",
         rows.len()
     );
     let _ = writeln!(out);
@@ -700,6 +707,9 @@ const TIMEOUT_MARKER: &str = "TIMEOUT";
 const SKIP_MARKER: &str = "SKIP";
 /// The marker for a scenario deliberately excluded from this run.
 const OUT_OF_SCOPE_MARKER: &str = "OUT_OF_SCOPE";
+/// The marker for a reading that was made and recorded, and is not a verdict.
+/// Never [`PASS_MARKER`]: a pass certifies the crate, and this certifies nothing.
+const OBSERVED_MARKER: &str = "OBSERVED";
 
 /// Maps a [`ScenarioState`] to its printed marker.
 ///
@@ -713,7 +723,7 @@ fn state_marker(state: &ScenarioState) -> &'static str {
         ScenarioState::Timeout => TIMEOUT_MARKER,
         ScenarioState::Skip(_) => SKIP_MARKER,
         ScenarioState::OutOfScope => OUT_OF_SCOPE_MARKER,
-        ScenarioState::Observed(_) => OUT_OF_SCOPE_MARKER,
+        ScenarioState::Observed(_) => OBSERVED_MARKER,
     }
 }
 
@@ -732,8 +742,19 @@ fn format_row(row: &AssertionRow) -> String {
         run_label(row.run_id),
         row.scenario
     );
-    if let ScenarioState::Skip(reason) = &row.state {
-        let _ = write!(line, " (skipped: {reason})");
+    match &row.state {
+        ScenarioState::Skip(reason) => {
+            let _ = write!(line, " (skipped: {reason})");
+        }
+        // The reading travels the way a skip's reason does: it is the only part of the row an
+        // operator can act on when the observation changes.
+        ScenarioState::Observed(reading) => {
+            let _ = write!(line, " (observed: {reading})");
+        }
+        ScenarioState::Pass
+        | ScenarioState::Fail
+        | ScenarioState::Timeout
+        | ScenarioState::OutOfScope => {}
     }
     if let Some(over) = row.budget_exceeded {
         let _ = write!(line, " (exceeded its {:.1}s budget)", over.as_secs_f64());
@@ -764,7 +785,7 @@ fn row_to_json(row: &AssertionRow) -> serde_json::Value {
         ScenarioState::Timeout => ("timeout", None),
         ScenarioState::Skip(reason) => ("skip", Some(reason.clone())),
         ScenarioState::OutOfScope => ("out_of_scope", None),
-        ScenarioState::Observed(_) => ("out_of_scope", None),
+        ScenarioState::Observed(reading) => ("observed", Some(reading.clone())),
     };
     serde_json::json!({
         "scenario_id": row.scenario_id,

@@ -52,7 +52,7 @@ use crate::config::{Config, RunId, PROBE_RETRY_FACTOR};
 use crate::fixtures;
 use crate::paths::{fixture_dir, repo_root, smoke_dir};
 use crate::proxy::SpyProxy;
-use crate::runner::{stage_e1_run_ids, BLIP_SEATS};
+use crate::runner::{stage_e1_run_ids, BLIP_SEATS, DIALECT_PROBE_CAP};
 use std::path::Path;
 use std::time::Duration;
 
@@ -1212,29 +1212,34 @@ pub fn announce_cost(cfg: &Config, no_backend: bool) -> String {
     // announcement used to say "each spending ~N", and the moment the large run started
     // launching that word made the estimate understate its most expensive member by ~100x.
     // An announcement that overstates gets ignored; one that understates gets believed.
+    // And per run's own completion count and cap: two runs pay for ONE completion, and one
+    // of them at a cap a thousandth of the default.
     // `fold` with `saturating_add`, never `sum()`: `sum()` panics on overflow in debug and
     // wraps in release, and a wrapped number announced as an estimate is worse than no
     // announcement because it looks measured. `run_payload_bytes` carries only a MINIMUM bound
     // in `Config`, so a huge-but-legal value reaches here.
     let input_tokens: usize = backend_runs.iter().fold(0usize, |acc, r| {
         acc.saturating_add(
-            (payload_bytes_for(cfg, *r) / TOKEN_ESTIMATE_DIVISOR).saturating_mul(seats),
+            (payload_bytes_for(cfg, *r) / TOKEN_ESTIMATE_DIVISOR)
+                .saturating_mul(completions_for(cfg, *r)),
         )
     });
-    let output_cap = CompletionConfig::default().max_tokens as usize;
-    let output_tokens = output_cap
-        .saturating_mul(seats)
-        .saturating_mul(backend_runs.len());
+    let output_tokens: usize = backend_runs.iter().fold(0usize, |acc, r| {
+        acc.saturating_add(output_cap_for(*r).saturating_mul(completions_for(cfg, *r)))
+    });
+    let default_cap = CompletionConfig::default().max_tokens;
     let expected_secs: u64 = backend_runs.iter().map(|r| cfg.budget(*r).as_secs()).sum();
     let names: Vec<&str> = backend_runs.iter().map(|r| r.as_str()).collect();
     format!(
         "preflight: {} backend run(s) about to start ({}), spending ~{input_tokens} input \
-         tokens in total ({seats} seats x bytes/4 per run, a coarse bound, not a measurement) \
-         and up to ~{output_tokens} output tokens ({} runs x {seats} x the {output_cap}-token \
-         cap), ~{} tokens in all; expected time budget ~{expected_secs}s in total",
+         tokens in total (bytes/4 per completion, {seats} completions per trio run and one \
+         per dialect run, a coarse bound, not a measurement) and up to ~{output_tokens} \
+         output tokens (each completion's cap: {default_cap} by default, {DIALECT_PROBE_CAP} \
+         for the dialect run whose cap the backend honours, and the default again for the one \
+         whose cap the measured backend discards), ~{} tokens in all; expected time budget \
+         ~{expected_secs}s in total",
         backend_runs.len(),
         names.join(", "),
-        backend_runs.len(),
         input_tokens.saturating_add(output_tokens)
     )
 }
@@ -1274,23 +1279,49 @@ pub(crate) fn is_large_payload(run: RunId) -> bool {
 /// How many completions a run pays for at once: one per seat for a trio, one for a run that
 /// asks a single provider for a single completion.
 ///
+/// Here rather than read off the run's `ProviderKind`, for the same reason the run list is
+/// announced by id: the announcement is printed before any spec is built.
+///
 /// # Parameters
 ///
 /// * `cfg` — the loaded configuration, for the seat count.
 /// * `run` — the run being priced.
 fn completions_for(cfg: &Config, run: RunId) -> usize {
-    let _ = run;
-    cfg.seats.len()
+    if is_single_completion(run) {
+        1
+    } else {
+        cfg.seats.len()
+    }
 }
 
 /// The output cap each of a run's completions carries, in tokens.
+///
+/// The run sending the cap under the spelling the backend honours is priced at that cap. The
+/// run sending it under the spelling the measured backend DISCARDS is priced at the crate's
+/// default: its own cap bounds nothing there, and the default is the same coarse upper bound
+/// every trio run is already priced at. Pricing it at the sixteen it sends would understate
+/// the one run whose whole point is that the number it sends is not what it gets.
 ///
 /// # Parameters
 ///
 /// * `run` — the run being priced.
 fn output_cap_for(run: RunId) -> usize {
-    let _ = run;
-    CompletionConfig::default().max_tokens as usize
+    match run {
+        RunId::DialectMaxTokens => DIALECT_PROBE_CAP as usize,
+        _ => CompletionConfig::default().max_tokens as usize,
+    }
+}
+
+/// Whether a run asks a single provider for a single completion instead of running a trio.
+///
+/// # Parameters
+///
+/// * `run` — the run in question.
+fn is_single_completion(run: RunId) -> bool {
+    matches!(
+        run,
+        RunId::DialectMaxTokens | RunId::DialectMaxCompletionTokens
+    )
 }
 
 /// R31, both halves: the estimate printed BEFORE the runs, and the real cost
@@ -2354,6 +2385,10 @@ mod tests {
             // The two endpoint runs: one recovers, one ends in the typed abort.
             Ok("recovered"),
             Err("endpoint down"),
+            // The two dialect runs: one completion cut at the cap, one the backend ran to
+            // its own end — measured either way.
+            Ok("cut at the cap"),
+            Ok("cap discarded"),
         ];
         assert_eq!(outcomes.len(), announced, "one outcome per announced run");
         for outcome in outcomes {

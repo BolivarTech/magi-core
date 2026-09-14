@@ -24,8 +24,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::alias::magi_core::error::MagiError;
+use crate::alias::magi_core::error::{MagiError, ProviderError};
 use crate::alias::magi_core::orchestrator::{Magi, MagiBuilder, MagiConfig};
+use crate::alias::magi_core::prompts;
 use crate::alias::magi_core::provider::{
     CompletionConfig, CompletionTelemetry, LlmProvider, ReasoningControl, RetryConfig,
     DEFAULT_CLIENT_TIMEOUT,
@@ -770,6 +771,8 @@ pub fn stage_e1_run_ids(no_backend: bool) -> Vec<RunId> {
         RunId::CrateDefect,
         RunId::EndpointBlip,
         RunId::EndpointDown,
+        RunId::DialectMaxTokens,
+        RunId::DialectMaxCompletionTokens,
         RunId::NoBackend,
     ]
 }
@@ -849,6 +852,10 @@ impl RunSpec {
         // costs the same whatever the payload, so the cheapest one serves.
         let small_for_blip = small.clone();
         let small_for_down = small.clone();
+        // The two dialect runs are about ONE REQUEST FIELD: the same content under each
+        // spelling of the cap, so the cheapest payload serves and both must send the same one.
+        let small_for_legacy_dialect = small.clone();
+        let small_for_modern_dialect = small.clone();
         let large_no_reasoning = payload::generate(repo_root, cfg.payload_target_bytes)?;
         Ok(vec![
             RunSpec {
@@ -1041,6 +1048,30 @@ impl RunSpec {
                     u32::MAX,
                 )),
                 providers: ProviderKind::Ollama,
+                reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            // The two dialect runs differ in NOTHING but the spelling of the cap: same seat,
+            // same payload, same cap, nothing injected, nowhere to rotate. One direct
+            // completion each, never a trio — see `ProviderKind::SingleCompletion` for why a
+            // trio cannot carry this property.
+            RunSpec {
+                id: RunId::DialectMaxTokens,
+                seats: cfg.seats.clone(),
+                fallbacks: Vec::new(),
+                payload: small_for_legacy_dialect,
+                injection: None,
+                providers: ProviderKind::SingleCompletion(Dialect::MaxTokens),
+                reasoning: ReasoningControl::Default,
+                trace: false,
+            },
+            RunSpec {
+                id: RunId::DialectMaxCompletionTokens,
+                seats: cfg.seats.clone(),
+                fallbacks: Vec::new(),
+                payload: small_for_modern_dialect,
+                injection: None,
+                providers: ProviderKind::SingleCompletion(Dialect::MaxCompletionTokens),
                 reasoning: ReasoningControl::Default,
                 trace: false,
             },
@@ -1344,6 +1375,11 @@ impl Runner {
     async fn run_once(proxy: &mut SpyProxy, spec: &RunSpec) -> RunResult {
         // Taken BEFORE the run so `records` below holds THIS run's traffic only.
         let mark = proxy.mark();
+        // A single-completion run never reaches the trio builder: it asks one provider for
+        // one completion and keeps the crate's reading of it, which a trio would lose.
+        if let ProviderKind::SingleCompletion(dialect) = spec.providers {
+            return Self::complete_once(proxy, spec, dialect, mark).await;
+        }
         let magi = match build_magi_against(
             &proxy.base_url(),
             &spec.seats,
@@ -1389,6 +1425,109 @@ impl Runner {
             injected_agent: injected_agent(spec),
             completion: None,
         }
+    }
+
+    /// One direct completion through an `OpenAiCompatibleProvider` speaking `dialect`,
+    /// pointed at the proxy, carrying [`DIALECT_PROBE_CAP`] as its output budget.
+    ///
+    /// # Which seat, and which prompt
+    ///
+    /// The LAST configured seat — the one the mixed trio already hands to this provider, so
+    /// the cheap profile's "which model speaks the compatible path" decision serves both
+    /// runs — with that seat's own system prompt from the crate's public `prompts` and the
+    /// run's payload as the user prompt. The real prompt, because the property needs the
+    /// model to want MORE than the cap: a verdict-shaped answer always does, while a
+    /// one-line prompt might be answered in fewer tokens than the cap and turn the row red
+    /// over nothing.
+    ///
+    /// # What becomes evidence
+    ///
+    /// A completion the crate returned, AND a completion the crate classified as empty: the
+    /// classification carries the whole telemetry precisely so a cut to nothing is still a
+    /// measured cut — a reasoning model given sixteen tokens spends them in its reasoning
+    /// channel and returns no content, and that is the cut this run is looking for. Any
+    /// other failure — transport, contract — is a reading not made: it travels as the error,
+    /// classed as the environment's, and the scenario skips naming it. The crate's own
+    /// classification of such failures is exercised by the trio runs, not here.
+    ///
+    /// # Parameters
+    ///
+    /// * `proxy` — the spy every request goes through.
+    /// * `spec` — the run: its seats, payload and reasoning settings.
+    /// * `dialect` — the spelling of the cap this run sends.
+    /// * `mark` — the proxy mark taken before the run, so `records` is this run's traffic.
+    async fn complete_once(
+        proxy: &mut SpyProxy,
+        spec: &RunSpec,
+        dialect: Dialect,
+        mark: usize,
+    ) -> RunResult {
+        let Some(seat) = spec.seats.last() else {
+            return RunResult::cannot_test(spec.id, "no seats configured".to_string());
+        };
+        let name = match seat.agent_name() {
+            Ok(n) => n,
+            Err(e) => return RunResult::cannot_test(spec.id, e.to_string()),
+        };
+        let provider = match OpenAiCompatibleProvider::with_dialect(
+            format!("{}/v1", proxy.base_url()),
+            &seat.model,
+            None,
+            dialect,
+            DEFAULT_CLIENT_TIMEOUT,
+        ) {
+            Ok(p) => p,
+            Err(e) => return RunResult::cannot_test(spec.id, e.to_string()),
+        };
+        let mut config = CompletionConfig::default()
+            .with_reasoning(spec.reasoning)
+            .with_reasoning_trace(spec.trace);
+        config.max_tokens = DIALECT_PROBE_CAP;
+        let (completion, error, error_class) = match provider
+            .complete(system_prompt_for(name), &spec.payload.text, &config)
+            .await
+        {
+            Ok(c) => (
+                Some(CompletionEvidence {
+                    cap: DIALECT_PROBE_CAP,
+                    telemetry: c.telemetry,
+                }),
+                None,
+                None,
+            ),
+            Err(ProviderError::EmptyCompletion { telemetry, cap, .. }) => {
+                (Some(CompletionEvidence { cap, telemetry }), None, None)
+            }
+            Err(e) => (None, Some(e.to_string()), Some(ErrorClass::Environment)),
+        };
+        RunResult {
+            run: spec.id,
+            outcome: RunOutcome::Complete,
+            report: None,
+            error,
+            error_class,
+            reported_endpoint_down: false,
+            records: proxy.records_since(mark),
+            proxy_degraded: proxy.is_degraded(),
+            attempts: 1,
+            budget_exceeded: None,
+            injected_agent: None,
+            completion,
+        }
+    }
+}
+
+/// The crate's own system prompt for a seat, for the run that speaks to one provider
+/// directly and so has no `Agent` to supply it.
+///
+/// # Parameters
+///
+/// * `name` — the seat.
+fn system_prompt_for(name: AgentName) -> &'static str {
+    match name {
+        AgentName::Melchior => prompts::melchior_prompt(),
+        AgentName::Balthasar => prompts::balthasar_prompt(),
+        AgentName::Caspar => prompts::caspar_prompt(),
     }
 }
 
