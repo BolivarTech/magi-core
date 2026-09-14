@@ -223,3 +223,45 @@ async fn an_unreadable_body_is_a_contract_failure_not_a_synthetic_http_status() 
     );
     handle.abort();
 }
+
+/// E-7, observed from OUTSIDE the crate: `build_request_body`'s own unit tests already pin
+/// this at the request-object level, but a consumer never calls that method directly — it
+/// only ever sees what reaches the wire through `complete()`. A dialect chosen for a backend
+/// that only understands `max_completion_tokens` must put that spelling on the wire, and the
+/// two spellings must never travel together (strict backends reject an unknown field).
+#[tokio::test]
+async fn a_max_completion_tokens_dialect_reaches_the_wire_and_max_tokens_does_not() {
+    let (url, captured, handle) = mock_server::spawn_capturing(200, OK_BODY).await;
+    let provider = OpenAiCompatibleProvider::with_dialect(
+        url,
+        "m",
+        None,
+        magi_core::providers::openai_compat::Dialect::MaxCompletionTokens,
+        magi_core::provider::DEFAULT_CLIENT_TIMEOUT,
+    )
+    .expect("constructs");
+
+    let _ = provider
+        .complete("s", "u", &CompletionConfig::default())
+        .await
+        .expect("the canned body parses");
+
+    let req = captured.lock().expect("not poisoned");
+    let req = req.as_ref().expect("the server recorded a request");
+    assert!(
+        req.body.is_object(),
+        "the captured body must have parsed as an object, got {}",
+        req.body
+    );
+    assert!(
+        req.body.get("max_completion_tokens").is_some(),
+        "expected max_completion_tokens on the wire, got {}",
+        req.body
+    );
+    assert!(
+        req.body.get("max_tokens").is_none(),
+        "the two spellings must never travel together, got {}",
+        req.body
+    );
+    handle.abort();
+}
