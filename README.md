@@ -62,7 +62,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-magi-core = "4.0"
+magi-core = "4.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # Only if you implement `LlmProvider` yourself: the trait is declared with
@@ -70,8 +70,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 async-trait = "0.1"
 
 # Enable one or both built-in providers:
-# magi-core = { version = "4.0", features = ["claude-cli"] }
-# magi-core = { version = "4.0", features = ["claude-api"] }
+# magi-core = { version = "4.1", features = ["claude-cli"] }
+# magi-core = { version = "4.1", features = ["claude-api"] }
 ```
 
 ### Basic Usage
